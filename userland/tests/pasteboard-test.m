@@ -150,7 +150,7 @@ cross(const char *self_path)
     [pb setString:@"written by the parent" forType:NSPasteboardTypeString];
     pid_t pid;
     char *args[] = {(char *)self_path, "child", "org.finch.test.cross", NULL};
-    posix_spawn(&pid, self_path, NULL, NULL, args, environ);
+    posix_spawnp(&pid, self_path, NULL, NULL, args, environ);
     /* (the run loop turns while the child reads, so the promise can be kept) */
     int status = 0;
     for (int i = 0; i < 100 && waitpid(pid, &status, WNOHANG) == 0; i++)
