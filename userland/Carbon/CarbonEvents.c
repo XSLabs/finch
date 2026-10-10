@@ -36,6 +36,54 @@ GetCurrentEventTime(void)
     return (EventTime)clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e9;
 }
 
+/* The modifier keys held now, as Carbon's flags (cmdKey, shiftKey, ...), from Quartz's state. */
+static UInt32
+carbon_modifiers(CGEventFlags f)
+{
+    UInt32 m = 0;
+    if (f & kCGEventFlagMaskCommand)
+        m |= cmdKey;
+    if (f & kCGEventFlagMaskShift)
+        m |= shiftKey;
+    if (f & kCGEventFlagMaskAlphaShift)
+        m |= alphaLock;
+    if (f & kCGEventFlagMaskAlternate)
+        m |= optionKey;
+    if (f & kCGEventFlagMaskControl)
+        m |= controlKey;
+    if (f & kCGEventFlagMaskSecondaryFn)
+        m |= kEventKeyModifierFnMask;
+    if (f & kCGEventFlagMaskNumericPad)
+        m |= kEventKeyModifierNumLockMask;
+    return m;
+}
+
+UInt32
+GetCurrentKeyModifiers(void)
+{
+    return carbon_modifiers(CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState));
+}
+
+UInt32
+GetCurrentEventKeyModifiers(void)
+{
+    return carbon_modifiers(CGEventSourceFlagsState(kCGEventSourceStateCombinedSessionState));
+}
+
+/* Mouse buttons held: bit 0 the primary button, as Carbon's. */
+static UInt32
+buttons(CGEventSourceStateID state)
+{
+    UInt32 b = 0;
+    for (CGMouseButton i = 0; i < 32; i++)
+        if (CGEventSourceButtonState(state, i))
+            b |= 1u << i;
+    return b;
+}
+
+UInt32 GetCurrentButtonState(void) { return buttons(kCGEventSourceStateHIDSystemState); }
+UInt32 GetCurrentEventButtonState(void) { return buttons(kCGEventSourceStateCombinedSessionState); }
+
 /* CreateEvent (the header's MacCreateEvent) */
 OSStatus
 MacCreateEvent(CFAllocatorRef inAllocator, OSType inClassID, UInt32 inKind, EventTime inWhen, EventAttributes inAttributes,

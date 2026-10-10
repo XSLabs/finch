@@ -555,10 +555,27 @@ deliver(Window *w, FWSEvent e)
     send_message(w->owner, FWS_EVENT, 0, w->id, &e, sizeof e);
 }
 
+/* What's held down, for FWS_INPUT_STATE (CGEventSource's state). */
+static uint64_t modifiers_down;
+static uint8_t keys_down[16];
+static double last_input;
+static uint32_t input_counts[32];
+
 static void
 handle_input(FWSEvent e)
 {
     e.timestamp = now();
+    last_input = e.timestamp;
+    if (e.type < 32)
+        input_counts[e.type]++;
+    if (e.type == FWS_EVENT_KEY_DOWN || e.type == FWS_EVENT_KEY_UP || e.type == FWS_EVENT_FLAGS_CHANGED)
+        modifiers_down = e.modifiers;
+    if ((e.type == FWS_EVENT_KEY_DOWN || e.type == FWS_EVENT_KEY_UP) && e.key_code < 128) {
+        if (e.type == FWS_EVENT_KEY_DOWN)
+            keys_down[e.key_code / 8] |= (uint8_t)(1u << (e.key_code % 8));
+        else
+            keys_down[e.key_code / 8] &= (uint8_t) ~(1u << (e.key_code % 8));
+    }
     bool mouse = e.type == FWS_EVENT_MOUSE_MOVED || e.type == FWS_EVENT_LEFT_DRAGGED ||
                  e.type == FWS_EVENT_RIGHT_DRAGGED || e.type == FWS_EVENT_OTHER_DRAGGED ||
                  e.type == FWS_EVENT_LEFT_DOWN || e.type == FWS_EVENT_LEFT_UP || e.type == FWS_EVENT_RIGHT_DOWN ||
@@ -790,6 +807,17 @@ handle(Client *c, const FWSHeader &h, const uint8_t *body)
         if (want(sizeof(FWSEvent)))
             handle_input(*(const FWSEvent *)body);
         break;
+    case FWS_INPUT_STATE: {
+        FWSInputState st = {};
+        st.x = cursor_x, st.y = cursor_y;
+        st.modifiers = modifiers_down;
+        st.buttons = buttons_down;
+        memcpy(st.keys, keys_down, sizeof st.keys);
+        st.last_event = last_input;
+        memcpy(st.counts, input_counts, sizeof st.counts);
+        send_message(c, FWS_REPLY, h.serial, 0, &st, sizeof st, -1);
+        break;
+    }
     case FWS_SNAPSHOT: {
         composite();
         size_t len = (size_t)pixel_w * pixel_h * 4;

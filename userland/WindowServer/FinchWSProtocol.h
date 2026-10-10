@@ -33,6 +33,7 @@ enum {
     FWS_WINDOW_LIST,
     FWS_POST_EVENT,
     FWS_SNAPSHOT,       /* the composited screen, for tests: replies an FWSBuffer and its fd */
+    FWS_INPUT_STATE,    /* replies an FWSInputState */
     /* server -> client */
     FWS_REPLY = 100,
     FWS_EVENT,
@@ -183,6 +184,16 @@ typedef struct {
 typedef struct {
     int32_t active;
 } FWSActivated;
+
+/* reply to FWS_INPUT_STATE: what the user is holding down, and where the cursor is */
+typedef struct {
+    double x, y;              /* the cursor, points, y down from the top of the display */
+    uint64_t modifiers;       /* CGEventFlags */
+    uint64_t buttons;         /* bit n: mouse button n is down */
+    uint8_t keys[16];         /* bit k: virtual key k is down */
+    double last_event;        /* seconds since boot of the last input event */
+    uint32_t counts[32];      /* input events seen, by type (FWS_EVENT_*, below 32) */
+} FWSInputState;
 
 /* The viewer backend's stream (TCP): frames out, input in. */
 #define FWS_VIEWER_PORT 5901

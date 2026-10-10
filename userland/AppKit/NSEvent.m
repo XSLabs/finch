@@ -189,8 +189,57 @@ check(NSEvent *e, NSEventMask allowed)
     return e;
 }
 
+/* A Quartz event as an NSEvent: its location from the top-left of the main display
+   to AppKit's screen coordinates, in no window. */
 + (NSEvent *)eventWithCGEvent:(CGEventRef)cgEvent
 {
+    if (!cgEvent)
+        return nil;
+    CGEventType t = CGEventGetType(cgEvent);
+    CGPoint p = CGEventGetUnflippedLocation(cgEvent);
+    NSEventModifierFlags flags = (NSEventModifierFlags)(CGEventGetFlags(cgEvent) & NSEventModifierFlagDeviceIndependentFlagsMask);
+    NSTimeInterval time = (NSTimeInterval)CGEventGetTimestamp(cgEvent) / 1e9;
+    if (t == kCGEventKeyDown || t == kCGEventKeyUp || t == kCGEventFlagsChanged) {
+        UniChar u[20];
+        UniCharCount n = 0;
+        CGEventKeyboardGetUnicodeString(cgEvent, 20, &n, u);
+        NSString *chars = [NSString stringWithCharacters:u length:n];
+        unsigned short key = (unsigned short)CGEventGetIntegerValueField(cgEvent, kCGKeyboardEventKeycode);
+        NSEventType type = t == kCGEventKeyDown ? NSEventTypeKeyDown : t == kCGEventKeyUp ? NSEventTypeKeyUp : NSEventTypeFlagsChanged;
+        if (type == NSEventTypeFlagsChanged)
+            return [self keyEventWithType:type location:p modifierFlags:flags timestamp:time windowNumber:0 context:nil
+                               characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key];
+        return [self keyEventWithType:type location:p modifierFlags:flags timestamp:time windowNumber:0 context:nil
+                           characters:chars charactersIgnoringModifiers:chars
+                            isARepeat:CGEventGetIntegerValueField(cgEvent, kCGKeyboardEventAutorepeat) != 0
+                              keyCode:key];
+    }
+    static const NSEventType mouse[] = {
+        [kCGEventLeftMouseDown] = NSEventTypeLeftMouseDown,   [kCGEventLeftMouseUp] = NSEventTypeLeftMouseUp,
+        [kCGEventRightMouseDown] = NSEventTypeRightMouseDown, [kCGEventRightMouseUp] = NSEventTypeRightMouseUp,
+        [kCGEventMouseMoved] = NSEventTypeMouseMoved,         [kCGEventLeftMouseDragged] = NSEventTypeLeftMouseDragged,
+        [kCGEventRightMouseDragged] = NSEventTypeRightMouseDragged,
+        [kCGEventOtherMouseDown] = NSEventTypeOtherMouseDown, [kCGEventOtherMouseUp] = NSEventTypeOtherMouseUp,
+        [kCGEventOtherMouseDragged] = NSEventTypeOtherMouseDragged,
+    };
+    if (t < sizeof mouse / sizeof *mouse && mouse[t]) {
+        NSEvent *e = [self mouseEventWithType:mouse[t] location:p modifierFlags:flags timestamp:time windowNumber:0 context:nil
+                                  eventNumber:(NSInteger)CGEventGetIntegerValueField(cgEvent, kCGMouseEventNumber)
+                                   clickCount:(NSInteger)CGEventGetIntegerValueField(cgEvent, kCGMouseEventClickState)
+                                     pressure:(float)CGEventGetDoubleValueField(cgEvent, kCGMouseEventPressure)];
+        e->_buttonNumber = (NSInteger)CGEventGetIntegerValueField(cgEvent, kCGMouseEventButtonNumber);
+        e->_deltaX = (CGFloat)CGEventGetDoubleValueField(cgEvent, kCGMouseEventDeltaX);
+        e->_deltaY = (CGFloat)CGEventGetDoubleValueField(cgEvent, kCGMouseEventDeltaY);
+        return e;
+    }
+    if (t == kCGEventScrollWheel) {
+        NSEvent *e = [self otherEventWithType:NSEventTypeApplicationDefined location:p modifierFlags:flags timestamp:time
+                                 windowNumber:0 context:nil subtype:0 data1:0 data2:0];
+        e->_type = NSEventTypeScrollWheel;
+        e->_deltaY = (CGFloat)CGEventGetDoubleValueField(cgEvent, kCGScrollWheelEventFixedPtDeltaAxis1);
+        e->_deltaX = (CGFloat)CGEventGetDoubleValueField(cgEvent, kCGScrollWheelEventFixedPtDeltaAxis2);
+        return e;
+    }
     return nil;
 }
 
@@ -228,7 +277,68 @@ check(NSEvent *e, NSEventMask allowed)
 - (CGFloat)deltaZ { return _deltaZ; }
 - (NSInteger)buttonNumber { return _buttonNumber; }
 - (NSEventPhase)momentumPhase { return _momentumPhase; }
-- (CGEventRef)CGEvent { return NULL; }
+/* A Quartz event for this one, made once and kept with it. */
+static char cg_event_key;
+
+- (CGEventRef)CGEvent
+{
+    id kept = objc_getAssociatedObject(self, &cg_event_key);
+    if (kept)
+        return (CGEventRef)kept;
+    NSPoint screen = _hasScreen ? _screen : _window ? [_window convertPointToScreen:_location] : _location;
+    CGFloat height = NSMaxY([[[NSScreen screens] firstObject] frame]);
+    CGPoint top = CGPointMake(screen.x, height - screen.y);
+    CGEventRef e = NULL;
+    switch (_type) {
+    case NSEventTypeKeyDown:
+    case NSEventTypeKeyUp:
+    case NSEventTypeFlagsChanged: {
+        e = CGEventCreateKeyboardEvent(NULL, _keyCode, _type != NSEventTypeKeyUp);
+        CGEventSetType(e, _type == NSEventTypeKeyDown ? kCGEventKeyDown : _type == NSEventTypeKeyUp ? kCGEventKeyUp : kCGEventFlagsChanged);
+        if (_characters.length) {
+            UniChar u[20];
+            NSUInteger n = MIN(_characters.length, 20u);
+            [_characters getCharacters:u range:NSMakeRange(0, n)];
+            CGEventKeyboardSetUnicodeString(e, n, u);
+        }
+        CGEventSetIntegerValueField(e, kCGKeyboardEventAutorepeat, _repeat);
+        break;
+    }
+    case NSEventTypeScrollWheel:
+        e = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitPixel, 2, (int32_t)lround(_deltaY * 10), (int32_t)lround(_deltaX * 10));
+        CGEventSetDoubleValueField(e, kCGScrollWheelEventFixedPtDeltaAxis1, _deltaY);
+        CGEventSetDoubleValueField(e, kCGScrollWheelEventFixedPtDeltaAxis2, _deltaX);
+        break;
+    default: {
+        static const struct {
+            NSEventType ns;
+            CGEventType cg;
+        } map[] = {
+            {NSEventTypeLeftMouseDown, kCGEventLeftMouseDown},   {NSEventTypeLeftMouseUp, kCGEventLeftMouseUp},
+            {NSEventTypeRightMouseDown, kCGEventRightMouseDown}, {NSEventTypeRightMouseUp, kCGEventRightMouseUp},
+            {NSEventTypeMouseMoved, kCGEventMouseMoved},         {NSEventTypeLeftMouseDragged, kCGEventLeftMouseDragged},
+            {NSEventTypeRightMouseDragged, kCGEventRightMouseDragged},
+            {NSEventTypeOtherMouseDown, kCGEventOtherMouseDown}, {NSEventTypeOtherMouseUp, kCGEventOtherMouseUp},
+            {NSEventTypeOtherMouseDragged, kCGEventOtherMouseDragged},
+        };
+        for (size_t i = 0; i < sizeof map / sizeof *map; i++)
+            if (map[i].ns == _type) {
+                e = CGEventCreateMouseEvent(NULL, map[i].cg, top, (CGMouseButton)_buttonNumber);
+                CGEventSetIntegerValueField(e, kCGMouseEventClickState, _clickCount);
+                CGEventSetDoubleValueField(e, kCGMouseEventDeltaX, _deltaX);
+                CGEventSetDoubleValueField(e, kCGMouseEventDeltaY, _deltaY);
+            }
+        if (!e)
+            e = CGEventCreate(NULL);
+    }
+    }
+    CGEventSetLocation(e, top);
+    CGEventSetFlags(e, (CGEventFlags)_flags);
+    CGEventSetTimestamp(e, (CGEventTimestamp)(_timestamp * 1e9));
+    objc_setAssociatedObject(self, &cg_event_key, (id)e, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    CFRelease(e);
+    return e;
+}
 - (const void *)eventRef { return NULL; }
 - (NSUInteger)deviceID { return 0; }
 - (NSEventMask)associatedEventsMask { return 0; }

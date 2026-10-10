@@ -391,6 +391,25 @@ FWSCopyWindowList(uint32_t *count)
     return out;
 }
 
+/* The user's input state: cursor, modifiers, buttons and keys held down. */
+FWS_EXPORT bool
+FWSGetInputState(FWSInputState *out)
+{
+    memset(out, 0, sizeof *out);
+    bool ok = false;
+    pthread_mutex_lock(&lock);
+    if (connect_locked()) {
+        std::vector<uint8_t> reply;
+        uint32_t s = send_request(FWS_INPUT_STATE, 0, NULL, 0, true);
+        if (wait_reply(s, &reply, NULL) && reply.size() >= sizeof *out) {
+            memcpy(out, reply.data(), sizeof *out);
+            ok = true;
+        }
+    }
+    pthread_mutex_unlock(&lock);
+    return ok;
+}
+
 /* The composited screen (tests): an image of the display, in pixels. */
 FWS_EXPORT CGImageRef
 FWSCopyScreenImage(void)
