@@ -7,10 +7,13 @@
  * caller's, custom sources; several blocks, references, contiguous copies); format
  * descriptions (video, audio, muxed, time code and the rest; equality, apertures);
  * sample buffers (timing and sizes, ranges, copies, readiness, invalidation, sample and
- * buffer attachments, image buffers, output timing, audio buffer lists and packets).
+ * buffer attachments, image buffers, output timing, audio buffer lists and packets);
+ * clocks, timebases (anchors, rates, chains, timers) and conversions; simple and buffer
+ * queues (ordering, triggers, end of data); memory pools.
  */
 #include <CoreMedia/CoreMedia.h>
 #include <dlfcn.h>
+#include <mach/mach_time.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -726,6 +729,241 @@ samples(void)
     printf("aac without packets %d\n", (int)CMAudioSampleBufferCreateReadyWithPacketDescriptions(NULL, bb, aacfd, 2, CMTimeMake(0, 44100), NULL, &as));
 }
 
+/* --- clocks and timebases --- */
+
+static int fired;
+
+static void
+timer_fired(CFRunLoopTimerRef timer, void *info)
+{
+    fired++;
+    CFRunLoopStop(CFRunLoopGetCurrent());
+}
+
+static void
+clocks(void)
+{
+    CMClockRef host = CMClockGetHostTimeClock();
+    uint64_t m = mach_absolute_time();
+    CMTime h = CMClockGetTime(host);
+    mach_timebase_info_data_t info;
+    mach_timebase_info(&info);
+    long long ns = (long long)(m * info.numer / info.denom);
+    printf("host clock: timescale %d, within a millisecond of mach time %d\n", h.timescale, llabs(h.value - ns) < 1000000);
+    printf("from units %s\n", t(CMClockMakeHostTimeFromSystemUnits(24000000ull * info.denom / info.numer * info.numer / info.denom)));
+    printf("to units: a second %d, a third %llu\n", CMClockConvertHostTimeToSystemUnits(CMTimeMake(1, 1)) == (uint64_t)1000000000 * info.denom / info.numer,
+           (unsigned long long)CMClockConvertHostTimeToSystemUnits(CMTimeMake(1, 3)) * info.numer / info.denom);
+    CMTimebaseRef tb = NULL, tb2 = NULL;
+    printf("timebase %d rate %g effective %g time %s\n", (int)CMTimebaseCreateWithSourceClock(NULL, host, &tb), CMTimebaseGetRate(tb),
+           CMTimebaseGetEffectiveRate(tb), t(CMTimebaseGetTime(tb)));
+    printf("  set %d: %s, at 600 %s\n", (int)CMTimebaseSetTime(tb, CMTimeMake(5, 1)), t(CMTimebaseGetTime(tb)),
+           t(CMTimebaseGetTimeWithTimeScale(tb, 600, kCMTimeRoundingMethod_Default)));
+    printf("on it %d: %s\n", (int)CMTimebaseCreateWithSourceTimebase(NULL, tb, &tb2), t(CMTimebaseGetTime(tb2)));
+    printf("  rate and anchor %d: %s rate %g effective %g\n", (int)CMTimebaseSetRateAndAnchorTime(tb2, 2.0, CMTimeMake(100, 1), CMTimeMake(5, 1)),
+           t(CMTimebaseGetTime(tb2)), CMTimebaseGetRate(tb2), CMTimebaseGetEffectiveRate(tb2));
+    printf("  relative rate %g, back %g\n", CMSyncGetRelativeRate(tb2, tb), CMSyncGetRelativeRate(tb, tb2));
+    printf("  convert 7 up %s, 104 down %s, 7 to the clock %s\n", t(CMSyncConvertTime(CMTimeMake(7, 1), tb, tb2)),
+           t(CMSyncConvertTime(CMTimeMake(104, 1), tb2, tb)), t(CMSyncConvertTime(CMTimeMake(7, 1), tb, host)));
+    Float64 rr = 0;
+    CMTime a, b;
+    printf("  relative anchor %d", (int)CMSyncGetRelativeRateAndAnchorTime(tb2, tb, &rr, &a, &b));
+    printf(" %g %s %s\n", rr, t(a), t(b));
+    printf("  drift %d %d, sync time %s\n", CMSyncMightDrift(tb, tb2), CMSyncMightDrift(host, tb), t(CMSyncGetTime(tb2)));
+    printf("  anchor %d: %s\n", (int)CMTimebaseSetAnchorTime(tb, CMTimeMake(10, 1), CMTimeMake(0, 1)), t(CMTimebaseGetTime(tb)));
+    CMTimebaseSetRate(tb, 1.0);
+    printf("  first running: on it effective %g\n", CMTimebaseGetEffectiveRate(tb2));
+    CFTypeRef src = CMTimebaseCopySource(tb);
+    CMClockRef ultimate = CMTimebaseCopyUltimateSourceClock(tb2);
+    CMTimebaseRef srcTb = CMTimebaseCopySourceTimebase(tb2);
+    printf("  sources: host %d, ultimately host %d, timebase %d, clock of a timebase-sourced one %s\n", src == host, ultimate == host, srcTb == tb,
+           CMTimebaseCopySourceClock(tb2) ? "some" : "none");
+    printf("  type ids %d %d %d\n", CFGetTypeID(host) == CMClockGetTypeID(), CFGetTypeID(tb) == CMTimebaseGetTypeID(),
+           CMClockGetTypeID() != CMTimebaseGetTypeID());
+    CMTimebaseRef none = NULL;
+    CMClockRef noClock = NULL;
+    printf("errors: invalid time %d, no source %d\n", (int)CMTimebaseSetTime(tb2, kCMTimeInvalid),
+           (int)CMTimebaseCreateWithSourceClock(NULL, noClock, &none));
+
+    /* a timer on a running timebase */
+    CMTimebaseRef running = NULL;
+    CMTimebaseCreateWithSourceClock(NULL, host, &running);
+    CMTimebaseSetRate(running, 4.0);
+    /* (a long interval and a far fire date, as CMTimebaseAddTimer asks) */
+    CFRunLoopTimerRef timer = CFRunLoopTimerCreate(NULL, CFAbsoluteTimeGetCurrent() + 256.0 * 365 * 24 * 3600, 256.0 * 365 * 24 * 3600, 0, 0, timer_fired, NULL);
+    CFRunLoopAddTimer(CFRunLoopGetCurrent(), timer, kCFRunLoopDefaultMode);
+    printf("timer %d", (int)CMTimebaseAddTimer(running, timer, CFRunLoopGetCurrent()));
+    printf(" fire at 0.4 %d", (int)CMTimebaseSetTimerNextFireTime(running, timer, CMTimeAdd(CMTimebaseGetTime(running), CMTimeMake(4, 10)), 0));
+    CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 2, false);
+    double took = CFAbsoluteTimeGetCurrent() - start;
+    printf(" fired %d after about a tenth %d\n", fired, took > 0.05 && took < 0.5);
+    printf("  remove %d again %d\n", (int)CMTimebaseRemoveTimer(running, timer), (int)CMTimebaseRemoveTimer(running, timer));
+}
+
+/* --- queues and memory pools --- */
+
+static CMSampleBufferRef
+sample_at(int pts, int duration, size_t size)
+{
+    CMSampleTimingInfo t = {CMTimeMake(duration, 10), CMTimeMake(pts, 10), CMTimeMake(pts, 10)};
+    CMSampleBufferRef sb = NULL;
+    CMSampleBufferCreateReady(NULL, NULL, NULL, 1, 1, &t, 1, &size, &sb);
+    return sb;
+}
+
+/* (triggers that fire together are printed sorted: Apple's order among them varies) */
+static const char *fired_triggers[16];
+static int fired_count;
+
+static void
+trigger(void *refcon, CMBufferQueueTriggerToken token)
+{
+    if (fired_count < 16)
+        fired_triggers[fired_count++] = refcon;
+}
+
+static int
+by_name(const void *a, const void *b)
+{
+    return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+static void
+flush_triggers(void)
+{
+    qsort(fired_triggers, (size_t)fired_count, sizeof fired_triggers[0], by_name);
+    for (int i = 0; i < fired_count; i++)
+        printf("    trigger %s\n", fired_triggers[i]);
+    fired_count = 0;
+}
+
+static OSStatus
+each_buffer(CMBufferRef b, void *refcon)
+{
+    printf("    buffer at %s\n", t(CMSampleBufferGetPresentationTimeStamp((CMSampleBufferRef)b)));
+    return 0;
+}
+
+static void
+queue_state(const char *label, CMBufferQueueRef q)
+{
+    printf("  %s: count %ld empty %d duration %s total size %zu\n", label, (long)CMBufferQueueGetBufferCount(q), CMBufferQueueIsEmpty(q),
+           t(CMBufferQueueGetDuration(q)), CMBufferQueueGetTotalSize(q));
+    printf("    first pts %s min pts %s max pts %s end pts %s\n", t(CMBufferQueueGetFirstPresentationTimeStamp(q)),
+           t(CMBufferQueueGetMinPresentationTimeStamp(q)), t(CMBufferQueueGetMaxPresentationTimeStamp(q)),
+           t(CMBufferQueueGetEndPresentationTimeStamp(q)));
+    printf("    first dts %s min dts %s\n", t(CMBufferQueueGetFirstDecodeTimeStamp(q)), t(CMBufferQueueGetMinDecodeTimeStamp(q)));
+}
+
+static void
+queues(void)
+{
+    CMSimpleQueueRef sq = NULL;
+    printf("simple queue %d capacity %d count %d\n", (int)CMSimpleQueueCreate(NULL, 3, &sq), (int)CMSimpleQueueGetCapacity(sq),
+           (int)CMSimpleQueueGetCount(sq));
+    printf("  enqueue %d %d %d %d\n", (int)CMSimpleQueueEnqueue(sq, (void *)1), (int)CMSimpleQueueEnqueue(sq, (void *)2),
+           (int)CMSimpleQueueEnqueue(sq, (void *)3), (int)CMSimpleQueueEnqueue(sq, (void *)4));
+    printf("  head %ld count %d dequeue %ld %ld head %ld\n", (long)CMSimpleQueueGetHead(sq), (int)CMSimpleQueueGetCount(sq),
+           (long)CMSimpleQueueDequeue(sq), (long)CMSimpleQueueDequeue(sq), (long)CMSimpleQueueGetHead(sq));
+    printf("  wrap %d %d count %d\n", (int)CMSimpleQueueEnqueue(sq, (void *)5), (int)CMSimpleQueueEnqueue(sq, (void *)6), (int)CMSimpleQueueGetCount(sq));
+    printf("  order %ld %ld %ld %ld\n", (long)CMSimpleQueueDequeue(sq), (long)CMSimpleQueueDequeue(sq), (long)CMSimpleQueueDequeue(sq),
+           (long)CMSimpleQueueDequeue(sq));
+    const void *nothing = NULL;
+    printf("  null element %d reset %d count %d\n", (int)CMSimpleQueueEnqueue(sq, nothing), (int)CMSimpleQueueReset(sq), (int)CMSimpleQueueGetCount(sq));
+    CMSimpleQueueRef bad = NULL;
+    printf("  zero capacity %d negative %d type %d\n", (int)CMSimpleQueueCreate(NULL, 0, &bad), (int)CMSimpleQueueCreate(NULL, -1, &bad),
+           CFGetTypeID(sq) == CMSimpleQueueGetTypeID());
+
+    CMBufferQueueRef q = NULL;
+    printf("buffer queue, unsorted %d\n", (int)CMBufferQueueCreate(NULL, 0, CMBufferQueueGetCallbacksForUnsortedSampleBuffers(), &q));
+    flush_triggers();
+    queue_state("empty", q);
+    CMBufferQueueTriggerToken t1, t2, t3, t4;
+    printf("  install %d", (int)CMBufferQueueInstallTrigger(q, trigger, "count over 2", kCMBufferQueueTrigger_WhenBufferCountBecomesGreaterThan,
+                                                            CMTimeMake(2, 1), &t1));
+    printf(" %d", (int)CMBufferQueueInstallTrigger(q, trigger, "duration under 0.3", kCMBufferQueueTrigger_WhenDurationBecomesLessThan, CMTimeMake(3, 10), &t2));
+    flush_triggers();
+    printf(" %d", (int)CMBufferQueueInstallTrigger(q, trigger, "end of data", kCMBufferQueueTrigger_WhenEndOfDataReached, kCMTimeZero, &t3));
+    flush_triggers();
+    printf(" %d\n", (int)CMBufferQueueInstallTriggerWithIntegerThreshold(q, trigger, "count under 2", kCMBufferQueueTrigger_WhenBufferCountBecomesLessThan,
+                                                                      2, &t4));
+    CMBufferQueueTriggerToken t5 = NULL, t6 = NULL;
+    printf("  install count over 2 by integer %d", (int)CMBufferQueueInstallTriggerWithIntegerThreshold(
+                                                   q, trigger, "count over 2 (integer)", kCMBufferQueueTrigger_WhenBufferCountBecomesGreaterThan, 2, &t5));
+    printf(" duration by integer %d", (int)CMBufferQueueInstallTriggerWithIntegerThreshold(
+                                          q, trigger, "duration (integer)", kCMBufferQueueTrigger_WhenDurationBecomesLessThan, 2, &t6));
+    printf(" bad condition %d\n", (int)CMBufferQueueInstallTrigger(q, trigger, "bad", 99, kCMTimeZero, &t6));
+    flush_triggers();
+    printf("  test triggers %d %d %d %d\n", CMBufferQueueTestTrigger(q, t1), CMBufferQueueTestTrigger(q, t2), CMBufferQueueTestTrigger(q, t3),
+           CMBufferQueueTestTrigger(q, t4));
+    int pts[] = {5, 2, 8, 3};
+    for (int i = 0; i < 4; i++) {
+        CMSampleBufferRef sb = sample_at(pts[i], 1 + i, 10 * (size_t)(i + 1));
+        printf("  enqueue at %d: %d\n", pts[i], (int)CMBufferQueueEnqueue(q, sb));
+        flush_triggers();
+        CFRelease(sb);
+    }
+    queue_state("four", q);
+    printf("  for each %d\n", (int)CMBufferQueueCallForEachBuffer(q, each_buffer, NULL));
+    flush_triggers();
+    CMBufferRef head = CMBufferQueueCopyHead(q);
+    printf("  head at %s\n", t(CMSampleBufferGetPresentationTimeStamp((CMSampleBufferRef)head)));
+    flush_triggers();
+    CFRelease(head);
+    CMBufferRef d = CMBufferQueueDequeueAndRetain(q);
+    printf("  dequeued at %s\n", t(CMSampleBufferGetPresentationTimeStamp((CMSampleBufferRef)d)));
+    flush_triggers();
+    CFRelease(d);
+    flush_triggers();
+    queue_state("three", q);
+    printf("  mark end %d contains %d at end %d\n", (int)CMBufferQueueMarkEndOfData(q), CMBufferQueueContainsEndOfData(q), CMBufferQueueIsAtEndOfData(q));
+    flush_triggers();
+    CMSampleBufferRef late = sample_at(9, 1, 1);
+    printf("  enqueue after end %d\n", (int)CMBufferQueueEnqueue(q, late));
+    flush_triggers();
+    while ((d = CMBufferQueueDequeueIfDataReadyAndRetain(q))) {
+        printf("  dequeued at %s\n", t(CMSampleBufferGetPresentationTimeStamp((CMSampleBufferRef)d)));
+        flush_triggers();
+        CFRelease(d);
+        flush_triggers();
+    }
+    printf("  at end %d, test end trigger %d\n", CMBufferQueueIsAtEndOfData(q), CMBufferQueueTestTrigger(q, t3));
+    flush_triggers();
+    printf("  remove trigger %d again %d\n", (int)CMBufferQueueRemoveTrigger(q, t1), (int)CMBufferQueueRemoveTrigger(q, t1));
+    flush_triggers();
+    printf("  reset %d contains end %d\n", (int)CMBufferQueueReset(q), CMBufferQueueContainsEndOfData(q));
+    flush_triggers();
+    CFRelease(q);
+
+    printf("buffer queue, sorted by output time %d\n", (int)CMBufferQueueCreate(NULL, 2, CMBufferQueueGetCallbacksForSampleBuffersSortedByOutputPTS(), &q));
+    flush_triggers();
+    for (int i = 0; i < 3; i++) {
+        CMSampleBufferRef sb = sample_at(pts[i], 1, 1);
+        printf("  enqueue at %d: %d\n", pts[i], (int)CMBufferQueueEnqueue(q, sb));
+        flush_triggers();
+        CFRelease(sb);
+    }
+    queue_state("sorted", q);
+    printf("  for each %d\n", (int)CMBufferQueueCallForEachBuffer(q, each_buffer, NULL));
+    flush_triggers();
+    CFRelease(q);
+
+    CMMemoryPoolRef pool = CMMemoryPoolCreate(NULL);
+    CFAllocatorRef pa = CMMemoryPoolGetAllocator(pool);
+    void *p1 = CFAllocatorAllocate(pa, 1000, 0);
+    memset(p1, 1, 1000);
+    CFAllocatorDeallocate(pa, p1);
+    void *p2 = CFAllocatorAllocate(pa, 1000, 0);
+    printf("memory pool: type %d, block reused %d\n", CFGetTypeID(pool) == CMMemoryPoolGetTypeID(), p1 == p2);
+    CFAllocatorDeallocate(pa, p2);
+    CMMemoryPoolFlush(pool);
+    CMMemoryPoolInvalidate(pool);
+    void *p3 = CFAllocatorAllocate(pa, 64, 0);
+    printf("  after invalidating, allocates %d\n", p3 != NULL);
+    CFAllocatorDeallocate(pa, p3);
+    CFRelease(pool);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -737,5 +975,7 @@ main(int argc, char **argv)
     blocks();
     formats();
     samples();
+    clocks();
+    queues();
     return 0;
 }

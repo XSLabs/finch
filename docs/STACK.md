@@ -54,8 +54,8 @@ Quartz events work through the window server; frameworks for services Finch does
 yet (location, biometrics, Wi-Fi, Bluetooth, the App Store) answer as a Mac without them
 would, so apps that link them run. CoreVideo's pixel buffers and pools are Finch's, laid out
 byte for byte as Apple's are (in memory of their own or an IOSurface's), and CoreMedia's
-times, block buffers, format descriptions and sample buffers match Apple's in their
-comparison tests. The desktop's frame is the Instrument Bar (each app's menu bar) and the Rail, a
+times, block buffers, format descriptions, sample buffers, clocks, timebases, queues
+and memory pools match Apple's in their comparison tests. The desktop's frame is the Instrument Bar (each app's menu bar) and the Rail, a
 Finch app down the left edge that replaces the Dock.
 
 CoreFoundation's local notification center shares observers with Foundation's
@@ -109,7 +109,7 @@ block-beta
         coreservices["CoreServices<br/>app lookup and launch,<br/>local Apple events, files"]
         later["Metal (no GPU driven yet:<br/>no devices, descriptors<br/>as values); AV to come"]
         coreui["CoreUI<br/>compiled asset catalogs,<br/>named images and colors"]
-        appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds),<br/>Carbon/HIToolbox (events, keys),<br/>CoreAnalytics, libScreenReader;<br/>ColorSync (profiles, transforms);<br/>HIServices (AX client, Process Manager),<br/>DataDetectorsCore (links in text);<br/>Text Input Sources, UCKeyTranslate,<br/>Carbon event handlers, hot keys;<br/>IOSurface (shared pixel buffers);<br/>CoreVideo pixel buffers and pools;<br/>CoreMedia (times, block buffers,<br/>format and sample buffers)"]
+        appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds),<br/>Carbon/HIToolbox (events, keys),<br/>CoreAnalytics, libScreenReader;<br/>ColorSync (profiles, transforms);<br/>HIServices (AX client, Process Manager),<br/>DataDetectorsCore (links in text);<br/>Text Input Sources, UCKeyTranslate,<br/>Carbon event handlers, hot keys;<br/>IOSurface (shared pixel buffers);<br/>CoreVideo pixel buffers and pools;<br/>CoreMedia (times, block, format<br/>and sample buffers, clocks,<br/>timebases, queues)"]
         swiftui["SwiftUI, SwiftUICore<br/>(OpenSwiftUI on Compute's<br/>attribute graph; first app draws)"]
     end
     block:L5
