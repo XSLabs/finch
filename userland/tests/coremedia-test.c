@@ -11,7 +11,8 @@
  * clocks, timebases (anchors, rates, chains, timers) and conversions; simple and buffer
  * queues (ordering, triggers, end of data); memory pools; format descriptions from H.264
  * and HEVC parameter sets; metadata identifiers, the data type registry and metadata
- * format descriptions; tags, tag collections and tagged buffer groups.
+ * format descriptions; tags, tag collections and tagged buffer groups; QuickTime and ISO
+ * image descriptions.
  */
 #include <CoreMedia/CoreMedia.h>
 #include <dlfcn.h>
@@ -1254,6 +1255,81 @@ tags(void)
     printf(" group %d samples %ld\n", CMSampleBufferGetTaggedBufferGroup(gsb) == group, (long)CMSampleBufferGetNumSamples(gsb));
 }
 
+/* --- image descriptions --- */
+
+static void
+hexdump(const char *label, CMBlockBufferRef bb)
+{
+    if (!bb) {
+        printf("%s: none\n", label);
+        return;
+    }
+    size_t n = CMBlockBufferGetDataLength(bb);
+    uint8_t b[2048];
+    CMBlockBufferCopyDataBytes(bb, 0, n, b);
+    printf("%s %zu: ", label, n);
+    for (size_t i = 0; i < n; i++)
+        printf("%02x", b[i]);
+    printf("\n");
+}
+
+static void
+image_descriptions(void)
+{
+    uint8_t a[64], b[64];
+    size_t sa = from_hex("2764001eac5650280f64", a), sb = from_hex("28ee3cb0", b);
+    const uint8_t *p[] = {a, b};
+    size_t sz[] = {sa, sb};
+    CMFormatDescriptionRef fd = NULL;
+    CMVideoFormatDescriptionCreateFromH264ParameterSets(NULL, 2, p, sz, 4, &fd);
+    CMBlockBufferRef qt = NULL, iso = NULL;
+    printf("image description %d\n", (int)CMVideoFormatDescriptionCopyAsBigEndianImageDescriptionBlockBuffer(NULL, fd, kCFStringEncodingUTF8, NULL, &qt));
+    hexdump("  quicktime", qt);
+    CMVideoFormatDescriptionCopyAsBigEndianImageDescriptionBlockBuffer(NULL, fd, kCFStringEncodingUTF8, kCMImageDescriptionFlavor_ISOFamily, &iso);
+    hexdump("  iso", iso);
+    CMFormatDescriptionRef back = NULL;
+    printf("  back %d\n", (int)CMVideoFormatDescriptionCreateFromBigEndianImageDescriptionBlockBuffer(NULL, qt, kCFStringEncodingUTF8, NULL, &back));
+    show("  read back", back);
+    printf("  equal ignoring what reading adds %d\n",
+           CMFormatDescriptionEqualIgnoringExtensionKeys(fd, back, (CFArrayRef)CFAutorelease(CFArrayCreate(NULL, (const void *[]){kCMFormatDescriptionExtension_VerbatimSampleDescription, kCMFormatDescriptionExtension_FormatName, kCMFormatDescriptionExtension_Depth, kCMFormatDescriptionExtension_RevisionLevel, kCMFormatDescriptionExtension_SpatialQuality, kCMFormatDescriptionExtension_TemporalQuality, kCMFormatDescriptionExtension_Version}, 7, &kCFTypeArrayCallBacks)), NULL));
+
+    CFDataRef atom = CFDataCreate(NULL, (const UInt8 *)"\1\2\3", 3);
+    CFDictionaryRef ext = dict(
+        12, kCMFormatDescriptionExtension_ColorPrimaries, kCMFormatDescriptionColorPrimaries_ITU_R_2020, kCMFormatDescriptionExtension_TransferFunction,
+        kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ, kCMFormatDescriptionExtension_YCbCrMatrix, kCMFormatDescriptionYCbCrMatrix_ITU_R_2020,
+        kCMFormatDescriptionExtension_FieldCount, num(2), kCMFormatDescriptionExtension_FieldDetail, kCMFormatDescriptionFieldDetail_SpatialFirstLineEarly,
+        kCMFormatDescriptionExtension_ChromaLocationTopField, kCMFormatDescriptionChromaLocation_Center, kCMFormatDescriptionExtension_ChromaLocationBottomField,
+        kCMFormatDescriptionChromaLocation_Top, kCMFormatDescriptionExtension_PixelAspectRatio,
+        dict(2, kCMFormatDescriptionKey_PixelAspectRatioHorizontalSpacing, num(4), kCMFormatDescriptionKey_PixelAspectRatioVerticalSpacing, num(3)),
+        kCMFormatDescriptionExtension_CleanAperture,
+        dict(4, kCMFormatDescriptionKey_CleanApertureWidth, num(600), kCMFormatDescriptionKey_CleanApertureHeight, num(400),
+             kCMFormatDescriptionKey_CleanApertureHorizontalOffset, num(10), kCMFormatDescriptionKey_CleanApertureVerticalOffset, num(-6)),
+        kCMFormatDescriptionExtension_GammaLevel, num(2.2), kCMFormatDescriptionExtension_FullRangeVideo, kCFBooleanTrue,
+        kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms, dict(1, CFSTR("zzzz"), atom));
+    CMFormatDescriptionRef rich = NULL;
+    CMVideoFormatDescriptionCreate(NULL, 'hvc1', 640, 480, ext, &rich);
+    CMBlockBufferRef rq = NULL, ri = NULL, again = NULL;
+    CMVideoFormatDescriptionCopyAsBigEndianImageDescriptionBlockBuffer(NULL, rich, kCFStringEncodingUTF8, NULL, &rq);
+    hexdump("every extension, quicktime", rq);
+    CMVideoFormatDescriptionCopyAsBigEndianImageDescriptionBlockBuffer(NULL, rich, kCFStringEncodingUTF8, kCMImageDescriptionFlavor_ISOFamily, &ri);
+    hexdump("every extension, iso", ri);
+    CMFormatDescriptionRef rb = NULL, rbi = NULL;
+    CMVideoFormatDescriptionCreateFromBigEndianImageDescriptionBlockBuffer(NULL, rq, kCFStringEncodingUTF8, NULL, &rb);
+    show("  read back", rb);
+    CMVideoFormatDescriptionCreateFromBigEndianImageDescriptionBlockBuffer(NULL, ri, kCFStringEncodingUTF8, kCMImageDescriptionFlavor_ISOFamily, &rbi);
+    show("  read back, iso", rbi);
+    CMVideoFormatDescriptionCopyAsBigEndianImageDescriptionBlockBuffer(NULL, rb, kCFStringEncodingUTF8, NULL, &again);
+    hexdump("  written again", again);
+    size_t n = CMBlockBufferGetDataLength(rq);
+    uint8_t *raw = malloc(n);
+    CMBlockBufferCopyDataBytes(rq, 0, n, raw);
+    printf("swap %d", (int)CMSwapBigEndianImageDescriptionToHost(raw, n));
+    printf(" width %u", (unsigned)*(uint16_t *)(raw + 32));
+    printf(" back %d width %02x%02x short %d\n", (int)CMSwapHostEndianImageDescriptionToBig(raw, n), raw[32], raw[33],
+           (int)CMSwapBigEndianImageDescriptionToHost(raw, 10));
+    free(raw);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -1270,5 +1346,6 @@ main(int argc, char **argv)
     parameter_sets();
     metadata();
     tags();
+    image_descriptions();
     return 0;
 }
