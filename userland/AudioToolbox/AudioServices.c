@@ -29,6 +29,10 @@ static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static Sound *sounds;
 static SystemSoundID next_id = 4097;
 
+/* Apple's private alert-volume property and its value (Float32 bits) */
+enum { kSystemSoundVolume = 'ssvl' };
+static UInt32 alert_volume_bits = 0x3f800000;
+
 static Sound *
 find(SystemSoundID id)
 {
@@ -172,6 +176,11 @@ AudioServicesRemoveSystemSoundCompletion(SystemSoundID inSystemSoundID)
 static OSStatus
 property(AudioServicesPropertyID inPropertyID, UInt32 inSpecifierSize, const void *inSpecifier, UInt32 **out)
 {
+    /* 'ssvl', the alert volume (a Float32, 1.0 to start, as Apple's): no specifier */
+    if (inPropertyID == kSystemSoundVolume) {
+        *out = &alert_volume_bits;
+        return kAudioServicesNoError;
+    }
     if (inPropertyID != kAudioServicesPropertyIsUISound && inPropertyID != kAudioServicesPropertyCompletePlaybackIfAppDies)
         return kAudioServicesUnsupportedPropertyError;
     if (inSpecifierSize != sizeof(SystemSoundID) || !inSpecifier)
