@@ -80,6 +80,8 @@ steps=(
     "CoreAutoLayout|userland/CoreAutoLayout/build.sh"
     # Finch's Foundation (CF links it upward; docs/design/FOUNDATION.md)
     "Foundation|userland/Foundation/build.sh"
+    # CFNetwork (HTTP, sockets, hosts, Bonjour, proxies), which CoreServices re-exports
+    "CFNetwork|userland/CFNetwork/build.sh"
     "UniformTypeIdentifiers|userland/UniformTypeIdentifiers/build.sh"
     "CoreServices|userland/CoreServices/build.sh"
     "IOKit|userland/IOKit/build.sh"

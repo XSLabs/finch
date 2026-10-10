@@ -421,7 +421,11 @@ and AppKit come in Phase 2).
   - [x] Both frameworks build and link against Finch's frameworks alone (2026-10-09)
   - [x] A minimal app draws and responds on the host, then in the VM (2026-10-09)
   - [ ] ABI parity, then the system apps, smallest first
-- [ ] The URL loading system (Apple's is in the closed CFNetwork; Finch's is in Foundation)
+- [x] CFNetwork, Finch's own: HTTP messages, authentication (Basic, Digest) and the HTTP
+      stream, socket streams (CoreFoundation's and NSStream's), CFHost, Bonjour over dns_sd,
+      proxy settings, FTP and CFNetDiagnostics; its comparison test matches Apple's on the
+      host and in the VM (2026-10-10). Still to come: a JavaScript engine for PAC files
+- [ ] The URL loading system (Apple's is in CFNetwork; Finch's is in Foundation)
   - [x] Requests, responses, sessions; file, data and HTTP/1.1 loading; TLS over OpenSSL;
         Swift's URLRequest and async methods (2026-10-09)
   - [ ] A CA bundle in the image (Mozilla's, pinned), caching, cookies, authentication,

@@ -4,6 +4,7 @@
 
 build/userland/finch-init   /usr/appleinternal/sbin/launchd.finch
 userland/etc/finch/rc       /etc/finch/rc
+userland/etc/hosts          /etc/hosts
 build/userland/finch-libsystem-test /usr/local/bin/finch-libsystem-test
 build/userland/libxpc/libxpc.dylib /usr/lib/system/libxpc.dylib
 build/userland/finch-xpc-service-test /usr/local/bin/finch-xpc-service-test
@@ -177,3 +178,7 @@ build/userland/apps/SwiftUINavigation.app/Contents/PkgInfo /Applications/SwiftUI
 build/userland/apps/SwiftUITable.app/Contents/MacOS/SwiftUITable /Applications/SwiftUITable.app/Contents/MacOS/SwiftUITable
 build/userland/apps/SwiftUITable.app/Contents/Info.plist /Applications/SwiftUITable.app/Contents/Info.plist
 build/userland/apps/SwiftUITable.app/Contents/PkgInfo /Applications/SwiftUITable.app/Contents/PkgInfo
+build/userland/finch-cfnetwork-test /usr/local/bin/finch-cfnetwork-test
+build/userland/finch-colorsync-test /usr/local/bin/finch-colorsync-test
+build/userland/finch-hiservices-test /usr/local/bin/finch-hiservices-test
+build/userland/finch-scripting-test /usr/local/bin/finch-scripting-test

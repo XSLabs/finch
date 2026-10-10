@@ -106,12 +106,14 @@ build SharedFileList 225 1 com.apple.coreservices.SharedFileList 225 225 English
     "$(sub CarbonCore)" "$(sub LaunchServices)" -framework Foundation -lobjc
 
 log "CoreServices"
+# (as Apple's, it re-exports CFNetwork, which comes first: userland/CFNetwork/build.sh)
+[[ -f "${FWS}/CFNetwork.framework/CFNetwork" ]] || { echo "build CFNetwork first: userland/CFNetwork/build.sh" >&2; exit 1; }
 SUBS=(FSEvents CarbonCore Metadata OSServices AE LaunchServices SharedFileList)
 echo 'const double CoreServicesVersionNumber = 1226.0;' > "${OBJ}/version.c"
 "${CC}" -arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -dynamiclib \
     -install_name /System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices \
     -current_version 1226 -compatibility_version 1 "${OBJ}/version.c" -o "${FW}/Versions/A/CoreServices" \
-    -F"${FWS}" -Wl,-reexport_framework,CoreFoundation \
+    -F"${FWS}" -Wl,-reexport_framework,CFNetwork -Wl,-reexport_framework,CoreFoundation \
     $(for s in "${SUBS[@]}"; do printf -- '-Wl,-reexport_library,%s ' "$(sub "$s")"; done)
 ln -sfn A "${FW}/Versions/Current"
 ln -sfn Versions/Current/CoreServices "${FW}/CoreServices"

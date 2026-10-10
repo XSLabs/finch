@@ -215,5 +215,7 @@ of CarbonCore, CoreServicesInternal and CFNetwork (`CFUtilities.c`), IOKit's
 SystemConfiguration (`userland/IOKit/patches/0003`), and libmalloc's
 MallocStackLogging (`userland/patches/libmalloc/0002`). Each returns nothing,
 so the caller takes the path it takes when the framework is missing, until
-Finch provides its own (SystemConfiguration from configd, networking for
-CFNetwork's stream functions).
+Finch provides its own (SystemConfiguration from configd). CFNetwork is Finch's
+own since 2026-10-10: CF loads it again for socket streams
+(`_CFSocketStreamCreatePair`) and stream-error mapping, as on macOS, but only a
+CFNetwork that exports `FinchCFNetwork`, so Apple's is never loaded.

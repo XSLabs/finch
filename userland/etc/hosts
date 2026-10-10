@@ -1,0 +1,9 @@
+##
+# Host Database
+#
+# localhost is the loopback interface. Finch has no mDNSResponder yet, so the
+# resolver finds these names here.
+##
+127.0.0.1	localhost
+255.255.255.255	broadcasthost
+::1             localhost

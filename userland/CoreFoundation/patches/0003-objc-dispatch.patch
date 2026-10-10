@@ -275,7 +275,7 @@ index eed25f1..01f0911 100644
  
 +/* Finch: CF never loads Apple's closed frameworks (CarbonCore,
 + * CoreServicesInternal, CFNetwork). The lookups below find nothing, so CF
-+ * takes its own paths; Finch's replacements will be wired in here. */
++ * takes its own paths, except CFNetwork's: Finch's own is loaded. */
 +#define FINCH_NO_CLOSED_FRAMEWORKS 1
 +
  #if TARGET_OS_OSX
@@ -292,14 +292,18 @@ index eed25f1..01f0911 100644
      static void *image = NULL;
      static dispatch_once_t onceToken;
      dispatch_once(&onceToken, ^{
-@@ -525,6 +532,7 @@ CF_PRIVATE void *__CFLookupCoreServicesInternalFunction(const char *name) {
- }
- 
- CF_PRIVATE void *__CFLookupCFNetworkFunction(const char *name) {
-+    if (FINCH_NO_CLOSED_FRAMEWORKS) return NULL;
-     static void *image = NULL;
-     static dispatch_once_t onceToken;
-     dispatch_once(&onceToken, ^{
+@@ -533,6 +540,11 @@ CF_PRIVATE void *__CFLookupCFNetworkFunction(const char *name) {
+             path = "/System/Library/Frameworks/CFNetwork.framework/CFNetwork";
+         }
+         image = dlopen(path, RTLD_LAZY | RTLD_LOCAL);
++        /* Finch: only Finch's own CFNetwork, which says so (never Apple's). */
++        if (image && !dlsym(image, "FinchCFNetwork")) {
++            dlclose(image);
++            image = NULL;
++        }
+     });
+     void *dyfunc = NULL;
+     if (image) {
 diff --git a/Sources/CoreFoundation/internalInclude/CFInternal.h b/Sources/CoreFoundation/internalInclude/CFInternal.h
 index a348793..4339c75 100644
 --- a/Sources/CoreFoundation/internalInclude/CFInternal.h
