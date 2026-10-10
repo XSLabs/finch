@@ -4,11 +4,15 @@
  * (tools/host-tests.sh): times (making, rounding, converting, arithmetic, comparing,
  * the invalid, infinite and indefinite ones), time ranges and mappings, their
  * descriptions and dictionaries; block buffers (memory allocated lazily or now, the
- * caller's, custom sources; several blocks, references, contiguous copies).
+ * caller's, custom sources; several blocks, references, contiguous copies); format
+ * descriptions (video, audio, muxed, time code and the rest; equality, apertures);
+ * sample buffers (timing and sizes, ranges, copies, readiness, invalidation, sample and
+ * buffer attachments, image buffers, output timing, audio buffer lists and packets).
  */
 #include <CoreMedia/CoreMedia.h>
 #include <dlfcn.h>
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -302,6 +306,426 @@ blocks(void)
     printf("released: allocated %d freed %d\n", allocated, freed);
 }
 
+/* --- format descriptions --- */
+
+/* A description with its pointers masked. */
+static void
+show(const char *label, CFTypeRef x)
+{
+    if (!x) {
+        printf("%s: NULL\n", label);
+        return;
+    }
+    CFStringRef s = CFCopyDescription(x);
+    char buf[8192];
+    CFStringGetCString(s, buf, sizeof buf, kCFStringEncodingUTF8);
+    CFRelease(s);
+    char out[8192], *o = out;
+    for (char *p = buf; *p;) {
+        if (p[0] == '0' && p[1] == 'x' && p[2] && strchr("0123456789abcdef", p[2]) && p[3] && strchr("0123456789abcdef", p[3]) &&
+            p[4] && strchr("0123456789abcdef", p[4]) && p[5] && strchr("0123456789abcdef", p[5]) && p[6] && strchr("0123456789abcdef", p[6])) {
+            p += 2;
+            while (*p && strchr("0123456789abcdef", *p))
+                p++;
+            o += sprintf(o, "0x?");
+        } else
+            *o++ = *p++;
+    }
+    *o = 0;
+    printf("%s: %s\n", label, out);
+}
+
+static CFNumberRef
+num(double d)
+{
+    return CFNumberCreate(NULL, kCFNumberDoubleType, &d);
+}
+
+static CFDictionaryRef
+dict(int n, ...)
+{
+    va_list ap;
+    va_start(ap, n);
+    const void *k[16], *v[16];
+    for (int i = 0; i < n; i++) {
+        k[i] = va_arg(ap, const void *);
+        v[i] = va_arg(ap, const void *);
+    }
+    va_end(ap);
+    return CFDictionaryCreate(NULL, k, v, n, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+}
+
+static void
+audio(int channels, AudioFormatID format, const AudioChannelLayout *layout, size_t layoutSize, bool print)
+{
+    bool pcm = format == kAudioFormatLinearPCM;
+    AudioStreamBasicDescription a = {48000, format, pcm ? kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked : 0, pcm ? 4 * channels : 0,
+                                     pcm ? 1 : 1024, pcm ? 4 * channels : 0, channels, pcm ? 32 : 0, 0};
+    char cookie[5] = {1, 2, 3, 4, 5};
+    CMAudioFormatDescriptionRef d = NULL;
+    OSStatus e = CMAudioFormatDescriptionCreate(NULL, &a, layoutSize, layout, pcm ? 0 : 5, pcm ? NULL : cookie, NULL, &d);
+    size_t n = 0, ls = 0, cs = 0;
+    const AudioFormatListItem *list = d ? CMAudioFormatDescriptionGetFormatList(d, &n) : NULL;
+    const AudioChannelLayout *l = d ? CMAudioFormatDescriptionGetChannelLayout(d, &ls) : NULL;
+    const void *c = d ? CMAudioFormatDescriptionGetMagicCookie(d, &cs) : NULL;
+    printf("audio %d channels %c%c%c%c: %d list %zu tag %x layout %zu tag %x cookie %zu copied %d richest %d compatible %d\n", channels,
+           (char)(format >> 24), (char)(format >> 16), (char)(format >> 8), (char)format, (int)e, n, n ? (unsigned)list[0].mChannelLayoutTag : 0, ls,
+           l ? (unsigned)l->mChannelLayoutTag : 0, cs, c && c != cookie, d && CMAudioFormatDescriptionGetRichestDecodableFormat(d) == list,
+           d && CMAudioFormatDescriptionGetMostCompatibleFormat(d) == list);
+    if (d && print)
+        show("  description", d);
+    if (d)
+        CFRelease(d);
+}
+
+static void
+formats(void)
+{
+    CFStringRef k[] = {CFSTR("FormatName"), kCMFormatDescriptionExtension_FieldCount, CFSTR("Custom")};
+    int two = 2;
+    CFNumberRef n2 = CFNumberCreate(NULL, kCFNumberIntType, &two);
+    CFTypeRef v[] = {CFSTR("Fancy"), n2, CFSTR("x")};
+    CFDictionaryRef ext = CFDictionaryCreate(NULL, (const void **)k, v, 3, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CMVideoFormatDescriptionRef f = NULL;
+    printf("video %d\n", (int)CMVideoFormatDescriptionCreate(NULL, kCMVideoCodecType_H264, 640, 480, ext, &f));
+    show("  description", f);
+    int fields = 0;
+    CFNumberGetValue(CMFormatDescriptionGetExtension(f, kCMFormatDescriptionExtension_FieldCount), kCFNumberIntType, &fields);
+    printf("  type %d media %x sub %x extension %s field count %d\n", CFGetTypeID(f) == CMFormatDescriptionGetTypeID(),
+           (unsigned)CMFormatDescriptionGetMediaType(f), (unsigned)CMFormatDescriptionGetMediaSubType(f),
+           desc(CMFormatDescriptionGetExtension(f, CFSTR("FormatName"))), fields);
+    printf("  extensions copied %d\n", CMFormatDescriptionGetExtensions(f) != ext);
+    CMVideoDimensions dims = CMVideoFormatDescriptionGetDimensions(f);
+    printf("  dimensions %d x %d\n", dims.width, dims.height);
+    show("  common keys", CMVideoFormatDescriptionGetExtensionKeysCommonWithImageBuffers());
+
+    CFDictionaryRef par = dict(2, kCMFormatDescriptionKey_PixelAspectRatioHorizontalSpacing, num(4),
+                               kCMFormatDescriptionKey_PixelAspectRatioVerticalSpacing, num(3));
+    CFDictionaryRef ca = dict(4, kCMFormatDescriptionKey_CleanApertureWidth, num(600), kCMFormatDescriptionKey_CleanApertureHeight, num(400),
+                              kCMFormatDescriptionKey_CleanApertureHorizontalOffset, num(10), kCMFormatDescriptionKey_CleanApertureVerticalOffset, num(-6));
+    CMVideoFormatDescriptionRef v1 = NULL, v2 = NULL, v3 = NULL;
+    CMVideoFormatDescriptionCreate(NULL, kCMVideoCodecType_H264, 640, 480,
+                                   dict(2, kCMFormatDescriptionExtension_PixelAspectRatio, par, kCMFormatDescriptionExtension_CleanAperture, ca), &v1);
+    for (int a = 0; a < 2; a++)
+        for (int b = 0; b < 2; b++) {
+            CGSize s = CMVideoFormatDescriptionGetPresentationDimensions(v1, a, b);
+            printf("  presentation aspect %d aperture %d: %g x %g\n", a, b, s.width, s.height);
+        }
+    CGRect r = CMVideoFormatDescriptionGetCleanAperture(v1, true), r2 = CMVideoFormatDescriptionGetCleanAperture(v1, false);
+    printf("  clean aperture top-left %g %g %g %g, bottom-left %g %g\n", r.origin.x, r.origin.y, r.size.width, r.size.height, r2.origin.x, r2.origin.y);
+    CMVideoFormatDescriptionCreate(NULL, kCMVideoCodecType_H264, 640, 480, NULL, &v2);
+    CMVideoFormatDescriptionCreate(NULL, kCMVideoCodecType_H264, 640, 480, NULL, &v3);
+    r = CMVideoFormatDescriptionGetCleanAperture(v2, true);
+    printf("  no aperture %g %g %g %g\n", r.origin.x, r.origin.y, r.size.width, r.size.height);
+    const void *both[] = {kCMFormatDescriptionExtension_PixelAspectRatio, kCMFormatDescriptionExtension_CleanAperture};
+    CFArrayRef ignore = CFArrayCreate(NULL, both, 2, &kCFTypeArrayCallBacks);
+    printf("  equal %d %d %d ignoring one %d ignoring both %d hash %d\n", CMFormatDescriptionEqual(v1, v2), CMFormatDescriptionEqual(v2, v3),
+           CFEqual(v2, v3), CMFormatDescriptionEqualIgnoringExtensionKeys(v1, v2, kCMFormatDescriptionExtension_PixelAspectRatio, NULL),
+           CMFormatDescriptionEqualIgnoringExtensionKeys(v1, v2, ignore, NULL), CFHash(v2) == CFHash(v3));
+    CMVideoFormatDescriptionRef bad = NULL;
+    printf("  negative width %d, plain video %d, no media type %d\n", (int)CMVideoFormatDescriptionCreate(NULL, kCMVideoCodecType_H264, -1, 480, NULL, &bad),
+           (int)CMFormatDescriptionCreate(NULL, kCMMediaType_Video, kCMVideoCodecType_H264, NULL, &v3),
+           (int)CMFormatDescriptionCreate(NULL, 0, kCMVideoCodecType_H264, NULL, &bad));
+    show("  plain video", v3);
+    dims = CMVideoFormatDescriptionGetDimensions(v3);
+    printf("  plain dimensions %d x %d, equal to made %d\n", dims.width, dims.height, CMFormatDescriptionEqual(v2, v3));
+
+    CMMediaType types[][2] = {{kCMMediaType_Muxed, kCMMuxedStreamType_MPEG2Program}, {kCMMediaType_Text, kCMTextFormatType_QTText},
+                              {kCMMediaType_TimeCode, kCMTimeCodeFormatType_TimeCode32}, {kCMMediaType_Metadata, kCMMetadataFormatType_Boxed},
+                              {'abcd', 'efgh'}, {kCMMediaType_ClosedCaption, kCMClosedCaptionFormatType_CEA608},
+                              {kCMMediaType_Subtitle, kCMSubtitleFormatType_3GText}, {kCMMediaType_Audio, kAudioFormatLinearPCM}};
+    for (size_t i = 0; i < sizeof types / sizeof types[0]; i++) {
+        CMFormatDescriptionRef d = NULL;
+        CMFormatDescriptionCreate(NULL, types[i][0], types[i][1], NULL, &d);
+        show("plain", d);
+        CFRelease(d);
+    }
+    CMTimeCodeFormatDescriptionRef tc = NULL;
+    printf("time code %d\n", (int)CMTimeCodeFormatDescriptionCreate(NULL, kCMTimeCodeFormatType_TimeCode32, CMTimeMake(1001, 30000), 30,
+                                                                     kCMTimeCodeFlag_DropFrame, NULL, &tc));
+    show("  description", tc);
+    printf("  duration %s quanta %u flags %u\n", t(CMTimeCodeFormatDescriptionGetFrameDuration(tc)), CMTimeCodeFormatDescriptionGetFrameQuanta(tc),
+           CMTimeCodeFormatDescriptionGetTimeCodeFlags(tc));
+    CMMuxedFormatDescriptionRef mx = NULL;
+    printf("muxed %d\n", (int)CMMuxedFormatDescriptionCreate(NULL, kCMMuxedStreamType_MPEG2Transport, NULL, &mx));
+    show("  description", mx);
+
+    for (int c = 0; c <= 3; c++)
+        audio(c, kAudioFormatLinearPCM, NULL, 0, c == 2);
+    audio(8, kAudioFormatLinearPCM, NULL, 0, false);
+    audio(2, kAudioFormatMPEG4AAC, NULL, 0, true);
+    AudioChannelLayout l = {kAudioChannelLayoutTag_MPEG_5_1_A, 0, 0, {}};
+    audio(6, kAudioFormatLinearPCM, &l, sizeof l, true);
+    audio(2, kAudioFormatLinearPCM, &l, sizeof l, false);
+    AudioChannelLayout *two_labels = calloc(1, sizeof(AudioChannelLayout) + sizeof(AudioChannelDescription));
+    two_labels->mNumberChannelDescriptions = 2;
+    two_labels->mChannelDescriptions[0].mChannelLabel = kAudioChannelLabel_Left;
+    two_labels->mChannelDescriptions[1].mChannelLabel = kAudioChannelLabel_Right;
+    audio(2, kAudioFormatMPEG4AAC, two_labels, sizeof(AudioChannelLayout) + sizeof(AudioChannelDescription), true);
+    l.mChannelLayoutTag = kAudioChannelLayoutTag_UseChannelBitmap;
+    l.mChannelBitmap = kAudioChannelBit_Left | kAudioChannelBit_Right;
+    audio(2, kAudioFormatMPEG4AAC, &l, sizeof l, true);
+    CMAudioFormatDescriptionRef au = NULL;
+    const AudioStreamBasicDescription *none = NULL;
+    printf("audio without a description %d\n", (int)CMAudioFormatDescriptionCreate(NULL, none, 0, NULL, 0, NULL, NULL, &au));
+}
+
+/* --- sample buffers --- */
+
+static const char *
+timing(CMSampleTimingInfo i)
+{
+    static char b[8][600];
+    static int at;
+    char *o = b[at++ % 8];
+    snprintf(o, 600, "(dur %s pts %s dts %s)", t(i.duration), t(i.presentationTimeStamp), t(i.decodeTimeStamp));
+    return o;
+}
+
+static void
+report(const char *label, CMSampleBufferRef sb)
+{
+    printf("%s: valid %d ready %d samples %ld total size %zu duration %s\n", label, CMSampleBufferIsValid(sb), CMSampleBufferDataIsReady(sb),
+           (long)CMSampleBufferGetNumSamples(sb), CMSampleBufferGetTotalSampleSize(sb), t(CMSampleBufferGetDuration(sb)));
+    printf("  pts %s dts %s\n", t(CMSampleBufferGetPresentationTimeStamp(sb)), t(CMSampleBufferGetDecodeTimeStamp(sb)));
+    printf("  output pts %s duration %s dts %s\n", t(CMSampleBufferGetOutputPresentationTimeStamp(sb)), t(CMSampleBufferGetOutputDuration(sb)),
+           t(CMSampleBufferGetOutputDecodeTimeStamp(sb)));
+    CMItemCount needed = -1;
+    OSStatus e = CMSampleBufferGetSampleTimingInfoArray(sb, 0, NULL, &needed);
+    printf("  timing entries %d %ld:", (int)e, (long)needed);
+    CMSampleTimingInfo infos[8];
+    if (needed > 0 && needed <= 8 && !CMSampleBufferGetSampleTimingInfoArray(sb, needed, infos, NULL))
+        for (CMItemCount i = 0; i < needed; i++)
+            printf(" %s", timing(infos[i]));
+    printf("\n");
+    e = CMSampleBufferGetSampleSizeArray(sb, 0, NULL, &needed);
+    printf("  size entries %d %ld:", (int)e, (long)needed);
+    size_t sizes[8];
+    if (needed > 0 && needed <= 8 && !CMSampleBufferGetSampleSizeArray(sb, needed, sizes, NULL))
+        for (CMItemCount i = 0; i < needed; i++)
+            printf(" %zu", sizes[i]);
+    printf("\n");
+    for (CMItemIndex i = 0; i <= CMSampleBufferGetNumSamples(sb) && i < 6; i++) {
+        CMSampleTimingInfo info;
+        e = CMSampleBufferGetSampleTimingInfo(sb, i, &info);
+        printf("  sample %ld: size %zu timing %d %s\n", (long)i, CMSampleBufferGetSampleSize(sb, i), (int)e, e ? "" : timing(info));
+    }
+    CMBlockBufferRef data = CMSampleBufferGetDataBuffer(sb);
+    printf("  data %zu image %d format %s\n", data ? CMBlockBufferGetDataLength(data) : 0, CMSampleBufferGetImageBuffer(sb) != NULL,
+           CMSampleBufferGetFormatDescription(sb) ? "yes" : "none");
+}
+
+static int readied, invalidated, each;
+
+static OSStatus
+make_ready(CMSampleBufferRef sb, void *refcon)
+{
+    readied++;
+    printf("  making ready (%s)\n", (char *)refcon);
+    return 0;
+}
+
+static void
+on_invalidate(CMSampleBufferRef sb, uint64_t refcon)
+{
+    invalidated++;
+    printf("  invalidated %llu\n", (unsigned long long)refcon);
+}
+
+static OSStatus
+for_each(CMSampleBufferRef sb, CMItemCount index, void *refcon)
+{
+    each++;
+    printf("  sample %ld of %ld: %s size %zu\n", (long)index, (long)CMSampleBufferGetNumSamples(sb),
+           t(CMSampleBufferGetPresentationTimeStamp(sb)), CMSampleBufferGetTotalSampleSize(sb));
+    return index == 1 && refcon ? -1 : 0;
+}
+
+static void
+samples(void)
+{
+    CMBlockBufferRef bb = NULL;
+    CMBlockBufferCreateWithMemoryBlock(NULL, NULL, 20, NULL, NULL, 0, 20, kCMBlockBufferAssureMemoryNowFlag, &bb);
+    CMBlockBufferReplaceDataBytes("aaaabbbbbbcccccccccc", bb, 0, 20);
+    CMFormatDescriptionRef fd = NULL;
+    CMFormatDescriptionCreate(NULL, kCMMediaType_Muxed, 'abcd', NULL, &fd);
+    CMSampleTimingInfo one = {CMTimeMake(1, 30), CMTimeMake(10, 30), kCMTimeInvalid};
+    size_t sizes[] = {4, 6, 10};
+    CMSampleBufferRef sb = NULL;
+    printf("ready %d\n", (int)CMSampleBufferCreateReady(NULL, bb, fd, 3, 1, &one, 3, sizes, &sb));
+    report("three samples", sb);
+    printf("  type %d\n", CFGetTypeID(sb) == CMSampleBufferGetTypeID());
+    CMSampleTimingInfo small[1];
+    CMItemCount needed = 0;
+    printf("  timing into a small array %d\n", (int)CMSampleBufferGetSampleTimingInfoArray(sb, 0, small, &needed));
+    size_t sz[1];
+    printf("  sizes into a small array %d\n", (int)CMSampleBufferGetSampleSizeArray(sb, 0, sz, &needed));
+    each = 0;
+    printf("  for each %d\n", (int)CMSampleBufferCallForEachSample(sb, for_each, NULL));
+    printf("  for each, stopping %d (%d calls)\n", (int)CMSampleBufferCallForEachSample(sb, for_each, "stop"), each);
+
+    CMSampleBufferRef r = NULL;
+    printf("range 1-2 %d\n", (int)CMSampleBufferCopySampleBufferForRange(NULL, sb, CFRangeMake(1, 2), &r));
+    if (r) {
+        report("  range", r);
+        char got[32] = {0};
+        CMBlockBufferCopyDataBytes(CMSampleBufferGetDataBuffer(r), 0, CMBlockBufferGetDataLength(CMSampleBufferGetDataBuffer(r)), got);
+        printf("  range data [%s]\n", got);
+        CFRelease(r);
+    }
+    printf("range past the end %d\n", (int)CMSampleBufferCopySampleBufferForRange(NULL, sb, CFRangeMake(2, 2), &r));
+    CMSampleTimingInfo three[] = {{CMTimeMake(1, 10), CMTimeMake(5, 10), CMTimeMake(4, 10)},
+                                  {CMTimeMake(2, 10), CMTimeMake(7, 10), CMTimeMake(5, 10)},
+                                  {CMTimeMake(1, 10), CMTimeMake(6, 10), CMTimeMake(6, 10)}};
+    printf("new timing %d\n", (int)CMSampleBufferCreateCopyWithNewTiming(NULL, sb, 3, three, &r));
+    report("  retimed", r);
+    printf("new timing, wrong count %d\n", (int)CMSampleBufferCreateCopyWithNewTiming(NULL, sb, 2, three, &r));
+    CMSampleBufferRef c = NULL;
+    printf("copy %d\n", (int)CMSampleBufferCreateCopy(NULL, sb, &c));
+    printf("  shares data %d format %d\n", CMSampleBufferGetDataBuffer(c) == bb, CMSampleBufferGetFormatDescription(c) == fd);
+
+    /* sample attachments */
+    printf("sample attachments, not made %s\n", CMSampleBufferGetSampleAttachmentsArray(sb, false) ? "some" : "none");
+    CFArrayRef sa = CMSampleBufferGetSampleAttachmentsArray(sb, true);
+    printf("  made %ld\n", sa ? (long)CFArrayGetCount(sa) : -1);
+    CFDictionarySetValue((CFMutableDictionaryRef)CFArrayGetValueAtIndex(sa, 1), kCMSampleAttachmentKey_NotSync, kCFBooleanTrue);
+    show("  again", CMSampleBufferGetSampleAttachmentsArray(sb, false));
+    printf("  the copy's %s\n", CMSampleBufferGetSampleAttachmentsArray(c, false) ? "some" : "none");
+    printf("range keeps them: ");
+    CMSampleBufferCopySampleBufferForRange(NULL, sb, CFRangeMake(1, 1), &r);
+    show("", CMSampleBufferGetSampleAttachmentsArray(r, false));
+
+    /* buffer attachments, on sample buffers and pixel buffers */
+    CMSetAttachment(sb, CFSTR("p"), CFSTR("propagated"), kCMAttachmentMode_ShouldPropagate);
+    CMSetAttachment(sb, CFSTR("n"), CFSTR("not"), kCMAttachmentMode_ShouldNotPropagate);
+    CMAttachmentMode mode = 9;
+    show("attachment p", CMGetAttachment(sb, CFSTR("p"), &mode));
+    printf("  mode %d\n", mode);
+    show("  propagated", CMCopyDictionaryOfAttachments(NULL, sb, kCMAttachmentMode_ShouldPropagate));
+    show("  not", CMCopyDictionaryOfAttachments(NULL, sb, kCMAttachmentMode_ShouldNotPropagate));
+    CMPropagateAttachments(sb, c);
+    show("  propagated to the copy", CMCopyDictionaryOfAttachments(NULL, c, kCMAttachmentMode_ShouldPropagate));
+    CMRemoveAttachment(sb, CFSTR("p"));
+    show("  removed", CMCopyDictionaryOfAttachments(NULL, sb, kCMAttachmentMode_ShouldPropagate));
+    CMRemoveAllAttachments(sb);
+    show("  removed all", CMCopyDictionaryOfAttachments(NULL, sb, kCMAttachmentMode_ShouldNotPropagate));
+    CVPixelBufferRef pb = NULL;
+    CVPixelBufferCreate(NULL, 64, 48, kCVPixelFormatType_32BGRA, NULL, &pb);
+    CMSetAttachment(pb, CFSTR("on"), CFSTR("pixels"), kCMAttachmentMode_ShouldPropagate);
+    CFTypeRef cv = CVBufferCopyAttachment(pb, CFSTR("on"), NULL);
+    show("  on a pixel buffer, seen by CoreVideo", cv);
+    show("  on a string", CMGetAttachment(CFSTR("x"), CFSTR("y"), NULL));
+
+    /* image buffers */
+    CMVideoFormatDescriptionRef vfd = NULL;
+    printf("format for image %d\n", (int)CMVideoFormatDescriptionCreateForImageBuffer(NULL, pb, &vfd));
+    show("  description", vfd);
+    printf("  matches %d\n", CMVideoFormatDescriptionMatchesImageBuffer(vfd, pb));
+    CVPixelBufferRef other = NULL;
+    CVPixelBufferCreate(NULL, 32, 48, kCVPixelFormatType_32BGRA, NULL, &other);
+    printf("  matches another size %d\n", CMVideoFormatDescriptionMatchesImageBuffer(vfd, other));
+    CMSampleBufferRef ib = NULL;
+    printf("image sample %d\n", (int)CMSampleBufferCreateReadyWithImageBuffer(NULL, pb, vfd, &one, &ib));
+    report("  image", ib);
+    printf("  same image %d\n", CMSampleBufferGetImageBuffer(ib) == pb);
+    printf("image sample, mismatched format %d\n", (int)CMSampleBufferCreateReadyWithImageBuffer(NULL, other, vfd, &one, &r));
+    printf("image sample, no timing %d\n", (int)CMSampleBufferCreateForImageBuffer(NULL, pb, true, NULL, NULL, vfd, &one, &r));
+
+    /* readiness, failure and invalidation */
+    CMSampleBufferRef lazy = NULL;
+    printf("not ready %d\n", (int)CMSampleBufferCreate(NULL, bb, false, make_ready, "refcon", fd, 3, 1, &one, 3, sizes, &lazy));
+    printf("  ready %d\n", CMSampleBufferDataIsReady(lazy));
+    printf("  make ready %d now %d (called %d)\n", (int)CMSampleBufferMakeDataReady(lazy), CMSampleBufferDataIsReady(lazy), readied);
+    printf("  make ready again %d (called %d)\n", (int)CMSampleBufferMakeDataReady(lazy), readied);
+    CMSampleBufferRef failing = NULL;
+    CMSampleBufferCreate(NULL, bb, false, NULL, NULL, fd, 3, 1, &one, 3, sizes, &failing);
+    OSStatus status = 0;
+    printf("  make ready without a callback %d\n", (int)CMSampleBufferMakeDataReady(failing));
+    printf("  failed %d", CMSampleBufferHasDataFailed(failing, &status));
+    printf(" set failed %d", (int)CMSampleBufferSetDataFailed(failing, -42));
+    printf(" failed %d status %d ready %d\n", CMSampleBufferHasDataFailed(failing, &status), (int)status, CMSampleBufferDataIsReady(failing));
+    printf("  set ready %d now %d\n", (int)CMSampleBufferSetDataReady(failing), CMSampleBufferDataIsReady(failing));
+    printf("invalidate callback %d\n", (int)CMSampleBufferSetInvalidateCallback(c, on_invalidate, 77));
+    printf("  again %d\n", (int)CMSampleBufferSetInvalidateCallback(c, on_invalidate, 78));
+    printf("  invalidate %d valid %d (called %d)\n", (int)CMSampleBufferInvalidate(c), CMSampleBufferIsValid(c), invalidated);
+    printf("  invalidate again %d (called %d)\n", (int)CMSampleBufferInvalidate(c), invalidated);
+    printf("  after: samples %ld size %zu timing %d\n", (long)CMSampleBufferGetNumSamples(c), CMSampleBufferGetTotalSampleSize(c),
+           (int)CMSampleBufferGetSampleTimingInfo(c, 0, small));
+
+    /* data buffers set later, and errors */
+    CMSampleBufferRef empty = NULL;
+    printf("no data %d\n", (int)CMSampleBufferCreate(NULL, NULL, false, NULL, NULL, fd, 3, 1, &one, 3, sizes, &empty));
+    report("  no data", empty);
+    printf("  set data %d again %d\n", (int)CMSampleBufferSetDataBuffer(empty, bb), (int)CMSampleBufferSetDataBuffer(empty, bb));
+    printf("  ready now %d\n", CMSampleBufferDataIsReady(empty));
+    printf("errors: sizes too many %d timing count %d samples without sizes %d data too small %d\n",
+           (int)CMSampleBufferCreateReady(NULL, bb, fd, 2, 1, &one, 3, sizes, &r), (int)CMSampleBufferCreateReady(NULL, bb, fd, 3, 2, three, 3, sizes, &r),
+           (int)CMSampleBufferCreateReady(NULL, bb, fd, 3, 1, &one, 0, NULL, &r),
+           (int)CMSampleBufferCreateReady(NULL, bb, fd, 3, 1, &one, 1, (size_t[]){10}, &r));
+    printf("no samples, no data %d\n", (int)CMSampleBufferCreateReady(NULL, NULL, NULL, 0, 0, NULL, 0, NULL, &r));
+    if (r)
+        report("  nothing", r);
+    size_t four = 4;
+    printf("one size for all %d\n", (int)CMSampleBufferCreateReady(NULL, bb, fd, 5, 1, &one, 1, &four, &r));
+    report("  sized", r);
+    CMSampleTimingInfo noDuration = {kCMTimeInvalid, CMTimeMake(3, 1), kCMTimeInvalid};
+    printf("no duration %d\n", (int)CMSampleBufferCreateReady(NULL, bb, fd, 2, 1, &noDuration, 1, &four, &r));
+    report("  undurated", r);
+
+    /* output timing: trims and speed */
+    CMSampleBufferCreateReady(NULL, bb, fd, 3, 1, &one, 3, sizes, &r);
+    CMSetAttachment(r, kCMSampleBufferAttachmentKey_TrimDurationAtStart, (CFDictionaryRef)CMTimeCopyAsDictionary(CMTimeMake(1, 60), NULL),
+                    kCMAttachmentMode_ShouldPropagate);
+    CMSetAttachment(r, kCMSampleBufferAttachmentKey_SpeedMultiplier, (CFNumberRef)CFAutorelease(CFNumberCreate(NULL, kCFNumberDoubleType, &(double){2.0})),
+                    kCMAttachmentMode_ShouldPropagate);
+    report("trimmed and fast", r);
+    printf("  set output pts %d\n", (int)CMSampleBufferSetOutputPresentationTimeStamp(r, CMTimeMake(100, 1)));
+    report("  moved", r);
+    CMSampleTimingInfo outs[4];
+    CMItemCount n = 0;
+    printf("  output timing %d", (int)CMSampleBufferGetOutputSampleTimingInfoArray(r, 4, outs, &n));
+    for (CMItemCount i = 0; i < n; i++)
+        printf(" %s", timing(outs[i]));
+    printf("\n");
+
+    /* audio */
+    AudioStreamBasicDescription pcm = {48000, kAudioFormatLinearPCM, kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked, 4, 1, 4, 2, 16, 0};
+    CMAudioFormatDescriptionRef afd = NULL;
+    CMAudioFormatDescriptionCreate(NULL, &pcm, 0, NULL, 0, NULL, NULL, &afd);
+    CMBlockBufferRef ab = NULL;
+    CMBlockBufferCreateWithMemoryBlock(NULL, NULL, 40, NULL, NULL, 0, 40, kCMBlockBufferAssureMemoryNowFlag, &ab);
+    for (int i = 0; i < 20; i++)
+        CMBlockBufferReplaceDataBytes(&(int16_t){(int16_t)(i * 100)}, ab, (size_t)i * 2, 2);
+    CMSampleBufferRef as = NULL;
+    printf("audio %d\n", (int)CMAudioSampleBufferCreateReadyWithPacketDescriptions(NULL, ab, afd, 10, CMTimeMake(480, 48000), NULL, &as));
+    report("  pcm", as);
+    size_t listSize = 0;
+    printf("  list size %d", (int)CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(as, &listSize, NULL, 0, NULL, NULL, 0, NULL));
+    printf(" %zu\n", listSize);
+    AudioBufferList list;
+    CMBlockBufferRef held = NULL;
+    printf("  list %d", (int)CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(as, NULL, &list, sizeof list, NULL, NULL, 0, &held));
+    printf(" buffers %u channels %u bytes %u first %d held %d\n", (unsigned)list.mNumberBuffers, (unsigned)list.mBuffers[0].mNumberChannels,
+           (unsigned)list.mBuffers[0].mDataByteSize, ((int16_t *)list.mBuffers[0].mData)[2], held != NULL);
+    int16_t pcmOut[8] = {0};
+    AudioBufferList outList = {1, {{2, sizeof pcmOut, pcmOut}}};
+    printf("  copy frames 3-6 %d:", (int)CMSampleBufferCopyPCMDataIntoAudioBufferList(as, 3, 4, &outList));
+    for (int i = 0; i < 8; i++)
+        printf(" %d", pcmOut[i]);
+    printf("\n  copy past the end %d\n", (int)CMSampleBufferCopyPCMDataIntoAudioBufferList(as, 8, 4, &outList));
+    AudioStreamBasicDescription aac = {44100, kAudioFormatMPEG4AAC, 0, 0, 1024, 0, 2, 0, 0};
+    CMAudioFormatDescriptionRef aacfd = NULL;
+    CMAudioFormatDescriptionCreate(NULL, &aac, 0, NULL, 0, NULL, NULL, &aacfd);
+    AudioStreamPacketDescription packets[] = {{0, 0, 8}, {8, 0, 12}};
+    printf("aac %d\n", (int)CMAudioSampleBufferCreateReadyWithPacketDescriptions(NULL, bb, aacfd, 2, CMTimeMake(0, 44100), packets, &as));
+    report("  aac", as);
+    const AudioStreamPacketDescription *pp = NULL;
+    size_t ps = 0;
+    printf("  packets %d size %zu second %lld+%u\n", (int)CMSampleBufferGetAudioStreamPacketDescriptionsPtr(as, &pp, &ps), ps, pp ? pp[1].mStartOffset : -1,
+           pp ? (unsigned)pp[1].mDataByteSize : 0);
+    printf("aac without packets %d\n", (int)CMAudioSampleBufferCreateReadyWithPacketDescriptions(NULL, bb, aacfd, 2, CMTimeMake(0, 44100), NULL, &as));
+}
+
 int
 main(int argc, char **argv)
 {
@@ -311,5 +735,7 @@ main(int argc, char **argv)
     printf("%s\n", info.dli_fname);
     times();
     blocks();
+    formats();
+    samples();
     return 0;
 }

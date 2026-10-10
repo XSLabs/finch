@@ -4,6 +4,7 @@
 #define FINCH_CM_INTERNAL_H
 #include <CoreMedia/CoreMedia.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,5 +62,8 @@ cm_create(CFAllocatorRef allocator, CFTypeID type, size_t size)
 {
     return _CFRuntimeCreateInstance(allocator, type, (CFIndex)(size - sizeof(CFRuntimeBase)), NULL);
 }
+
+/* A sample buffer's attachments (both modes) and their lock; false for anything else. */
+bool _FinchCMSampleBufferAttachments(CFTypeRef target, CFMutableDictionaryRef **attachments, pthread_mutex_t **lock);
 
 #endif

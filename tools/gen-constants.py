@@ -42,13 +42,15 @@ for s in sorted(syms):
         continue
     name = s[1:]
     # a declaration "extern <type> name" / "const <type> name"
-    m = re.search(r'(?:extern|EXPORT|EXTERN)[A-Z_ ]*\s+((?:const\s+)?[A-Za-z_][A-Za-z0-9_]*(?:\s*\*)?(?:\s*const)?)\s+' + re.escape(name) + r'\b\s*[A-Z_(;]',
+    # (nullability qualifiers, such as CV_NONNULL or _Nonnull, may stand between type and name)
+    m = re.search(r'(?:extern|EXPORT|EXTERN)[A-Z_ ]*\s+((?:const\s+)?[A-Za-z_][A-Za-z0-9_]*(?:\s*\*)?(?:\s*const)?)'
+                  r'(?:\s+(?:[A-Z]+_(?:NONNULL|NULLABLE|NULL_UNSPECIFIED)|_Nonnull|_Nullable|_Null_unspecified))*\s+' + re.escape(name) + r'\b\s*[A-Z_(;]',
                   headers)
     if not m:
         m = re.search(r'\b((?:const\s+)?[A-Za-z_][A-Za-z0-9_]*\s*\*?\s*const)\s+' + re.escape(name) + r'\b', headers)
     decl = m.group(1).replace('const', '').strip() if m else None
-    if decl and re.search(r'\b' + re.escape(name) + r'\s*\(', headers):
-        continue  # a function
+    if decl and m.group(0).endswith('('):
+        continue  # a function (what follows the name in its declaration is "(")
     if not decl and re.search(r'\b' + re.escape(name) + r'\s*\(', headers):
         continue
     data.append((name, decl))
