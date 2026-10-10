@@ -162,8 +162,9 @@ ABSTRACT(- (const void *)bytes, "bytes")
 - (id)copyWithZone:(struct _NSZone *)zone { return [[NSData alloc] initWithData:self]; }
 - (id)mutableCopyWithZone:(struct _NSZone *)zone { return [[NSMutableData alloc] initWithData:self]; }
 
-/* "{length = 5, bytes = 0x0102abcdef}", with the middle elided past 24 bytes
- * as Apple's does: "{length = 100, bytes = 0x00010203 ... 5c5d5e5f }". */
+/* "{length = 5, bytes = 0x0102abcdef}"; past 24 bytes, as Apple's: the first 16 and
+ * the last 8 in words of 4, "{length = 100, bytes = 0x00010203 04050607 08090a0b
+ * 0c0d0e0f ... 5c5d5e5f 60616263 }". */
 - (id)description
 {
     NSUInteger n = [self length];
@@ -174,9 +175,17 @@ ABSTRACT(- (const void *)bytes, "bytes")
         for (NSUInteger i = 0; i < n; i++) CFStringAppendFormat(s, NULL, CFSTR("%02x"), p[i]);
         CFStringAppend(s, CFSTR("}"));
     } else {
-        for (NSUInteger i = 0; i < 8; i++) CFStringAppendFormat(s, NULL, CFSTR("%02x"), p[i]);
-        CFStringAppend(s, CFSTR(" ... "));
-        for (NSUInteger i = n - 8; i < n; i++) CFStringAppendFormat(s, NULL, CFSTR("%02x"), p[i]);
+        for (NSUInteger i = 0; i < 16; i++) {
+            CFStringAppendFormat(s, NULL, CFSTR("%02x"), p[i]);
+            if (i % 4 == 3)
+                CFStringAppend(s, CFSTR(" "));
+        }
+        CFStringAppend(s, CFSTR("..."));
+        for (NSUInteger i = 0; i < 8; i++) {
+            if (i % 4 == 0)
+                CFStringAppend(s, CFSTR(" "));
+            CFStringAppendFormat(s, NULL, CFSTR("%02x"), p[n - 8 + i]);
+        }
         CFStringAppend(s, CFSTR(" }"));
     }
     return [(id)s autorelease];

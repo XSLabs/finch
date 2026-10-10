@@ -16,6 +16,7 @@ struct opaqueCMSampleBuffer {
     pthread_mutex_t lock;
     CMBlockBufferRef data;
     CVImageBufferRef image;
+    CMTaggedBufferGroupRef group;
     CMFormatDescriptionRef format;
     CMItemCount numSamples;
     CMItemCount timingCount;
@@ -51,6 +52,8 @@ finalize(CFTypeRef cf)
         CFRelease(sb->data);
     if (sb->image)
         CFRelease(sb->image);
+    if (sb->group)
+        CFRelease(sb->group);
     if (sb->format)
         CFRelease(sb->format);
     if (sb->tracking)
@@ -252,6 +255,34 @@ CVImageBufferRef
 CMSampleBufferGetImageBuffer(CMSampleBufferRef sbuf)
 {
     return sbuf ? sbuf->image : NULL;
+}
+
+/* --- tagged buffer groups --- */
+
+OSStatus
+CMSampleBufferCreateForTaggedBufferGroup(CFAllocatorRef allocator, CMTaggedBufferGroupRef taggedBufferGroup, CMTime sbufPTS, CMTime sbufDuration,
+                                         CMTaggedBufferGroupFormatDescriptionRef formatDescription, CMSampleBufferRef *sBufOut)
+{
+    if (!sBufOut)
+        return kCMSampleBufferError_RequiredParameterMissing;
+    *sBufOut = NULL;
+    if (!taggedBufferGroup || !formatDescription)
+        return kCMSampleBufferError_RequiredParameterMissing;
+    if (!CMTaggedBufferGroupFormatDescriptionMatchesTaggedBufferGroup(formatDescription, taggedBufferGroup))
+        return kCMSampleBufferError_InvalidMediaFormat;
+    CMSampleTimingInfo t = {sbufDuration, sbufPTS, kCMTimeInvalid};
+    Mutable sb;
+    OSStatus e = create(allocator, NULL, NULL, true, NULL, NULL, NULL, formatDescription, 1, 1, &t, 0, NULL, &sb);
+    if (!e)
+        sb->group = (CMTaggedBufferGroupRef)CFRetain(taggedBufferGroup);
+    *sBufOut = sb;
+    return e;
+}
+
+CMTaggedBufferGroupRef
+CMSampleBufferGetTaggedBufferGroup(CMSampleBufferRef sbuf)
+{
+    return sbuf ? sbuf->group : NULL;
 }
 
 /* --- audio --- */

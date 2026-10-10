@@ -9,7 +9,9 @@
  * sample buffers (timing and sizes, ranges, copies, readiness, invalidation, sample and
  * buffer attachments, image buffers, output timing, audio buffer lists and packets);
  * clocks, timebases (anchors, rates, chains, timers) and conversions; simple and buffer
- * queues (ordering, triggers, end of data); memory pools.
+ * queues (ordering, triggers, end of data); memory pools; format descriptions from H.264
+ * and HEVC parameter sets; metadata identifiers, the data type registry and metadata
+ * format descriptions; tags, tag collections and tagged buffer groups.
  */
 #include <CoreMedia/CoreMedia.h>
 #include <dlfcn.h>
@@ -964,6 +966,294 @@ queues(void)
     CFRelease(pool);
 }
 
+/* --- format descriptions from parameter sets --- */
+
+static size_t
+from_hex(const char *h, uint8_t *out)
+{
+    size_t n = 0;
+    while (h[0] && h[1]) {
+        unsigned v;
+        sscanf(h, "%2x", &v);
+        out[n++] = (uint8_t)v;
+        h += 2;
+    }
+    return n;
+}
+
+static void
+atoms(CMFormatDescriptionRef fd)
+{
+    CFDictionaryRef a = CMFormatDescriptionGetExtension(fd, kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms);
+    if (!a)
+        return;
+    CFIndex n = CFDictionaryGetCount(a);
+    const void *k[4], *v[4];
+    CFDictionaryGetKeysAndValues(a, k, v);
+    for (CFIndex i = 0; i < n && i < 4; i++) {
+        printf("  atom %s: ", desc(k[i]));
+        for (CFIndex j = 0; j < CFDataGetLength(v[i]); j++)
+            printf("%02x", CFDataGetBytePtr(v[i])[j]);
+        printf("\n");
+    }
+}
+
+static void
+parameter_sets(void)
+{
+    /* (sets Apple's encoder made, 640x480 and 1920x1080 H.264 and 1280x720 HEVC) */
+    const char *h264[][2] = {{"2764001eac5650280f64", "28ee3cb0"}, {"27640028ac56501e0089f950", "28ee3cb0"},
+                             {"6742c01e95a0280f6400", "68ce3c80"}};
+    for (int i = 0; i < 3; i++) {
+        uint8_t a[64], b[64];
+        size_t sa = from_hex(h264[i][0], a), sb = from_hex(h264[i][1], b);
+        const uint8_t *p[] = {a, b};
+        size_t sz[] = {sa, sb};
+        CMFormatDescriptionRef fd = NULL;
+        printf("h264 %d\n", (int)CMVideoFormatDescriptionCreateFromH264ParameterSets(NULL, 2, p, sz, 4, &fd));
+        if (!fd)
+            continue;
+        show("  description", fd);
+        atoms(fd);
+        size_t n = 0, qs = 0;
+        int nal = 0;
+        const uint8_t *q = NULL;
+        printf("  get second %d", (int)CMVideoFormatDescriptionGetH264ParameterSetAtIndex(fd, 1, &q, &qs, &n, &nal));
+        printf(" count %zu nal %d size %zu same %d", n, nal, qs, q && qs == sb && !memcmp(q, b, sb));
+        printf(" third %d\n", (int)CMVideoFormatDescriptionGetH264ParameterSetAtIndex(fd, 2, &q, &qs, NULL, NULL));
+        CFRelease(fd);
+    }
+    uint8_t v[64], sp[64], pp[64];
+    size_t sv = from_hex("40010c01ffff016000000300b0000003000003005d15c090", v);
+    size_t ss = from_hex("420101016000000300b0000003000003005da00280802d162057b9165440", sp);
+    size_t spp = from_hex("4401c02cbc14c9", pp);
+    const uint8_t *hp[] = {v, sp, pp};
+    size_t hs[] = {sv, ss, spp};
+    CMFormatDescriptionRef fd = NULL;
+    printf("hevc %d\n", (int)CMVideoFormatDescriptionCreateFromHEVCParameterSets(NULL, 3, hp, hs, 4, NULL, &fd));
+    if (fd) {
+        show("  description", fd);
+        atoms(fd);
+        size_t n = 0, qs = 0;
+        int nal = 0;
+        const uint8_t *q = NULL;
+        printf("  get pps %d", (int)CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(fd, 2, &q, &qs, &n, &nal));
+        printf(" count %zu nal %d size %zu same %d\n", n, nal, qs, q && qs == spp && !memcmp(q, pp, spp));
+        printf("  as H.264 %d\n", (int)CMVideoFormatDescriptionGetH264ParameterSetAtIndex(fd, 0, &q, &qs, &n, &nal));
+    }
+    const uint8_t *one[] = {v};
+    printf("errors: one set %d, a header length of 3 %d, HEVC without a sequence set %d\n",
+           (int)CMVideoFormatDescriptionCreateFromH264ParameterSets(NULL, 1, one, &sv, 4, &fd),
+           (int)CMVideoFormatDescriptionCreateFromH264ParameterSets(NULL, 2, hp, hs, 3, &fd),
+           (int)CMVideoFormatDescriptionCreateFromHEVCParameterSets(NULL, 3, (const uint8_t *[]){v, pp, pp}, (size_t[]){sv, spp, spp}, 4, NULL, &fd));
+}
+
+/* --- metadata --- */
+
+static void
+metadata(void)
+{
+    struct {
+        CFTypeRef key;
+        CFStringRef space;
+    } pairs[] = {{CFSTR("com.apple.quicktime.title"), kCMMetadataKeySpace_QuickTimeMetadata},
+                 {CFSTR("weird/key%"), kCMMetadataKeySpace_QuickTimeMetadata},
+                 {CFSTR("TIT2"), kCMMetadataKeySpace_ID3},
+                 {CFSTR("©nam"), kCMMetadataKeySpace_iTunes},
+                 {CFSTR("x"), CFSTR("toolongkeyspace")},
+                 {CFSTR("abc"), kCMMetadataKeySpace_iTunes},
+                 {CFSTR("café"), kCMMetadataKeySpace_QuickTimeMetadata},
+                 {CFSTR("icy"), kCMMetadataKeySpace_Icy}};
+    for (size_t i = 0; i < sizeof pairs / sizeof pairs[0]; i++) {
+        CFStringRef id = NULL;
+        OSStatus e = CMMetadataCreateIdentifierForKeyAndKeySpace(NULL, pairs[i].key, pairs[i].space, &id);
+        printf("identifier %d %s\n", (int)e, desc(id));
+    }
+    int code = (int)0xa96e616d;
+    CFNumberRef number = CFNumberCreate(NULL, kCFNumberIntType, &code);
+    CFDataRef data = CFDataCreate(NULL, (const UInt8 *)"\xa9nam", 4);
+    CFStringRef id = NULL;
+    printf("from a number %d", (int)CMMetadataCreateIdentifierForKeyAndKeySpace(NULL, number, kCMMetadataKeySpace_iTunes, &id));
+    printf(" %s", desc(id));
+    printf(" from data %d", (int)CMMetadataCreateIdentifierForKeyAndKeySpace(NULL, data, kCMMetadataKeySpace_iTunes, &id));
+    printf(" %s", desc(id));
+    printf(" a number for a string space %d\n", (int)CMMetadataCreateIdentifierForKeyAndKeySpace(NULL, number, kCMMetadataKeySpace_QuickTimeMetadata, &id));
+    CFStringRef ids[] = {CFSTR("mdta/com.apple.quicktime.title"), CFSTR("itsk/%A9nam"), CFSTR("id3/TIT2"), CFSTR("udta/%A9day"), CFSTR("bad"),
+                         CFSTR("mdta/a%2Fb"), CFSTR("mdta/"), CFSTR("/x")};
+    for (size_t i = 0; i < sizeof ids / sizeof ids[0]; i++) {
+        CFTypeRef key = NULL;
+        CFStringRef space = NULL;
+        CFDataRef bytes = NULL;
+        OSStatus e1 = CMMetadataCreateKeyFromIdentifier(NULL, ids[i], &key), e2 = CMMetadataCreateKeySpaceFromIdentifier(NULL, ids[i], &space),
+                 e3 = CMMetadataCreateKeyFromIdentifierAsCFData(NULL, ids[i], &bytes);
+        char k[256] = "(null)";
+        if (key && CFGetTypeID(key) == CFNumberGetTypeID()) {
+            int v;
+            CFNumberGetValue(key, kCFNumberIntType, &v);
+            snprintf(k, sizeof k, "number %d", v);
+        } else if (key)
+            snprintf(k, sizeof k, "%s", desc(key));
+        printf("%s: key %d %s, space %d %s, bytes %d %ld\n", desc(ids[i]), (int)e1, k, (int)e2, desc(space), (int)e3,
+               bytes ? (long)CFDataGetLength(bytes) : -1L);
+    }
+    show("base types", CMMetadataDataTypeRegistryGetBaseDataTypes());
+    printf("registered %d %d\n", CMMetadataDataTypeRegistryDataTypeIsRegistered(kCMMetadataBaseDataType_UTF8),
+           CMMetadataDataTypeRegistryDataTypeIsRegistered(CFSTR("com.example.x")));
+    const void *utf8[] = {kCMMetadataBaseDataType_UTF8};
+    CFArrayRef conforms = CFArrayCreate(NULL, utf8, 1, &kCFTypeArrayCallBacks);
+    printf("register %d again %d\n", (int)CMMetadataDataTypeRegistryRegisterDataType(CFSTR("com.example.x"), CFSTR("an example"), conforms),
+           (int)CMMetadataDataTypeRegistryRegisterDataType(CFSTR("com.example.x"), CFSTR("an example"), conforms));
+    printf("conforms %d %d base %d %d\n", CMMetadataDataTypeRegistryDataTypeConformsToDataType(CFSTR("com.example.x"), kCMMetadataBaseDataType_UTF8),
+           CMMetadataDataTypeRegistryDataTypeConformsToDataType(kCMMetadataBaseDataType_UTF8, CFSTR("com.example.x")),
+           CMMetadataDataTypeRegistryDataTypeIsBaseDataType(kCMMetadataBaseDataType_UTF8),
+           CMMetadataDataTypeRegistryDataTypeIsBaseDataType(CFSTR("com.example.x")));
+    printf("description %s, base %s, UTF-8's %s\n", desc(CMMetadataDataTypeRegistryGetDataTypeDescription(CFSTR("com.example.x"))),
+           desc(CMMetadataDataTypeRegistryGetBaseDataTypeForConformingDataType(CFSTR("com.example.x"))),
+           desc(CMMetadataDataTypeRegistryGetDataTypeDescription(kCMMetadataBaseDataType_UTF8)));
+    CFStringRef named[] = {kCMMetadataDataType_QuickTimeMetadataLocation_ISO6709, kCMMetadataDataType_QuickTimeMetadataDirection,
+                           kCMMetadataBaseDataType_RawData, kCMMetadataBaseDataType_PolygonF32};
+    for (size_t i = 0; i < 4; i++)
+        printf("%s: %s, conforms to %s\n", desc(named[i]), desc(CMMetadataDataTypeRegistryGetDataTypeDescription(named[i])),
+               desc(CMMetadataDataTypeRegistryGetConformingDataTypes(named[i])));
+
+    CFStringRef specKeys[] = {kCMMetadataFormatDescriptionMetadataSpecificationKey_Identifier, kCMMetadataFormatDescriptionMetadataSpecificationKey_DataType};
+    CFTypeRef s1v[] = {CFSTR("mdta/com.apple.quicktime.title"), kCMMetadataBaseDataType_UTF8};
+    CFTypeRef s2v[] = {CFSTR("mdta/com.apple.quicktime.location.ISO6709"), kCMMetadataDataType_QuickTimeMetadataLocation_ISO6709};
+    CFTypeRef s3v[] = {CFSTR("udta/%A9day"), kCMMetadataBaseDataType_SInt32};
+    CFDictionaryRef s1 = CFDictionaryCreate(NULL, (const void **)specKeys, s1v, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFDictionaryRef s2 = CFDictionaryCreate(NULL, (const void **)specKeys, s2v, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFDictionaryRef s3 = CFDictionaryCreate(NULL, (const void **)specKeys, s3v, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFArrayRef specs = CFArrayCreate(NULL, (const void *[]){s1, s2}, 2, &kCFTypeArrayCallBacks);
+    CMMetadataFormatDescriptionRef fd = NULL, more = NULL, merged = NULL;
+    printf("metadata format %d\n", (int)CMMetadataFormatDescriptionCreateWithMetadataSpecifications(NULL, kCMMetadataFormatType_Boxed, specs, &fd));
+    show("  description", fd);
+    show("  identifiers", CMMetadataFormatDescriptionGetIdentifiers(fd));
+    show("  key 2", CMMetadataFormatDescriptionGetKeyWithLocalID(fd, 2));
+    show("  key 3", CMMetadataFormatDescriptionGetKeyWithLocalID(fd, 3));
+    CFArrayRef three = CFArrayCreate(NULL, (const void *[]){s3, s1}, 2, &kCFTypeArrayCallBacks);
+    printf("extended %d\n", (int)CMMetadataFormatDescriptionCreateWithMetadataFormatDescriptionAndMetadataSpecifications(NULL, fd, three, &more));
+    show("  identifiers", CMMetadataFormatDescriptionGetIdentifiers(more));
+    CMMetadataFormatDescriptionRef other = NULL;
+    CMMetadataFormatDescriptionCreateWithMetadataSpecifications(NULL, kCMMetadataFormatType_Boxed,
+                                                                CFArrayCreate(NULL, (const void *[]){s3, s1}, 2, &kCFTypeArrayCallBacks), &other);
+    printf("merged %d\n", (int)CMMetadataFormatDescriptionCreateByMergingMetadataFormatDescriptions(NULL, fd, other, &merged));
+    show("  identifiers", CMMetadataFormatDescriptionGetIdentifiers(merged));
+    CMMetadataFormatDescriptionRef id3 = NULL;
+    printf("id3 %d\n", (int)CMMetadataFormatDescriptionCreateWithKeys(NULL, kCMMetadataFormatType_ID3, NULL, &id3));
+    show("  description", id3);
+    printf("unknown data type %d\n",
+           (int)CMMetadataFormatDescriptionCreateWithMetadataSpecifications(
+               NULL, kCMMetadataFormatType_Boxed,
+               CFArrayCreate(NULL,
+                             (const void *[]){CFDictionaryCreate(NULL, (const void **)specKeys, (const void *[]){CFSTR("mdta/x"), CFSTR("com.nope")}, 2,
+                                                                 &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks)},
+                             1, &kCFTypeArrayCallBacks),
+               &other));
+}
+
+/* --- tags --- */
+
+static void
+tag(const char *label, CMTag x)
+{
+    CFStringRef d = CMTagCopyDescription(NULL, x);
+    printf("%s: %s (category %x type %d) int %lld float %g ostype %x flags %llx\n", label, desc(d), (unsigned)x.category, (int)x.dataType,
+           (long long)CMTagGetSInt64Value(x), CMTagGetFloat64Value(x), (unsigned)CMTagGetOSTypeValue(x), (unsigned long long)CMTagGetFlagsValue(x));
+    CFRelease(d);
+}
+
+static void
+tags(void)
+{
+    tag("invalid", kCMTagInvalid);
+    tag("video", kCMTagMediaTypeVideo);
+    tag("left", kCMTagStereoLeftEye);
+    tag("both", kCMTagStereoLeftAndRightEye);
+    tag("int", CMTagMakeWithSInt64Value(kCMTagCategory_VideoLayerID, -5));
+    tag("float", CMTagMakeWithFloat64Value('abcd', 1.5));
+    tag("ostype", CMTagMakeWithOSTypeValue(kCMTagCategory_MediaType, 'soun'));
+    tag("projection", kCMTagProjectionTypeEquirectangular);
+    tag("packing", kCMTagPackingTypeSideBySide);
+    CMTag a = CMTagMakeWithSInt64Value('aaaa', 1), b = CMTagMakeWithSInt64Value('aaaa', 2), c = CMTagMakeWithFloat64Value('aaaa', 1),
+          d = CMTagMakeWithSInt64Value('bbbb', 0), neg = CMTagMakeWithSInt64Value('aaaa', -1);
+    printf("compare %d %d %d %d %d %d equal %d %d\n", (int)CMTagCompare(a, b), (int)CMTagCompare(b, a), (int)CMTagCompare(a, c), (int)CMTagCompare(a, d),
+           (int)CMTagCompare(a, a), (int)CMTagCompare(neg, a), CMTagEqualToTag(a, a), CMTagEqualToTag(a, c));
+    show("tag dictionary", CMTagCopyAsDictionary(CMTagMakeWithFloat64Value('aaaa', 1.25), NULL));
+    tag("back", CMTagMakeFromDictionary(CMTagCopyAsDictionary(CMTagMakeWithFloat64Value('aaaa', 1.25), NULL)));
+    tag("from nothing", CMTagMakeFromDictionary(dict(0)));
+    CMTag list[] = {kCMTagStereoRightEye, kCMTagMediaTypeVideo, kCMTagStereoLeftEye, kCMTagMediaTypeVideo,
+                    CMTagMakeWithSInt64Value(kCMTagCategory_VideoLayerID, 7)};
+    CMTagCollectionRef col = NULL;
+    printf("collection %d count %ld\n", (int)CMTagCollectionCreate(NULL, list, 5, &col), (long)CMTagCollectionGetCount(col));
+    show("  description", col);
+    show("  dictionary", CMTagCollectionCopyAsDictionary(col, NULL));
+    CFDataRef data = CMTagCollectionCopyAsData(col, NULL);
+    printf("  data %ld: ", (long)CFDataGetLength(data));
+    for (CFIndex i = 0; i < CFDataGetLength(data); i++)
+        printf("%02x", CFDataGetBytePtr(data)[i]);
+    CMTagCollectionRef fromData = NULL, fromDict = NULL;
+    printf("\n  from data %d equal %d", (int)CMTagCollectionCreateFromData(data, NULL, &fromData), fromData && CFEqual(fromData, col));
+    printf(" from dictionary %d equal %d\n", (int)CMTagCollectionCreateFromDictionary(CMTagCollectionCopyAsDictionary(col, NULL), NULL, &fromDict),
+           fromDict && CFEqual(fromDict, col));
+    CMTag got[8];
+    CMItemCount n = 0;
+    printf("  get %d %ld small %d", (int)CMTagCollectionGetTags(col, got, 8, &n), (long)n, (int)CMTagCollectionGetTags(col, got, 2, &n));
+    printf(" %ld of category %ld", (long)n, (long)CMTagCollectionGetCountOfCategory(col, kCMTagCategory_StereoView));
+    printf(" with category %d", (int)CMTagCollectionGetTagsWithCategory(col, kCMTagCategory_StereoView, got, 8, &n));
+    printf(" %ld contains %d %d category %d %d\n", (long)n, CMTagCollectionContainsTag(col, kCMTagStereoLeftEye),
+           CMTagCollectionContainsTag(col, kCMTagStereoNone), CMTagCollectionContainsCategory(col, kCMTagCategory_PackingType),
+           CMTagCollectionContainsCategory(col, kCMTagCategory_VideoLayerID));
+    CMTagCollectionRef other = NULL, r = NULL;
+    CMTag ot[] = {kCMTagStereoLeftEye, kCMTagPackingTypeNone};
+    CMTagCollectionCreate(NULL, ot, 2, &other);
+    CMTagCollectionCreateUnion(col, other, &r);
+    show("  union", r);
+    CMTagCollectionCreateIntersection(col, other, &r);
+    show("  intersection", r);
+    CMTagCollectionCreateDifference(col, other, &r);
+    show("  difference", r);
+    CMTagCollectionCreateExclusiveOr(col, other, &r);
+    show("  exclusive or", r);
+    CMTagCategory cats[] = {kCMTagCategory_StereoView, kCMTagCategory_PackingType};
+    CMTagCollectionCopyTagsOfCategories(NULL, col, cats, 2, &r);
+    show("  of categories", r);
+    printf("  contains other %d its own copy %d\n", CMTagCollectionContainsTagsOfCollection(col, other), CMTagCollectionContainsTagsOfCollection(col, fromData));
+    CMMutableTagCollectionRef m = NULL;
+    CMTagCollectionCreateMutable(NULL, 0, &m);
+    printf("mutable: add %d %d remove %d %d", (int)CMTagCollectionAddTag(m, kCMTagStereoLeftEye), (int)CMTagCollectionAddTag(m, kCMTagStereoLeftEye),
+           (int)CMTagCollectionRemoveTag(m, kCMTagStereoRightEye), (int)CMTagCollectionRemoveTag(m, kCMTagStereoLeftEye));
+    printf(" to immutable %d invalid tag %d empty %d\n", (int)CMTagCollectionAddTag((CMMutableTagCollectionRef)col, kCMTagStereoNone),
+           (int)CMTagCollectionAddTag(m, kCMTagInvalid), CMTagCollectionIsEmpty(m));
+    CMTagCollectionAddTagsFromCollection(m, col);
+    CMTagCollectionRemoveAllTagsOfCategory(m, kCMTagCategory_StereoView);
+    show("  after adding and removing eyes", m);
+    printf("bad data %d\n", (int)CMTagCollectionCreateFromData(CFDataCreate(NULL, (const UInt8 *)"12345678", 8), NULL, &r));
+
+    CVPixelBufferRef left = NULL, right = NULL;
+    CVPixelBufferCreate(NULL, 8, 8, kCVPixelFormatType_32BGRA, NULL, &left);
+    CVPixelBufferCreate(NULL, 8, 8, kCVPixelFormatType_32BGRA, NULL, &right);
+    CMTagCollectionRef lc = NULL, rc = NULL;
+    CMTagCollectionCreate(NULL, (CMTag[]){kCMTagStereoLeftEye, kCMTagMediaTypeVideo}, 2, &lc);
+    CMTagCollectionCreate(NULL, (CMTag[]){kCMTagStereoRightEye, kCMTagMediaTypeVideo}, 2, &rc);
+    CFArrayRef cols = CFArrayCreate(NULL, (const void *[]){lc, rc}, 2, &kCFTypeArrayCallBacks);
+    CFArrayRef bufs = CFArrayCreate(NULL, (const void *[]){left, right}, 2, &kCFTypeArrayCallBacks);
+    CMTaggedBufferGroupRef group = NULL;
+    printf("group %d count %ld", (int)CMTaggedBufferGroupCreate(NULL, cols, bufs, &group), (long)CMTaggedBufferGroupGetCount(group));
+    CFIndex at = -1;
+    printf(" right is %d at %ld", CMTaggedBufferGroupGetCVPixelBufferForTag(group, kCMTagStereoRightEye, &at) == right, (long)at);
+    printf(" video matches %ld, ambiguous %d, first %d sample %d\n", (long)CMTaggedBufferGroupGetNumberOfMatchesForTagCollection(group, lc),
+           CMTaggedBufferGroupGetCVPixelBufferForTag(group, kCMTagMediaTypeVideo, NULL) != NULL, CMTaggedBufferGroupGetCVPixelBufferAtIndex(group, 0) == left,
+           CMTaggedBufferGroupGetCMSampleBufferAtIndex(group, 0) != NULL);
+    printf("  mismatched arrays %d\n", (int)CMTaggedBufferGroupCreate(NULL, cols, CFArrayCreate(NULL, (const void *[]){left}, 1, &kCFTypeArrayCallBacks), &group));
+    CMTaggedBufferGroupFormatDescriptionRef gfd = NULL;
+    printf("  format %d", (int)CMTaggedBufferGroupFormatDescriptionCreateForTaggedBufferGroup(NULL, group, &gfd));
+    printf(" type %x sub %x matches %d\n", (unsigned)CMFormatDescriptionGetMediaType(gfd), (unsigned)CMFormatDescriptionGetMediaSubType(gfd),
+           CMTaggedBufferGroupFormatDescriptionMatchesTaggedBufferGroup(gfd, group));
+    CMSampleBufferRef gsb = NULL;
+    printf("  sample buffer %d", (int)CMSampleBufferCreateForTaggedBufferGroup(NULL, group, CMTimeMake(1, 30), CMTimeMake(1, 30), gfd, &gsb));
+    printf(" group %d samples %ld\n", CMSampleBufferGetTaggedBufferGroup(gsb) == group, (long)CMSampleBufferGetNumSamples(gsb));
+}
+
 int
 main(int argc, char **argv)
 {
@@ -977,5 +1267,8 @@ main(int argc, char **argv)
     samples();
     clocks();
     queues();
+    parameter_sets();
+    metadata();
+    tags();
     return 0;
 }

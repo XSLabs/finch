@@ -9,6 +9,7 @@
 #include "CMInternal.h"
 #include <CoreAudioTypes/CoreAudioTypes.h>
 #include <CoreVideo/CoreVideo.h>
+#include <stdatomic.h>
 #include <string.h>
 
 const CMVideoDimensions kCMVideoDimensionsZero = {0, 0};
@@ -35,6 +36,7 @@ struct opaqueCMFormatDescription {
         size_t listSize;
     } audio;
     CMMuxedStreamType mux;
+    _Atomic(CFArrayRef) cached; /* (an array made from the description once, such as metadata identifiers) */
     struct {
         CMTime frameDuration;
         uint32_t quanta, flags;
@@ -82,6 +84,26 @@ finalize(CFTypeRef cf)
         CFRelease(d->audio.cookie);
     free(d->audio.layout);
     free(d->audio.list);
+    if (d->cached)
+        CFRelease(d->cached);
+}
+
+CFArrayRef
+_FinchCMFormatDescriptionCachedArray(CMFormatDescriptionRef desc, CFArrayRef (*make)(CMFormatDescriptionRef))
+{
+    struct opaqueCMFormatDescription *d = (struct opaqueCMFormatDescription *)desc;
+    CFArrayRef a = d->cached;
+    if (a)
+        return a;
+    CFArrayRef made = make(desc);
+    if (!made)
+        return NULL;
+    CFArrayRef expected = NULL;
+    if (!atomic_compare_exchange_strong(&d->cached, &expected, made)) {
+        CFRelease(made);
+        return expected;
+    }
+    return made;
 }
 
 static bool
@@ -258,9 +280,17 @@ copy_description(CFTypeRef cf)
         CFRelease(t);
         break;
     }
-    case KIND_METADATA:
-        CFStringAppend(s, CFSTR(" \n"));
+    case KIND_METADATA: {
+        CFTypeRef table = d->extensions ? CFDictionaryGetValue(d->extensions, CFSTR("MetadataKeyTable")) : NULL;
+        if (table)
+            CFStringAppendFormat(s, NULL,
+                                 CFSTR("\t\tidentifierToDataTypes %p\t\tlocalKeyIDToKeyEntryMapping %p\t\tlocalKeyIDToMetadataSpecificationMapping %p"
+                                       "\t\tlocalKeyIDToConformingDataTypes %p\t\tlocalKeyIDToQuickTimeWellKnownTypeMapping %p \n"),
+                                 table, table, table, table, table);
+        else
+            CFStringAppend(s, CFSTR(" \n"));
         break;
+    }
     default:
         CFStringAppend(s, CFSTR("(null) \n"));
     }
