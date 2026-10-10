@@ -25,6 +25,7 @@
  *   cmd:CHAR          press Command-CHAR
  *   sample:X,Y,LABEL  print the screen's colour at X,Y in the current window
  *   windows           print the window list (titles and sizes)
+ *   frames            print the window list with where each window is
  *   screenshot:PATH   save the screen as a PNG
  *   screenshot64[:half]  print the screen as a base64 PNG between BEGIN-PNG and
  *                     END-PNG lines (to get it out of the VM over its console),
@@ -336,6 +337,15 @@ main(int argc, char **argv)
                 if (list[k].on_screen)
                     printf("  window \"%s\" %gx%g level %d\n", list[k].title, list[k].frame.width,
                            list[k].frame.height, list[k].level);
+            free(list);
+        } else if (!strcmp(s, "frames")) {
+            /* the windows with where they are (top-left origin, points) */
+            uint32_t count = 0;
+            FWSWindowInfo *list = FWSCopyWindowList(&count);
+            for (uint32_t k = 0; k < count; k++)
+                if (list[k].on_screen)
+                    printf("  window \"%s\" at %g,%g %gx%g level %d\n", list[k].title, list[k].frame.x, list[k].frame.y,
+                           list[k].frame.width, list[k].frame.height, list[k].level);
             free(list);
         } else if (!strcmp(s, "output")) {
             usleep(300000);

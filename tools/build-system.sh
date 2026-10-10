@@ -125,6 +125,8 @@ steps=(
     "CoreWLAN|userland/CoreWLAN/build.sh"
     "IOBluetooth|userland/IOBluetooth/build.sh"
     "StoreKit|userland/StoreKit/build.sh"
+    "Contacts|userland/Contacts/build.sh"
+    "Accounts|userland/Accounts/build.sh"
     # Image Capture's frameworks: ImageCaptureCore, ICADevices, and Quartz with ImageKit
     # (docs/design/IMAGECAPTURE.md)
     "ImageCaptureCore|userland/ImageCaptureCore/build.sh"
@@ -152,6 +154,8 @@ steps=(
     "libm|make -s -C userland/libm"
     "corecrypto|make -s -C userland/corecrypto install"
     "Security|userland/Security/build.sh"
+    # DiskArbitration's client, from Apple's source (the daemon is still to port)
+    "DiskArbitration|userland/DiskArbitration/build.sh"
     "trace|make -s -C userland/libsystem/trace install"
     "Libsystem|oss Libsystem Libsystem"
     "llvm-runtimes|tools/build-llvm-runtimes.sh"

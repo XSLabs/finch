@@ -489,7 +489,16 @@ FinchEventNoteModifiers(NSEventModifierFlags flags, NSPoint mouse, NSUInteger bu
     current_buttons = buttons;
 }
 
-+ (NSPoint)mouseLocation { return current_mouse; }
+/* Where the cursor is now (the window server's, as Apple's asks the HID system), in
+   AppKit's coordinates; the last event's place if the server can't be asked. */
++ (NSPoint)mouseLocation
+{
+    FWSInputState st;
+    NSScreen *primary = [[NSScreen screens] firstObject];
+    if (!primary || !FWSGetInputState(&st))
+        return current_mouse;
+    return NSMakePoint(st.x, NSMaxY([primary frame]) - st.y);
+}
 + (NSEventModifierFlags)modifierFlags { return current_flags; }
 + (NSUInteger)pressedMouseButtons { return current_buttons; }
 + (NSTimeInterval)doubleClickInterval { return 0.5; }

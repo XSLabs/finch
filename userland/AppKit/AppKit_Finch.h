@@ -18,6 +18,7 @@ __BEGIN_DECLS
 bool FWSConnect(void);
 int FWSConnectionFileDescriptor(void);
 bool FWSGetDisplayInfo(FWSDisplayInfo *out);
+bool FWSGetInputState(FWSInputState *out);
 uint32_t FWSCreateWindow(FWSRect frame, int32_t level, uint32_t flags);
 void *FWSWindowBuffer(uint32_t window, uint32_t *pixel_width, uint32_t *pixel_height, uint32_t *bytes_per_row);
 CGContextRef FWSCreateWindowContext(uint32_t window);

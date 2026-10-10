@@ -130,7 +130,9 @@ Apple's is closed. Developed in the emulated M4 first. The map is
         - [x] SystemConfiguration's local preference and network-state reads, schema keys,
               and synchronous route checks (2026-10-09). Writes, subscriptions and configd
               remain unfinished; see [Security and SystemConfiguration](design/SECURITY.md).
-        - [ ] cron; DiskArbitration; configd; mDNSPosix
+        - [x] DiskArbitration.framework, the client, from Apple's source (2026-10-10);
+              without diskarbitrationd a session can't be made, as when the daemon is down
+        - [ ] cron; diskarbitrationd; configd; mDNSPosix
   - [x] libmalloc no longer depends on libcorecrypto
   - [x] libsystem_featureflags, coreservices, darwindirectory, eligibility, symptoms,
         trial, secinit, sanitizers, libRosetta: Finch's own (`userland/libsystem`)

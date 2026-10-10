@@ -185,3 +185,6 @@ build/userland/finch-scripting-test /usr/local/bin/finch-scripting-test
 build/userland/finch-coreimage-test /usr/local/bin/finch-coreimage-test
 build/userland/finch-cgevent-test /usr/local/bin/finch-cgevent-test
 build/userland/finch-keylayout-test /usr/local/bin/finch-keylayout-test
+build/userland/finch-appkit-statusbar-test /usr/local/bin/finch-appkit-statusbar-test
+build/userland/finch-contacts-test /usr/local/bin/finch-contacts-test
+build/userland/finch-accounts-test /usr/local/bin/finch-accounts-test

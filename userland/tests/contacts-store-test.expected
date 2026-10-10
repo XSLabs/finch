@@ -1,0 +1,27 @@
+status 3
+access 1 (null)
+containers 1: On My Mac type 1 default 1
+save 1 (null); description persisted 1
+notifications 1
+again: 0 code 201
+all: Ann Zed (CNContact); John Appleseed (CNContact)
+by id: John note available 0
+note: CNPropertyNotFetchedException A property was not requested when contact was fetched.
+missing: (null) code 200
+name 'apple': John
+name 'jo app': John
+email: Ann
+phone: John
+update 1
+updated: Anne emails _$!<Home>!$_=Ann@Example.org
+group save 1
+groups: Friends
+members: John
+history: CNChangeHistoryAddContactEvent, CNChangeHistoryAddContactEvent, CNChangeHistoryUpdateContactEvent, CNChangeHistoryAddGroupEvent, CNChangeHistoryAddMemberToGroupEvent
+since now: 0
+from nothing: CNChangeHistoryDropEverythingEvent, CNChangeHistoryAddContactEvent, CNChangeHistoryAddContactEvent, CNChangeHistoryAddGroupEvent, CNChangeHistoryAddMemberToGroupEvent
+other store: 1
+delete 1
+left: 1; members 0
+me: (null)
+notifications 4

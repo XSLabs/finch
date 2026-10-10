@@ -609,12 +609,45 @@ enum {
     NSWindowStyleMask style = (NSWindowStyleMask)[coder decodeIntegerForKey:@"NSWindowStyleMask"];
     NSBackingStoreType backing = (NSBackingStoreType)[coder decodeIntegerForKey:@"NSWindowBacking"];
     unsigned flags = (unsigned)[coder decodeIntForKey:@"NSWTFlags"];
-    /* The rect is where it was on Interface Builder's screen: keep its distance from the top on this one. */
+    /* The rect is where it was on Interface Builder's screen; the template's position mask
+       (NSWTFlags bits 19-24: flexible left, width, right, bottom, height and top margins, as
+       Interface Builder's "Initial Position") says how it moves on this one: a flexible
+       margin on each side keeps its proportion, one on one side keeps the other side's
+       distance, none keeps it from the left and bottom. Then the title bar stays on screen. */
     NSRect designScreen = [coder decodeRectForKey:@"NSScreenRect"];
     NSScreen *screen = [NSScreen mainScreen];
     if (screen && !NSIsEmptyRect(designScreen)) {
-        CGFloat fromTop = NSMaxY(designScreen) - NSMaxY(rect);
-        rect.origin.y = NSMaxY([screen frame]) - fromTop - rect.size.height;
+        unsigned mask = (flags >> 19) & 0x3F;
+        NSRect now = [screen frame], visible = [screen visibleFrame];
+        BOOL minX = mask & 1, maxX = mask & 4, minY = mask & 8, maxY = mask & 32;
+        CGFloat dx = rect.origin.x - NSMinX(designScreen), dy = rect.origin.y - NSMinY(designScreen);
+        if (minX && maxX) {
+            CGFloat room = designScreen.size.width - rect.size.width;
+            rect.origin.x = NSMinX(now) + (room > 0 ? (now.size.width - rect.size.width) * dx / room : 0);
+        } else if (minX) {
+            rect.origin.x = NSMaxX(now) - (NSMaxX(designScreen) - NSMaxX(rect)) - rect.size.width;
+        } else {
+            rect.origin.x = NSMinX(now) + dx;
+        }
+        if (minY && maxY) {
+            CGFloat room = designScreen.size.height - rect.size.height;
+            rect.origin.y = NSMinY(now) + (room > 0 ? (now.size.height - rect.size.height) * dy / room : 0);
+        } else if (minY) {
+            rect.origin.y = NSMaxY(now) - (NSMaxY(designScreen) - NSMaxY(rect)) - rect.size.height;
+        } else {
+            rect.origin.y = NSMinY(now) + dy;
+        }
+        /* the title bar on screen, below the menu bar */
+        CGFloat titleBar = (style & NSWindowStyleMaskTitled) ? 28 : 0;
+        CGFloat top = rect.origin.y + rect.size.height + titleBar;
+        if (top > NSMaxY(visible))
+            rect.origin.y -= top - NSMaxY(visible);
+        if (rect.origin.y + rect.size.height + titleBar < NSMinY(visible) + titleBar)
+            rect.origin.y = NSMinY(visible);
+        if (NSMaxX(rect) < NSMinX(visible) + 40)
+            rect.origin.x = NSMinX(visible);
+        if (rect.origin.x > NSMaxX(visible) - 40)
+            rect.origin.x = NSMaxX(visible) - rect.size.width;
     }
     NSWindow *w = [[c alloc] initWithContentRect:rect styleMask:style backing:backing ?: NSBackingStoreBuffered
                                            defer:(flags & WT_DEFERRED) != 0];
@@ -892,7 +925,8 @@ enum {
                 [top addObject:r];
         }
     }
-    for (id o in objects)
+    /* (newest first, as Apple's: a view's -awakeFromNib before its controller's) */
+    for (id o in [objects reverseObjectEnumerator])
         if (o != owner && [o respondsToSelector:@selector(awakeFromNib)])
             [o awakeFromNib];
     if ([owner respondsToSelector:@selector(awakeFromNib)])
