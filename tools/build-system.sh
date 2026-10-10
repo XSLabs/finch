@@ -169,6 +169,7 @@ steps=(
     # names the archive libdispatch.a; move it out of the image tree.
     "firehose|oss libdispatch libfirehose_server && mkdir -p build/userland/lib && mv -f build/root/usr/lib/system/libdispatch.a build/userland/lib/libfirehose_server.a"
     "logd|make -s -C userland/logd"
+    "pboard|make -s -C userland/pboard"
     # Commands (userland/INVENTORY.md lists the deferred ones that don't build yet)
     "file_cmds|oss_cmds file_cmds executables"
     "shell_cmds|oss_cmds shell_cmds All_OSX"

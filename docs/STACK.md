@@ -68,7 +68,7 @@ CoreUI reads compiled asset catalogs for AppKit's named colors and images
 (`docs/design/ASSETS.md`). Foundation also contains its Swift value types and
 bridges, built from pinned Swift Foundation and Swift Collections sources.
 The Darwin Swift overlays and AppKit's first Swift extensions build alongside it.
-Security supplies keys, certificates and caller-root trust checks over OpenSSL.
+Security supplies keys, certificates, caller-root trust checks and Secure Transport (TLS) over OpenSSL.
 SystemConfiguration reads local preferences and network state. Keychain,
 authorization and configd services remain unfinished (`docs/design/SECURITY.md`).
 
@@ -116,7 +116,7 @@ block-beta
         uti["UniformTypeIdentifiers<br/>UTType, declared and<br/>dynamic types"]
         cfnetwork["CFNetwork<br/>HTTP messages and streams,<br/>socket streams (TLS via OpenSSL),<br/>CFHost, Bonjour (dns_sd),<br/>proxies, FTP"]
         cf["CoreFoundation<br/>swift-corelibs CF + Finch ObjC:<br/>toll-free dispatch, collections,<br/>ordered sets, NSCache, NSData, NSDate,<br/>NSURL, locales, calendars, defaults,<br/>run loops, attributed strings,<br/>streams, Mach ports, notifications;<br/>bundle languages and .loctable files"]
-        security["Security<br/>keys, certificates, caller-root trust<br/>(OpenSSL); services to come"]
+        security["Security<br/>keys, certificates, caller-root trust,<br/>Secure Transport, PKCS #12<br/>(OpenSSL); services to come"]
         od["OpenDirectory<br/>CFOpenDirectory"]
         icu["libicucore<br/>ICU-76142.4.7"]
         objc["libobjc (objc4)"]
@@ -160,7 +160,7 @@ block-beta
         columns 4
         t2["Processes"]
         init["finch-init (PID 1)<br/>bootstrap server,<br/>system + user domains"]
-        logd["finch-logd, launchctl,<br/>sh, mount_tmpfs, devtools"]
+        logd["finch-logd, finch-pboardd<br/>(pasteboards), launchctl,<br/>sh, mount_tmpfs, devtools"]
         daemons["notifyd, syslogd, aslmanager,<br/>newsyslog, dynamic_pager, atrun"]
         space2[" "]
         cmds["file/shell/text/adv/system_cmds,<br/>bash, zsh, bc, su, login"]

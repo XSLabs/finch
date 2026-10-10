@@ -60,7 +60,7 @@ mkdir -p "$FW/Versions/A/Resources/en.lproj"
 "$CC" -arch arm64e -mmacosx-version-min=26.0 -isysroot "$SDKROOT" -dynamiclib \
     -install_name /System/Library/Frameworks/Security.framework/Versions/A/Security \
     -current_version 61901.100.255 -compatibility_version 1 \
-    "${objects[@]}" "$OPENSSL/libcrypto.a" \
+    "${objects[@]}" "$OPENSSL/libssl.a" "$OPENSSL/libcrypto.a" \
     -F"$FINCH_ROOT/build/root/System/Library/Frameworks" -framework CoreFoundation -lbsm \
     -Wl,-exported_symbols_list,"$HERE/exports.txt" -Wl,-no_warn_inits \
     -o "$FW/Versions/A/Security"

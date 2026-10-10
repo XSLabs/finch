@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<!-- finch-pboardd (userland/pboard): the pasteboard server, keeping each user's
+     pasteboards apart. Started on demand when a process first uses a pasteboard
+     (org.finch.pboard: CoreFoundation's pasteboard calls look it up). -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.apple.pboard</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/libexec/finch-pboardd</string>
+	</array>
+	<key>MachServices</key>
+	<dict>
+		<key>org.finch.pboard</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

@@ -7,6 +7,7 @@
  * Unicode calls over CFString, and an empty Component Manager (Finch
  * registers no components).
  */
+#include <dlfcn.h>
 #include "CarbonCore_Finch.h"
 #include <errno.h>
 #include <math.h>
@@ -186,6 +187,85 @@ UCCompareTextDefault(UCCollateOptions options, const UniChar *text1Ptr, UniCharC
     /* equal under the options, the strings may still differ in what was ignored (case: lowercase first) */
     if (r == kCFCompareEqualTo)
         r = CFStringCompare(a, b, kCFCompareLocalized);
+    if (order)
+        *order = r == kCFCompareLessThan ? -1 : r == kCFCompareGreaterThan ? 1 : 0;
+    CFRelease(a);
+    CFRelease(b);
+    return noErr;
+}
+
+/* Collators: a locale and options, compared through CFString's localized compare. */
+struct OpaqueCollatorRef {
+    CFLocaleRef locale;
+    UCCollateOptions options;
+};
+
+/* A LocaleRef is a CFLocale (Apple's are its own; only Locale Utilities read them). */
+OSStatus
+LocaleRefFromLocaleString(const char *localeString, LocaleRef *locale)
+{
+    if (!localeString || !locale)
+        return paramErr;
+    CFStringRef s = CFStringCreateWithCString(NULL, localeString, kCFStringEncodingUTF8);
+    if (!s)
+        return paramErr;
+    CFStringRef canonical = CFLocaleCreateCanonicalLocaleIdentifierFromString(NULL, s);
+    CFRelease(s);
+    *locale = (LocaleRef)CFLocaleCreate(NULL, canonical);
+    CFRelease(canonical);
+    return *locale ? noErr : paramErr;
+}
+
+OSStatus
+UCCreateCollator(LocaleRef locale, LocaleOperationVariant opVariant, UCCollateOptions options, CollatorRef *collatorRef)
+{
+    if (!collatorRef)
+        return paramErr;
+    CollatorRef c = calloc(1, sizeof *c);
+    if (!c)
+        return memFullErr;
+    c->locale = locale ? (CFLocaleRef)CFRetain((CFTypeRef)locale) : CFLocaleCopyCurrent();
+    c->options = options;
+    *collatorRef = c;
+    return noErr;
+}
+
+OSStatus
+UCDisposeCollator(CollatorRef *collatorRef)
+{
+    if (!collatorRef || !*collatorRef)
+        return paramErr;
+    if ((*collatorRef)->locale)
+        CFRelease((*collatorRef)->locale);
+    free(*collatorRef);
+    *collatorRef = NULL;
+    return noErr;
+}
+
+OSStatus
+UCCompareText(CollatorRef collatorRef, const UniChar *text1Ptr, UniCharCount text1Length, const UniChar *text2Ptr,
+              UniCharCount text2Length, Boolean *equivalent, SInt32 *order)
+{
+    if (!collatorRef || !text1Ptr || !text2Ptr)
+        return paramErr;
+    CFStringRef a = CFStringCreateWithCharactersNoCopy(NULL, text1Ptr, text1Length, kCFAllocatorNull);
+    CFStringRef b = CFStringCreateWithCharactersNoCopy(NULL, text2Ptr, text2Length, kCFAllocatorNull);
+    UCCollateOptions options = collatorRef->options;
+    CFStringCompareFlags flags = kCFCompareLocalized;
+    if (options & kUCCollateCaseInsensitiveMask)
+        flags |= kCFCompareCaseInsensitive;
+    if (options & kUCCollateDiacritInsensitiveMask)
+        flags |= kCFCompareDiacriticInsensitive;
+    if (options & kUCCollateWidthInsensitiveMask)
+        flags |= kCFCompareWidthInsensitive;
+    if (options & kUCCollateDigitsAsNumberMask)
+        flags |= kCFCompareNumerically;
+    CFRange all = CFRangeMake(0, CFStringGetLength(a));
+    CFComparisonResult r = CFStringCompareWithOptionsAndLocale(a, b, all, flags, collatorRef->locale);
+    if (equivalent)
+        *equivalent = r == kCFCompareEqualTo;
+    if (r == kCFCompareEqualTo)
+        r = CFStringCompareWithOptionsAndLocale(a, b, all, kCFCompareLocalized, collatorRef->locale);
     if (order)
         *order = r == kCFCompareLessThan ? -1 : r == kCFCompareGreaterThan ? 1 : 0;
     CFRelease(a);

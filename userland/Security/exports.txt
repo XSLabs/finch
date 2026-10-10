@@ -4,3 +4,5 @@ _Authorization*
 _kAuthorization*
 _Session*
 _kCMS*
+_SSL*
+_kSSL*

@@ -1439,3 +1439,109 @@ CFDataRef SecKeyCopyKeyExchangeResult(SecKeyRef ref, SecKeyAlgorithm alg, SecKey
 		_SecSetError(error, errSecParam, NULL);
 	return result;
 }
+
+/* (Secure Transport's: the OpenSSL objects behind a certificate and a key) */
+SEC_HIDDEN X509 *_SecCertificateGetX509(SecCertificateRef c) { return ((Certificate *)c)->cert; }
+SEC_HIDDEN EVP_PKEY *_SecKeyGetEVP(SecKeyRef k) { return ((Key *)k)->key; }
+
+/* PKCS #12 (a .p12 or .pfx): its identity, the certificates with it, and a trust for
+   them, as Apple's returns them. They're returned in memory, not added to a keychain. */
+#include <openssl/pkcs12.h>
+
+static SecCertificateRef
+certificate_of(X509 *x)
+{
+	unsigned char *der = NULL;
+	int len = i2d_X509(x, &der);
+	CFDataRef d = len > 0 ? CFDataCreate(NULL, der, len) : NULL;
+	OPENSSL_free(der);
+	SecCertificateRef c = d ? SecCertificateCreateWithData(NULL, d) : NULL;
+	if (d)
+		CFRelease(d);
+	return c;
+}
+
+SEC_API OSStatus SecPKCS12Import(CFDataRef pkcs12_data, CFDictionaryRef options, CFArrayRef *items)
+{
+	if (!pkcs12_data || !items)
+		return errSecParam;
+	*items = NULL;
+	CFStringRef pass = options ? CFDictionaryGetValue(options, kSecImportExportPassphrase) : NULL;
+	char password[1024] = "";
+	if (pass && !CFStringGetCString(pass, password, sizeof password, kCFStringEncodingUTF8))
+		return errSecParam;
+	const unsigned char *p = CFDataGetBytePtr(pkcs12_data);
+	PKCS12 *p12 = d2i_PKCS12(NULL, &p, CFDataGetLength(pkcs12_data));
+	if (!p12)
+		return errSecDecode;
+	if (PKCS12_mac_present(p12) && !PKCS12_verify_mac(p12, password, -1)) {
+		PKCS12_free(p12);
+		return pass ? errSecAuthFailed : errSecPassphraseRequired;
+	}
+	EVP_PKEY *pkey = NULL;
+	X509 *x = NULL;
+	STACK_OF(X509) *ca = NULL;
+	int ok = PKCS12_parse(p12, password, &pkey, &x, &ca);
+	PKCS12_free(p12);
+	if (!ok)
+		return errSecDecode;
+	CFMutableDictionaryRef item = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	CFMutableArrayRef chain = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+	SecCertificateRef cert = x ? certificate_of(x) : NULL;
+	if (cert)
+		CFArrayAppendValue(chain, cert);
+	for (int i = 0; ca && i < sk_X509_num(ca); i++) {
+		SecCertificateRef c = certificate_of(sk_X509_value(ca, i));
+		if (c) {
+			CFArrayAppendValue(chain, c);
+			CFRelease(c);
+		}
+	}
+	if (cert && pkey) {
+		SecKeyRef key = wrapKey(pkey, true);
+		pkey = NULL;
+		SecIdentityRef identity = key ? _SecIdentityCreate(cert, key) : NULL;
+		if (identity) {
+			CFDictionarySetValue(item, kSecImportItemIdentity, identity);
+			CFRelease(identity);
+		}
+		if (key)
+			CFRelease(key);
+	}
+	if (CFArrayGetCount(chain)) {
+		CFDictionarySetValue(item, kSecImportItemCertChain, chain);
+		SecPolicyRef policy = SecPolicyCreateBasicX509();
+		SecTrustRef trust = NULL;
+		if (SecTrustCreateWithCertificates(chain, policy, &trust) == errSecSuccess && trust) {
+			CFDictionarySetValue(item, kSecImportItemTrust, trust);
+			CFRelease(trust);
+		}
+		if (policy)
+			CFRelease(policy);
+	}
+	if (x) {
+		int len = 0;
+		unsigned char *alias = X509_alias_get0(x, &len);
+		CFStringRef label = alias ? CFStringCreateWithBytes(NULL, alias, len, kCFStringEncodingUTF8, false)
+		                          : (cert ? SecCertificateCopySubjectSummary(cert) : NULL);
+		if (label) {
+			CFDictionarySetValue(item, kSecImportItemLabel, label);
+			CFRelease(label);
+		}
+		unsigned char *keyid = X509_keyid_get0(x, &len);
+		CFDataRef kid = keyid ? CFDataCreate(NULL, keyid, len) : (cert ? _SecCertificateCopyPublicKeySHA1(cert) : NULL);
+		if (kid) {
+			CFDictionarySetValue(item, kSecImportItemKeyID, kid);
+			CFRelease(kid);
+		}
+	}
+	if (cert)
+		CFRelease(cert);
+	CFRelease(chain);
+	EVP_PKEY_free(pkey);
+	X509_free(x);
+	sk_X509_pop_free(ca, X509_free);
+	*items = CFArrayCreate(NULL, (const void **)&item, 1, &kCFTypeArrayCallBacks);
+	CFRelease(item);
+	return errSecSuccess;
+}

@@ -91,8 +91,19 @@ main(int argc, char **argv)
         NSArray *top = nil;
         BOOL ok = [nib instantiateWithOwner:owner topLevelObjects:&top];
         printf("instantiated %d\n", ok);
+        /* (objects' awakeFromNib in sorted order: Apple's order varies run to run; the
+           owner's comes last, after them all) */
+        NSMutableArray *awake = [NSMutableArray array];
         for (NSString *l in log_)
-            printf("  %s\n", l.UTF8String);
+            if ([l containsString:@"awakeFromNib"] && ![l hasPrefix:@"Owner"])
+                [awake addObject:l];
+        [awake sortUsingSelector:@selector(compare:)];
+        NSUInteger next = 0;
+        for (NSString *l in log_)
+        {
+            NSString *line = [l containsString:@"awakeFromNib"] && ![l hasPrefix:@"Owner"] ? awake[next++] : l;
+            printf("  %s\n", line.UTF8String);
+        }
         NSMutableArray *names = [NSMutableArray array];
         for (id o in top)
             [names addObject:NSStringFromClass([o class])];

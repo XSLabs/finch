@@ -114,7 +114,8 @@ echo 'const double CoreServicesVersionNumber = 1226.0;' > "${OBJ}/version.c"
     -install_name /System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices \
     -current_version 1226 -compatibility_version 1 "${OBJ}/version.c" -o "${FW}/Versions/A/CoreServices" \
     -F"${FWS}" -Wl,-reexport_framework,CFNetwork -Wl,-reexport_framework,CoreFoundation \
-    $(for s in "${SUBS[@]}"; do printf -- '-Wl,-reexport_library,%s ' "$(sub "$s")"; done)
+    $(for s in "${SUBS[@]}"; do printf -- '-Wl,-reexport_library,%s ' "$(sub "$s")"; done) \
+    -lSystem -Wl,-reexported_symbols_list,"${HERE}/CoreServices.reexports"  # (fp.h's, fenv.h's: libSystem's, as Apple's re-exports them)
 ln -sfn A "${FW}/Versions/Current"
 ln -sfn Versions/Current/CoreServices "${FW}/CoreServices"
 ln -sfn Versions/Current/Frameworks "${FW}/Frameworks"

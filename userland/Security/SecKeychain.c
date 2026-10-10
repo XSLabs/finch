@@ -1966,3 +1966,34 @@ OSStatus SecIdentityCopySystemIdentity(CFStringRef domain, SecIdentityRef *idRef
 		*idRef = NULL;
 	return errSecItemNotFound;
 }
+
+/* A keychain's lock settings (lock on sleep, after an interval): kept per keychain in
+   the process. Finch's keychains don't lock themselves yet, so the settings change nothing. */
+static CFMutableDictionaryRef keychain_settings;
+
+OSStatus SecKeychainSetSettings(SecKeychainRef keychain, const SecKeychainSettings *newSettings)
+{
+	if (!newSettings || newSettings->version != SEC_KEYCHAIN_SETTINGS_VERS1)
+		return errSecParam;
+	if (!keychain_settings)
+		keychain_settings = CFDictionaryCreateMutable(NULL, 0, NULL, &kCFTypeDictionaryValueCallBacks);
+	CFDataRef d = CFDataCreate(NULL, (const UInt8 *)newSettings, sizeof *newSettings);
+	CFDictionarySetValue(keychain_settings, keychain, d);
+	CFRelease(d);
+	return errSecSuccess;
+}
+
+OSStatus SecKeychainCopySettings(SecKeychainRef keychain, SecKeychainSettings *outSettings)
+{
+	if (!outSettings || outSettings->version != SEC_KEYCHAIN_SETTINGS_VERS1)
+		return errSecParam;
+	CFDataRef d = keychain_settings ? CFDictionaryGetValue(keychain_settings, keychain) : NULL;
+	if (d)
+		memcpy(outSettings, CFDataGetBytePtr(d), sizeof *outSettings);
+	else {
+		outSettings->lockOnSleep = false;
+		outSettings->useLockInterval = false;
+		outSettings->lockInterval = INT_MAX;
+	}
+	return errSecSuccess;
+}

@@ -132,6 +132,9 @@ Apple's is closed. Developed in the emulated M4 first. The map is
               remain unfinished; see [Security and SystemConfiguration](design/SECURITY.md).
         - [x] DiskArbitration.framework, the client, from Apple's source (2026-10-10);
               without diskarbitrationd a session can't be made, as when the daemon is down
+        - [x] finch-pboardd, the pasteboard server: each user's pasteboards shared by their
+              processes, promised data asked of the writer (2026-10-10); NSPasteboard and the
+              Pasteboard Manager on it
         - [ ] cron; diskarbitrationd; configd; mDNSPosix
   - [x] libmalloc no longer depends on libcorecrypto
   - [x] libsystem_featureflags, coreservices, darwindirectory, eligibility, symptoms,
