@@ -2,12 +2,17 @@
 /*
  * finch-audiotoolbox-test: AudioToolbox, run against Apple's and Finch's to compare
  * (tools/host-tests.sh): AudioFormat's properties (format info and names, channel
- * layouts and their names, labels, bitmaps and maps).
+ * layouts and their names, labels, bitmaps and maps); audio files written (the bytes
+ * of each type and format) and read back.
  */
 #include <AudioToolbox/AudioToolbox.h>
 #include <dlfcn.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 static const char *
 str(CFStringRef s)
@@ -157,6 +162,178 @@ layouts(void)
     printf(" %u\n", (unsigned)eq);
 }
 
+/* --- files --- */
+
+static char dir[256];
+
+static void
+dump(const char *path)
+{
+    FILE *fp = fopen(path, "rb");
+    if (!fp) {
+        printf("  (no file)\n");
+        return;
+    }
+    unsigned char b[8192];
+    size_t n = fread(b, 1, sizeof b, fp);
+    fclose(fp);
+    /* (the header and the end, the filler's zeros left out) */
+    printf("  %zu bytes:", n);
+    for (size_t i = 0; i < n; i++) {
+        bool zeros = i + 16 <= n && !memcmp(b + i, (unsigned char[16]){0}, 16);
+        if (zeros && i > 0) {
+            size_t run = i;
+            while (run < n && !b[run])
+                run++;
+            if (run - i > 32) {
+                printf(" [%zu zeros]", run - i);
+                i = run - 1;
+                continue;
+            }
+        }
+        printf("%s%02x", i % 16 ? "" : " ", b[i]);
+    }
+    printf("\n");
+}
+
+static AudioFileID
+create(const char *name, AudioFileTypeID type, AudioStreamBasicDescription a, AudioChannelLayoutTag tag, UInt32 frames, char *path)
+{
+    snprintf(path, 512, "%s/%s", dir, name);
+    CFURLRef u = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)path, (CFIndex)strlen(path), false);
+    AudioFileID f = NULL;
+    OSStatus e = AudioFileCreateWithURL(u, type, &a, kAudioFileFlags_EraseFile, &f);
+    CFRelease(u);
+    printf("%s: create %d", name, (int)e);
+    if (e) {
+        printf("\n");
+        return NULL;
+    }
+    if (tag) {
+        AudioChannelLayout l = {tag, 0, 0, {}};
+        printf(" layout %d", (int)AudioFileSetProperty(f, kAudioFilePropertyChannelLayout, sizeof l, &l));
+    }
+    UInt8 buf[1024];
+    for (int i = 0; i < 1024; i++)
+        buf[i] = (UInt8)(i * 7 + 1);
+    UInt32 bytes = a.mBytesPerFrame * frames;
+    if (bytes)
+        printf(" write %d %u", (int)AudioFileWriteBytes(f, false, 0, &bytes, buf), (unsigned)bytes);
+    return f;
+}
+
+static void
+make(const char *name, AudioFileTypeID type, AudioStreamBasicDescription a, AudioChannelLayoutTag tag, UInt32 frames)
+{
+    char path[512];
+    AudioFileID f = create(name, type, a, tag, frames, path);
+    if (!f)
+        return;
+    printf(" close %d\n", (int)AudioFileClose(f));
+    dump(path);
+}
+
+static void
+read_back(const char *name)
+{
+    char path[512];
+    snprintf(path, sizeof path, "%s/%s", dir, name);
+    CFURLRef u = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)path, (CFIndex)strlen(path), false);
+    AudioFileID f = NULL;
+    OSStatus e = AudioFileOpenURL(u, kAudioFileReadPermission, 0, &f);
+    CFRelease(u);
+    printf("open %s: %d", name, (int)e);
+    if (e) {
+        printf("\n");
+        return;
+    }
+    AudioFileTypeID type = 0;
+    AudioStreamBasicDescription a = {0};
+    UInt64 bytes = 0, packets = 0;
+    UInt32 max = 0, sz;
+    SInt64 offset = 0;
+    Float64 duration = 0;
+    sz = 4, AudioFileGetProperty(f, kAudioFilePropertyFileFormat, &sz, &type);
+    sz = sizeof a, AudioFileGetProperty(f, kAudioFilePropertyDataFormat, &sz, &a);
+    sz = 8, AudioFileGetProperty(f, kAudioFilePropertyAudioDataByteCount, &sz, &bytes);
+    sz = 8, AudioFileGetProperty(f, kAudioFilePropertyAudioDataPacketCount, &sz, &packets);
+    sz = 4, AudioFileGetProperty(f, kAudioFilePropertyMaximumPacketSize, &sz, &max);
+    sz = 8, AudioFileGetProperty(f, kAudioFilePropertyDataOffset, &sz, &offset);
+    sz = 8, AudioFileGetProperty(f, kAudioFilePropertyEstimatedDuration, &sz, &duration);
+    printf(" type %s format %s %g flags %x bpp %u fpp %u bpf %u ch %u bits %u; bytes %llu packets %llu max %u offset %lld duration %.6f\n",
+           code(type), code(a.mFormatID), a.mSampleRate, (unsigned)a.mFormatFlags, (unsigned)a.mBytesPerPacket, (unsigned)a.mFramesPerPacket,
+           (unsigned)a.mBytesPerFrame, (unsigned)a.mChannelsPerFrame, (unsigned)a.mBitsPerChannel, (unsigned long long)bytes,
+           (unsigned long long)packets, (unsigned)max, (long long)offset, duration);
+    UInt32 lsz = 0, writable = 9;
+    e = AudioFileGetPropertyInfo(f, kAudioFilePropertyChannelLayout, &lsz, &writable);
+    printf("  layout %d %u", (int)e, (unsigned)lsz);
+    if (!e && lsz) {
+        AudioChannelLayout *l = malloc(lsz);
+        AudioFileGetProperty(f, kAudioFilePropertyChannelLayout, &lsz, l);
+        printf(" tag %x bitmap %x n %u", (unsigned)l->mChannelLayoutTag, (unsigned)l->mChannelBitmap, (unsigned)l->mNumberChannelDescriptions);
+        free(l);
+    }
+    UInt8 got[64] = {0};
+    UInt32 n = 6;
+    e = AudioFileReadBytes(f, false, 1, &n, got);
+    printf(", bytes from 1: %d %u", (int)e, (unsigned)n);
+    for (UInt32 i = 0; i < n; i++)
+        printf(" %02x", got[i]);
+    UInt32 np = 1, nb = sizeof got;
+    e = AudioFileReadPacketData(f, false, &nb, NULL, 1, &np, got);
+    printf(", packet 1: %d %u packets %u bytes", (int)e, (unsigned)np, (unsigned)nb);
+    n = 64;
+    e = AudioFileReadBytes(f, false, (SInt64)bytes, &n, got);
+    printf(", past the end %d %u\n", (int)e, (unsigned)n);
+    AudioFileClose(f);
+}
+
+static void
+files(void)
+{
+    snprintf(dir, sizeof dir, "/tmp/finch-audiotoolbox-test.%d", (int)getpid());
+    mkdir(dir, 0755);
+    AudioStreamBasicDescription le16 = {44100, kAudioFormatLinearPCM, kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked, 4, 1, 4, 2, 16, 0};
+    AudioStreamBasicDescription be16 = le16;
+    be16.mFormatFlags |= kAudioFormatFlagIsBigEndian;
+    make("a.wav", kAudioFileWAVEType, le16, 0, 4);
+    make("a.aif", kAudioFileAIFFType, be16, 0, 4);
+    make("a.aifc", kAudioFileAIFCType, be16, 0, 4);
+    make("a.caf", kAudioFileCAFType, le16, 0, 4);
+    make("a.au", kAudioFileNextType, be16, 0, 4);
+    make("float.wav", kAudioFileWAVEType, (AudioStreamBasicDescription){48000, 'lpcm', kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked, 8, 1, 8, 2, 32, 0}, 0, 2);
+    make("24.wav", kAudioFileWAVEType, (AudioStreamBasicDescription){48000, 'lpcm', kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked, 6, 1, 6, 2, 24, 0}, 0, 2);
+    make("8.wav", kAudioFileWAVEType, (AudioStreamBasicDescription){8000, 'lpcm', kAudioFormatFlagIsPacked, 1, 1, 1, 1, 8, 0}, 0, 3);
+    make("six.wav", kAudioFileWAVEType, (AudioStreamBasicDescription){48000, 'lpcm', kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked, 12, 1, 12, 6, 16, 0}, 0, 2);
+    make("six-layout.wav", kAudioFileWAVEType, (AudioStreamBasicDescription){48000, 'lpcm', kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked, 12, 1, 12, 6, 16, 0},
+         kAudioChannelLayoutTag_MPEG_5_1_A, 2);
+    make("stereo-layout.caf", kAudioFileCAFType, (AudioStreamBasicDescription){48000, 'lpcm', kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked, 4, 1, 4, 2, 16, 0},
+         kAudioChannelLayoutTag_Stereo, 2);
+    make("empty.wav", kAudioFileWAVEType, le16, 0, 0);
+    make("float.caf", kAudioFileCAFType, (AudioStreamBasicDescription){48000, 'lpcm', kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked, 8, 1, 8, 2, 32, 0}, 0, 2);
+    make("ulaw.wav", kAudioFileWAVEType, (AudioStreamBasicDescription){8000, 'ulaw', 0, 1, 1, 1, 1, 8, 0}, 0, 2);
+    make("ulaw.au", kAudioFileNextType, (AudioStreamBasicDescription){8000, 'ulaw', 0, 1, 1, 1, 1, 8, 0}, 0, 2);
+    make("24.aif", kAudioFileAIFFType,
+         (AudioStreamBasicDescription){48000, 'lpcm', kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked | kAudioFormatFlagIsBigEndian, 6, 1, 6, 2, 24, 0}, 0, 2);
+    make("float.aifc", kAudioFileAIFCType,
+         (AudioStreamBasicDescription){48000, 'lpcm', kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagIsBigEndian, 8, 1, 8, 2, 32, 0}, 0, 2);
+    make("le.aif", kAudioFileAIFFType, le16, 0, 2);
+    make("be.wav", kAudioFileWAVEType, be16, 0, 2);
+    make("bad.type", 'zzzz', le16, 0, 2);
+    /* (sizes put in as it grows: read before closing) */
+    char path[512];
+    AudioFileID open = create("growing.wav", kAudioFileWAVEType, le16, 0, 4, path);
+    if (open) {
+        printf("\n");
+        dump(path);
+        AudioFileClose(open);
+    }
+    const char *names[] = {"a.wav", "a.aif", "a.aifc", "a.caf", "a.au", "float.wav", "24.wav", "8.wav", "six-layout.wav", "stereo-layout.caf",
+                           "empty.wav", "float.caf", "ulaw.wav", "ulaw.au", "24.aif", "float.aifc", "missing.wav"};
+    for (size_t i = 0; i < sizeof names / sizeof names[0]; i++)
+        read_back(names[i]);
+}
+
 int
 main(void)
 {
@@ -166,5 +343,6 @@ main(void)
     printf("%s\n", info.dli_fname);
     formats();
     layouts();
+    files();
     return 0;
 }
