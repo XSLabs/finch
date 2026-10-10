@@ -189,3 +189,4 @@ build/userland/finch-appkit-statusbar-test /usr/local/bin/finch-appkit-statusbar
 build/userland/finch-contacts-test /usr/local/bin/finch-contacts-test
 build/userland/finch-accounts-test /usr/local/bin/finch-accounts-test
 build/userland/finch-metal-test /usr/local/bin/finch-metal-test
+build/userland/finch-iosurface-test /usr/local/bin/finch-iosurface-test
