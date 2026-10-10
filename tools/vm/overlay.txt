@@ -194,3 +194,4 @@ build/userland/finch-iosurface-test /usr/local/bin/finch-iosurface-test
 build/userland/finch-gss-test /usr/local/bin/finch-gss-test
 build/userland/finch-cfurl-test /usr/local/bin/finch-cfurl-test
 build/userland/finch-pasteboard-test /usr/local/bin/finch-pasteboard-test
+build/userland/finch-coremedia-test /usr/local/bin/finch-coremedia-test

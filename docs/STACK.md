@@ -106,7 +106,7 @@ block-beta
         coreservices["CoreServices<br/>app lookup and launch,<br/>local Apple events, files"]
         later["Metal (no GPU driven yet:<br/>no devices, descriptors<br/>as values); AV to come"]
         coreui["CoreUI<br/>compiled asset catalogs,<br/>named images and colors"]
-        appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds),<br/>Carbon/HIToolbox (events, keys),<br/>CoreAnalytics, libScreenReader;<br/>ColorSync (profiles, transforms);<br/>HIServices (AX client, Process Manager),<br/>DataDetectorsCore (links in text);<br/>Text Input Sources, UCKeyTranslate,<br/>Carbon event handlers, hot keys;<br/>IOSurface (shared pixel buffers)"]
+        appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds),<br/>Carbon/HIToolbox (events, keys),<br/>CoreAnalytics, libScreenReader;<br/>ColorSync (profiles, transforms);<br/>HIServices (AX client, Process Manager),<br/>DataDetectorsCore (links in text);<br/>Text Input Sources, UCKeyTranslate,<br/>Carbon event handlers, hot keys;<br/>IOSurface (shared pixel buffers);<br/>CoreMedia (times, block buffers)"]
         swiftui["SwiftUI, SwiftUICore<br/>(OpenSwiftUI on Compute's<br/>attribute graph; first app draws)"]
     end
     block:L5
@@ -244,6 +244,7 @@ flowchart LR
     contactsfw["Contacts"]:::finch
     metalfw["Metal"]:::finch
     iosurfacefw["IOSurface"]:::finch
+    coremediafw["CoreMedia"]:::finch
     colorsync["ColorSync"]:::finch
     hiservices["HIServices"]:::finch
     coreui["CoreUI"]:::finch
@@ -306,6 +307,7 @@ flowchart LR
     contactsfw --> imageio
     metalfw --> ffound
     iosurfacefw --> ffound
+    coremediafw --> ffound
     coreimagefw --> ffound
     coreimagefw --> cgfw
     coreimagefw --> imageio
