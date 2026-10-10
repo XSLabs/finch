@@ -340,8 +340,9 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         its window with a login shell at the prompt (2026-10-10). What it needed: ColorSync,
         HIServices, DataDetectorsCore, Carbon/HIToolbox, CoreAudio, AudioToolbox and the
         terminfo database; Cocoa scripting, Bonjour, bookmarks, window tabs, text input
-        contexts and a run of fixes in bindings and key-value observing. Next: its text is
-        spaced too wide (the cell width it takes from the font), then typing into the shell.
+        contexts and a run of fixes in bindings and key-value observing. Commands typed into
+        it run in the shell and their output shows (`echo`, `uname -sr`), in its profile's
+        monospaced font (an app's own fonts, under ATSApplicationFontsPath, are now found).
   - [x] Apple's unmodified Stickies runs in the Finch VM (`FINCH_HOST_APPS=Stickies`): its
         XPC migration service starts on demand from the app bundle, NSUnarchiver is there
         for its old database, and it loads its sample notes from RTFD with their text and

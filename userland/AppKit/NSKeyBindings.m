@@ -181,6 +181,12 @@ FinchInterpretKeyEvent(NSResponder *responder, NSEvent *event)
         return;
     }
     NSString *text = [event characters];
-    if ([text length])
+    if (![text length])
+        return;
+    /* a text input client takes text with its replacement range, as Apple's sends it */
+    if ([responder conformsToProtocol:@protocol(NSTextInputClient)] &&
+        [responder respondsToSelector:@selector(insertText:replacementRange:)])
+        [(id<NSTextInputClient>)responder insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
+    else
         [responder insertText:text];
 }

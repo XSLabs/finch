@@ -14,6 +14,7 @@
  * window, title bar included):
  *   wait:N            wait N milliseconds
  *   window:TITLE      wait for a window titled TITLE and make it the current one
+ *                     (TITLE* for a title starting with TITLE)
  *   click:X,Y         click at X,Y in the current window
  *   rclick:X,Y        right-click at X,Y in the current window
  *   drag:X1,Y1,X2,Y2  press at X1,Y1, drag in ten steps to X2,Y2 and let go (current window)
@@ -82,6 +83,37 @@ key(uint16_t ch, uint32_t code, uint64_t mods)
     post(FWS_EVENT_KEY_UP, 0, 0, ch, code, mods);
 }
 
+/* The U.S. keyboard's key for an ASCII character, and whether it takes Shift, as a real
+   keyboard sends them (apps such as Terminal translate key codes themselves). */
+static uint32_t
+us_key(char c, bool *shift)
+{
+    static const struct { char c; uint32_t code; } keys[] = {
+        {'a', 0}, {'s', 1}, {'d', 2}, {'f', 3}, {'h', 4}, {'g', 5}, {'z', 6}, {'x', 7}, {'c', 8}, {'v', 9},
+        {'b', 11}, {'q', 12}, {'w', 13}, {'e', 14}, {'r', 15}, {'y', 16}, {'t', 17}, {'1', 18}, {'2', 19},
+        {'3', 20}, {'4', 21}, {'6', 22}, {'5', 23}, {'=', 24}, {'9', 25}, {'7', 26}, {'-', 27}, {'8', 28},
+        {'0', 29}, {']', 30}, {'o', 31}, {'u', 32}, {'[', 33}, {'i', 34}, {'p', 35}, {'l', 37}, {'j', 38},
+        {'\'', 39}, {'k', 40}, {';', 41}, {'\\', 42}, {',', 43}, {'/', 44}, {'n', 45}, {'m', 46}, {'.', 47},
+        {' ', 49}, {'`', 50},
+    };
+    static const char shifted[] = "~!@#$%^&*()_+{}|:\"<>?", plain[] = "`1234567890-=[]\\;',./";
+    *shift = false;
+    if (c >= 'A' && c <= 'Z') {
+        *shift = true;
+        c = (char)(c - 'A' + 'a');
+    } else {
+        const char *at = strchr(shifted, c);
+        if (at && c) {
+            *shift = true;
+            c = plain[at - shifted];
+        }
+    }
+    for (size_t i = 0; i < sizeof keys / sizeof *keys; i++)
+        if (keys[i].c == c)
+            return keys[i].code;
+    return 0;
+}
+
 static bool
 find_window(const char *title, int ms)
 {
@@ -89,7 +121,9 @@ find_window(const char *title, int ms)
         uint32_t n = 0;
         FWSWindowInfo *list = FWSCopyWindowList(&n);
         for (uint32_t i = 0; i < n; i++) {
-            if (list[i].on_screen && !strcmp(list[i].title, title)) {
+            size_t len = strlen(title);
+            bool prefix = len && title[len - 1] == '*'; /* "Terminal*": a title starting so */
+            if (list[i].on_screen && (prefix ? !strncmp(list[i].title, title, len - 1) : !strcmp(list[i].title, title))) {
                 current = list[i].frame;
                 free(list);
                 return true;
@@ -216,8 +250,11 @@ main(int argc, char **argv)
             FWSPostEvent(&e);
             usleep(20000);
         } else if (!strncmp(s, "type:", 5)) {
-            for (const char *p = s + 5; *p; p++)
-                key((uint16_t)(unsigned char)*p, 0, 0);
+            for (const char *p = s + 5; *p; p++) {
+                bool shift;
+                uint32_t code = us_key(*p, &shift);
+                key((uint16_t)(unsigned char)*p, code, shift ? kCGEventFlagMaskShift : 0);
+            }
         } else if (sscanf(s, "key:%d,%d", &n, &c) == 2) {
             key((uint16_t)c, (uint32_t)n, 0);
         } else if (!strncmp(s, "cmd:", 4) && s[4]) {

@@ -753,10 +753,14 @@ decoded_font(NSString *name, CGFloat size, NSInteger flags, NSData *matrix)
     }
     if (!f)
         f = [NSFont fontWithName:name size:size];
+    /* a name no font has: the user's font when the archive says it was one, else the
+       system font, as Apple's */
     if (!f && (flags & kFontFlagFixedPitchUser))
         f = [NSFont userFixedPitchFontOfSize:size];
-    if (!f)
+    if (!f && (flags & 1))
         f = [NSFont userFontOfSize:size];
+    if (!f)
+        f = [NSFont systemFontOfSize:size];
     return f;
 }
 

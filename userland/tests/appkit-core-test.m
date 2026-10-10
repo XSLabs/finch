@@ -571,6 +571,29 @@ appearances(void)
                                 [NSAppearance appearanceNamed:NSAppearanceNameAqua]);
 }
 
+/* A view adopting NSTextInputClient: which insert method key bindings send it */
+@interface InputClientView : NSView <NSTextInputClient>
+@property (strong) NSMutableArray *log;
+@end
+@implementation InputClientView
+- (void)insertText:(id)string { [self.log addObject:[@"insertText: " stringByAppendingString:string]]; }
+- (void)insertText:(id)string replacementRange:(NSRange)r
+{
+    [self.log addObject:[NSString stringWithFormat:@"insertText:replacementRange: %@ %s", string,
+                                                   r.location == NSNotFound ? "NSNotFound" : "range"]];
+}
+- (void)doCommandBySelector:(SEL)selector { [self.log addObject:NSStringFromSelector(selector)]; }
+- (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange replacementRange:(NSRange)replacementRange {}
+- (void)unmarkText {}
+- (NSRange)selectedRange { return NSMakeRange(0, 0); }
+- (NSRange)markedRange { return NSMakeRange(NSNotFound, 0); }
+- (BOOL)hasMarkedText { return NO; }
+- (NSAttributedString *)attributedSubstringForProposedRange:(NSRange)range actualRange:(NSRangePointer)actualRange { return nil; }
+- (NSArray<NSAttributedStringKey> *)validAttributesForMarkedText { return @[]; }
+- (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange { return NSZeroRect; }
+- (NSUInteger)characterIndexForPoint:(NSPoint)point { return 0; }
+@end
+
 /* Input contexts, Dock tiles, window tabs' objects and other calls apps make */
 static void
 app_calls(void)
@@ -589,6 +612,13 @@ app_calls(void)
                                     characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:56];
     printf("handle key: %d text '%s'; flags changed handled %d\n", [c handleEvent:key], tv.string.UTF8String,
            [c handleEvent:flags]);
+    InputClientView *icv = [[InputClientView alloc] initWithFrame:NSMakeRect(0, 0, 10, 10)];
+    icv.log = [NSMutableArray array];
+    NSEvent *ret = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0
+                                windowNumber:0 context:nil characters:@"\r" charactersIgnoringModifiers:@"\r"
+                                   isARepeat:NO keyCode:36];
+    [icv interpretKeyEvents:@[ key, ret ]];
+    printf("input client got: %s\n", [icv.log componentsJoinedByString:@"; "].UTF8String);
 
     NSDockTile *tile = NSApp.dockTile;
     printf("dock tile: %gx%g badge '%s' shows badge %d owner app %d\n", tile.size.width, tile.size.height,

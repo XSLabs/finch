@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
 /*
  * The fonts CoreText knows: those registered in this process (CTFontManager,
- * and fonts made from CGFonts), and the installed ones under the system,
- * local and user font directories (or FINCH_FONT_DIRS), indexed once by
+ * and fonts made from CGFonts), the app's own (ATSApplicationFontsPath), and the
+ * installed ones under the system, local and user font directories (or
+ * FINCH_FONT_DIRS), indexed once by
  * PostScript, full and family name. Apple's font names that match no font
  * resolve to the open fonts Finch ships (../fonts/FinchFonts.h).
  */
@@ -125,10 +126,34 @@ scan(const std::string &dir, int depth)
     closedir(d);
 }
 
+/* An app's own fonts: the folder its Info.plist names under ATSApplicationFontsPath,
+   relative to its Resources, which macOS makes available to the app alone. */
+static std::string
+app_fonts_dir(void)
+{
+    CFBundleRef main = CFBundleGetMainBundle();
+    CFTypeRef rel = main ? CFBundleGetValueForInfoDictionaryKey(main, CFSTR("ATSApplicationFontsPath")) : NULL;
+    if (!rel || CFGetTypeID(rel) != CFStringGetTypeID())
+        return "";
+    CFURLRef resources = CFBundleCopyResourcesDirectoryURL(main);
+    if (!resources)
+        return "";
+    char base[1024];
+    bool ok = CFURLGetFileSystemRepresentation(resources, true, (UInt8 *)base, sizeof base);
+    CFRelease(resources);
+    std::string r = utf8((CFStringRef)rel);
+    if (!ok || r.empty())
+        return "";
+    return r[0] == '/' ? r : std::string(base) + "/" + r;
+}
+
 static void
 index_installed(void)
 {
     installed = new std::vector<CTInstalledFont>();
+    std::string app = app_fonts_dir();
+    if (!app.empty())
+        scan(app, 0);
     for (const std::string &dir : finch_font_dirs())
         scan(dir, 0);
 }
