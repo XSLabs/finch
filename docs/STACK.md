@@ -47,7 +47,9 @@ accessibility server, Universal Access settings and the Process Manager) and
 DataDetectorsCore (links, addresses, phone numbers and IP addresses found in text). With them, Apple's Terminal runs on Finch. Foundation carries the URL loading system
 (file, data and HTTP(S) loading over OpenSSL), and CFNetwork is Finch's own: HTTP
 messages, authentication and streams, socket streams, CFHost, Bonjour over dns_sd,
-proxy settings and FTP, matching Apple's in its comparison test. The desktop's frame is the Instrument Bar (each app's menu bar) and the Rail, a
+proxy settings and FTP, matching Apple's in its comparison test. CoreImage is Finch's
+own too: images are recipes rendered on the CPU in Apple's working space, and about seventy
+of Apple's filters give Apple's pixels. The desktop's frame is the Instrument Bar (each app's menu bar) and the Rail, a
 Finch app down the left edge that replaces the Dock.
 
 CoreFoundation's local notification center shares observers with Foundation's
@@ -91,6 +93,7 @@ block-beta
         appkit["AppKit<br/>apps, windows, views, events,<br/>title bars, nib-loaded toolbars,<br/>drawing, nibs, storyboards,<br/>Auto Layout, stack views, text views and<br/>scrolling, tables, outlines and<br/>collection views, menus and a menu bar,<br/>alerts, sheets, open and save panels,<br/>NSWorkspace (on the window server);<br/>Cocoa bindings and controllers,<br/>font and color panels, search/token/date controls,<br/>grids, popovers, drawers and rule editors;<br/>rulers, the find bar, text tables;<br/>animation groups and Touch Bar state;<br/>Fieldwork theme (Classic for Aqua compatibility);<br/>UIFoundation: fonts, string drawing,<br/>TextKit 1 and 2; Cocoa and<br/>ApplicationServices umbrellas"]
         cg["CoreGraphics<br/>bitmap contexts, paths, images,<br/>gradients, patterns, fonts, text,<br/>shadows (over Skia, skcms);<br/>PDF writing (SkPDF), PDF reading<br/>and drawing (own parser);<br/>window server client, displays"]
         imageio["ImageIO<br/>image sources, thumbnails,<br/>destinations, property keys<br/>(libpng, libjpeg-turbo, libwebp,<br/>wuffs, via Skia); TIFF (own codec)"]
+        coreimage["CoreImage<br/>images as recipes, CPU rendering<br/>in linear light, ~70 filters"]
         space6[" "]
         ctio["CoreText<br/>fonts, shaping, lines, frames<br/>(HarfBuzz, FreeType, ICU)"]
         quartzcore["QuartzCore<br/>layers drawn through CoreGraphics,<br/>animation objects, transactions;<br/>animation playback still to come"]
@@ -232,6 +235,7 @@ flowchart LR
     cgfw["CoreGraphics"]:::finch
     ctfw["CoreText"]:::finch
     imageio["ImageIO"]:::finch
+    coreimagefw["CoreImage"]:::finch
     colorsync["ColorSync"]:::finch
     hiservices["HIServices"]:::finch
     coreui["CoreUI"]:::finch
@@ -289,6 +293,9 @@ flowchart LR
     coreui --> z
     coreservices --> ffound
     coreservices -->|"re-exports"| cfnetwork
+    coreimagefw --> ffound
+    coreimagefw --> cgfw
+    coreimagefw --> imageio
     cfnetwork --> cf
     cfnetwork --> sysconfig
     cfnetwork --> openssl

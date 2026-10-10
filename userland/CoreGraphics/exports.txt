@@ -3,3 +3,4 @@ _kCG*
 _FWS*
 _$s*
 _CPS*
+__swift_FORCE_LOAD_$_swiftCoreGraphics

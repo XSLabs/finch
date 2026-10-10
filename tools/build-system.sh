@@ -94,6 +94,8 @@ steps=(
     "CoreText|userland/CoreText/build.sh"
     "WindowServer|userland/WindowServer/build.sh"
     "ImageIO|userland/ImageIO/build.sh"
+    # CoreImage: images as recipes, filters rendered on the CPU
+    "CoreImage|userland/CoreImage/build.sh"
     # ColorSync (over skcms) and HIServices, which ApplicationServices re-exports
     "ColorSync|userland/ColorSync/build.sh"
     "HIServices|userland/HIServices/build.sh"
@@ -104,6 +106,8 @@ steps=(
     "AppKit|userland/AppKit/build.sh"
     "RecapPerformanceTesting|userland/RecapPerformanceTesting/build.sh"
     "Cocoa|userland/Cocoa/build.sh"
+    # libswiftFoundation, libswiftAppKit, libswiftCoreGraphics: re-exports, for older Swift apps
+    "swift-framework-shims|userland/swift/framework-shims.sh"
     # What Terminal links besides: Carbon (HIToolbox), audio, analytics, data detectors
     "Carbon|userland/Carbon/build.sh"
     "CoreAudio|userland/CoreAudio/build.sh"

@@ -425,6 +425,11 @@ and AppKit come in Phase 2).
       stream, socket streams (CoreFoundation's and NSStream's), CFHost, Bonjour over dns_sd,
       proxy settings, FTP and CFNetDiagnostics; its comparison test matches Apple's on the
       host and in the VM (2026-10-10). Still to come: a JavaScript engine for PAC files
+- [x] CoreImage, Finch's own: CIImage recipes rendered on the CPU in extended linear sRGB,
+      CIContext output to memory, CGImages and files, and about seventy of Apple's filters
+      (colour, compositing and blend modes, blurs, geometry, generators, reductions) whose
+      pixels match Apple's on the host and in the VM (2026-10-10). Still to come: kernels
+      in Core Image's kernel language or Metal, detectors, the remaining filters, GPU rendering
 - [ ] The URL loading system (Apple's is in CFNetwork; Finch's is in Foundation)
   - [x] Requests, responses, sessions; file, data and HTTP/1.1 loading; TLS over OpenSSL;
         Swift's URLRequest and async methods (2026-10-09)
