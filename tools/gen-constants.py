@@ -59,8 +59,22 @@ for e in extra:
 probe = r'''
 #import <Foundation/Foundation.h>
 #include <dlfcn.h>
+#include <mach/mach.h>
+#include <mach-o/loader.h>
 int main(int argc, char **argv) { @autoreleasepool {
   void *h = dlopen(argv[1], RTLD_NOW); void *p = dlsym(h, argv[2]); if (!p) { printf("MISSING\n"); return 0; }
+  /* (a symbol in a section of instructions is code: a function the headers don't declare) */
+  Dl_info di; if (dladdr(p, &di) && di.dli_fbase) {
+    const struct mach_header_64 *mh = di.dli_fbase; const struct load_command *lc = (const void *)(mh + 1); uintptr_t slide = 0;
+    for (uint32_t i = 0; i < mh->ncmds; i++, lc = (const void *)((const char *)lc + lc->cmdsize))
+      if (lc->cmd == LC_SEGMENT_64 && !strcmp(((const struct segment_command_64 *)lc)->segname, "__TEXT")) slide = (uintptr_t)mh - ((const struct segment_command_64 *)lc)->vmaddr;
+    lc = (const void *)(mh + 1);
+    for (uint32_t i = 0; i < mh->ncmds; i++, lc = (const void *)((const char *)lc + lc->cmdsize)) {
+      if (lc->cmd != LC_SEGMENT_64) continue; const struct segment_command_64 *sg = (const void *)lc;
+      const struct section_64 *sc = (const void *)(sg + 1);
+      for (uint32_t j = 0; j < sg->nsects; j++, sc++)
+        if ((sc->flags & (S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS)) && (uintptr_t)p >= sc->addr + slide &&
+            (uintptr_t)p < sc->addr + slide + sc->size) { printf("CODE\n"); return 0; } } }
   const char *k = argv[3];
   if (!strcmp(k, "obj")) { id o = (__bridge id)*(void **)p; if ([o isKindOfClass:[NSString class]]) {
       NSString *s = o; NSMutableString *e = [NSMutableString string];

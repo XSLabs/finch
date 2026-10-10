@@ -28,7 +28,7 @@ trap 'rm -rf "${TMP}"' EXIT
 
 # name|arguments: comparison tests (arguments are relative to the repo root)
 COMPARE=(
-    "cf-test|" "foundation-test|" "intl-test|" "misc-test|" "data-test|" "collections-test|" "kvc-test|" "typedstream-test|" "tiff-test|" "colorsync-test|" "hiservices-test|" "scripting-test|" "cfnetwork-test|" "coreimage-test|" "cgevent-test|" "keylayout-test|" "contacts-test|" "accounts-test|"
+    "cf-test|" "foundation-test|" "intl-test|" "misc-test|" "data-test|" "collections-test|" "kvc-test|" "typedstream-test|" "tiff-test|" "colorsync-test|" "hiservices-test|" "scripting-test|" "cfnetwork-test|" "coreimage-test|" "cgevent-test|" "keylayout-test|" "contacts-test|" "accounts-test|" "metal-test|"
     "archive-test|" "predicate-test|" "measurement-test|" "bridge-test|" "streams-test|" "documents-test|"
     "files-test|" "xmlparser-test|" "cfnotify-test|" "l10n-test|" "uti-test|" "cg-test|" "imageio-test|"
     "ct-test|" "quartzcore-test|" "calayer-test|" "uifoundation-test|" "appkit-core-test|" "appkit-draw-test|"
@@ -109,6 +109,18 @@ if want contacts-store-test; then
         pass=$((pass + 1))
     else
         report contacts-store-test "DIFFERS from expected"
+        fail=$((fail + 1))
+    fi
+fi
+
+if want metal-devices-test; then
+    # (Finch-only: no GPU is driven yet, so there are no devices)
+    DYLD_FRAMEWORK_PATH="${FW}" "${B}/finch-metal-test" devices 2>/dev/null | tail -n +2 > "${TMP}/finch"
+    if diff -q "${TMP}/finch" userland/tests/metal-devices-test.expected > /dev/null; then
+        report metal-devices-test "ok (expected)"
+        pass=$((pass + 1))
+    else
+        report metal-devices-test "DIFFERS from expected"
         fail=$((fail + 1))
     fi
 fi

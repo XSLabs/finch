@@ -104,7 +104,7 @@ block-beta
         imagecap["ImageCaptureCore (device<br/>browser, finds no devices yet),<br/>ICADevices; Quartz umbrella<br/>with ImageKit's device views"]
         space6b[" "]
         coreservices["CoreServices<br/>app lookup and launch,<br/>local Apple events, files"]
-        later["Metal, AV"]
+        later["Metal (no GPU driven yet:<br/>no devices, descriptors<br/>as values); AV to come"]
         coreui["CoreUI<br/>compiled asset catalogs,<br/>named images and colors"]
         appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds),<br/>Carbon/HIToolbox (events, keys),<br/>CoreAnalytics, libScreenReader;<br/>ColorSync (profiles, transforms);<br/>HIServices (AX client, Process Manager),<br/>DataDetectorsCore (links in text);<br/>Text Input Sources, UCKeyTranslate,<br/>Carbon event handlers, hot keys"]
         swiftui["SwiftUI, SwiftUICore<br/>(OpenSwiftUI on Compute's<br/>attribute graph; first app draws)"]
@@ -242,6 +242,7 @@ flowchart LR
     coreimagefw["CoreImage"]:::finch
     servicesfw["UserNotifications, CoreLocation,<br/>ServiceManagement, StoreKit, ..."]:::finch
     contactsfw["Contacts"]:::finch
+    metalfw["Metal"]:::finch
     colorsync["ColorSync"]:::finch
     hiservices["HIServices"]:::finch
     coreui["CoreUI"]:::finch
@@ -302,6 +303,7 @@ flowchart LR
     servicesfw --> ffound
     contactsfw --> ffound
     contactsfw --> imageio
+    metalfw --> ffound
     coreimagefw --> ffound
     coreimagefw --> cgfw
     coreimagefw --> imageio

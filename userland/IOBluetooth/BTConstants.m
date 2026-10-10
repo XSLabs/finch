@@ -2,8 +2,6 @@
 /* IOBluetooth's exported constants, with the values Apple's have (tools/gen-constants.py). */
 #import <Foundation/Foundation.h>
 
-NSString *const BluetoothHCIRequestCreate = @"eeeiR4hh04.Tgxx";
-NSString *const BluetoothSetIdleTimerInNVRAM = @"ei.psasC1ktpn";
 NSString *const IOBluetoothHandsFreeCallDirection = @"direction";
 NSString *const IOBluetoothHandsFreeCallIndex = @"index";
 NSString *const IOBluetoothHandsFreeCallMode = @"mode";
