@@ -129,6 +129,7 @@ steps=(
     "Accounts|userland/Accounts/build.sh"
     "Metal|userland/Metal/build.sh"
     "IOSurface|userland/IOSurface/build.sh"
+    "GSS|userland/GSS/build.sh"
     # Image Capture's frameworks: ImageCaptureCore, ICADevices, and Quartz with ImageKit
     # (docs/design/IMAGECAPTURE.md)
     "ImageCaptureCore|userland/ImageCaptureCore/build.sh"
