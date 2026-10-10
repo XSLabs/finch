@@ -21,6 +21,7 @@ CGSConnectionID CGSMainConnectionID(void);
 CGError CGSSetSecureEventInput(CGSConnectionID cid, bool enabled);
 CGError CGSSetWindowBackgroundBlurRadiusWithOpacityHint(CGSConnectionID cid, CGSWindowID wid, int radius,
                                                         CGFloat opacityHint);
+CGError CGSSetWindowBackgroundBlurRadius(CGSConnectionID cid, CGSWindowID wid, int radius);
 int32_t CPSGetCurrentProcess(CPSProcessSerNum *psn);
 int32_t CPSStealKeyFocus(CPSProcessSerNum *psn);
 int32_t CPSReleaseKeyFocus(CPSProcessSerNum *psn);
@@ -58,6 +59,12 @@ FWSSecureEventInputEnabled(void)
 /* A window's background blur: Finch's window server composites without blur yet. */
 CGError
 CGSSetWindowBackgroundBlurRadiusWithOpacityHint(CGSConnectionID cid, CGSWindowID wid, int radius, CGFloat opacityHint)
+{
+    return kCGErrorSuccess;
+}
+
+CGError
+CGSSetWindowBackgroundBlurRadius(CGSConnectionID cid, CGSWindowID wid, int radius)
 {
     return kCGErrorSuccess;
 }

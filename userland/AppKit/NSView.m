@@ -57,6 +57,8 @@ static char layer_owner_key;
         unsigned ignoreHitTest : 1;   /* private, as Apple's: hit testing passes through the view itself */
         unsigned alphaSet : 1;
         unsigned layerBacked : 1;     /* the layer was made for the view, or given after it wanted one */
+        unsigned bestResolutionGL : 1;  /* (NSOpenGL's view options: kept for when there's OpenGL) */
+        unsigned extendedRangeGL : 1;
     } _f;
     CGFloat _alpha;
     NSView *_mask;
@@ -361,6 +363,12 @@ did_move_to_window(NSView *view, NSWindow *window)
  * view's bounds after the view draws itself and before its subviews, and layer changes
  * mark the view that shows them for display (FinchCALayerDidChange).
  */
+/* OpenGL surfaces (NSOpenGLView's and other GL views'): asked for, kept. */
+- (BOOL)wantsBestResolutionOpenGLSurface { return _f.bestResolutionGL; }
+- (void)setWantsBestResolutionOpenGLSurface:(BOOL)flag { _f.bestResolutionGL = flag; }
+- (BOOL)wantsExtendedDynamicRangeOpenGLSurface { return _f.extendedRangeGL; }
+- (void)setWantsExtendedDynamicRangeOpenGLSurface:(BOOL)flag { _f.extendedRangeGL = flag; }
+
 - (BOOL)wantsLayer { return _f.wantsLayer; }
 - (void)setWantsLayer:(BOOL)flag
 {

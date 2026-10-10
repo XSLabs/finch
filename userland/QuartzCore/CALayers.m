@@ -830,3 +830,68 @@ attribute_value(CGRect f, CAConstraintAttribute a)
 }
 
 @end
+
+#pragma mark CAMetalLayer
+
+/* A layer Metal draws into: drawables come from the layer's device. Finch has no Metal
+   device yet (Metal.framework has none), so a layer without one hands out no drawables
+   and shows its background, as Apple's does with no device set. */
+@implementation CAMetalLayer {
+    id<MTLDevice> _finchDevice;
+    MTLPixelFormat _pixelFormat;
+    BOOL _framebufferOnly, _presentsWithTransaction, _wantsEDR, _displaySync, _allowsTimeout;
+    CGSize _drawableSize;
+    NSUInteger _maximumDrawableCount;
+    CGColorSpaceRef _colorspace;
+    NSDictionary *_hud;
+    CAEDRMetadata *_edr;
+}
+
+- (instancetype)init
+{
+    self = [super init];
+    if (self) {
+        _pixelFormat = MTLPixelFormatBGRA8Unorm;
+        _framebufferOnly = YES;
+        _maximumDrawableCount = 3;
+        _displaySync = YES;
+        _allowsTimeout = YES;
+    }
+    return self;
+}
+
+- (void)dealloc
+{
+    [(id)_finchDevice release];
+    CGColorSpaceRelease(_colorspace);
+    [_hud release];
+    [_edr release];
+    [super dealloc];
+}
+
+- (id<MTLDevice>)device { return _finchDevice; }
+- (void)setDevice:(id<MTLDevice>)d { [(id)_finchDevice autorelease]; _finchDevice = [(id)d retain]; }
+- (id<MTLDevice>)preferredDevice { return nil; }
+SCALAR_PROP(MTLPixelFormat, pixelFormat, setPixelFormat, _pixelFormat)
+SCALAR_PROP(BOOL, framebufferOnly, setFramebufferOnly, _framebufferOnly)
+SCALAR_PROP(CGSize, drawableSize, setDrawableSize, _drawableSize)
+SCALAR_PROP(NSUInteger, maximumDrawableCount, setMaximumDrawableCount, _maximumDrawableCount)
+SCALAR_PROP(BOOL, presentsWithTransaction, setPresentsWithTransaction, _presentsWithTransaction)
+SCALAR_PROP(BOOL, wantsExtendedDynamicRangeContent, setWantsExtendedDynamicRangeContent, _wantsEDR)
+SCALAR_PROP(BOOL, displaySyncEnabled, setDisplaySyncEnabled, _displaySync)
+SCALAR_PROP(BOOL, allowsNextDrawableTimeout, setAllowsNextDrawableTimeout, _allowsTimeout)
+COPY_PROP(NSDictionary *, developerHUDProperties, setDeveloperHUDProperties, _hud)
+- (CGColorSpaceRef)colorspace { return _colorspace; }
+- (void)setColorspace:(CGColorSpaceRef)c
+{
+    CGColorSpaceRetain(c);
+    CGColorSpaceRelease(_colorspace);
+    _colorspace = c;
+}
+- (CAEDRMetadata *)EDRMetadata { return _edr; }
+- (void)setEDRMetadata:(CAEDRMetadata *)m { [_edr autorelease]; _edr = [m retain]; }
+- (id<MTLResidencySet>)residencySet { return nil; }
+
+- (id<CAMetalDrawable>)nextDrawable { return nil; }
+
+@end

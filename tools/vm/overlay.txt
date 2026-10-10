@@ -191,3 +191,4 @@ build/userland/finch-accounts-test /usr/local/bin/finch-accounts-test
 build/userland/finch-metal-test /usr/local/bin/finch-metal-test
 build/userland/finch-iosurface-test /usr/local/bin/finch-iosurface-test
 build/userland/finch-gss-test /usr/local/bin/finch-gss-test
+build/userland/finch-cfurl-test /usr/local/bin/finch-cfurl-test

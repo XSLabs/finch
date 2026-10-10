@@ -14,6 +14,8 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <dispatch/dispatch.h>
+#include <vector>
 #include <unistd.h>
 #include <deque>
 #include <map>
@@ -39,6 +41,62 @@ static std::vector<uint8_t> *inbox;
 static void (*event_callback)(const FWSEvent *, void *);
 static void *event_info;
 static bool active;
+
+#pragma mark - Display reconfiguration callbacks
+
+struct Reconfiguration {
+    CGDisplayReconfigurationCallBack callback;
+    void *info;
+};
+static std::vector<Reconfiguration> *reconfigurations; /* (made on first use: no static initializers) */
+static pthread_mutex_t reconfiguration_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* A display changed (its mode, so its size): each callback hears of it on the main
+   thread, the beginning and then what changed, as Apple's are told. */
+static void
+display_reconfigured(CGDirectDisplayID id)
+{
+    pthread_mutex_lock(&reconfiguration_lock);
+    std::vector<Reconfiguration> list;
+    if (reconfigurations)
+        list = *reconfigurations;
+    pthread_mutex_unlock(&reconfiguration_lock);
+    if (list.empty())
+        return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      for (const Reconfiguration &r : list)
+          r.callback(id, kCGDisplayBeginConfigurationFlag, r.info);
+      for (const Reconfiguration &r : list)
+          r.callback(id, kCGDisplaySetModeFlag | kCGDisplayDesktopShapeChangedFlag, r.info);
+    });
+}
+
+CGError
+CGDisplayRegisterReconfigurationCallback(CGDisplayReconfigurationCallBack callback, void *userInfo)
+{
+    if (!callback)
+        return kCGErrorIllegalArgument;
+    pthread_mutex_lock(&reconfiguration_lock);
+    if (!reconfigurations)
+        reconfigurations = new std::vector<Reconfiguration>;
+    reconfigurations->push_back({callback, userInfo});
+    pthread_mutex_unlock(&reconfiguration_lock);
+    return kCGErrorSuccess;
+}
+
+CGError
+CGDisplayRemoveReconfigurationCallback(CGDisplayReconfigurationCallBack callback, void *userInfo)
+{
+    pthread_mutex_lock(&reconfiguration_lock);
+    for (auto it = reconfigurations ? reconfigurations->begin() : std::vector<Reconfiguration>::iterator();
+         reconfigurations && it != reconfigurations->end(); ++it)
+        if (it->callback == callback && it->info == userInfo) {
+            reconfigurations->erase(it);
+            break;
+        }
+    pthread_mutex_unlock(&reconfiguration_lock);
+    return kCGErrorSuccess;
+}
 
 #pragma mark - Transport
 
@@ -116,6 +174,7 @@ note_event(const FWSHeader &h, const uint8_t *body)
         pending->push_back(e);
     } else if (h.type == FWS_DISPLAY_CHANGED && h.size >= sizeof(FWSDisplayInfo)) {
         memcpy(&display, body, sizeof display);
+        display_reconfigured(display.display);
     }
 }
 
@@ -640,6 +699,46 @@ CGWarpMouseCursorPosition(CGPoint point)
 CGError CGDisplayHideCursor(CGDirectDisplayID display) { FWSSetCursorVisible(false); return kCGErrorSuccess; }
 CGError CGDisplayShowCursor(CGDirectDisplayID display) { FWSSetCursorVisible(true); return kCGErrorSuccess; }
 CGError CGAssociateMouseAndMouseCursorPosition(boolean_t connected) { return kCGErrorSuccess; }
+
+#pragma mark - Capturing and fading
+
+/* Capturing a display (for full-screen use): granted. Finch has no shielding window
+   yet, so apps draw at the shielding level themselves (CGShieldingWindowLevel). */
+static bool captured;
+
+CGError CGDisplayCapture(CGDirectDisplayID display) { captured = true; return kCGErrorSuccess; }
+CGError CGDisplayCaptureWithOptions(CGDirectDisplayID display, CGCaptureOptions options) { captured = true; return kCGErrorSuccess; }
+CGError CGDisplayRelease(CGDirectDisplayID display) { captured = false; return kCGErrorSuccess; }
+CGError CGCaptureAllDisplays(void) { captured = true; return kCGErrorSuccess; }
+CGError CGCaptureAllDisplaysWithOptions(CGCaptureOptions options) { captured = true; return kCGErrorSuccess; }
+CGError CGReleaseAllDisplays(void) { captured = false; return kCGErrorSuccess; }
+boolean_t CGDisplayIsCaptured(CGDirectDisplayID display) { return captured; }
+CGWindowLevel CGShieldingWindowLevel(void) { return 2147483628; /* Apple's */ }
+uint32_t CGShieldingWindowID(CGDirectDisplayID display) { return 0; }
+
+/* Display fades: the window server doesn't fade the screen, so no reservation is free,
+   as Apple's answers when it can't fade; apps go on without the fade. */
+CGError
+CGAcquireDisplayFadeReservation(CGDisplayReservationInterval seconds, CGDisplayFadeReservationToken *token)
+{
+    if (token)
+        *token = kCGDisplayFadeReservationInvalidToken;
+    return kCGErrorNoneAvailable;
+}
+
+CGError CGReleaseDisplayFadeReservation(CGDisplayFadeReservationToken token) { return kCGErrorSuccess; }
+
+CGError
+CGDisplayFade(CGDisplayFadeReservationToken token, CGDisplayFadeInterval duration, CGDisplayBlendFraction startBlend,
+              CGDisplayBlendFraction endBlend, float redBlend, float greenBlend, float blueBlend, boolean_t synchronous)
+{
+    return token == kCGDisplayFadeReservationInvalidToken ? kCGErrorIllegalArgument : kCGErrorSuccess;
+}
+
+boolean_t CGDisplayFadeOperationInProgress(void) { return false; }
+
+/* The configuration the user chose: the display has only ever had it. */
+void CGRestorePermanentDisplayConfiguration(void) {}
 
 #pragma mark - Display modes
 

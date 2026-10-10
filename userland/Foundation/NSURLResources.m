@@ -9,6 +9,8 @@
  */
 #import <Foundation/Foundation.h>
 #include <dlfcn.h>
+#include <sys/attr.h>
+#include <sys/mount.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -83,6 +85,103 @@ answers_without_file(NSString *key)
     return ![needsFile containsObject:key];
 }
 
+/* (a boolean as one: a comparison's int would box as a number) */
+#define BOOLEAN(x) ((x) ? @YES : @NO)
+
+/* The volume a file is on: from statfs(2) and the volume's attributes. */
+static id
+volume_value(NSString *path, NSString *key)
+{
+    struct statfs fs;
+    if (statfs([path fileSystemRepresentation], &fs) != 0)
+        return nil;
+    NSString *mount = @(fs.f_mntonname);
+    /* (the data volume is seen through the root, as its firmlinks show it) */
+    if ([mount isEqualToString:@"/System/Volumes/Data"])
+        mount = @"/";
+    uint64_t total = (uint64_t)fs.f_blocks * fs.f_bsize, available = (uint64_t)fs.f_bavail * fs.f_bsize;
+    if ([key isEqualToString:NSURLVolumeURLKey])
+        return [NSURL fileURLWithPath:mount isDirectory:YES];
+    if ([key isEqualToString:NSURLVolumeTotalCapacityKey])
+        return @(total);
+    if ([key isEqualToString:NSURLVolumeAvailableCapacityKey])
+        return @(available);
+    if ([key isEqualToString:NSURLVolumeAvailableCapacityForImportantUsageKey] ||
+        [key isEqualToString:NSURLVolumeAvailableCapacityForOpportunisticUsageKey])
+        return @((int64_t)available);
+    if ([key isEqualToString:NSURLVolumeResourceCountKey])
+        return @(fs.f_files - fs.f_ffree);
+    if ([key isEqualToString:NSURLVolumeIsLocalKey])
+        return BOOLEAN(fs.f_flags & MNT_LOCAL);
+    if ([key isEqualToString:NSURLVolumeIsReadOnlyKey])
+        return BOOLEAN(fs.f_flags & MNT_RDONLY);
+    if ([key isEqualToString:NSURLVolumeIsRootFileSystemKey])
+        return BOOLEAN(fs.f_flags & MNT_ROOTFS);
+    if ([key isEqualToString:NSURLVolumeIsBrowsableKey])
+        return BOOLEAN(!(fs.f_flags & MNT_DONTBROWSE));
+    if ([key isEqualToString:NSURLVolumeIsAutomountedKey])
+        return BOOLEAN(fs.f_flags & MNT_AUTOMOUNTED);
+    if ([key isEqualToString:NSURLVolumeIsJournalingKey])
+        return BOOLEAN(fs.f_flags & MNT_JOURNALED);
+    if ([key isEqualToString:NSURLVolumeIsInternalKey])
+        return BOOLEAN(fs.f_flags & MNT_LOCAL);
+    if ([key isEqualToString:NSURLVolumeIsRemovableKey] || [key isEqualToString:NSURLVolumeIsEjectableKey])
+        return @NO;
+    if ([key isEqualToString:NSURLVolumeIsEncryptedKey])
+        return BOOLEAN(fs.f_flags & MNT_CPROTECT);
+    if ([key isEqualToString:NSURLVolumeLocalizedFormatDescriptionKey]) {
+        NSString *type = @(fs.f_fstypename);
+        return [type isEqualToString:@"apfs"] ? @"APFS" : [type isEqualToString:@"hfs"] ? @"Mac OS Extended" : type.uppercaseString;
+    }
+    if ([key isEqualToString:NSURLVolumeTypeNameKey])
+        return @(fs.f_fstypename);
+    if ([key isEqualToString:NSURLVolumeIdentifierKey])
+        return [NSData dataWithBytes:&fs.f_fsid length:sizeof fs.f_fsid];
+    if ([key isEqualToString:NSURLVolumeMaximumFileSizeKey])
+        return @(INT64_MAX);
+    if ([key isEqualToString:NSURLVolumeNameKey] || [key isEqualToString:NSURLVolumeLocalizedNameKey]) {
+        /* the volume's own name (its label), from its attributes */
+        struct {
+            uint32_t length;
+            attrreference_t name;
+            char buf[MAXPATHLEN];
+        } __attribute__((packed)) reply;
+        struct attrlist attrs = {ATTR_BIT_MAP_COUNT, 0, 0, ATTR_VOL_INFO | ATTR_VOL_NAME, 0, 0, 0};
+        if (getattrlist(fs.f_mntonname, &attrs, &reply, sizeof reply, 0) == 0)
+            return @((const char *)&reply.name + reply.name.attr_dataoffset);
+        return [mount isEqualToString:@"/"] ? @"Macintosh HD" : [mount lastPathComponent];
+    }
+    if ([key isEqualToString:NSURLVolumeCreationDateKey]) {
+        struct {
+            uint32_t length;
+            struct timespec created;
+        } __attribute__((packed)) reply;
+        struct attrlist attrs = {ATTR_BIT_MAP_COUNT, 0, 0, ATTR_VOL_INFO, 0, 0, 0};
+        attrs.commonattr = ATTR_CMN_CRTIME;
+        if (getattrlist(fs.f_mntonname, &attrs, &reply, sizeof reply, 0) == 0)
+            return date_of(reply.created);
+        return nil;
+    }
+    if ([key hasPrefix:@"NSURLVolumeSupports"]) {
+        /* (APFS's: what Finch's volumes are) */
+        static NSSet *supported;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+          supported = [NSSet setWithObjects:NSURLVolumeSupportsPersistentIDsKey, NSURLVolumeSupportsSymbolicLinksKey,
+                                            NSURLVolumeSupportsHardLinksKey, NSURLVolumeSupportsJournalingKey,
+                                            NSURLVolumeSupportsSparseFilesKey, NSURLVolumeSupportsZeroRunsKey,
+                                            NSURLVolumeSupportsCasePreservedNamesKey, NSURLVolumeSupportsRootDirectoryDatesKey,
+                                            NSURLVolumeSupportsVolumeSizesKey, NSURLVolumeSupportsRenamingKey,
+                                            NSURLVolumeSupportsAdvisoryFileLockingKey, NSURLVolumeSupportsExtendedSecurityKey,
+                                            NSURLVolumeSupportsAccessPermissionsKey, NSURLVolumeSupportsFileCloningKey,
+                                            NSURLVolumeSupportsSwapRenamingKey, NSURLVolumeSupportsExclusiveRenamingKey,
+                                            NSURLVolumeSupportsImmutableFilesKey, NSURLVolumeSupportsCompressionKey, nil];
+        });
+        return BOOLEAN([supported containsObject:key]);
+    }
+    return nil;
+}
+
 static id
 value_for_key(NSURL *url, NSString *key, const struct stat *st, BOOL exists)
 {
@@ -102,7 +201,7 @@ value_for_key(NSURL *url, NSString *key, const struct stat *st, BOOL exists)
     if ([key isEqualToString:NSURLNameKey] || [key isEqualToString:NSURLLocalizedNameKey])
         return name;
     if ([key isEqualToString:NSURLIsRegularFileKey])
-        return @(fmt == S_IFREG);
+        return BOOLEAN(fmt == S_IFREG);
     if ([key isEqualToString:NSURLIsDirectoryKey])
         return @(dir);
     if ([key isEqualToString:NSURLIsSymbolicLinkKey])
@@ -110,25 +209,25 @@ value_for_key(NSURL *url, NSString *key, const struct stat *st, BOOL exists)
     if ([key isEqualToString:NSURLIsAliasFileKey])
         return @(link);
     if ([key isEqualToString:NSURLIsVolumeKey])
-        return @([path isEqualToString:@"/"]);
+        return BOOLEAN([path isEqualToString:@"/"]);
     if ([key isEqualToString:NSURLIsPackageKey])
         return @(package);
     if ([key isEqualToString:NSURLIsApplicationKey])
-        return @(package && [[path pathExtension] isEqualToString:@"app"]);
+        return BOOLEAN(package && [[path pathExtension] isEqualToString:@"app"]);
     if ([key isEqualToString:NSURLHasHiddenExtensionKey])
-        return @(package && [[path pathExtension] isEqualToString:@"app"]);
+        return BOOLEAN(package && [[path pathExtension] isEqualToString:@"app"]);
     if ([key isEqualToString:NSURLIsHiddenKey])
-        return @([name hasPrefix:@"."] || (st->st_flags & UF_HIDDEN) != 0);
+        return BOOLEAN([name hasPrefix:@"."] || (st->st_flags & UF_HIDDEN) != 0);
     if ([key isEqualToString:NSURLIsReadableKey])
-        return @(faccessat(AT_FDCWD, [path fileSystemRepresentation], R_OK, AT_SYMLINK_NOFOLLOW) == 0);
+        return BOOLEAN(faccessat(AT_FDCWD, [path fileSystemRepresentation], R_OK, AT_SYMLINK_NOFOLLOW) == 0);
     if ([key isEqualToString:NSURLIsWritableKey])
-        return @(faccessat(AT_FDCWD, [path fileSystemRepresentation], W_OK, AT_SYMLINK_NOFOLLOW) == 0);
+        return BOOLEAN(faccessat(AT_FDCWD, [path fileSystemRepresentation], W_OK, AT_SYMLINK_NOFOLLOW) == 0);
     if ([key isEqualToString:NSURLIsExecutableKey])
-        return @(faccessat(AT_FDCWD, [path fileSystemRepresentation], X_OK, AT_SYMLINK_NOFOLLOW) == 0);
+        return BOOLEAN(faccessat(AT_FDCWD, [path fileSystemRepresentation], X_OK, AT_SYMLINK_NOFOLLOW) == 0);
     if ([key isEqualToString:NSURLIsUserImmutableKey])
-        return @((st->st_flags & UF_IMMUTABLE) != 0);
+        return BOOLEAN((st->st_flags & UF_IMMUTABLE) != 0);
     if ([key isEqualToString:NSURLIsSystemImmutableKey])
-        return @((st->st_flags & SF_IMMUTABLE) != 0);
+        return BOOLEAN((st->st_flags & SF_IMMUTABLE) != 0);
     if ([key isEqualToString:NSURLIsMountTriggerKey])
         return @NO;
     if ([key isEqualToString:NSURLLabelNumberKey])
@@ -183,8 +282,8 @@ value_for_key(NSURL *url, NSString *key, const struct stat *st, BOOL exists)
         return [NSData dataWithBytes:&st->st_gen length:sizeof st->st_gen];
     if ([key isEqualToString:NSURLPreferredIOBlockSizeKey])
         return @(st->st_blksize);
-    if ([key isEqualToString:NSURLVolumeURLKey])
-        return [NSURL fileURLWithPath:@"/" isDirectory:YES];
+    if ([key hasPrefix:@"NSURLVolume"])
+        return volume_value(path, key);
     if ([key isEqualToString:NSURLTypeIdentifierKey] || [key isEqualToString:NSURLLocalizedTypeDescriptionKey]) {
         load_types();
         NSString *uti = nil;
