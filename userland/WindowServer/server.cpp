@@ -555,6 +555,32 @@ deliver(Window *w, FWSEvent e)
     send_message(w->owner, FWS_EVENT, 0, w->id, &e, sizeof e);
 }
 
+/* Hot keys, by client: a key with its modifiers goes to the client that registered it. */
+struct HotKey {
+    Client *client;
+    FWSHotKey key;
+};
+static std::vector<HotKey> hotkeys;
+static const uint64_t kHotKeyModifiers = 0x100000 | 0x20000 | 0x80000 | 0x40000; /* Command, Shift, Option, Control */
+
+/* A key event that's a registered hot key: sent to its client; true if it was. */
+static bool
+hotkey(const FWSEvent &e)
+{
+    if (e.type != FWS_EVENT_KEY_DOWN && e.type != FWS_EVENT_KEY_UP)
+        return false;
+    for (const HotKey &h : hotkeys)
+        if (h.key.key_code == e.key_code && (e.modifiers & kHotKeyModifiers) == (h.key.modifiers & kHotKeyModifiers)) {
+            FWSEvent he = e;
+            he.type = e.type == FWS_EVENT_KEY_DOWN ? FWS_EVENT_HOTKEY_DOWN : FWS_EVENT_HOTKEY_UP;
+            he.button = h.key.id;
+            he.window = 0;
+            send_message(h.client, FWS_EVENT, 0, 0, &he, sizeof he);
+            return true;
+        }
+    return false;
+}
+
 /* What's held down, for FWS_INPUT_STATE (CGEventSource's state). */
 static uint64_t modifiers_down;
 static uint8_t keys_down[16];
@@ -569,7 +595,7 @@ handle_input(FWSEvent e)
     if (e.type < 32)
         input_counts[e.type]++;
     if (e.type == FWS_EVENT_KEY_DOWN || e.type == FWS_EVENT_KEY_UP || e.type == FWS_EVENT_FLAGS_CHANGED)
-        modifiers_down = e.modifiers;
+        modifiers_down = e.modifiers & ~(uint64_t)0x20000100; /* the modifiers, not the event's own marks */
     if ((e.type == FWS_EVENT_KEY_DOWN || e.type == FWS_EVENT_KEY_UP) && e.key_code < 128) {
         if (e.type == FWS_EVENT_KEY_DOWN)
             keys_down[e.key_code / 8] |= (uint8_t)(1u << (e.key_code % 8));
@@ -620,7 +646,9 @@ handle_input(FWSEvent e)
         deliver(w, e);
         return;
     }
-    /* keys: to the key window */
+    /* keys: a hot key to its client, the rest to the key window */
+    if (hotkey(e))
+        return;
     if (key_window && windows.count(key_window))
         deliver(windows[key_window], e);
 }
@@ -807,6 +835,23 @@ handle(Client *c, const FWSHeader &h, const uint8_t *body)
         if (want(sizeof(FWSEvent)))
             handle_input(*(const FWSEvent *)body);
         break;
+    case FWS_REGISTER_HOTKEY:
+        if (want(sizeof(FWSHotKey))) {
+            const FWSHotKey *k = (const FWSHotKey *)body;
+            hotkeys.erase(std::remove_if(hotkeys.begin(), hotkeys.end(),
+                                         [&](const HotKey &h) { return h.client == c && h.key.id == k->id; }),
+                          hotkeys.end());
+            hotkeys.push_back({c, *k});
+        }
+        break;
+    case FWS_UNREGISTER_HOTKEY:
+        if (want(sizeof(FWSHotKey))) {
+            uint32_t id = ((const FWSHotKey *)body)->id;
+            hotkeys.erase(std::remove_if(hotkeys.begin(), hotkeys.end(),
+                                         [&](const HotKey &h) { return h.client == c && h.key.id == id; }),
+                          hotkeys.end());
+        }
+        break;
     case FWS_INPUT_STATE: {
         FWSInputState st = {};
         st.x = cursor_x, st.y = cursor_y;
@@ -845,6 +890,7 @@ drop_client(Client *c)
     for (Window *w : mine)
         destroy_window(w);
     close(c->fd);
+    hotkeys.erase(std::remove_if(hotkeys.begin(), hotkeys.end(), [&](const HotKey &h) { return h.client == c; }), hotkeys.end());
     clients.erase(std::find(clients.begin(), clients.end(), c));
     if (active_pid == c->pid)
         active_pid = 0;

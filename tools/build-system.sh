@@ -115,6 +115,16 @@ steps=(
     "CoreAnalytics|userland/CoreAnalytics/build.sh"
     "libScreenReader|userland/libScreenReader/build.sh"
     "DataDetectorsCore|userland/DataDetectorsCore/build.sh"
+    # Frameworks apps link for services Finch answers as a Mac without them would
+    # (no location, biometrics, Wi-Fi, Bluetooth or App Store yet); notifications and
+    # login items work in the app and through launchd
+    "UserNotifications|userland/UserNotifications/build.sh"
+    "CoreLocation|userland/CoreLocation/build.sh"
+    "LocalAuthentication|userland/LocalAuthentication/build.sh"
+    "ServiceManagement|userland/ServiceManagement/build.sh"
+    "CoreWLAN|userland/CoreWLAN/build.sh"
+    "IOBluetooth|userland/IOBluetooth/build.sh"
+    "StoreKit|userland/StoreKit/build.sh"
     # Image Capture's frameworks: ImageCaptureCore, ICADevices, and Quartz with ImageKit
     # (docs/design/IMAGECAPTURE.md)
     "ImageCaptureCore|userland/ImageCaptureCore/build.sh"

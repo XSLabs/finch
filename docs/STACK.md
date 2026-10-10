@@ -49,7 +49,10 @@ DataDetectorsCore (links, addresses, phone numbers and IP addresses found in tex
 messages, authentication and streams, socket streams, CFHost, Bonjour over dns_sd,
 proxy settings and FTP, matching Apple's in its comparison test. CoreImage is Finch's
 own too: images are recipes rendered on the CPU in Apple's working space, and about seventy
-of Apple's filters give Apple's pixels. The desktop's frame is the Instrument Bar (each app's menu bar) and the Rail, a
+of Apple's filters give Apple's pixels. Apps' status items, global hot keys and posted
+Quartz events work through the window server; frameworks for services Finch doesn't have
+yet (location, biometrics, Wi-Fi, Bluetooth, the App Store) answer as a Mac without them
+would, so apps that link them run. The desktop's frame is the Instrument Bar (each app's menu bar) and the Rail, a
 Finch app down the left edge that replaces the Dock.
 
 CoreFoundation's local notification center shares observers with Foundation's
@@ -94,6 +97,7 @@ block-beta
         cg["CoreGraphics<br/>bitmap contexts, paths, images,<br/>gradients, patterns, fonts, text,<br/>shadows (over Skia, skcms);<br/>PDF writing (SkPDF), PDF reading<br/>and drawing (own parser);<br/>window server client, displays,<br/>Quartz events (posting, sources)"]
         imageio["ImageIO<br/>image sources, thumbnails,<br/>destinations, property keys<br/>(libpng, libjpeg-turbo, libwebp,<br/>wuffs, via Skia); TIFF (own codec)"]
         coreimage["CoreImage<br/>images as recipes, CPU rendering<br/>in linear light, ~70 filters"]
+        services["UserNotifications (local),<br/>ServiceManagement (launchd jobs),<br/>CoreLocation, LocalAuthentication,<br/>CoreWLAN, IOBluetooth, StoreKit<br/>(answering as a Mac without<br/>those services would)"]
         space6[" "]
         ctio["CoreText<br/>fonts, shaping, lines, frames<br/>(HarfBuzz, FreeType, ICU)"]
         quartzcore["QuartzCore<br/>layers drawn through CoreGraphics,<br/>animation objects, transactions;<br/>animation playback still to come"]
@@ -102,7 +106,7 @@ block-beta
         coreservices["CoreServices<br/>app lookup and launch,<br/>local Apple events, files"]
         later["Metal, AV"]
         coreui["CoreUI<br/>compiled asset catalogs,<br/>named images and colors"]
-        appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds),<br/>Carbon/HIToolbox (events, keys),<br/>CoreAnalytics, libScreenReader;<br/>ColorSync (profiles, transforms);<br/>HIServices (AX client, Process Manager),<br/>DataDetectorsCore (links in text)"]
+        appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds),<br/>Carbon/HIToolbox (events, keys),<br/>CoreAnalytics, libScreenReader;<br/>ColorSync (profiles, transforms);<br/>HIServices (AX client, Process Manager),<br/>DataDetectorsCore (links in text);<br/>Text Input Sources, UCKeyTranslate,<br/>Carbon event handlers, hot keys"]
         swiftui["SwiftUI, SwiftUICore<br/>(OpenSwiftUI on Compute's<br/>attribute graph; first app draws)"]
     end
     block:L5
@@ -236,6 +240,7 @@ flowchart LR
     ctfw["CoreText"]:::finch
     imageio["ImageIO"]:::finch
     coreimagefw["CoreImage"]:::finch
+    servicesfw["UserNotifications, CoreLocation,<br/>ServiceManagement, StoreKit, ..."]:::finch
     colorsync["ColorSync"]:::finch
     hiservices["HIServices"]:::finch
     coreui["CoreUI"]:::finch
@@ -293,6 +298,7 @@ flowchart LR
     coreui --> z
     coreservices --> ffound
     coreservices -->|"re-exports"| cfnetwork
+    servicesfw --> ffound
     coreimagefw --> ffound
     coreimagefw --> cgfw
     coreimagefw --> imageio

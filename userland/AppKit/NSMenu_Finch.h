@@ -49,6 +49,8 @@ FINCH_PRIVATE void FinchMenuCancelTracking(BOOL animate);
 
 /* The menu bar (FinchMenuWindow.m): shows NSApp's main menu once the app has launched, and redraws it. */
 FINCH_PRIVATE void FinchMenuBarUpdate(void);
+FINCH_PRIVATE CGFloat FinchMenuBarInstrumentsWidth(void);
+FINCH_PRIVATE CGFloat FinchMenuBarHeight(void);
 /* Called by -[NSApplication finishLaunching]: from now on the menu bar shows. */
 FINCH_PRIVATE void FinchMenuBarDidLaunch(void);
 

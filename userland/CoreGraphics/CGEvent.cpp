@@ -713,6 +713,35 @@ CGWindowListCreateImageFromArray(CGRect screenBounds, CFArrayRef windowArray, CG
     return screen_image(r);
 }
 
+/* --- the session: the user at the console --- */
+
+#include <CoreGraphics/CGSession.h>
+#include <pwd.h>
+
+extern "C" CFDictionaryRef
+CGSessionCopyCurrentDictionary(void)
+{
+    uid_t uid = getuid();
+    struct passwd *pw = getpwuid(uid);
+    CFMutableDictionaryRef d = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    int32_t u = (int32_t)uid;
+    CFNumberRef n = CFNumberCreate(NULL, kCFNumberSInt32Type, &u);
+    CFDictionarySetValue(d, kCGSessionUserIDKey, n);
+    CFRelease(n);
+    if (pw && pw->pw_name) {
+        CFStringRef name = CFStringCreateWithCString(NULL, pw->pw_name, kCFStringEncodingUTF8);
+        CFDictionarySetValue(d, kCGSessionUserNameKey, name);
+        CFRelease(name);
+    }
+    int32_t console = 0;
+    CFNumberRef c = CFNumberCreate(NULL, kCFNumberSInt32Type, &console);
+    CFDictionarySetValue(d, kCGSessionConsoleSetKey, c);
+    CFRelease(c);
+    CFDictionarySetValue(d, kCGSessionOnConsoleKey, kCFBooleanTrue);
+    CFDictionarySetValue(d, kCGSessionLoginDoneKey, kCFBooleanTrue);
+    return d;
+}
+
 /* --- mirroring: one display, never mirrored --- */
 
 extern "C" boolean_t CGDisplayIsInMirrorSet(CGDirectDisplayID display) { return 0; }

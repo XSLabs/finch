@@ -430,6 +430,13 @@ and AppKit come in Phase 2).
       (colour, compositing and blend modes, blurs, geometry, generators, reductions) whose
       pixels match Apple's on the host and in the VM (2026-10-10). Still to come: kernels
       in Core Image's kernel language or Metal, detectors, the remaining filters, GPU rendering
+- [x] The frameworks third-party apps link most (measured over the apps on the build Mac):
+      UserNotifications (local notifications), ServiceManagement (login items and agents as
+      the user's launchd jobs), CoreLocation, LocalAuthentication, CoreWLAN, IOBluetooth and
+      StoreKit (answering as a Mac without those services), NSStatusBar, NSSound,
+      NSUserNotification, Quartz Event Services, Carbon hot keys and event handlers, Text
+      Input Sources and UCKeyTranslate on a 'uchr' U.S. layout (matching Apple's
+      translation). Amphetamine runs in the VM with its status item (2026-10-10)
 - [ ] The URL loading system (Apple's is in CFNetwork; Finch's is in Foundation)
   - [x] Requests, responses, sessions; file, data and HTTP/1.1 loading; TLS over OpenSSL;
         Swift's URLRequest and async methods (2026-10-09)

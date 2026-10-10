@@ -15,7 +15,8 @@ OSStatus TSMProcessRawKeyCode(EventRef inEvent);
 UInt32 TSMGetDeadKeyState(void);
 UInt32 TSMSetDeadKeyState(UInt32 inState);
 
-enum { DEAD_NONE, DEAD_GRAVE, DEAD_ACUTE, DEAD_CIRCUMFLEX, DEAD_DIAERESIS, DEAD_TILDE };
+/* in Apple's numbering of the dead states */
+enum { DEAD_NONE, DEAD_ACUTE, DEAD_GRAVE, DEAD_CIRCUMFLEX, DEAD_DIAERESIS, DEAD_TILDE };
 #define DEAD(n) (0xF0000 | (n))   /* a table entry that starts a dead key */
 
 static UInt32 dead_state;
@@ -76,6 +77,14 @@ static const struct Key {
     {kVK_ANSI_Keypad5, '5', '5', '5', '5'},      {kVK_ANSI_Keypad6, '6', '6', '6', '6'},
     {kVK_ANSI_Keypad7, '7', '7', '7', '7'},      {kVK_ANSI_Keypad8, '8', '8', '8', '8'},
     {kVK_ANSI_Keypad9, '9', '9', '9', '9'},
+    /* the function keys: the function-key character, 0x10 */
+    {kVK_F1, 0x10, 0x10, 0x10, 0x10},  {kVK_F2, 0x10, 0x10, 0x10, 0x10},  {kVK_F3, 0x10, 0x10, 0x10, 0x10},
+    {kVK_F4, 0x10, 0x10, 0x10, 0x10},  {kVK_F5, 0x10, 0x10, 0x10, 0x10},  {kVK_F6, 0x10, 0x10, 0x10, 0x10},
+    {kVK_F7, 0x10, 0x10, 0x10, 0x10},  {kVK_F8, 0x10, 0x10, 0x10, 0x10},  {kVK_F9, 0x10, 0x10, 0x10, 0x10},
+    {kVK_F10, 0x10, 0x10, 0x10, 0x10}, {kVK_F11, 0x10, 0x10, 0x10, 0x10}, {kVK_F12, 0x10, 0x10, 0x10, 0x10},
+    {kVK_F13, 0x10, 0x10, 0x10, 0x10}, {kVK_F14, 0x10, 0x10, 0x10, 0x10}, {kVK_F15, 0x10, 0x10, 0x10, 0x10},
+    {kVK_F16, 0x10, 0x10, 0x10, 0x10}, {kVK_F17, 0x10, 0x10, 0x10, 0x10}, {kVK_F18, 0x10, 0x10, 0x10, 0x10},
+    {kVK_F19, 0x10, 0x10, 0x10, 0x10},
 };
 
 /* Each dead key's accent alone, and what it makes of the letters it combines with. */
@@ -85,25 +94,18 @@ static const struct {
     const UniChar *combined;
 } accents[] = {
     [DEAD_GRAVE] = {'`', "aeiouAEIOU", (const UniChar[]){0xE0, 0xE8, 0xEC, 0xF2, 0xF9, 0xC0, 0xC8, 0xCC, 0xD2, 0xD9}},
-    [DEAD_ACUTE] = {0xB4, "aeiouyAEIOUY",
-                    (const UniChar[]){0xE1, 0xE9, 0xED, 0xF3, 0xFA, 0xFD, 0xC1, 0xC9, 0xCD, 0xD3, 0xDA, 0xDD}},
+    [DEAD_ACUTE] = {0xB4, "aeiouAEIOU", (const UniChar[]){0xE1, 0xE9, 0xED, 0xF3, 0xFA, 0xC1, 0xC9, 0xCD, 0xD3, 0xDA}},
     [DEAD_CIRCUMFLEX] = {0x2C6, "aeiouAEIOU", (const UniChar[]){0xE2, 0xEA, 0xEE, 0xF4, 0xFB, 0xC2, 0xCA, 0xCE, 0xD4, 0xDB}},
     [DEAD_DIAERESIS] = {0xA8, "aeiouyAEIOUY",
                         (const UniChar[]){0xE4, 0xEB, 0xEF, 0xF6, 0xFC, 0xFF, 0xC4, 0xCB, 0xCF, 0xD6, 0xDC, 0x178}},
     [DEAD_TILDE] = {0x2DC, "anoANO", (const UniChar[]){0xE3, 0xF1, 0xF5, 0xC3, 0xD1, 0xD5}},
 };
 
-/* What the key types with these modifiers; with a dead key pending, combined with it.
- * Returns the number of UniChars (0 when the key starts a dead key). */
-static int
-translate(UInt32 code, UInt32 mods, Boolean down, UniChar out[2])
+/* The character a key gives in a modifier layer (or DEAD(n) for a dead key), before
+ * any pending dead key is taken into account. */
+static UInt32
+layer_char(const struct Key *k, UInt32 mods)
 {
-    const struct Key *k = NULL;
-    for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++)
-        if (keys[i].code == code)
-            k = &keys[i];
-    if (!k)
-        return 0;
     Boolean shift = (mods & (shiftKey | rightShiftKey)) != 0, option = (mods & (optionKey | rightOptionKey)) != 0;
     Boolean control = (mods & (controlKey | rightControlKey)) != 0, caps = (mods & alphaLock) != 0;
     Boolean command = (mods & cmdKey) != 0;
@@ -118,13 +120,36 @@ translate(UInt32 code, UInt32 mods, Boolean down, UniChar out[2])
         /* Command: the plain key (Shift and Caps Lock don't count); with Option, the Option
          * layer, its dead keys typing their accents */
         c = option ? (shift ? k->shift_option : k->option) : k->plain;
-        if ((c & 0xF0000) == 0xF0000 && c != 0xF8FF)
-            c = accents[c & 0xFFFF].alone;
+        if ((c & 0xF0000) == 0xF0000 && c != 0xF8FF) {
+            UInt32 d = c & 0xFFFF;
+            c = d == DEAD_CIRCUMFLEX ? '^' : d == DEAD_TILDE ? '~' : accents[d].alone;
+        }
     } else {
         c = option ? (shift ? k->shift_option : k->option) : (shift ? k->shift : k->plain);
         if (caps && !option && c >= 'a' && c <= 'z')
             c -= 'a' - 'A';
     }
+    return c;
+}
+
+static const struct Key *
+key_for(UInt32 code)
+{
+    for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++)
+        if (keys[i].code == code)
+            return &keys[i];
+    return NULL;
+}
+
+/* What the key types with these modifiers; with a dead key pending, combined with it.
+ * Returns the number of UniChars (0 when the key starts a dead key). */
+static int
+translate(UInt32 code, UInt32 mods, Boolean down, UniChar out[2])
+{
+    const struct Key *k = key_for(code);
+    if (!k)
+        return 0;
+    UInt32 c = layer_char(k, mods);
     if ((c & 0xF0000) == 0xF0000 && c != 0xF8FF) {
         if (!down)
             return 0;
@@ -187,4 +212,154 @@ TSMProcessRawKeyCode(EventRef inEvent)
     if (s)
         CFRelease(s);
     return err;
+}
+
+/* --- the layout as 'uchr' data (UCKeyboardLayout, UnicodeUtilities.h), for Text Input
+ * Sources' kTISPropertyUnicodeKeyLayoutData and UCKeyTranslate --- */
+
+static void
+put16(CFMutableDataRef d, CFIndex at, UInt16 v)
+{
+    memcpy(CFDataGetMutableBytePtr(d) + at, &v, 2);
+}
+
+static void
+put32(CFMutableDataRef d, CFIndex at, UInt32 v)
+{
+    memcpy(CFDataGetMutableBytePtr(d) + at, &v, 4);
+}
+
+static CFIndex
+grow(CFMutableDataRef d, CFIndex n)
+{
+    CFIndex at = CFDataGetLength(d);
+    CFDataIncreaseLength(d, n);
+    return at;
+}
+
+/* Whether c combines with some accent (so its key needs a state record). */
+static Boolean
+combines(UInt32 c)
+{
+    if (c == ' ')
+        return true;
+    for (int a = DEAD_ACUTE; a <= DEAD_TILDE; a++)
+        if (c && c < 0x80 && strchr(accents[a].bases, (int)c))
+            return true;
+    return false;
+}
+
+__attribute__((visibility("default"))) CFDataRef
+FinchCopyUSKeyLayoutData(void)
+{
+    enum { KEYS = 128, COMBOS = 32, STATES = DEAD_TILDE };
+    /* the layer tables, one per distinct modifier combination's output */
+    UInt32 table[COMBOS][KEYS];
+    int table_of[COMBOS], ntables = 0, unique[COMBOS];
+    for (int m = 0; m < COMBOS; m++) {
+        UInt32 mods = (UInt32)m << 8;
+        for (int code = 0; code < KEYS; code++) {
+            const struct Key *k = key_for((UInt32)code);
+            table[m][code] = k ? layer_char(k, mods) : 0xFFFF;
+        }
+        table_of[m] = -1;
+        for (int t = 0; t < ntables; t++)
+            if (!memcmp(table[unique[t]], table[m], sizeof table[m]))
+                table_of[m] = t;
+        if (table_of[m] < 0) {
+            unique[ntables] = m;
+            table_of[m] = ntables++;
+        }
+    }
+    /* state records: one per dead key, and one per character that combines */
+    UInt32 records[256];
+    int nrecords = 0;
+    for (int t = 0; t < ntables; t++)
+        for (int code = 0; code < KEYS; code++) {
+            UInt32 c = table[unique[t]][code];
+            if (!((c & 0xF0000) == 0xF0000 && c != 0xF8FF) && !combines(c))
+                continue;
+            Boolean have = false;
+            for (int r = 0; r < nrecords; r++)
+                have = have || records[r] == c;
+            if (!have && nrecords < 256)
+                records[nrecords++] = c;
+        }
+
+    CFMutableDataRef d = CFDataCreateMutable(NULL, 0);
+    /* header and the one keyboard-type entry (every type) */
+    CFIndex header = grow(d, 12 + 28);
+    put16(d, header, kUCKeyLayoutHeaderFormat);
+    put16(d, header + 2, 0x0100);
+    put32(d, header + 4, 0);
+    put32(d, header + 8, 1);
+    CFIndex type = header + 12;
+    put32(d, type, 0);
+    put32(d, type + 4, 0);
+    /* modifiers to table: 256 states, the right-side keys folded into the left */
+    CFIndex mods = grow(d, 8 + 256);
+    put32(d, type + 8, (UInt32)mods);
+    put16(d, mods, kUCKeyModifiersToTableNumFormat);
+    put16(d, mods + 2, 0);
+    put32(d, mods + 4, 256);
+    for (int ks = 0; ks < 256; ks++) {
+        int folded = (ks & 0x1F) | ((ks >> 4) & 0x02) | ((ks >> 3) & 0x08) | ((ks >> 3) & 0x10);
+        CFDataGetMutableBytePtr(d)[mods + 8 + ks] = (UInt8)table_of[folded & 0x1F];
+    }
+    /* key-to-char tables */
+    CFIndex index = grow(d, 8 + 4 * ntables);
+    put32(d, type + 12, (UInt32)index);
+    put16(d, index, kUCKeyToCharTableIndexFormat);
+    put16(d, index + 2, KEYS);
+    put32(d, index + 4, (UInt32)ntables);
+    for (int t = 0; t < ntables; t++) {
+        CFIndex at = grow(d, 2 * KEYS);
+        put32(d, index + 8 + 4 * t, (UInt32)at);
+        for (int code = 0; code < KEYS; code++) {
+            UInt32 c = table[unique[t]][code];
+            UInt16 out = (UInt16)c;
+            for (int r = 0; r < nrecords; r++)
+                if (records[r] == c)
+                    out = (UInt16)(kUCKeyOutputStateIndexMask | r);
+            put16(d, at + 2 * code, out);
+        }
+    }
+    /* the state records */
+    CFIndex sidx = grow(d, 4 + 4 * nrecords);
+    put32(d, type + 16, (UInt32)sidx);
+    put16(d, sidx, kUCKeyStateRecordsIndexFormat);
+    put16(d, sidx + 2, (UInt16)nrecords);
+    for (int r = 0; r < nrecords; r++) {
+        UInt32 c = records[r];
+        Boolean dead = (c & 0xF0000) == 0xF0000;
+        UInt16 entries = 0;
+        UInt16 state[STATES], out[STATES];
+        if (!dead)
+            for (int a = DEAD_ACUTE; a <= DEAD_TILDE; a++) {
+                const char *at = c < 0x80 ? strchr(accents[a].bases, (int)c) : NULL;
+                if (c == ' ' || at) {
+                    state[entries] = (UInt16)a;
+                    out[entries++] = c == ' ' ? accents[a].alone : accents[a].combined[at - accents[a].bases];
+                }
+            }
+        CFIndex rec = grow(d, 8 + 4 * entries);
+        put32(d, sidx + 4 + 4 * r, (UInt32)rec);
+        put16(d, rec, dead ? 0xFFFF : (UInt16)c);
+        put16(d, rec + 2, dead ? (UInt16)(c & 0xFFFF) : 0);
+        put16(d, rec + 4, entries);
+        put16(d, rec + 6, kUCKeyStateEntryTerminalFormat);
+        for (int e = 0; e < entries; e++) {
+            put16(d, rec + 8 + 4 * e, state[e]);
+            put16(d, rec + 10 + 4 * e, out[e]);
+        }
+    }
+    /* each dead state's terminator: its accent alone */
+    CFIndex term = grow(d, 4 + 2 * STATES);
+    put32(d, type + 20, (UInt32)term);
+    put16(d, term, kUCKeyStateTerminatorsFormat);
+    put16(d, term + 2, STATES);
+    for (int a = DEAD_ACUTE; a <= DEAD_TILDE; a++)
+        put16(d, term + 4 + 2 * (a - 1), accents[a].alone);
+    put32(d, type + 24, 0); /* no sequences */
+    return d;
 }

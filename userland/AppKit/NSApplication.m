@@ -11,6 +11,7 @@
  */
 #import "NSMenu_Finch.h"
 #import "NSStoryboard_Finch.h"
+#include <dlfcn.h>
 
 id NSApp = nil;
 
@@ -303,6 +304,15 @@ set_current(NSApplication *app, NSEvent *e)
     }
     if (e->type == FWS_EVENT_WINDOW_MOVED) {
         FinchWindowServerEvent(e);
+        return;
+    }
+    if (e->type == FWS_EVENT_HOTKEY_DOWN || e->type == FWS_EVENT_HOTKEY_UP) {
+        /* a Carbon hot key (RegisterEventHotKey): to HIToolbox's handlers */
+        static void (*carbon_hotkey)(uint32_t, bool);
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{ carbon_hotkey = dlsym(RTLD_DEFAULT, "FinchHIToolboxHotKey"); });
+        if (carbon_hotkey)
+            carbon_hotkey(e->button, e->type == FWS_EVENT_HOTKEY_DOWN);
         return;
     }
     NSWindow *window = FinchWindowForNumber(e->window);

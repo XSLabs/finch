@@ -34,6 +34,8 @@ enum {
     FWS_POST_EVENT,
     FWS_SNAPSHOT,       /* the composited screen, for tests: replies an FWSBuffer and its fd */
     FWS_INPUT_STATE,    /* replies an FWSInputState */
+    FWS_REGISTER_HOTKEY,   /* FWSHotKey: the key goes to this client, whichever window is key */
+    FWS_UNREGISTER_HOTKEY, /* FWSHotKey (its id) */
     /* server -> client */
     FWS_REPLY = 100,
     FWS_EVENT,
@@ -155,6 +157,8 @@ enum {
     FWS_EVENT_APP_ACTIVATED = 1000,    /* FWS_ACTIVATED with active 1 */
     FWS_EVENT_APP_DEACTIVATED = 1001,  /* FWS_ACTIVATED with active 0 */
     FWS_EVENT_WINDOW_MOVED = 1002,     /* FWS_WINDOW_MOVED: the new frame in x, y, delta_x (width), delta_y (height) */
+    /* sent by the server: a registered hot key, pressed or released (its id in button) */
+    FWS_EVENT_HOTKEY_DOWN = 1003, FWS_EVENT_HOTKEY_UP = 1004,
 };
 
 /* FWS_EVENT, FWS_POST_EVENT */
@@ -184,6 +188,14 @@ typedef struct {
 typedef struct {
     int32_t active;
 } FWSActivated;
+
+/* FWS_REGISTER_HOTKEY / FWS_UNREGISTER_HOTKEY: a key and the modifiers (CGEventFlags:
+   Command, Shift, Option, Control) that must be down with it, exactly */
+typedef struct {
+    uint32_t id;
+    uint32_t key_code;
+    uint64_t modifiers;
+} FWSHotKey;
 
 /* reply to FWS_INPUT_STATE: what the user is holding down, and where the cursor is */
 typedef struct {

@@ -10,7 +10,8 @@ HERE="${FINCH_ROOT}/userland/Carbon"
 CARBON=/System/Library/Frameworks/Carbon.framework/Versions/A
 "${FINCH_ROOT}/tools/build-small-framework.sh" \
     "${CARBON}/Frameworks/HIToolbox.framework/Versions/A/HIToolbox" 1249.3 1 com.apple.HIToolbox 2.1.1 \
-    "${HERE}/CarbonEvents.c" "${HERE}/TSM.c" -- -Wl,-umbrella,Carbon -framework CoreFoundation -framework CoreGraphics
+    "${HERE}/CarbonEvents.c" "${HERE}/TSM.c" "${HERE}/EventTargets.c" "${HERE}/TextInputSources.c" "${HERE}/HIConstants.c" \
+    -- -Wl,-umbrella,Carbon -framework CoreFoundation -framework CoreGraphics
 "${FINCH_ROOT}/tools/build-small-framework.sh" "${CARBON}/Carbon" 170 2 com.apple.carbonframework 1.6 \
     "${HERE}/version.c" -- -framework ApplicationServices \
     -Wl,-reexport_library,"${FINCH_ROOT}/build/root${CARBON}/Frameworks/HIToolbox.framework/Versions/A/HIToolbox" \

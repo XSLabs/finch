@@ -572,6 +572,22 @@ mark_width(void)
     [self setNeedsDisplay:YES];
 }
 
+/* How much of the bar's right end the workbench and the clock take (status items go to
+   its left): measured as _finchDrawInstruments lays them out. */
+CGFloat
+FinchMenuBarInstrumentsWidth(void)
+{
+    if (!fieldwork())
+        return 0;
+    NSDictionary *quiet = @{NSFontAttributeName : technical_font(11, NSFontWeightRegular)};
+    NSDictionary *loud = @{NSFontAttributeName : technical_font(11, NSFontWeightMedium)};
+    CGFloat time = [@"WED 30 SEP  23:59" sizeWithAttributes:loud].width;
+    CGFloat bench = [@"01 / DESK" sizeWithAttributes:quiet].width;
+    return ceil(14 + time + 24 + bench + 16);
+}
+
+CGFloat FinchMenuBarHeight(void) { return BAR_HEIGHT; }
+
 /* The Finch wordmark, then a divider; on the right, the workbench and the time, in the technical face. */
 - (void)_finchDrawInstruments
 {

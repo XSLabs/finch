@@ -145,6 +145,9 @@ static __NSPlaceholderTimer *timerPlaceholder;
 
 FINCH_IMMORTAL_MEMORY
 
+/* A timer needs a fire date: as Apple's, plain -init (and +new) gives nil. */
+- (instancetype)init { return nil; }
+
 - (instancetype)initWithFireDate:(id)date interval:(NSTimeInterval)ti target:(id)target selector:(SEL)sel userInfo:(id)ui repeats:(BOOL)rep
 {
     return (id)make_timer([date timeIntervalSinceReferenceDate], ti, rep, target, sel, ui, nil);

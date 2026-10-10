@@ -28,7 +28,7 @@ trap 'rm -rf "${TMP}"' EXIT
 
 # name|arguments: comparison tests (arguments are relative to the repo root)
 COMPARE=(
-    "cf-test|" "foundation-test|" "intl-test|" "misc-test|" "data-test|" "collections-test|" "kvc-test|" "typedstream-test|" "tiff-test|" "colorsync-test|" "hiservices-test|" "scripting-test|" "cfnetwork-test|" "coreimage-test|" "cgevent-test|"
+    "cf-test|" "foundation-test|" "intl-test|" "misc-test|" "data-test|" "collections-test|" "kvc-test|" "typedstream-test|" "tiff-test|" "colorsync-test|" "hiservices-test|" "scripting-test|" "cfnetwork-test|" "coreimage-test|" "cgevent-test|" "keylayout-test|"
     "archive-test|" "predicate-test|" "measurement-test|" "bridge-test|" "streams-test|" "documents-test|"
     "files-test|" "xmlparser-test|" "cfnotify-test|" "l10n-test|" "uti-test|" "cg-test|" "imageio-test|"
     "ct-test|" "quartzcore-test|" "calayer-test|" "uifoundation-test|" "appkit-core-test|" "appkit-draw-test|"
@@ -39,7 +39,7 @@ COMPARE=(
     "coreservices-test|build/coreservices-test" "security-test|" "rtf-test|" "filecoordinator-test|" "textfinder-test|" "ruler-test|" "textblock-test|" "combine-test|" "cftokenizer-test|" "urlsession-test|" "swift-overlay-test|" "swift-runtime-test|"
 )
 # Finch-only window-server tests and their expected output
-EXPECT=(window controls-window menu-window text-window panels-window tables-window)
+EXPECT=(window controls-window menu-window text-window panels-window tables-window statusbar)
 
 want() {
     [[ $# -eq 0 || -z "${SELECTED}" ]] && return 0

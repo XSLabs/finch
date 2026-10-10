@@ -102,13 +102,19 @@ done
 
 # 2b. Apps from this Mac's own macOS, to try them on Finch's frameworks:
 #     FINCH_HOST_APPS="TextEdit Stickies" copies /System/Applications/<name>.app
-#     (or Utilities/<name>.app) to /Applications in the image. They come from
-#     the user's install at build time and stay in the local image; nothing of
-#     Apple's is added to the repository.
+#     (or Utilities/<name>.app, or /Applications/<name>.app for an app the user
+#     installed) to /Applications in the image. They come from the user's
+#     install at build time and stay in the local image; nothing of Apple's or
+#     anyone else's is added to the repository. Names with spaces: separate the
+#     names with commas instead ("The Unarchiver,TextEdit").
+IFS_SAVE="${IFS}"
+[[ "${FINCH_HOST_APPS:-}" == *,* ]] && IFS=,
 for app in ${FINCH_HOST_APPS:-}; do
+    IFS="${IFS_SAVE}"
     src="/System/Applications/${app}.app"
     [[ -d "${src}" ]] || src="/System/Applications/Utilities/${app}.app"
-    [[ -d "${src}" ]] || die "no ${app}.app in /System/Applications"
+    [[ -d "${src}" ]] || src="/Applications/${app}.app"
+    [[ -d "${src}" ]] || die "no ${app}.app in /System/Applications or /Applications"
     mkdir -p "${mnt}/Applications"
     cp -R "${src}" "${mnt}/Applications/" && chmod -R u+w "${mnt}/Applications/${app}.app"
     while IFS= read -r -d '' f; do

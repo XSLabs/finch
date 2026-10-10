@@ -184,3 +184,4 @@ build/userland/finch-hiservices-test /usr/local/bin/finch-hiservices-test
 build/userland/finch-scripting-test /usr/local/bin/finch-scripting-test
 build/userland/finch-coreimage-test /usr/local/bin/finch-coreimage-test
 build/userland/finch-cgevent-test /usr/local/bin/finch-cgevent-test
+build/userland/finch-keylayout-test /usr/local/bin/finch-keylayout-test

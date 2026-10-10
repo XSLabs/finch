@@ -1,0 +1,13 @@
+thickness 24 vertical 0
+item window level 25 visible 1 height 24 right of centre 1 at top 1
+item drawn 1; left of it empty 1
+second left of first 1, square 1
+removed: visible 0
+menu drawn below the item 1
+menu: chose Keep Awake
+register 0
+hot key: hot key pressed 'FNCH' 7; hot key released 'FNCH' 7
+not the hot key: keyDown  code 40 flags 100000
+unregistered: keyDown  code 40 flags 120000
+CGEventPost: keyDown a code 0 flags 20000000
+input state: modifiers 0x0

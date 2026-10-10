@@ -391,6 +391,22 @@ FWSCopyWindowList(uint32_t *count)
     return out;
 }
 
+/* Hot keys: the key (with exactly these modifiers) comes to this process as
+   FWS_EVENT_HOTKEY_DOWN/UP events, whichever app is active. */
+FWS_EXPORT void
+FWSRegisterHotKey(uint32_t id, uint32_t key_code, uint64_t modifiers)
+{
+    FWSHotKey k = {id, key_code, modifiers};
+    simple(FWS_REGISTER_HOTKEY, 0, &k, sizeof k);
+}
+
+FWS_EXPORT void
+FWSUnregisterHotKey(uint32_t id)
+{
+    FWSHotKey k = {id, 0, 0};
+    simple(FWS_UNREGISTER_HOTKEY, 0, &k, sizeof k);
+}
+
 /* The user's input state: cursor, modifiers, buttons and keys held down. */
 FWS_EXPORT bool
 FWSGetInputState(FWSInputState *out)

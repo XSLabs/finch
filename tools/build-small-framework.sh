@@ -11,8 +11,9 @@
 #   /System/Library/Frameworks/Carbon.framework/Versions/A/Frameworks/HIToolbox.framework/Versions/A/HIToolbox
 #   /usr/lib/libScreenReader.dylib
 # Frameworks get Versions/Current and the top-level links; BUNDLE_ID "-" skips the plist.
-# Sources are .c, .m or .cpp; Objective-C is built without ARC. CFLAGS in the
-# environment are added to every compile (e.g. -I for a library's headers).
+# Sources are .c, .m or .cpp; Objective-C is built without ARC (OBJC_ARC=1 in the
+# environment: with it). CFLAGS in the environment are added to every compile (e.g. -I
+# for a library's headers).
 set -euo pipefail
 FINCH_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="${FINCH_ROOT}/build/root"
@@ -41,7 +42,7 @@ for src in "${SOURCES[@]}"; do
     o="${OBJ}/$(basename "${src%.*}").o"
     case "${src}" in
     *.cpp) "${CXX}" "${FLAGS[@]}" -std=c++20 -c "${src}" -o "${o}" ;;
-    *.m)   "${CC}" "${FLAGS[@]}" -fno-objc-arc -c "${src}" -o "${o}" ;;
+    *.m)   "${CC}" "${FLAGS[@]}" $([[ "${OBJC_ARC:-}" == 1 ]] && echo -fobjc-arc -fobjc-weak || echo -fno-objc-arc) -c "${src}" -o "${o}" ;;
     *)     "${CC}" "${FLAGS[@]}" -c "${src}" -o "${o}" ;;
     esac
     OBJS+=("${o}")
