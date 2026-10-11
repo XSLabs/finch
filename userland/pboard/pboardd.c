@@ -18,12 +18,15 @@
  * The owner is asked with {op: provide, name, seed, item, type} and replies {data}.
  */
 #include <Block.h>
+#include <bsm/audit.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <dispatch/dispatch.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <xpc/xpc.h>
+
+void xpc_dictionary_get_audit_token(xpc_object_t message, audit_token_t *token);
 
 #define SERVICE "org.finch.pboard"
 #define PROVIDE_TIMEOUT (10 * NSEC_PER_SEC)
@@ -73,10 +76,10 @@ free_items(Item *it)
 
 /* The caller's pasteboard of this name (its user's: users' pasteboards are apart). */
 static Pasteboard *
-find(xpc_connection_t peer, const char *name, int make)
+find(uid_t uid, const char *name, int make)
 {
     char key[1024];
-    snprintf(key, sizeof key, "%u:%s", (unsigned)xpc_connection_get_euid(peer), name);
+    snprintf(key, sizeof key, "%u:%s", (unsigned)uid, name);
     for (Pasteboard *p = pasteboards; p; p = p->next)
         if (!strcmp(p->key, key))
             return p;
@@ -180,12 +183,14 @@ handle(xpc_connection_t peer, xpc_object_t msg)
     xpc_object_t reply = xpc_dictionary_create_reply(msg);
     if (!reply)
         return;
-    if (!op || !name) {
+    audit_token_t caller = {0};
+    xpc_dictionary_get_audit_token(msg, &caller);
+    if (!op || !name || caller.val[5] == 0) {
         xpc_connection_send_message(peer, reply);
         xpc_release(reply);
         return;
     }
-    Pasteboard *p = find(peer, name, strcmp(op, "release") != 0);
+    Pasteboard *p = find((uid_t)caller.val[1], name, strcmp(op, "release") != 0);
     if (!strcmp(op, "clear")) {
         free_items(p->items);
         p->items = NULL;

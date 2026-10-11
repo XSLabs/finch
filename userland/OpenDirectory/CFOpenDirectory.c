@@ -4,8 +4,8 @@
  *
  * CFOpenDirectory: Open Directory's C API (Apple's is closed). Finch's first
  * cut serves the local node only, from the user database libSystem reads
- * (/etc/master.passwd through getpwnam), and verifies passwords with crypt(3),
- * as Finch's pam_unix does. Sessions, nodes and records are CF types, so
+ * (/etc/master.passwd through getpwnam), and verifies passwords through
+ * libfinchaccount, as Finch's pam_unix does. Sessions, nodes and records are CF types, so
  * callers CFRelease them as with Apple's.
  *
  * Implemented (what Finch's binaries import, chkpasswd's -i od): sessions,
@@ -16,6 +16,7 @@
 
 #include <CFOpenDirectory/CFOpenDirectory.h>
 #include <CoreFoundation/CFRuntime.h>
+#include <account_tools.h>
 #include <pwd.h>
 #include <string.h>
 #include <unistd.h>
@@ -131,21 +132,19 @@ CFStringRef ODRecordGetRecordName(ODRecordRef record) { return record->name; }
 CFStringRef ODRecordGetRecordType(ODRecordRef record) { return record->type; }
 
 bool ODRecordVerifyPassword(ODRecordRef record, CFStringRef password, CFErrorRef *error) {
-    char name[256], pass[1024];
+    char name[256], pass[AT_PASSWORD_MAX + 1] = {0};
     struct passwd *pw;
     if (!CFEqual(record->type, kODRecordTypeUsers) || !c_name(record->name, name, sizeof(name)) ||
         !c_name(password, pass, sizeof(pass)) || (pw = getpwnam(name)) == NULL) {
+        at_secure_clear(pass, sizeof(pass));
         set_error(error, kODErrorCredentialsInvalid, CFSTR("Credentials could not be verified"));
         return false;
     }
-    /* The hash is in master.passwd, which getpwnam(3) reads for root. "*" and
-     * other non-hashes never match; an empty field means no password. */
+    /* The hash is in master.passwd, which getpwnam(3) reads for root. The
+     * shared verifier accepts Finch PBKDF2 hashes and old DES hashes. */
     const char *hash = pw->pw_passwd ? pw->pw_passwd : "*";
-    bool ok = hash[0] == '\0' ? pass[0] == '\0' : ({
-        const char *c = crypt(pass, hash);
-        c && strcmp(c, hash) == 0 && strcmp(hash, "*") != 0;
-    });
-    memset(pass, 0, sizeof(pass));
+    bool ok = at_password_verify(pass, hash);
+    at_secure_clear(pass, sizeof(pass));
     if (!ok) set_error(error, kODErrorCredentialsInvalid, CFSTR("Credentials could not be verified"));
     return ok;
 }

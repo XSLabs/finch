@@ -28,10 +28,11 @@ trap 'rm -rf "${TMP}"' EXIT
 
 # name|arguments: comparison tests (arguments are relative to the repo root)
 COMPARE=(
-    "cf-test|" "foundation-test|" "intl-test|" "misc-test|" "data-test|" "collections-test|" "kvc-test|" "typedstream-test|" "tiff-test|" "colorsync-test|" "hiservices-test|" "scripting-test|" "cfnetwork-test|" "coreimage-test|" "cgevent-test|" "keylayout-test|" "contacts-test|" "accounts-test|" "metal-test|" "iosurface-test|" "gss-test|" "cfurl-test|" "pasteboard-test|" "coremedia-test|" "corevideo-test|" "audiotoolbox-test|"
+    "avaudio-file-test|" "avaudio-converter-test|"
+    "cf-test|" "foundation-test|" "intl-test|" "misc-test|" "data-test|" "collections-test|" "kvc-test|" "typedstream-test|" "tiff-test|" "colorsync-test|" "hiservices-test|" "scripting-test|" "cfnetwork-test|" "coreimage-test|" "cgevent-test|" "keylayout-test|" "contacts-test|" "accounts-test|" "metal-test|" "iosurface-test|" "gss-test|" "cfurl-test|" "pasteboard-test|" "coremedia-test|" "corevideo-test|" "audiotoolbox-test|" "audioconverter-test|" "extaudiofile-test|" "extaudiofile-test|--src-check"
     "archive-test|" "predicate-test|" "measurement-test|" "bridge-test|" "streams-test|" "documents-test|"
     "files-test|" "xmlparser-test|" "cfnotify-test|" "l10n-test|" "uti-test|" "cg-test|" "imageio-test|"
-    "ct-test|" "quartzcore-test|" "calayer-test|" "uifoundation-test|" "appkit-core-test|" "appkit-draw-test|"
+    "ct-test|" "quartzcore-test|" "calayer-test|" "uifoundation-test|" "appkit-core-test|" "appkit-draw-test|userland/tests/appkit-draw-reference.bin"
     "appkit-containers-test|" "appkit-controls-test|${B}/controls-test.nib" "appkit-menu-test|${B}/menu-test.nib"
     "appkit-text-test|${B}/appkit-text-test.nib" "appkit-document-test|${B}" "nib-test|${B}/nib-test.nib"
     "appkit-layout-test|${B}" "appkit-bindings-test|${B}/appkit-bindings-test.nib" "appkit-panels-test|"
@@ -40,12 +41,27 @@ COMPARE=(
 )
 # Finch-only window-server tests and their expected output
 EXPECT=(window controls-window menu-window text-window panels-window tables-window statusbar)
+FINCH_ONLY=("security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "configd-daemon-test|")
 
 want() {
     [[ $# -eq 0 || -z "${SELECTED}" ]] && return 0
     [[ " ${SELECTED} " == *" $1 "* ]]
 }
 SELECTED="$*"
+for selected in "$@"; do
+    known=0
+    for entry in "${COMPARE[@]}" "${FINCH_ONLY[@]}"; do
+        [[ "${entry%%|*}" == "${selected}" ]] && known=1
+    done
+    for name in "${EXPECT[@]}"; do
+        [[ "appkit-${name}-test" == "${selected}" ]] && known=1
+    done
+    case "${selected}" in contacts-store-test|metal-devices-test|hello-test) known=1 ;; esac
+    if [[ "${known}" -eq 0 ]]; then
+        echo "unknown test: ${selected}" >&2
+        exit 1
+    fi
+done
 pass=0
 fail=0
 skip=0
@@ -64,12 +80,18 @@ for entry in "${COMPARE[@]}"; do
         continue
     fi
     # shellcheck disable=SC2086
-    "${bin}" ${args} > "${TMP}/apple" 2>/dev/null
+    "${bin}" ${args} > "${TMP}/apple" 2> "${TMP}/apple.err"
+    apple_status=$?
     # shellcheck disable=SC2086
-    DYLD_FRAMEWORK_PATH="${FW}" DYLD_LIBRARY_PATH=build/root/usr/lib/swift FINCH_FONT_DIRS="${R}/Fonts" "${bin}" ${args} > "${TMP}/finch" 2>/dev/null
+    DYLD_FRAMEWORK_PATH="${FW}" DYLD_LIBRARY_PATH=build/root/usr/lib/swift FINCH_FONT_DIRS="${R}/Fonts" "${bin}" ${args} > "${TMP}/finch" 2> "${TMP}/finch.err"
+    finch_status=$?
     n=$(tail -n +2 "${TMP}/apple" | wc -l | tr -d ' ')
     d=$(diff <(tail -n +2 "${TMP}/apple") <(tail -n +2 "${TMP}/finch") | grep -c '^[<>]')
-    if [[ "${n}" -eq 0 ]]; then
+    if [[ "${apple_status}" -ne 0 || "${finch_status}" -ne 0 ]]; then
+        report "${name}" "FAILED (Apple exit ${apple_status}, Finch exit ${finch_status})"
+        cat "${TMP}/apple.err" "${TMP}/finch.err" >&2
+        fail=$((fail + 1))
+    elif [[ "${n}" -eq 0 ]]; then
         report "${name}" "no output from Apple's run"
         fail=$((fail + 1))
     elif [[ "${d}" -eq 0 ]]; then
@@ -90,9 +112,14 @@ for name in "${EXPECT[@]}"; do
         skip=$((skip + 1))
         continue
     fi
-    DYLD_FRAMEWORK_PATH="${FW}" FINCH_FONT_DIRS="${R}/Fonts" "${bin}" "${SERVER}" > "${TMP}/finch" 2>/dev/null
+    DYLD_FRAMEWORK_PATH="${FW}" FINCH_FONT_DIRS="${R}/Fonts" "${bin}" "${SERVER}" > "${TMP}/finch" 2> "${TMP}/finch.err"
+    finch_status=$?
     d=$(diff "${TMP}/finch" "${expected}" | grep -c '^[<>]')
-    if [[ "${d}" -eq 0 ]]; then
+    if [[ "${finch_status}" -ne 0 ]]; then
+        report "appkit-${name}-test" "FAILED (exit ${finch_status})"
+        cat "${TMP}/finch.err" >&2
+        fail=$((fail + 1))
+    elif [[ "${d}" -eq 0 ]]; then
         report "appkit-${name}-test" "ok (expected)"
         pass=$((pass + 1))
     else
@@ -101,10 +128,39 @@ for name in "${EXPECT[@]}"; do
     fi
 done
 
+for entry in "${FINCH_ONLY[@]}"; do
+    name="${entry%%|*}"
+    args="${entry#*|}"
+    want "${name}" || continue
+    bin="${B}/finch-${name}"
+    expected="userland/tests/${name}.expected"
+    if [[ ! -x "${bin}" || ! -f "${expected}" ]]; then
+        report "${name}" "not built"
+        skip=$((skip + 1))
+        continue
+    fi
+    # shellcheck disable=SC2086
+    DYLD_FRAMEWORK_PATH="${FW}" DYLD_LIBRARY_PATH=build/root/usr/lib/swift "${bin}" ${args} > "${TMP}/finch" 2> "${TMP}/finch.err"
+    finch_status=$?
+    if [[ "${finch_status}" -ne 0 ]]; then
+        report "${name}" "FAILED (exit ${finch_status})"
+        cat "${TMP}/finch.err" >&2
+        fail=$((fail + 1))
+    elif diff -q "${TMP}/finch" "${expected}" > /dev/null; then
+        report "${name}" "ok (expected)"
+        pass=$((pass + 1))
+    else
+        report "${name}" "DIFFERS from expected"
+        fail=$((fail + 1))
+    fi
+done
+
 if want contacts-store-test; then
     # (Finch-only: Apple's store asks the user for access)
-    DYLD_FRAMEWORK_PATH="${FW}" "${B}/finch-contacts-test" store 2>/dev/null | tail -n +2 > "${TMP}/finch"
-    if diff -q "${TMP}/finch" userland/tests/contacts-store-test.expected > /dev/null; then
+    DYLD_FRAMEWORK_PATH="${FW}" "${B}/finch-contacts-test" store > "${TMP}/raw" 2> "${TMP}/finch.err"
+    finch_status=$?
+    tail -n +2 "${TMP}/raw" > "${TMP}/finch"
+    if [[ "${finch_status}" -eq 0 ]] && diff -q "${TMP}/finch" userland/tests/contacts-store-test.expected > /dev/null; then
         report contacts-store-test "ok (expected)"
         pass=$((pass + 1))
     else
@@ -115,8 +171,10 @@ fi
 
 if want metal-devices-test; then
     # (Finch-only: no GPU is driven yet, so there are no devices)
-    DYLD_FRAMEWORK_PATH="${FW}" "${B}/finch-metal-test" devices 2>/dev/null | tail -n +2 > "${TMP}/finch"
-    if diff -q "${TMP}/finch" userland/tests/metal-devices-test.expected > /dev/null; then
+    DYLD_FRAMEWORK_PATH="${FW}" "${B}/finch-metal-test" devices > "${TMP}/raw" 2> "${TMP}/finch.err"
+    finch_status=$?
+    tail -n +2 "${TMP}/raw" > "${TMP}/finch"
+    if [[ "${finch_status}" -eq 0 ]] && diff -q "${TMP}/finch" userland/tests/metal-devices-test.expected > /dev/null; then
         report metal-devices-test "ok (expected)"
         pass=$((pass + 1))
     else
@@ -129,8 +187,9 @@ if want hello-test; then
     DYLD_FRAMEWORK_PATH="${FW}" FINCH_FONT_DIRS="${R}/Fonts" "${B}/finch-app-test" "${SERVER}" \
         "${B}/apps/Hello.app/Contents/MacOS/Hello" "window:Hello, Finch" wait:1500 windows output sample:5,40,content \
         sample:180,16,titlebar click:222,68 type:Finch click:111,99 click:298,132 output sample:298,132,button cmd:q \
-        output > "${TMP}/finch" 2>/dev/null
-    if diff -q "${TMP}/finch" userland/tests/hello-test.expected > /dev/null; then
+        output > "${TMP}/finch" 2> "${TMP}/finch.err"
+    finch_status=$?
+    if [[ "${finch_status}" -eq 0 ]] && diff -q "${TMP}/finch" userland/tests/hello-test.expected > /dev/null; then
         report hello-test "ok (expected)"
         pass=$((pass + 1))
     else
@@ -140,4 +199,4 @@ if want hello-test; then
 fi
 
 echo "${pass} passed, ${fail} failed, ${skip} not built"
-[[ "${fail}" -eq 0 ]]
+[[ "${fail}" -eq 0 && ( $# -eq 0 || "${skip}" -eq 0 ) ]]

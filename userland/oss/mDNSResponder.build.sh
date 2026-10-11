@@ -7,7 +7,8 @@
 # (userland/oss/mDNSResponder/libsystem_dnssd.exports). Called by
 # tools/build-oss.sh (SRC, OBJ, STAGE, SDKROOT, FINCH_*_CFLAGS).
 set -euo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)/mDNSResponder"
+FINCH_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+HERE="${FINCH_ROOT}/userland/oss/mDNSResponder"
 cd "${SRC}/mDNSShared"
 rm -rf "${OBJ}"; mkdir -p "${OBJ}" "${STAGE}/usr/lib/system"
 
@@ -36,3 +37,7 @@ ${CC} -arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -dynamiclib 
     -lsystem_pthread -lsystem_malloc -lsystem_c -lsystem_blocks -ldispatch -lsystem_asl -lxpc \
     -Wl,-dead_strip_dylibs -o "${STAGE}/usr/lib/system/libsystem_dnssd.dylib"
 echo "linked libsystem_dnssd.dylib from ${#objs[@]} objects"
+
+# The published source includes a portable POSIX responder; build it beside
+# the DNS-SD library so the Finch daemon and client use the same UDS endpoint.
+"${FINCH_ROOT}/userland/oss/mDNSResponder.daemon.build.sh"

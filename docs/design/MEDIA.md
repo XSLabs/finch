@@ -22,15 +22,60 @@ CoreAudio (HAL)                devices: none until Finch has an audio driver
   sets, and to and from QuickTime/ISO image descriptions), sample buffers, clocks and
   timebases, queues, memory pools, metadata, tags.
 
+- AudioToolbox: format properties and audio files (WAVE, AIFF/AIFC, CAF and
+  NeXT/Sun). `AudioConverter` handles packed and unpacked integer PCM, float
+  PCM, both byte orders, planar channels, channel maps and G.711 A-law/mu-law.
+  Callback conversion can change sample rates with Finch's own filter. Output
+  is stable across callback chunk sizes and resets; filtering passes DC, tone
+  and alias-rejection checks. Its samples are not bit-for-bit copies of Apple's
+  filter, and fractional-duration output may differ by one frame.
+  The converter also supports dithering, buffer-size queries and preallocated
+  PCM callback conversion. Its 76-line host comparison passes (2026-10-11),
+  including all 65,536 signed 16-bit values through both G.711 encoders and all
+  256 codes through both decoders. The test also passes in QEMU. Compressed
+  audio conversion, minimum-phase filtering and the remaining codec properties
+  are open. Unsupported minimum-phase requests return an error.
+- `ExtAudioFile` reads and writes PCM and G.711 files, converts client PCM,
+  seeks and flushes buffered sample-rate conversion when a file closes. The
+  default host comparison passes in 59 lines; separate rate checks cover final
+  samples, resets, chunk stability, bounds and errors. Both pass in QEMU.
+- Software `AudioUnit` components provide callback-driven PCM conversion and
+  multichannel mixing, with volume, pan and input enable controls. Tests cover
+  integer/float inputs, changing sample rates, timestamps across render calls,
+  resets and malformed callbacks. The host and QEMU runs pass. Default and
+  System Output components report no connection; Finch has no audio device.
+  Generic Output and the remaining unit properties are not implemented yet.
+- `AudioQueue` owns PCM buffers and renders queued audio into memory through
+  `AudioConverter`. Completed buffers can be queued again by the callback.
+  Offline output requires interleaved PCM with the same rate and channel count;
+  sample encoding can change. Input queues manage buffers but do not record.
+  Starting either queue reports no device. Parameters, processing taps and
+  dispatch-queue callbacks remain open. The focused host check covers partial
+  reads, callback requeueing, ownership, reset and timeline state; it also passes
+  with address and undefined-behavior checks enabled.
+- AVFAudio now has format, channel-layout and PCM-buffer objects, including
+  typed sample access, copies, caller-owned storage and secure archives.
+  Ordinary paths match Apple's in the host test. Finch deliberately rejects
+  truncated layouts and undersized PCM frames rather than accepting unsafe
+  storage. `AVAudioFile` now reads and writes PCM/G.711 through ExtAudioFile,
+  with seeking, short reads and format checks. `AVAudioConverter` wraps the
+  software converter for PCM/G.711, including sample-rate conversion and reset.
+  Both new checks match Apple's output on the host, in QEMU and in the VZ
+  guest (2026-10-11). Players, the engine graph and speech remain open.
+
+The converter, extended-file, software-unit, queue and AVFAudio buffer checks
+pass on the host, in QEMU and in the VZ guest (2026-10-11). These checks exercise
+audio stored in memory and files; hardware playback and recording remain open.
+
 ## The order from here
 
 1. **AudioToolbox**: `AudioFormat` properties (format info, channel layouts and their
-   names), `AudioFile` (WAV, AIFF/AIFC, CAF read and write, laid out as Apple's writes
-   them; MP3 and MPEG-4 audio read), `AudioConverter` (PCM to PCM: sample formats,
-   interleaving, channel maps, sample rates; codecs as they come), `ExtAudioFile`,
-   `AudioComponent`/`AudioUnit` (the output, converter and mixer units), `AudioQueue`.
-   With no audio devices yet, output units and queues run against a silent clock.
-2. **AVFAudio** over AudioToolbox.
+   names) and `AudioFile` are started as described above. Remaining file work includes
+   MP3 and MPEG-4 audio reads. Finish compressed `AudioConverter` formats and the remaining properties,
+   then the remaining `ExtAudioFile`, `AudioUnit` and `AudioQueue` operations.
+   Offline rendering can work without a device. Hardware playback and recording
+   must report that no device is available until the driver exists.
+2. **AVFAudio** files, players and engine operations over AudioToolbox.
 3. **VideoToolbox**: pixel transfer (Finch's own conversion and scaling), then decoding
    and encoding through open codecs.
 4. **AVFoundation**: Finch's own MP4/QuickTime reader and writer behind assets, readers

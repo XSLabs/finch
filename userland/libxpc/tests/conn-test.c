@@ -8,6 +8,7 @@
  */
 
 #include <dispatch/dispatch.h>
+#include <bsm/audit.h>
 #include <dlfcn.h>
 #include <mach/mach.h>
 #include <stdio.h>
@@ -18,6 +19,7 @@
 
 mach_port_t xpc_endpoint_copy_listener_port_4sim(xpc_object_t endpoint);
 xpc_object_t xpc_endpoint_create_mach_port_4sim(mach_port_t port);
+void xpc_dictionary_get_audit_token(xpc_object_t dictionary, audit_token_t *token);
 
 static int failures, checks;
 #define CHECK(cond) do { checks++; if (!(cond)) { failures++; \
@@ -74,7 +76,7 @@ load_apple(void)
 
 /* A Finch echo server: replies "echo:<q>", pushes on "push", writes to fds. */
 static xpc_connection_t
-finch_echo_listener(dispatch_semaphore_t peer_gone)
+finch_echo_listener(dispatch_semaphore_t peer_gone, xpc_object_t *retained_request)
 {
 	xpc_connection_t listener = xpc_connection_create(NULL, NULL);
 
@@ -87,6 +89,8 @@ finch_echo_listener(dispatch_semaphore_t peer_gone)
 				}
 				return;
 			}
+			if (retained_request && !*retained_request)
+				*retained_request = xpc_retain(msg);
 			const char *q = xpc_dictionary_get_string(msg, "q");
 			int fd = xpc_dictionary_dup_fd(msg, "fd");
 			if (fd >= 0) {
@@ -119,7 +123,8 @@ test_finch_finch(void)
 {
 	dispatch_semaphore_t gone = dispatch_semaphore_create(0), pushed = dispatch_semaphore_create(0),
 	    async_reply = dispatch_semaphore_create(0), client_invalid = dispatch_semaphore_create(0);
-	xpc_connection_t listener = finch_echo_listener(gone);
+	xpc_object_t first_request = NULL;
+	xpc_connection_t listener = finch_echo_listener(gone, &first_request);
 	xpc_endpoint_t ep = xpc_endpoint_create(listener);
 	xpc_connection_t client = xpc_connection_create_from_endpoint(ep);
 	__block bool got_push = false;
@@ -139,6 +144,10 @@ test_finch_finch(void)
 	xpc_dictionary_set_string(m, "q", "sync");
 	xpc_object_t r = xpc_connection_send_message_with_reply_sync(client, m);
 	CHECK(xpc_get_type(r) == XPC_TYPE_DICTIONARY && strcmp(xpc_dictionary_get_string(r, "a"), "echo:sync") == 0);
+	audit_token_t reply_sender = {0};
+	xpc_dictionary_get_audit_token(r, &reply_sender);
+	CHECK(reply_sender.val[5] == (uint32_t)getpid());
+	CHECK(reply_sender.val[1] == (uint32_t)geteuid());
 	xpc_release(r);
 
 	/* Async reply on a given queue. */
@@ -182,6 +191,13 @@ test_finch_finch(void)
 	xpc_connection_cancel(client);
 	CHECK(WAIT(client_invalid));
 	CHECK(WAIT(gone));
+	/* A later kernel disconnect notice must not replace the original
+	 * request's caller identity while a service still holds that request. */
+	audit_token_t sender = {0};
+	xpc_dictionary_get_audit_token(first_request, &sender);
+	CHECK(sender.val[5] == (uint32_t)getpid());
+	CHECK(sender.val[1] == (uint32_t)geteuid());
+	xpc_release(first_request);
 
 	xpc_release(m);
 	xpc_release(client);
@@ -193,7 +209,7 @@ test_finch_finch(void)
 static void
 test_apple_client_finch_listener(void)
 {
-	xpc_connection_t listener = finch_echo_listener(NULL);
+	xpc_connection_t listener = finch_echo_listener(NULL, NULL);
 	xpc_endpoint_t ep = xpc_endpoint_create(listener);
 	mach_port_t port = xpc_endpoint_copy_listener_port_4sim(ep);
 

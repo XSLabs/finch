@@ -1,0 +1,107 @@
+diff --git a/atrun/atrun.c b/atrun/atrun.c
+--- a/atrun/atrun.c
++++ b/atrun/atrun.c
+@@ -71,10 +71,6 @@
+ #include <security/openpam.h>
+ #endif
+ 
+-#ifdef __APPLE__
+-#include <btm.h>
+-#include <os/feature_private.h>
+-#endif // __APPLE__
+ 
+ /* Local headers */
+ 
+@@ -157,23 +153,7 @@
+     };
+ #endif
+     
+-#ifdef __APPLE__
+-    if (os_feature_enabled(cronBTMToggle, cronBTMCheck)) {
+-	/* We're using the same name for atrun and cron */
+-	bool cron_enabled = false;
+-	btm_error_code_t error = btm_get_enablement_status_for_subsystem_and_uid(btm_subsystem_cron, BTMGlobalDataUID, &cron_enabled);
+-
+-	if (error != btm_error_none) {
+-	    perr("cannot query BTM");
+-	}
+-
+-	/* We've already marked the file as processed */
+-	if (!cron_enabled) {
+-	    return;
+-	}
+-    }
+-#endif // __APPLE__
+-
++    /* Finch runs queued jobs without Apple's private BTM gate. */
+     PRIV_START
+ 
+     if (chmod(filename, S_IRUSR) != 0)
+diff --git a/system_cmds.xcodeproj/project.pbxproj b/system_cmds.xcodeproj/project.pbxproj
+--- a/system_cmds.xcodeproj/project.pbxproj
++++ b/system_cmds.xcodeproj/project.pbxproj
+@@ -529,7 +529,6 @@
+ 		C9E0691E1C58BDB800C956EB /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C9E0691D1C58BDB800C956EB /* IOKit.framework */; };
+ 		CBB980192B33A5B1002C1173 /* pwd_mkdb_test.sh in Copy Test Files */ = {isa = PBXBuildFile; fileRef = CBB980172B33A58D002C1173 /* pwd_mkdb_test.sh */; };
+ 		CEB165CE246C59C100228592 /* test_zprint.lua in Copy test */ = {isa = PBXBuildFile; fileRef = CEB165CB246C599A00228592 /* test_zprint.lua */; };
+-		D0EAD4DF2AFC210C001D10F6 /* BackgroundTaskManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D0EAD4DE2AFC210C001D10F6 /* BackgroundTaskManagement.framework */; platformFilters = (macos, ); };
+ 		D32A1C2227BB053D007F04E8 /* libEndpointSecuritySystem.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = D32A1C2127BB053D007F04E8 /* libEndpointSecuritySystem.tbd */; platformFilters = (macos, ); settings = {ATTRIBUTES = (Weak, ); }; };
+ 		D37CC32C2395D9F100288C74 /* mslutil.1 in CopyFiles */ = {isa = PBXBuildFile; fileRef = 0D06BC671E8F0B4100C6EC2D /* mslutil.1 */; };
+ 		F2291F551FFEBB6A00161936 /* CoreSymbolication.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C9E0691B1C58BDA000C956EB /* CoreSymbolication.framework */; };
+@@ -2702,7 +2701,6 @@
+ 		CB6B51D8290C562700E344B7 /* atrun.entitlements */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.entitlements; path = atrun.entitlements; sourceTree = "<group>"; };
+ 		CBB980172B33A58D002C1173 /* pwd_mkdb_test.sh */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.sh; path = pwd_mkdb_test.sh; sourceTree = "<group>"; };
+ 		CEB165CB246C599A00228592 /* test_zprint.lua */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = test_zprint.lua; sourceTree = "<group>"; };
+-		D0EAD4DE2AFC210C001D10F6 /* BackgroundTaskManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = BackgroundTaskManagement.framework; path = System/Library/PrivateFrameworks/BackgroundTaskManagement.framework; sourceTree = SDKROOT; };
+ 		D32A1C2127BB053D007F04E8 /* libEndpointSecuritySystem.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libEndpointSecuritySystem.tbd; path = usr/lib/libEndpointSecuritySystem.tbd; sourceTree = SDKROOT; };
+ 		F2291F5D1FFEBB6A00161936 /* zlog */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = zlog; sourceTree = BUILT_PRODUCTS_DIR; };
+ 		F2291F5F1FFEBB9E00161936 /* zlog.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = zlog.c; sourceTree = "<group>"; };
+@@ -2961,7 +2959,6 @@
+ 			isa = PBXFrameworksBuildPhase;
+ 			buildActionMask = 2147483647;
+ 			files = (
+-				D0EAD4DF2AFC210C001D10F6 /* BackgroundTaskManagement.framework in Frameworks */,
+ 			);
+ 			runOnlyForDeploymentPostprocessing = 0;
+ 		};
+@@ -3173,7 +3170,6 @@
+ 		189337C11CC7CB4800B2A6A4 /* Frameworks */ = {
+ 			isa = PBXGroup;
+ 			children = (
+-				D0EAD4DE2AFC210C001D10F6 /* BackgroundTaskManagement.framework */,
+ 				4BD744B52AECD55100F2CD0D /* CoreFoundation.framework */,
+ 				4BD744B32AECD54800F2CD0D /* IOKit.framework */,
+ 				D32A1C2127BB053D007F04E8 /* libEndpointSecuritySystem.tbd */,
+@@ -7475,10 +7471,6 @@
+ 				);
+ 				INSTALL_PATH = /usr/libexec;
+ 				PRODUCT_NAME = atrun;
+-				SYSTEM_FRAMEWORK_SEARCH_PATHS = (
+-					"$(inherited)",
+-					"$(SDKROOT)$(SYSTEM_LIBRARY_DIR)/PrivateFrameworks",
+-				);
+ 			};
+ 			name = Debug;
+ 		};
+@@ -8637,10 +8629,6 @@
+ 				);
+ 				INSTALL_PATH = /usr/libexec;
+ 				PRODUCT_NAME = atrun;
+-				SYSTEM_FRAMEWORK_SEARCH_PATHS = (
+-					"$(inherited)",
+-					"$(SDKROOT)$(SYSTEM_LIBRARY_DIR)/PrivateFrameworks",
+-				);
+ 			};
+ 			name = Release;
+ 		};
+diff --git a/atrun/atrun.entitlements b/atrun/atrun.entitlements
+--- a/atrun/atrun.entitlements
++++ b/atrun/atrun.entitlements
+@@ -6,7 +6,5 @@
+ 	<array>
+ 	    <string>kTCCServiceSystemPolicySysAdminFiles</string>
+ 	</array>
+-	<key>com.apple.private.backgroundtaskmanagement.manage</key>
+-	<true/>
+ </dict>
+ </plist>

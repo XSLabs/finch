@@ -15,8 +15,8 @@
  *   4. run /etc/finch/rc if present (one-shot boot script),
  *   5. load launchd job plists and run them: at load, kept alive, or on
  *      demand when a message arrives for their Mach services (jobs.c),
- *   6. keep an interactive login shell (zsh, else bash) alive on the console,
- *      respawning it on exit,
+ *   6. run login on the console, respawning it on exit; the development VM
+ *      explicitly opts into a root shell with finch_dev_console=1,
  *   7. reap every orphaned process re-parented to PID 1.
  *
  * Service supervision, mounting, and IPC bootstrap (Mach bootstrap port) come
@@ -49,6 +49,7 @@
 #include "banner_art.h"
 #include "bootstrapd.h"
 #include "jobs.h"
+#include "console-policy.h"
 
 #define FINCH_INIT_VERSION "0.0.1"
 #define CONSOLE            "/dev/console"
@@ -56,6 +57,7 @@
 #define SYSTEM_VERSION     "/System/Library/CoreServices/SystemVersion.plist"
 #define DEFAULT_SHELL      "/bin/zsh"   /* as on macOS */
 #define FALLBACK_SHELL     "/bin/bash"
+#define LOGIN_PROGRAM      "/usr/bin/login"
 #define RESPAWN_DELAY_SEC  1
 
 /* Job plist directories, in load order (launchd's format). */
@@ -66,6 +68,7 @@ static const char *const job_dirs[] = {
 
 static dispatch_queue_t init_queue;   /* registry, jobs and the console shell */
 static pid_t console_shell;
+static bool development_console;
 
 /*
  * Log to the console. The console is opened afresh for every message: when the
@@ -253,15 +256,20 @@ load_jobs(void)
 	});
 }
 
-/* Login shell on the console: argv[0] is "-<name>". zsh is re-checked each time. */
+/* Failed or missing login must never turn into an unauthenticated root shell. */
 static void
 start_console_shell(void)
 {
-	bool have_zsh = access(DEFAULT_SHELL, X_OK) == 0;
-	const char *path = have_zsh ? DEFAULT_SHELL : FALLBACK_SHELL;
-	char *argv[] = { have_zsh ? "-zsh" : "-bash", "-i", NULL };
+	const char *path = LOGIN_PROGRAM;
+	char *argv[] = { "login", NULL, NULL };
+	if (development_console) {
+		bool have_zsh = access(DEFAULT_SHELL, X_OK) == 0;
+		path = have_zsh ? DEFAULT_SHELL : FALLBACK_SHELL;
+		argv[0] = have_zsh ? "-zsh" : "-bash";
+		argv[1] = "-i";
+		setenv("SHELL", path, 1);
+	}
 
-	setenv("SHELL", path, 1);
 	console_shell = spawn_on_console(path, argv);
 	if (console_shell <= 0) {
 		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, RESPAWN_DELAY_SEC * NSEC_PER_SEC),
@@ -458,6 +466,12 @@ int
 main(void)
 {
 	dispatch_source_t sigchld;
+	char boot_args[1024] = {0};
+	size_t boot_args_length = sizeof(boot_args);
+	if (sysctlbyname("kern.bootargs", boot_args, &boot_args_length, NULL, 0) == 0) {
+		boot_args[sizeof(boot_args) - 1] = '\0';
+		development_console = finch_development_console(boot_args);
+	}
 
 	/* PID 1 must never die from a stray keyboard signal on the console. */
 	signal(SIGINT, SIG_IGN);
@@ -475,6 +489,7 @@ main(void)
 	publish_os_version();
 	setup_environment();
 	print_banner();
+	if (development_console) logmsg("development root console enabled by boot argument");
 	if (getpid() != 1) {
 		logmsg("warning: not running as PID 1");
 	}

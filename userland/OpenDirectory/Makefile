@@ -11,8 +11,10 @@ CC      := xcrun -sdk macosx clang
 FW      := $(ROOT)/System/Library/Frameworks/OpenDirectory.framework
 CFOD    := $(FW)/Versions/A/Frameworks/CFOpenDirectory.framework
 CFSRC   := $(FINCH_ROOT)/build/src/swift-corelibs-foundation/Sources/CoreFoundation/include
+ACCOUNT_LIB := $(ROOT)/usr/lib/system/libfinchaccount.dylib
 CFLAGS  := -arch arm64e -mmacosx-version-min=26.0 -O2 -Wall -Wextra -Werror -fblocks \
-           -F$(SDKROOT)/System/Library/Frameworks/OpenDirectory.framework/Frameworks -I$(OBJ)/hdr
+	   -F$(SDKROOT)/System/Library/Frameworks/OpenDirectory.framework/Frameworks \
+	   -I$(OBJ)/hdr -I$(FINCH_ROOT)/userland/account-tools
 
 all: $(FW)/Versions/A/OpenDirectory
 
@@ -21,9 +23,12 @@ $(OBJ)/hdr/CoreFoundation/CFRuntime.h: $(CFSRC)/CFRuntime.h
 	@mkdir -p $(dir $@)
 	sed -E 's|#include "(CF[A-Za-z]+\.h)"|#include <CoreFoundation/\1>|' $< > $@
 
-$(CFOD)/Versions/A/CFOpenDirectory: CFOpenDirectory.c $(OBJ)/hdr/CoreFoundation/CFRuntime.h
+$(CFOD)/Versions/A/CFOpenDirectory: CFOpenDirectory.c $(ACCOUNT_LIB) \
+	$(FINCH_ROOT)/userland/account-tools/account_tools.h \
+	$(OBJ)/hdr/CoreFoundation/CFRuntime.h
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -dynamiclib -o $@ CFOpenDirectory.c \
+	    -L$(ROOT)/usr/lib/system -lfinchaccount \
 	    -install_name /System/Library/Frameworks/OpenDirectory.framework/Versions/A/Frameworks/CFOpenDirectory.framework/Versions/A/CFOpenDirectory \
 	    -current_version 1.0.0 -compatibility_version 1.0.0 -framework CoreFoundation
 	ln -sfn A $(CFOD)/Versions/Current

@@ -238,10 +238,10 @@ xpc_dictionary_get_audit_token(xpc_object_t xdict, audit_token_t *token)
 	if (xpc_get_type(xdict) != XPC_TYPE_DICTIONARY) {
 		return;
 	}
-	if (d->connection != NULL) {
+	if (d->has_audit) {
+		*token = d->audit;
+	} else if (d->connection != NULL) {
 		xpc_connection_get_audit_token((xpc_connection_t)d->connection, token);
-	} else if (d->has_audit) {
-		*token = d->audit;   /* pipe request */
 	}
 }
 

@@ -4,18 +4,25 @@
 #   expect tools/vm/smoke.exp            # finch-init as PID 1
 #   FINCH_INIT=0 expect tools/vm/smoke.exp   # the base image's launchd (tools/vm/run.sh)
 #   expect tools/vm/smoke.exp "cmd1" "cmd2"   # run these instead of the defaults
-# Exits 3 if any command output mentions dyld (a missing library or symbol).
+# Exits non-zero on a failed command, timeout, early exit or dyld error.
 set timeout 300
 log_user 1
 set root [file normalize [file dirname [info script]]/../..]
-set prompt {[#$] $}
+# zsh adds terminal-control sequences after its prompt. Match those too, so
+# a whole prompt arriving in one read does not look like a stalled shell.
+set prompt {[#$] (?:\x1b\[[0-9;?]*[A-Za-z])*$}
 
 spawn $root/tools/vm/run.sh
 # A kernel message printed just after the prompt hides it from the pattern (which wants the
 # prompt last): on a timeout, ask the shell for a fresh prompt before calling it a stall.
 expect {
   -re $prompt {}
-  "panic" { puts "\n### PANIC"; exit 2 }
+  "panic" { puts "\n### PANIC"; catch {send "\x01x"}; exit 2 }
+  eof {
+    catch {wait} reason
+    puts "\n### VM exited before the shell started: $reason"
+    exit 1
+  }
   timeout {
     send "\r"
     expect {
@@ -25,18 +32,44 @@ expect {
     }
   }
 }
+# A failed command before a pipe must fail the check too.
+send "set -o pipefail\r"
+expect {
+  -re $prompt {}
+  timeout { puts "\n### TIMEOUT setting shell options"; catch {send "\x01x"}; exit 1 }
+  eof { puts "\n### VM exited while setting shell options"; exit 1 }
+}
 set cmds $argv
 if {[llength $cmds] == 0} {
   set cmds {"uname -a" "sysctl hw.model kern.osversion" "ps -axo pid,ppid,comm"}
 }
 set dyld_errors 0
+set command_errors 0
+set index 0
 foreach cmd $cmds {
+  incr index
+  set marker "FINCH_TEST_RESULT_${index}="
+  # Keep the command on its own line, so a trailing shell comment cannot hide the check.
   send "$cmd\r"
+  send "finch_test_status=\$?; printf '\\n${marker}%d\\n' \"\$finch_test_status\"\r"
   expect {
-    -re "dyld\\\[\\d+\\\]|dyld: " { incr dyld_errors; exp_continue }
+    -re {dyld\[[0-9]+\]|dyld: } { incr dyld_errors; exp_continue }
+    -re "${marker}(\[0-9\]+)" {
+      if {$expect_out(1,string) != 0} {
+        puts "\n### command failed (exit $expect_out(1,string)): $cmd"
+        incr command_errors
+      }
+    }
+    timeout { puts "\n### TIMEOUT running: $cmd"; catch {send "\x01x"}; exit 1 }
+    eof { puts "\n### VM exited while running: $cmd"; exit 1 }
+  }
+  expect {
     -re $prompt {}
+    timeout { puts "\n### TIMEOUT waiting for shell"; catch {send "\x01x"}; exit 1 }
+    eof { puts "\n### VM exited before the shell returned"; exit 1 }
   }
 }
 send "\x01x"
 expect eof
 if {$dyld_errors > 0} { puts "\n### $dyld_errors dyld error(s)"; exit 3 }
+if {$command_errors > 0} { puts "\n### $command_errors failed command(s)"; exit 4 }

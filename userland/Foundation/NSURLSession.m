@@ -14,6 +14,7 @@
  * background sessions aren't there yet.
  */
 #import <Foundation/Foundation.h>
+#include "../certificates/ca-bundle.h"
 #include <netdb.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -598,7 +599,9 @@ conn_open(Connection *c, NSURL *url, NSTimeInterval timeout)
         return 0;
     c->ctx = SSL_CTX_new(TLS_client_method());
     SSL_CTX_set_min_proto_version(c->ctx, TLS1_2_VERSION);
-    if (SSL_CTX_load_verify_locations(c->ctx, "/etc/ssl/cert.pem", NULL) != 1)
+    char caPath[PATH_MAX];
+    const char *caFile = finch_ca_bundle((const void *)conn_open, caPath);
+    if (!caFile || SSL_CTX_load_verify_locations(c->ctx, caFile, NULL) != 1)
         return NSURLErrorSecureConnectionFailed;
     SSL_CTX_set_verify(c->ctx, SSL_VERIFY_PEER, NULL);
     c->ssl = SSL_new(c->ctx);

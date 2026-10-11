@@ -1,0 +1,342 @@
+# Finch patch: build the daemon without Apple-only filesystem hooks.
+# Keep normal probing and kernel mounts. Report unsupported user filesystems,
+# and keep the daemon's macOS permission checks.
+
+diff --git a/DiskArbitration/DiskArbitrationPrivate.h b/DiskArbitration/DiskArbitrationPrivate.h
+--- a/DiskArbitration/DiskArbitrationPrivate.h
++++ b/DiskArbitration/DiskArbitrationPrivate.h
+@@ -34,7 +34,7 @@
+ extern "C" {
+ #endif /* __cplusplus */
+ 
+-#if TARGET_OS_OSX || TARGET_OS_IOS
++#if ( TARGET_OS_OSX || TARGET_OS_IOS ) && !defined( FINCH_NO_FSKIT )
+ #define DA_FSKIT
+ #define TARGET_FSKIT    1
+ #else
+diff --git a/diskarbitrationd/DADisk.c b/diskarbitrationd/DADisk.c
+--- a/diskarbitrationd/DADisk.c
++++ b/diskarbitrationd/DADisk.c
+@@ -39,7 +39,6 @@
+ #include <IOKit/IOBSD.h>
+ #include <IOKit/storage/IOBlockStorageDevice.h>
+ #include <IOKit/storage/IOMedia.h>
+-#include <FSPrivate.h>
+ #if TARGET_OS_OSX
+ #include <IOKit/storage/IOBDMedia.h>
+ #include <IOKit/storage/IOCDMedia.h>
+@@ -1054,12 +1053,7 @@
+                                     CFDictionarySetValue( disk->_description, kDADiskDescriptionVolumeLifsURLKey, volumeURL );
+                                     CFRelease( volumeURL );
+                                 }
+-                                CFTypeRef object = _FSCopyNameForVolumeFormatAtURL( path );
+-                                if ( object )
+-                                {
+-                                    CFDictionarySetValue( disk->_description, kDADiskDescriptionVolumeTypeKey, object );
+-                                    CFRelease( object );
+-                                }
++                                /* Finch leaves unavailable FSPrivate format labels unset. */
+                                 
+                             }
+                         }
+diff --git a/diskarbitrationd/DAFileSystem.c b/diskarbitrationd/DAFileSystem.c
+--- a/diskarbitrationd/DAFileSystem.c
++++ b/diskarbitrationd/DAFileSystem.c
+@@ -34,7 +34,6 @@
+ #include <fsproperties.h>
+ #include <paths.h>
+ #include <unistd.h>
+-#include <FSPrivate.h>
+ #include <sys/attr.h>
+ #include <sys/loadable_fs.h>
+ #include <CoreFoundation/CoreFoundation.h>
+@@ -415,7 +414,7 @@
+     context->cleanStatus = status;
+     DALogInfo( " fsck status %d %@", status, context->devicePath );
+ 
+-    context->volumeType = _FSCopyNameForVolumeFormatAtNode( context->devicePath );
++    context->volumeType = NULL; /* No private format label is available in Finch. */
+ 
+     __DAFileSystemProbeCallback( 0, context, NULL );
+ }
+@@ -696,6 +695,7 @@
+ #if TARGET_OS_OSX || TARGET_OS_IOS
+     if ( useUserFS )
+     {
++#ifdef DA_FSKIT
+         CFArrayRef argumentList;
+         
+         // Retrieve the device name in diskXsY format (without "/dev/" ).
+@@ -735,6 +735,10 @@
+             status = EINVAL;
+         }
+         goto DAFileSystemMountErr;
++#else
++        status = ENOTSUP;
++        goto DAFileSystemMountErr;
++#endif
+     }
+ #endif
+     
+diff --git a/diskarbitrationd/DAPrivate.c b/diskarbitrationd/DAPrivate.c
+--- a/diskarbitrationd/DAPrivate.c
++++ b/diskarbitrationd/DAPrivate.c
+@@ -34,7 +34,6 @@
+ 
+ #include <sysexits.h>
+ #include <unistd.h>
+-#include <FSPrivate.h>
+ #include <sys/attr.h>
+ #include <sys/mount.h>
+ #include <sys/wait.h>
+@@ -120,24 +119,7 @@
+             if ( keys )
+             {
+                 CFTypeRef object;
+-///w:start
+-                if ( strcmp( mountList[mountListIndex].f_fstypename, "hfs" ) == 0 )
+-                {
+-                    object = _FSCopyNameForVolumeFormatAtURL( DADiskGetDescription( disk, kDADiskDescriptionVolumePathKey ) );
+-
+-                    if ( DADiskCompareDescription( disk, kDADiskDescriptionVolumeTypeKey, object ) )
+-                    {
+-                        DADiskSetDescription( disk, kDADiskDescriptionVolumeTypeKey, object );
+-
+-                        CFArrayAppendValue( keys, kDADiskDescriptionVolumeTypeKey );
+-                    }
+-
+-                    if ( object )
+-                    {
+-                        CFRelease( object );
+-                    }
+-                }
+-///w:stop
++                /* Finch leaves unavailable FSPrivate format labels unset. */
+                 /*
+                  * volume name and mountpoint could change asynchronously depending on the filesystem implementation
+                  * update the name and mountpoint if they have changed
+@@ -359,7 +341,7 @@
+     __DADiskEncryptionContext *context = parameter;
+     errno_t error = 0;
+ #if TARGET_OS_OSX
+-    error = _FSGetMediaEncryptionStatusAtPath( DADiskGetBSDPath(context->disk, FALSE), &context->encrypted, &context->detail );
++    error = ENOTSUP; /* The private filesystem encryption SPI is not shipped. */
+ #endif
+     return error;
+ }
+diff --git a/diskarbitrationd/DAServer.c b/diskarbitrationd/DAServer.c
+--- a/diskarbitrationd/DAServer.c
++++ b/diskarbitrationd/DAServer.c
+@@ -48,12 +48,13 @@
+ #include <IOKit/IOMessage.h>
+ #include <IOKit/storage/IOMedia.h>
+ #include <os/log.h>
+-#include <MediaKit/GPTTypes.h>
+ #include <IOKit/IOBSD.h>
++#if TARGET_OS_OSX
++#include <Security/Security.h>
++#include <Security/SecTask.h>
++#endif
+ ///w:start
+-#include <dlfcn.h>
+ #if TARGET_OS_OSX
+-#include <IOKit/storage/CoreStorage/CoreStorageUserLib.h>
+ #include <IOKit/pwr_mgt/IOPMLib.h>
+ #include <IOKit/pwr_mgt/IOPMPrivate.h>
+ #include <IOKit/IOHibernatePrivate.h>
+@@ -75,7 +76,7 @@
+ void ___os_transaction_get( void );
+ ///w:end
+ 
+-#define ENTITLEMENT_TARGETS   TARGET_FSKIT
++#define ENTITLEMENT_TARGETS   ( TARGET_OS_OSX || TARGET_FSKIT )
+ 
+ #if ENTITLEMENT_TARGETS
+ bool _DAServerCheckEntitlement( audit_token_t _token,
+@@ -102,35 +103,6 @@
+ }
+ #endif /* ENTITLEMENT_TARGETS */
+ 
+-#if TARGET_OS_OSX
+-///w:start
+-// Dynamic load libCoreStorage.dylib
+-static CFMutableDictionaryRef (*__CoreStorageCopyVolumeProperties)( CoreStorageLogicalRef volRef ) = NULL;
+-static bool (*__CoreStorageLockFamily)( CoreStorageFamilyRef lvfRef ) = NULL;
+-static void *__hlibCoreStorage = NULL;
+-
+-static void __CoreStorage_init() __attribute__((constructor));
+-static void __CoreStorage_exit() __attribute__((destructor));
+-
+-void __CoreStorage_init()
+-{
+-    __hlibCoreStorage = dlopen("libCoreStorage.dylib", RTLD_LAZY);
+-    if ( __hlibCoreStorage )
+-    {
+-        *(void **)( &__CoreStorageCopyVolumeProperties ) = dlsym( __hlibCoreStorage, "CoreStorageCopyVolumeProperties" );
+-        *(void **)( &__CoreStorageLockFamily )           = dlsym( __hlibCoreStorage, "CoreStorageLockFamily" );
+-    }
+-}
+-
+-void __CoreStorage_exit()
+-{
+-    if ( __hlibCoreStorage )
+-    {
+-        dlclose( __hlibCoreStorage );
+-    }
+-}
+-///w:end
+-#endif
+ 
+ static dispatch_mach_t     __gDAServerListener      = NULL;
+ static mach_port_t         __gDAServerPort  = MACH_PORT_NULL;
+@@ -1194,7 +1166,6 @@
+             {
+                 Boolean unmount;
+ ///w:start
+-                CFStringRef lvfUUID = NULL;
+ ///w:stop
+                 unmount = FALSE;
+ 
+@@ -1203,37 +1174,6 @@
+                     if ( DADiskGetState( disk, _kDADiskStateMountAutomaticNoDefer ) == FALSE )
+                     {
+ 
+-///w:start
+-                        CFMutableDictionaryRef lvProps = NULL;
+-                        CFStringRef lvUUID = NULL;
+-                        CFBooleanRef encrypted = DADiskGetDescription( disk, kDADiskDescriptionMediaEncryptedKey );
+-                        CFTypeRef object = DADiskGetDescription( disk, kDADiskDescriptionMediaUUIDKey );
+-
+-                        if ( ( object ) && ( encrypted == kCFBooleanTrue ) )
+-                        {
+-                            lvUUID = CFUUIDCreateString( kCFAllocatorDefault , object );
+-                        }
+-
+-                        if ( lvUUID != NULL )
+-                        {
+-                            if ( __CoreStorageCopyVolumeProperties != NULL )
+-                            {
+-                                lvProps = __CoreStorageCopyVolumeProperties( (CoreStorageLogicalRef)lvUUID );
+-                            }
+-                            CFRelease( lvUUID );
+-                        }
+-
+-                        if (lvProps )
+-                        {
+-                            lvfUUID = CFDictionaryGetValue( lvProps, CFSTR( kCoreStorageLogicalFamilyUUIDKey ) );
+-                            if ( lvfUUID )
+-                            {
+-                                CFRetain( lvfUUID );
+-                            }
+-                            CFRelease( lvProps );
+-
+-                        }
+-///w:stop
+                         unmount = TRUE;
+                     }
+                 }
+@@ -1243,16 +1183,6 @@
+                     DALogInfo( "console user is not logged in. unmounting disk %@", disk );
+                     DADiskUnmount( disk, kDADiskUnmountOptionDefault, NULL );
+ 
+-///w:start
+-                    if ( lvfUUID )
+-                    {
+-                        if ( __CoreStorageLockFamily != NULL )
+-                        {
+-                            __CoreStorageLockFamily( (CoreStorageFamilyRef)lvfUUID );
+-                        }
+-                        CFRelease( lvfUUID );
+-                    }
+-///w:stop
+ 
+                 }
+             }
+diff --git a/diskarbitrationd/DAStage.c b/diskarbitrationd/DAStage.c
+--- a/diskarbitrationd/DAStage.c
++++ b/diskarbitrationd/DAStage.c
+@@ -40,7 +40,6 @@
+ #include <sys/mount.h>
+ #include <sysexits.h>
+ #include <os/transaction_private.h>
+-#include <MediaKit/GPTTypes.h>
+ #include <sys/stat.h>
+ 
+ 
+diff --git a/diskarbitrationd/DASupport.m b/diskarbitrationd/DASupport.m
+--- a/diskarbitrationd/DASupport.m
++++ b/diskarbitrationd/DASupport.m
+@@ -53,7 +53,6 @@
+ #ifdef DA_FSKIT
+ #include <FSKit/FSKit_private.h>
+ #endif
+-#include <FSPrivate.h>
+ 
+ #if TARGET_OS_IOS || TARGET_OS_TV || TARGET_OS_WATCH || TARGET_OS_BRIDGE
+ #include <Security/Security.h>
+@@ -2274,15 +2273,13 @@
+     CFStringRef fsTypeMinusPrefix = NULL;
+     CFStringRef fsTypeToCheck = kind;
+     
++#ifdef DA_FSKIT
+     if ( CFStringHasSuffix( kind , CFSTR("_fskit") ) )
+     {
+-#if TARGET_OS_OSX || TARGET_OS_IOS
+         fsTypeMinusPrefix = DSFSKitGetBundleNameWithoutSuffix( kind );
+         fsTypeToCheck = fsTypeMinusPrefix;
+-#else
+-        fsTypeToCheck = kind;
++    }
+ #endif
+-    }
+     
+     if ( !CFStringCompare( fsTypeToCheck , CFSTR("MSDOS") , kCFCompareCaseInsensitive )
+         && DAVolumeUUIDIsEFI( volumeUUID ) )
+diff --git a/diskarbitrationd/DAMount.c b/diskarbitrationd/DAMount.c
+--- a/diskarbitrationd/DAMount.c
++++ b/diskarbitrationd/DAMount.c
+@@ -249,7 +249,7 @@
+     {
+         if ( context->useUserFS )
+         {
+-#if TARGET_OS_OSX || TARGET_OS_IOS
++#ifdef DA_FSKIT
+             if ( __DAMountShouldUseFSKit( DAFileSystemGetKind( filesystem ) , NULL ) )
+             {
+                 mountType = DATelemetryFSImplementationFSKit;
+diff --git a/diskarbitrationd/DATelemetry.m b/diskarbitrationd/DATelemetry.m
+--- a/diskarbitrationd/DATelemetry.m
++++ b/diskarbitrationd/DATelemetry.m
+@@ -199,17 +199,15 @@
+         return DATelemetryFSTypeNone;
+     }
+     
++#ifdef DA_FSKIT
+     if ( CFStringHasSuffix( fsType , CFSTR("_fskit") ) )
+     {
+-#if TARGET_OS_OSX || TARGET_OS_IOS
+         fsTypeMinusPrefix = DSFSKitGetBundleNameWithoutSuffix( fsType );
+-#else
+-        fsTypeMinusPrefix = fsType;
+-#endif
+         ret = __DA_checkFSTypeName( fsTypeMinusPrefix );
+         CFRelease( fsTypeMinusPrefix );
+     }
+     else
++#endif
+     {
+         ret = __DA_checkFSTypeName( fsType );
+     }
+diff --git a/diskarbitrationd/DADialog.c b/diskarbitrationd/DADialog.c
+--- a/diskarbitrationd/DADialog.c
++++ b/diskarbitrationd/DADialog.c
+@@ -28,6 +28,9 @@
+ #include "DASupport.h"
+ 
+ #include <xpc/private.h>
++
++/* Finch implements this XPC extension but does not expose its prototype here. */
++extern void xpc_connection_set_target_uid( xpc_connection_t connection, uid_t uid );
+ #include "DALog.h"
+ 
+ static void __DADialogShow( CFMutableArrayRef diskinfoarray, _DAAgentAction action )

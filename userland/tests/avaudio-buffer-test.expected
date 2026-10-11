@@ -1,0 +1,23 @@
+standard: 1 44100 2 41 4 1 32 standard=1 interleaved=0
+int16-stereo: 3 48000 2 12 4 1 16 standard=0 interleaved=1
+mono-equal-ignores-interleaving=1
+short-pcm-frame-rejected=1,1
+short-no-copy-frame-unaccepted=1,0
+initial: capacity=4 length=0 lengthBytes=0 capacityBytes=0 stride=2
+after-write: length=2 lengthBytes=8 samples=101,202,303,404 copyLength=2 copyBytes=8 copySamples=101,202
+copy-is-independent=1
+after-length-capacityBytes=8
+planar: buffers=2 bytes=4,4 stride=1 data=0.25,-0.5 distinct=1
+settings-round-trip=1 settings-count=7
+truncated-layout-rejected=1,1
+secure-coding=1
+core-media-description=1
+stereo-layout=2 format-layout=2
+explicit-three-channel=3 buffers=3 settings-equal=1
+deallocator-list=1,8,7
+no-copy: callback-count=1 frame-length=4 capacity-bytes=8 clone-first=7
+no-copy-final-callback-count=1
+no-copy-failure-unaccepted=1
+partial-byte-no-copy=1,1,1,3
+partial-deallocator-bytes=3
+partial-no-copy-callback=1

@@ -14,6 +14,7 @@
  * between CFStreamError and CFError.
  */
 #include "CFNetworkInternal.h"
+#include "../certificates/ca-bundle.h"
 #include <CoreFoundation/CFStream.h>
 #include <errno.h>
 #include <netdb.h>
@@ -251,7 +252,9 @@ cfn_conn_start_tls(cfn_conn *c, const char *peer, bool verify, CFStreamError *er
     SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
     SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
     if (verify) {
-        if (SSL_CTX_load_verify_locations(ctx, "/etc/ssl/cert.pem", NULL) != 1) {
+        char caPath[PATH_MAX];
+        const char *caFile = finch_ca_bundle((const void *)cfn_conn_start_tls, caPath);
+        if (!caFile || SSL_CTX_load_verify_locations(ctx, caFile, NULL) != 1) {
             SSL_CTX_free(ctx);
             err->domain = 3;
             err->error = -9807; /* errSSLXCertChainInvalid */

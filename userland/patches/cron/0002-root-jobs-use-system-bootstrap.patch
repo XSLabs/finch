@@ -1,0 +1,41 @@
+diff --git a/cron/do_command.c b/cron/do_command.c
+--- a/cron/do_command.c
++++ b/cron/do_command.c
+@@ -319,19 +319,22 @@
+ 			}
+ 		}
+ 
+-		/* move to the correct bootstrap */
+-		/* similar to but simpler than pam_launchd */
+-		mach_port_t puc = MACH_PORT_NULL;
+-		kern_return_t kr = bootstrap_look_up_per_user(bootstrap_port, NULL, uid, &puc);
+-		if (kr != BOOTSTRAP_SUCCESS) {
+-			warnx("could not look up per-user bootstrap for uid %u", uid);
+-			_exit(ERROR_EXIT);
+-		}
+-		mach_port_mod_refs(mach_task_self(), bootstrap_port, MACH_PORT_RIGHT_SEND, -1);
+-		task_set_bootstrap_port(mach_task_self(), puc);
+-		bootstrap_port = puc;
+-		if (_vproc_post_fork_ping() != NULL) {
+-			warnx("failed to setup exception ports");
+-			_exit(ERROR_EXIT);
+-		}
++		/* Root jobs run in Finch's system domain; Finch has no user/0 domain. */
++		if (uid != 0) {
++			/* move to the correct bootstrap */
++			/* similar to but simpler than pam_launchd */
++			mach_port_t puc = MACH_PORT_NULL;
++			kern_return_t kr = bootstrap_look_up_per_user(bootstrap_port, NULL, uid, &puc);
++			if (kr != BOOTSTRAP_SUCCESS) {
++				warnx("could not look up per-user bootstrap for uid %u", uid);
++				_exit(ERROR_EXIT);
++			}
++			mach_port_mod_refs(mach_task_self(), bootstrap_port, MACH_PORT_RIGHT_SEND, -1);
++			task_set_bootstrap_port(mach_task_self(), puc);
++			bootstrap_port = puc;
++			if (_vproc_post_fork_ping() != NULL) {
++				warnx("failed to setup exception ports");
++				_exit(ERROR_EXIT);
++			}
++		}
+ #endif /* __APPLE__ */

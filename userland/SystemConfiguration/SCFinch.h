@@ -7,6 +7,7 @@
 #include <CoreFoundation/CFRuntime.h>
 #include <dispatch/dispatch.h>
 #include <stdbool.h>
+#include <xpc/xpc.h>
 
 #define SC_HIDDEN __attribute__((visibility("hidden")))
 
@@ -25,6 +26,17 @@ extern const CFStringRef kSCNetworkInterfaceTypeBridge;
 
 SC_HIDDEN void _SCErrorSet(int error);
 SC_HIDDEN CFTypeRef _SCCreateInstance(CFTypeID type, size_t size);   /* size includes CFRuntimeBase */
+
+/* Finch configd client transport. Requests and replies carry binary plists so
+ * the daemon and framework share CoreFoundation's public value types. */
+SC_HIDDEN xpc_connection_t _SCConfigdCreateConnection(xpc_handler_t handler);
+SC_HIDDEN xpc_object_t _SCConfigdCreateRequest(const char *operation);
+SC_HIDDEN xpc_object_t _SCConfigdSendRequest(xpc_connection_t connection,
+    xpc_object_t request, int *status);
+SC_HIDDEN bool _SCConfigdSetPropertyList(xpc_object_t request, const char *name,
+    CFPropertyListRef value);
+SC_HIDDEN CFPropertyListRef _SCConfigdCopyPropertyList(xpc_object_t reply,
+    const char *name);
 
 /* The local state the dynamic store answers from (SCDynamicStore.c). */
 SC_HIDDEN CFDictionaryRef _SCCopyLocalState(void);

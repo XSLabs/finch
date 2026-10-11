@@ -258,3 +258,64 @@ exit.
 - These keys: `LaunchEvents`, `KeepAlive` conditions other than `SuccessfulExit`,
   `ExitTimeOut`, `ResetAtClose`, `HideUntilCheckIn`, `Nice`, `ProcessType`, resource
   limits.
+
+## Cron and local service discovery
+
+The build now includes Apple's pinned cron-52 and the portable mDNSResponder
+POSIX daemon. Cron's closed background-task and analytics hooks are removed;
+its scheduler and crontab parser come from the published source. The mDNS daemon
+runs in the foreground under finch-init and shares `/var/run/mDNSResponder` with
+the DNS-SD client library. Its Apple-only AWDL logging field is disabled.
+
+Both builds pass on the host. Their launch jobs are included in the VM image.
+`finch-mdnsd-test` registers and browses a local-only service through the daemon.
+The local-only discovery test passes in QEMU (2026-10-11). Cron installs, lists
+and runs reboot jobs for both root and the unprivileged test user. Root jobs
+keep the system bootstrap domain; ordinary users get their own domain.
+These cron and discovery checks do not prove persistent network settings,
+Wi-Fi management or disk mounting.
+
+The development VM copies cron's spool into writable temporary storage at boot.
+It loses that state on reboot. A release image needs persistent storage and a
+root-owned, set-user-ID crontab command before ordinary users can edit jobs.
+
+`at` and `atrun` share that writable folder for one-time jobs. Finch removes
+the runner's closed background-task check and starts it every 30 seconds.
+The `jobs` and `spool` folders belong to `daemon`; cron's `tabs` and `tmp`
+remain private to root. Ordinary users need a root-owned, set-user-ID `at`
+program, which the development image cannot supply with its user-owned files.
+Root and non-root one-time jobs pass in QEMU (2026-10-11). The non-root check
+uses a temporary root-owned copy of `at` and Finch's service manager to start
+the submitting process as `finchtest`; it verifies both the submitting user
+and the finished job have user ID 501. This does not establish that `su` works
+with the development image's user-owned PAM files.
+
+## Shared settings and disk service
+
+Finch's `configd` service now runs under finch-init. A QEMU test checks shared
+store access from root and an ordinary user, change callbacks across processes,
+and removal of temporary keys when their owner exits (2026-10-11). An existing
+watch also resumes after the service restarts. Preference locking, file writes,
+readback, cleanup and denied non-root writes pass with the real service inside
+a private VM test root. This does not prove persistence across a reboot. See
+[the security notes](SECURITY.md) for the access rules and test limits.
+All nine checks in `tools/vm/test-settings.sh` pass (2026-10-11), including
+applying and removing a loopback address and writing DNS settings inside that
+private root. Unsupported network methods are refused before any changes.
+
+Apple's open-source Disk Arbitration daemon now builds against Finch's
+frameworks. Its launch job is included in the test image and install payload.
+A client opens and closes a disk-service session in QEMU (2026-10-11). The
+image builder creates `/Volumes`, which the daemon cannot create on a read-only
+root. Disk probing, mounting and removable-media handling have not been proved.
+Private FSKit and CoreStorage helpers remain unsupported.
+The basic `mount` and `fsck` dispatchers and FAT filesystem helpers now build
+from pinned Apple sources. The current QEMU `darwin` machine has no secondary
+block-device controller; a generic NVMe device is rejected before boot. Thus
+QEMU cannot yet check these tools against a separate disk.
+Formatting and a read-only FAT32 consistency check pass in the VZ guest
+(2026-10-11). `tools/vz/test-fat-guest.sh` creates a new 64 MiB guest-local
+image, verifies the attached device belongs to that image, runs Finch's formatter
+with Finch's CoreFoundation and IOKit, then runs its checker. The image is
+detached and deleted afterward. This guest uses Apple's kernel; mounting through
+Finch's disk service and testing on Finch's kernel remain open.

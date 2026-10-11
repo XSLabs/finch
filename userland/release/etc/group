@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+wheel:*:0:root
+daemon:*:1:
+staff:*:20:
+admin:*:80:
+nobody:*:-2:

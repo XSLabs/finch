@@ -1,7 +1,10 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
 /* Local Security objects use OpenSSL for key parsing and certificate checks.
- * There is no implicit trust store: a caller must supply trusted roots. */
+ * HTTPS server trust uses Finch's pinned Mozilla roots unless the caller
+ * chooses only its own anchors. Other policies require explicit anchors. */
 #include "SecInternal.h"
+#include "../certificates/ca-bundle.h"
+#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
@@ -127,6 +130,7 @@ typedef struct {
 	CFDateRef date;
 	CFIndex result;
 	OSStatus status;
+	bool anchorsOnly;
 } Trust;
 static void certFree(CFTypeRef o)
 {
@@ -942,21 +946,27 @@ OSStatus SecTrustCreateWithCertificates(CFTypeRef certs, CFTypeRef policies, Sec
 }
 OSStatus SecTrustSetAnchorCertificates(SecTrustRef ref, CFArrayRef anchors)
 {
-	if (!valid(ref, SecTrustGetTypeID()) || !valid(anchors, CFArrayGetTypeID()))
+	if (!valid(ref, SecTrustGetTypeID()) || (anchors && !valid(anchors, CFArrayGetTypeID())))
 		return errSecParam;
-	for (CFIndex i = 0; i < CFArrayGetCount(anchors); i++)
+	for (CFIndex i = 0; anchors && i < CFArrayGetCount(anchors); i++)
 		if (!valid(CFArrayGetValueAtIndex(anchors, i), SecCertificateGetTypeID()))
 			return errSecParam;
 	Trust *t = (Trust *)ref;
 	if (t->anchors)
 		CFRelease(t->anchors);
-	t->anchors = CFArrayCreateCopy(NULL, anchors);
+	t->anchors = anchors ? CFArrayCreateCopy(NULL, anchors) : NULL;
+	t->anchorsOnly = anchors != NULL;
 	t->result = kSecTrustResultInvalid;
 	return 0;
 }
 OSStatus SecTrustSetAnchorCertificatesOnly(SecTrustRef ref, Boolean only)
 {
-	return valid(ref, SecTrustGetTypeID()) ? 0 : errSecParam;
+	if (!valid(ref, SecTrustGetTypeID()))
+		return errSecParam;
+	Trust *t = (Trust *)ref;
+	t->anchorsOnly = only;
+	t->result = kSecTrustResultInvalid;
+	return 0;
 }
 OSStatus SecTrustSetNetworkFetchAllowed(SecTrustRef ref, Boolean allowed)
 {
@@ -1038,8 +1048,26 @@ static bool evaluate(Trust *t)
 	STACK_OF(X509) *chain = sk_X509_new_null();
 	int ok = s && c && chain;
 	int err = X509_V_ERR_UNSPECIFIED;
-	/* There's no system root store (docs/design/SECURITY.md): only the anchors
-	 * the caller sets are trusted. */
+	/* Mozilla's bundle approves HTTPS server roots, not code-signing or mail
+	 * identities. Keep it out of those other policy checks. */
+	bool https = false, serverPolicies = true;
+	for (CFIndex i = 0; i < CFArrayGetCount(t->policies); i++) {
+		CFDictionaryRef props = ((Policy *)CFArrayGetValueAtIndex(t->policies, i))->properties;
+		CFTypeRef oid = CFDictionaryGetValue(props, kSecPolicyOid);
+		if (CFEqual(oid, kSecPolicyAppleSSL)) {
+			if (CFDictionaryGetValue(props, kSecPolicyClient) == kCFBooleanTrue)
+				serverPolicies = false;
+			else
+				https = true;
+		} else if (!CFEqual(oid, kSecPolicyAppleX509Basic) && !CFEqual(oid, kSecPolicyAppleRevocation))
+			serverPolicies = false;
+	}
+	if (ok && https && serverPolicies && !t->anchorsOnly) {
+		char path[PATH_MAX];
+		const char *file = finch_ca_bundle((const void *)evaluate, path);
+		if (!file || X509_STORE_load_file(s, file) != 1)
+			ERR_clear_error(); /* Explicit anchors may still suffice. */
+	}
 	for (CFIndex i = 0; ok && t->anchors && i < CFArrayGetCount(t->anchors); i++)
 		X509_STORE_add_cert(s, ((Certificate *)CFArrayGetValueAtIndex(t->anchors, i))->cert);
 	for (CFIndex i = 1; ok && i < CFArrayGetCount(t->certs); i++)
@@ -1197,6 +1225,7 @@ CFDataRef SecTrustSerialize(SecTrustRef ref, CFErrorRef *error)
 	for (CFIndex j = 0; j < CFArrayGetCount(t->policies); j++)
 		CFArrayAppendValue(pols, ((Policy *)CFArrayGetValueAtIndex(t->policies, j))->properties);
 	CFDictionarySetValue(d, CFSTR("policies"), pols);
+	CFDictionarySetValue(d, CFSTR("anchorsOnly"), t->anchorsOnly ? kCFBooleanTrue : kCFBooleanFalse);
 	CFRelease(pols);
 	if (t->date)
 		CFDictionarySetValue(d, CFSTR("date"), t->date);
@@ -1242,6 +1271,9 @@ SecTrustRef SecTrustDeserialize(CFDataRef data, CFErrorRef *error)
 		if (ok && SecTrustCreateWithCertificates(certs, pols, &trust) == 0) {
 			if (anchors)
 				SecTrustSetAnchorCertificates(trust, anchors);
+			CFTypeRef only = CFDictionaryGetValue(d, CFSTR("anchorsOnly"));
+			if (valid(only, CFBooleanGetTypeID()))
+				SecTrustSetAnchorCertificatesOnly(trust, CFBooleanGetValue(only));
 			CFDateRef date = CFDictionaryGetValue(d, CFSTR("date"));
 			if (valid(date, CFDateGetTypeID()))
 				SecTrustSetVerifyDate(trust, date);

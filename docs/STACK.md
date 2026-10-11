@@ -5,7 +5,7 @@ What runs on Finch today and where each piece comes from, bottom to top.
 These diagrams are updated in every commit that changes the stack, and
 `tools/render-stack.sh` checks that they render.
 
-**As of 2026-10-10:** nothing Finch builds links a closed library
+**As of 2026-10-11:** nothing Finch builds links a closed library
 (`tools/check-closed.py`). Finch's own Foundation covers about 130 of Apple's
 classes, on a CoreFoundation that dispatches to Objective-C objects as Apple's
 does (`docs/design/FOUNDATION.md`); its NSXMLParser runs on Apple's libxml2,
@@ -72,9 +72,21 @@ CoreUI reads compiled asset catalogs for AppKit's named colors and images
 (`docs/design/ASSETS.md`). Foundation also contains its Swift value types and
 bridges, built from pinned Swift Foundation and Swift Collections sources.
 The Darwin Swift overlays and AppKit's first Swift extensions build alongside it.
-Security supplies keys, certificates, caller-root trust checks and Secure Transport (TLS) over OpenSSL.
-SystemConfiguration reads local preferences and network state. Keychain,
-authorization and configd services remain unfinished (`docs/design/SECURITY.md`).
+Security supplies keys, certificates, web and caller-root trust checks, file keychains,
+code-signature checks and Secure Transport (TLS) over OpenSSL. Web roots come from
+a pinned Mozilla bundle; keychain encryption and shared authorization remain open.
+SystemConfiguration reads local preferences and network state. Finch configd
+shares store values and sends change callbacks between processes; user access
+checks pass in QEMU. Settings watches recover after service restart; saved files
+also survive service restart in a private test root. Disk Arbitration starts
+and accepts client sessions. Apple's open-source FAT tools and basic mount/fsck
+dispatchers now build. Manual loopback IPv4 and DNS apply pass in QEMU, including repeat apply.
+Failed requests try to remove only newly added addresses; full undo remains open.
+Local account tools share password checks with PAM and OpenDirectory; correct,
+wrong and locked passwords pass in a private QEMU test folder.
+The install archive records file owners, permissions and hashes and passes
+required-library checks. Reboot persistence, broader network setup, real disk
+mounting, full console login, and the keychain and authorization services remain unfinished (`docs/design/SECURITY.md`).
 
 Image Capture's frameworks are Finch's own
 (`docs/design/IMAGECAPTURE.md`): ImageCaptureCore's browser finds no cameras or
@@ -108,9 +120,9 @@ block-beta
         imagecap["ImageCaptureCore (device<br/>browser, finds no devices yet),<br/>ICADevices; Quartz umbrella<br/>with ImageKit's device views"]
         space6b[" "]
         coreservices["CoreServices<br/>app lookup and launch,<br/>local Apple events, files"]
-        later["Metal (no GPU driven yet:<br/>no devices, descriptors<br/>as values); AV to come"]
+        later["Metal (no GPU driven yet:<br/>no devices, descriptors<br/>as values); video playback to come"]
         coreui["CoreUI<br/>compiled asset catalogs,<br/>named images and colors"]
-        appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds,<br/>AudioFormat properties, audio files),<br/>Carbon/HIToolbox (events, keys),<br/>CoreAnalytics, libScreenReader;<br/>ColorSync (profiles, transforms);<br/>HIServices (AX client, Process Manager),<br/>DataDetectorsCore (links in text);<br/>Text Input Sources, UCKeyTranslate,<br/>Carbon event handlers, hot keys;<br/>IOSurface (shared pixel buffers);<br/>CoreVideo pixel buffers and pools;<br/>CoreMedia (times, block, format<br/>and sample buffers, clocks,<br/>timebases, queues, metadata, tags)"]
+        appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds,<br/>AudioFormat properties, audio files,<br/>PCM/G.711 conversion,<br/>ExtAudioFile, software audio units,<br/>offline PCM queues); AVFAudio<br/>(formats, layouts, PCM buffers,<br/>PCM/G.711 files and conversion),<br/>Carbon/HIToolbox (events, keys),<br/>CoreAnalytics, libScreenReader;<br/>ColorSync (profiles, transforms);<br/>HIServices (AX client, Process Manager),<br/>DataDetectorsCore (links in text);<br/>Text Input Sources, UCKeyTranslate,<br/>Carbon event handlers, hot keys;<br/>IOSurface (shared pixel buffers);<br/>CoreVideo pixel buffers and pools;<br/>CoreMedia (times, block, format<br/>and sample buffers, clocks,<br/>timebases, queues, metadata, tags)"]
         swiftui["SwiftUI, SwiftUICore<br/>(OpenSwiftUI on Compute's<br/>attribute graph; first app draws)"]
     end
     block:L5
@@ -120,15 +132,15 @@ block-beta
         uti["UniformTypeIdentifiers<br/>UTType, declared and<br/>dynamic types"]
         cfnetwork["CFNetwork<br/>HTTP messages and streams,<br/>socket streams (TLS via OpenSSL),<br/>CFHost, Bonjour (dns_sd),<br/>proxies, FTP"]
         cf["CoreFoundation<br/>swift-corelibs CF + Finch ObjC:<br/>toll-free dispatch, collections,<br/>ordered sets, NSCache, NSData, NSDate,<br/>NSURL, locales, calendars, defaults,<br/>run loops, attributed strings,<br/>streams, Mach ports, notifications;<br/>bundle languages and .loctable files"]
-        security["Security<br/>keys, certificates, caller-root trust,<br/>Secure Transport, PKCS #12<br/>(OpenSSL); services to come"]
-        od["OpenDirectory<br/>CFOpenDirectory"]
+        security["Security<br/>keys, certificates, web roots,<br/>file keychains, signature checks,<br/>Secure Transport (OpenSSL)"]
+        od["OpenDirectory<br/>CFOpenDirectory,<br/>local account password checks"]
         icu["libicucore<br/>ICU-76142.4.7"]
         objc["libobjc (objc4)"]
         autolayout["CoreAutoLayout (private)<br/>constraints, anchors, VFL,<br/>Cassowary solver"]
         swift["Swift 6.3.1 runtimes<br/>Darwin overlays,<br/>Foundation and AppKit Swift;<br/>Combine (OpenCombine + Finch)"]
         iokit["IOKit.framework<br/>(IOKitUser)"]
         gcore["GCoreFramework<br/>(gcore, on Finch Foundation)"]
-        sysconfig["SystemConfiguration<br/>preferences and network reads;<br/>configd service to come"]
+        sysconfig["SystemConfiguration<br/>preferences and network reads;<br/>shared store via Finch configd;<br/>manual IPv4 and DNS apply"]
     end
     block:L4
         columns 4
@@ -138,7 +150,7 @@ block-beta
         osslibs["zlib, bzip2, libedit, libresolv,<br/>libiconv, ncurses (+ terminfo), OpenBSM,<br/>libxml2"]
         space4[" "]
         pam["OpenPAM + pam_modules"]
-        pamunix["pam_unix, Finch pam.d"]
+        pamunix["pam_unix, Finch pam.d<br/>libfinchaccount, accountctl"]
         ess["libEndpointSecuritySystem"]
         space4b[" "]
         tz["tzdata 2026c (IANA)"]
@@ -165,9 +177,9 @@ block-beta
         t2["Processes"]
         init["finch-init (PID 1)<br/>bootstrap server,<br/>system + user domains"]
         logd["finch-logd, finch-pboardd<br/>(pasteboards), launchctl,<br/>sh, mount_tmpfs, devtools"]
-        daemons["notifyd, syslogd, aslmanager,<br/>newsyslog, dynamic_pager, atrun"]
+        daemons["notifyd, syslogd, aslmanager,<br/>newsyslog, dynamic_pager, atrun,<br/>cron, mDNSPosix, configd,<br/>diskarbitrationd"]
         space2[" "]
-        cmds["file/shell/text/adv/system_cmds,<br/>bash, zsh, bc, su, login"]
+        cmds["file/shell/text/adv/system_cmds,<br/>bash, zsh, bc, su, login,<br/>mount, fsck, FAT helpers"]
         space2b[" "]
         space2c[" "]
     end
@@ -249,6 +261,8 @@ flowchart LR
     metalfw["Metal"]:::finch
     iosurfacefw["IOSurface"]:::finch
     coremediafw["CoreMedia"]:::finch
+    audiotoolbox["AudioToolbox"]:::finch
+    avfaudio["AVFAudio"]:::finch
     colorsync["ColorSync"]:::finch
     hiservices["HIServices"]:::finch
     coreui["CoreUI"]:::finch
@@ -274,6 +288,7 @@ flowchart LR
     z["libz"]:::apple
     pamlib["libpam (OpenPAM)"]:::apple
     pammods["pam_unix, pam_launchd, ..."]:::finch
+    account["libfinchaccount<br/>accountctl"]:::finch
     su["su, login"]:::apple
     xpc["libxpc"]:::finch
     init["finch-init"]:::finch
@@ -312,6 +327,10 @@ flowchart LR
     metalfw --> ffound
     iosurfacefw --> ffound
     coremediafw --> ffound
+    avfaudio --> audiotoolbox
+    avfaudio --> ffound
+    avfaudio --> coremediafw
+    audiotoolbox --> cf
     coreimagefw --> ffound
     coreimagefw --> cgfw
     coreimagefw --> imageio
@@ -373,6 +392,8 @@ flowchart LR
     comp --> z
     su --> pamlib --> pammods
     pammods --> xpc
+    pammods --> account
+    od --> account
     init --> xpc
     cf --> sys
     objc --> sys

@@ -9,16 +9,20 @@ FINCH := $(abspath ../..)
 ROOT  ?= $(FINCH)/build/root
 CC    := xcrun -sdk macosx clang
 CFLAGS := -arch arm64e -mmacosx-version-min=26.0 -Os -Wall -Werror -Wno-unused-parameter
-SRC   := $(FINCH)/build/src/OpenPAM/openpam/modules/pam_unix/pam_unix.c
+SRC   := pam_unix.c
+ACCOUNT_LIB := $(ROOT)/usr/lib/system/libfinchaccount.dylib
 MOD   := $(ROOT)/usr/lib/pam/pam_unix.so.2
 CONFS := $(notdir $(wildcard pam.d/*))
 
 all: $(MOD) $(addprefix $(ROOT)/private/etc/pam.d/,$(CONFS))
 
-$(MOD): $(SRC)
+# pam_unix.c is Finch's checked-in version of OpenPAM's BSD-licensed module.
+$(MOD): $(SRC) $(ACCOUNT_LIB) $(FINCH)/userland/account-tools/account_tools.h
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -dynamiclib -install_name /usr/lib/pam/pam_unix.so.2 -o $@ $< \
-	    -L$(ROOT)/usr/lib -lpam
+	$(CC) $(CFLAGS) -I../account-tools \
+	    -I$(FINCH)/build/src/OpenPAM/openpam/include -dynamiclib \
+	    -install_name /usr/lib/pam/pam_unix.so.2 -o $@ $(SRC) \
+	    -L$(ROOT)/usr/lib/system -lfinchaccount -L$(ROOT)/usr/lib -lpam
 	codesign -f -s - -i org.openpam.pam_unix $@
 
 # Always reinstalled: pam_modules installs Apple's stacks over these (they name

@@ -1,0 +1,16 @@
+--- a/system_cmds.xcodeproj/project.pbxproj
++++ b/system_cmds.xcodeproj/project.pbxproj
+@@ -5561,11 +5561,11 @@
+ 			inputPaths = (
+ 			);
+ 			outputPaths = (
+-				"$(DSTROOT)/private/var/at/at.deny",
++				"$(DSTROOT)/usr/lib/cron/at.deny",
+ 			);
+ 			runOnlyForDeploymentPostprocessing = 1;
+ 			shellPath = /bin/sh;
+-			shellScript = "set -x\nset -e\n\ninstall -o daemon -d \"${DSTROOT}/private/var/at\"\ninstall -o daemon -d \"${DSTROOT}/private/var/at/spool\"\ntouch \"${DSTROOT}/private/var/at/at.deny\"\nmkdir -p \"${DSTROOT}/usr/lib\"\nln -sf ../../var/at \"${DSTROOT}/usr/lib/cron\"\n";
++			shellScript = "set -x\nset -e\n\nmkdir -p \"${DSTROOT}/usr/lib/cron\"\ninstall -m 0755 -d \"${DSTROOT}/usr/lib/cron/jobs\" \"${DSTROOT}/usr/lib/cron/spool\"\nif [ \"$(id -u)\" = 0 ]; then chown daemon:daemon \"${DSTROOT}/usr/lib/cron/jobs\" \"${DSTROOT}/usr/lib/cron/spool\"; fi\ntouch \"${DSTROOT}/usr/lib/cron/at.deny\"\nchmod 0755 \"${DSTROOT}/usr/lib/cron\"\nchmod 0644 \"${DSTROOT}/usr/lib/cron/at.deny\"\n";
+ 			showEnvVarsInLog = 0;
+ 		};
+ 		BAAEB39F13730D5C003EA7A9 /* ShellScript */ = {

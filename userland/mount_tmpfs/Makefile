@@ -7,12 +7,17 @@ CC   := xcrun -sdk macosx clang
 CFLAGS := -arch arm64e -mmacosx-version-min=26.0 -Os -Wall -Wextra -Werror \
           -idirafter $(FINCH)/build/src/libutil
 DEST := $(ROOT)/System/Library/Filesystems/tmpfs.fs/Contents/Resources/mount_tmpfs
+COMMAND := $(ROOT)/sbin/mount_tmpfs
 
-all: $(DEST)
+all: $(DEST) $(COMMAND)
 
 $(DEST): mount_tmpfs.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -o $@ $< -lutil
 	codesign -f -s - -i com.apple.mount_tmpfs $@
+
+$(COMMAND): $(DEST)
+	@mkdir -p $(dir $@)
+	ln -sfn ../System/Library/Filesystems/tmpfs.fs/Contents/Resources/mount_tmpfs $@
 
 .PHONY: all

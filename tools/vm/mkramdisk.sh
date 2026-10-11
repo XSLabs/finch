@@ -49,6 +49,8 @@ is_macho() { file -b "$1" | grep -q '^Mach-O'; }
 
 # 0. Mount points for the tmpfs the boot script lays over the read-only root.
 mkdir -p "${mnt}/private/tmp" "${mnt}"/private/var/{tmp,run,log,root,rw}
+# Disk Arbitration cannot create its mount folder after the image boots read-only.
+mkdir -p "${mnt}/Volumes" "${mnt}/Library/Preferences/SystemConfiguration"
 # /var/folders (per-user temp/cache dirs) can't be a tmpfs mount point (System
 # Policy), so it's a link into the /private/var/tmp tmpfs; rc creates the target.
 rm -rf "${mnt}/private/var/folders"
@@ -89,6 +91,14 @@ if [[ -d "${ROOT}" ]]; then
         if is_macho "$f"; then add_hashes "${mnt}${f#"${ROOT}"}"; n=$((n + 1)); fi
     done < <(find "${ROOT}" -name '*.dSYM' -prune -o -type f -print0)
     echo "  build/root: ${n} Mach-O files"
+fi
+
+# Cron needs a writable spool. Keep its defaults in the image and let rc copy
+# them into this development VM's writable state before jobs start.
+if [[ -d "${mnt}/usr/lib/cron" && ! -L "${mnt}/usr/lib/cron" ]]; then
+    mkdir -p "${mnt}/usr/share/finch"
+    mv "${mnt}/usr/lib/cron" "${mnt}/usr/share/finch/cron"
+    ln -s /private/var/rw/cron "${mnt}/usr/lib/cron"
 fi
 
 # 2. Finch files from the overlay manifest.

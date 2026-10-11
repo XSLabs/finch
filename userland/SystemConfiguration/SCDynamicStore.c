@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
 /*
- * SCDynamicStore without configd (docs/design/SECURITY.md).
+ * SCDynamicStore with Finch's configd (docs/design/SECURITY.md).
  *
  * The store answers from the system's own state, read when asked:
  *   Setup:/System                       computer name (preferences, else the host name)
@@ -13,9 +13,9 @@
  *   State:/Network/Global/IPv4, IPv6    primary interface and router (default route)
  *   State:/Network/Global/DNS           /etc/resolv.conf
  *   State:/Network/Global/Proxies       the primary service's proxies, else Apple's defaults
- * Values a process sets are kept in that process (configd would share them).
- * Notifications: keys under State:/Network/ are watched through the kernel's
- * routing socket, and a process's own writes notify it; nothing else changes.
+ * Finch's configd shares written values and watches between processes. Local
+ * network state also uses the kernel's routing socket. A store keeps its watch
+ * keys so it can subscribe again after the service restarts.
  */
 #include "SCFinch.h"
 #include <arpa/inet.h>
@@ -30,6 +30,7 @@
 #include <pwd.h>
 #include <regex.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -37,6 +38,100 @@
 #include <sys/ioctl.h>
 #include <sys/sysctl.h>
 #include <unistd.h>
+
+#define CONFIGD_SERVICE "com.apple.SystemConfiguration.configd"
+
+/* Keep the wire format simple and stable: request values are binary property
+ * lists, and replies carry the same values as xpc.data. */
+xpc_connection_t _SCConfigdCreateConnection(xpc_handler_t handler)
+{
+	xpc_connection_t connection = xpc_connection_create_mach_service(CONFIGD_SERVICE, NULL, 0);
+	if (connection == NULL)
+		return NULL;
+	if (handler == NULL)
+		handler = ^(xpc_object_t event) { (void)event; };
+	xpc_connection_set_event_handler(connection, handler);
+	xpc_connection_resume(connection);
+	return connection;
+}
+
+xpc_object_t _SCConfigdCreateRequest(const char *operation)
+{
+	if (operation == NULL)
+		return NULL;
+	xpc_object_t request = xpc_dictionary_create(NULL, NULL, 0);
+	if (request)
+		xpc_dictionary_set_string(request, "op", operation);
+	return request;
+}
+
+xpc_object_t _SCConfigdSendRequest(xpc_connection_t connection, xpc_object_t request, int *status)
+{
+	if (status)
+		*status = kSCStatusNoStoreServer;
+	if (connection == NULL || request == NULL)
+		return NULL;
+	xpc_object_t reply = xpc_connection_send_message_with_reply_sync(connection, request);
+	if (reply == NULL || xpc_get_type(reply) != XPC_TYPE_DICTIONARY) {
+		if (reply)
+			xpc_release(reply);
+		return NULL;
+	}
+	xpc_object_t value = xpc_dictionary_get_value(reply, "status");
+	if (value == NULL || xpc_get_type(value) != XPC_TYPE_INT64) {
+		xpc_release(reply);
+		return NULL;
+	}
+	if (status)
+		*status = (int)xpc_dictionary_get_int64(reply, "status");
+	return reply;
+}
+
+bool _SCConfigdSetPropertyList(xpc_object_t request, const char *name, CFPropertyListRef value)
+{
+	if (request == NULL || name == NULL || value == NULL ||
+	    !CFPropertyListIsValid(value, kCFPropertyListBinaryFormat_v1_0))
+		return false;
+	CFErrorRef error = NULL;
+	CFDataRef bytes = CFPropertyListCreateData(NULL, value,
+	    kCFPropertyListBinaryFormat_v1_0, 0, &error);
+	if (bytes == NULL) {
+		if (error)
+			CFRelease(error);
+		return false;
+	}
+	xpc_object_t data = xpc_data_create(CFDataGetBytePtr(bytes),
+	    (size_t)CFDataGetLength(bytes));
+	CFRelease(bytes);
+	if (error)
+		CFRelease(error);
+	if (data == NULL)
+		return false;
+	xpc_dictionary_set_value(request, name, data);
+	xpc_release(data);
+	return true;
+}
+
+CFPropertyListRef _SCConfigdCopyPropertyList(xpc_object_t reply, const char *name)
+{
+	xpc_object_t data = reply ? xpc_dictionary_get_value(reply, name) : NULL;
+	if (data == NULL || xpc_get_type(data) != XPC_TYPE_DATA)
+		return NULL;
+	size_t length = xpc_data_get_length(data);
+	if (length == 0 || length > 16 * 1024 * 1024)
+		return NULL;
+	CFDataRef bytes = CFDataCreate(NULL, xpc_data_get_bytes_ptr(data), (CFIndex)length);
+	if (bytes == NULL)
+		return NULL;
+	CFPropertyListRef value = CFPropertyListCreateWithData(NULL, bytes,
+	    kCFPropertyListMutableContainersAndLeaves, NULL, NULL);
+	CFRelease(bytes);
+	if (value && !CFPropertyListIsValid(value, kCFPropertyListBinaryFormat_v1_0)) {
+		CFRelease(value);
+		value = NULL;
+	}
+	return value;
+}
 
 static void setString(CFMutableDictionaryRef d, CFStringRef k, const char *s)
 {
@@ -447,6 +542,7 @@ CFDictionaryRef _SCCopyLocalState(void)
 typedef struct Store {
 	CFRuntimeBase base;
 	CFStringRef name;
+	xpc_connection_t connection;
 	SCDynamicStoreCallBack callout;
 	SCDynamicStoreContext context;
 	CFArrayRef watchedKeys, watchedPatterns;
@@ -455,13 +551,153 @@ typedef struct Store {
 	dispatch_queue_t queue;
 	CFRunLoopSourceRef source;
 	CFMutableArrayRef runLoops;
+	pthread_mutex_t subscriptionLock;
+	bool subscriptionLockInitialized;
+	bool needsResubscribe;
+	uint64_t subscriptionEpoch;
 	bool watching;
 	struct Store *nextWatcher;
+	struct Store *nextStore;
 } Store;
 
 static pthread_mutex_t storeLock = PTHREAD_MUTEX_INITIALIZER;
-static CFMutableDictionaryRef localValues;   /* this process's writes */
 static Store *watchers;
+static Store *allStores;
+
+static void recordChanges(Store *s, CFArrayRef keys);
+static bool resendStoreSubscription(Store *store);
+
+static bool resendStoreSubscription(Store *store)
+{
+	if (store == NULL || !store->subscriptionLockInitialized)
+		return false;
+	pthread_mutex_lock(&store->subscriptionLock);
+	pthread_mutex_lock(&storeLock);
+	bool needed = store->needsResubscribe;
+	uint64_t epoch = store->subscriptionEpoch;
+	CFArrayRef keys = needed && store->watchedKeys ? CFRetain(store->watchedKeys) : NULL;
+	CFArrayRef patterns = needed && store->watchedPatterns ? CFRetain(store->watchedPatterns) : NULL;
+	pthread_mutex_unlock(&storeLock);
+	if (!needed) {
+		pthread_mutex_unlock(&store->subscriptionLock);
+		return true;
+	}
+
+	bool restored = false;
+	if (keys && patterns && store->connection) {
+		xpc_object_t request = _SCConfigdCreateRequest("store.subscribe");
+		bool encoded = request &&
+		    _SCConfigdSetPropertyList(request, "keys", keys) &&
+		    _SCConfigdSetPropertyList(request, "patterns", patterns);
+		int status = encoded ? kSCStatusNoStoreServer : kSCStatusFailed;
+		xpc_object_t reply = encoded ?
+		    _SCConfigdSendRequest(store->connection, request, &status) : NULL;
+		restored = status == kSCStatusOK;
+		if (reply)
+			xpc_release(reply);
+		if (request)
+			xpc_release(request);
+	}
+	if (keys)
+		CFRelease(keys);
+	if (patterns)
+		CFRelease(patterns);
+	if (restored) {
+		pthread_mutex_lock(&storeLock);
+		if (store->subscriptionEpoch == epoch)
+			store->needsResubscribe = false;
+		pthread_mutex_unlock(&storeLock);
+	}
+	pthread_mutex_unlock(&store->subscriptionLock);
+	return restored;
+}
+
+/* Restore a pending watch before and after each explicit request. The second
+ * attempt covers a service that restarted between the first attempt and the
+ * request. The user's request is sent only once, including writes. */
+static xpc_object_t storeSendRequest(Store *store, xpc_object_t request, int *status)
+{
+	(void)resendStoreSubscription(store);
+	xpc_object_t reply = _SCConfigdSendRequest(store ? store->connection : NULL,
+	    request, status);
+	if (reply)
+		(void)resendStoreSubscription(store);
+	return reply;
+}
+
+/* The service forgets each client's watch when it exits. Keep the client's
+ * last watch and restore it on a worker queue after reconnecting. The XPC
+ * event queue cannot make a synchronous request to its own connection. */
+static void markStoreSubscriptionStale(Store *store)
+{
+	bool schedule = false;
+	pthread_mutex_lock(&storeLock);
+	if (store->watchedKeys && store->watchedPatterns) {
+		store->needsResubscribe = true;
+		store->subscriptionEpoch++;
+		CFRetain(store);
+		schedule = true;
+	}
+	pthread_mutex_unlock(&storeLock);
+	if (schedule) {
+		dispatch_async(dispatch_get_global_queue(0, 0), ^{
+			(void)resendStoreSubscription(store);
+			CFRelease(store);
+		});
+	}
+}
+
+static void storeConnectionEvent(xpc_connection_t connection, xpc_object_t event)
+{
+	if (xpc_get_type(event) == XPC_TYPE_ERROR) {
+		if (event == XPC_ERROR_CONNECTION_INTERRUPTED) {
+			pthread_mutex_lock(&storeLock);
+			Store *store = allStores;
+			while (store && store->connection != connection)
+				store = store->nextStore;
+			if (store)
+				CFRetain(store);
+			pthread_mutex_unlock(&storeLock);
+			if (store) {
+				markStoreSubscriptionStale(store);
+				CFRelease(store);
+			}
+		}
+		return;
+	}
+	if (xpc_get_type(event) != XPC_TYPE_DICTIONARY ||
+	    strcmp(xpc_dictionary_get_string(event, "event") ?: "", "store.changed") != 0)
+		return;
+	pthread_mutex_lock(&storeLock);
+	Store *store = allStores;
+	while (store && store->connection != connection)
+		store = store->nextStore;
+	if (store)
+		CFRetain(store);
+	pthread_mutex_unlock(&storeLock);
+	if (store == NULL)
+		return;
+
+	xpc_object_t values = xpc_dictionary_get_value(event, "keys");
+	CFMutableArrayRef keys = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+	if (values && xpc_get_type(values) == XPC_TYPE_ARRAY) {
+		size_t count = xpc_array_get_count(values);
+		for (size_t i = 0; i < count; i++) {
+			const char *text = xpc_array_get_string(values, i);
+			if (text == NULL)
+				continue;
+			CFStringRef key = CFStringCreateWithCString(NULL, text, kCFStringEncodingUTF8);
+			if (key) {
+				CFArrayAppendValue(keys, key);
+				CFRelease(key);
+			}
+		}
+	}
+	if (CFArrayGetCount(keys) > 0)
+		recordChanges(store, keys);
+	CFRelease(keys);
+	CFRelease(store);
+}
 
 static void storeFree(CFTypeRef o)
 {
@@ -472,7 +708,18 @@ static void storeFree(CFTypeRef o)
 			*p = s->nextWatcher;
 			break;
 		}
+	for (Store **p = &allStores; *p; p = &(*p)->nextStore)
+		if (*p == s) {
+			*p = s->nextStore;
+			break;
+		}
 	pthread_mutex_unlock(&storeLock);
+	if (s->connection) {
+		xpc_connection_cancel(s->connection);
+		xpc_release(s->connection);
+	}
+	if (s->subscriptionLockInitialized)
+		pthread_mutex_destroy(&s->subscriptionLock);
 	if (s->context.release && s->context.info)
 		s->context.release(s->context.info);
 	CFTypeRef refs[] = {s->name, s->watchedKeys, s->watchedPatterns, s->changed, s->snapshot, s->source, s->runLoops};
@@ -490,26 +737,46 @@ static CFStringRef storeDescription(CFTypeRef o)
 
 SC_DEFINE_TYPE(SCDynamicStoreGetTypeID, "SCDynamicStore", storeFree, NULL, NULL, storeDescription)
 
-static CFDictionaryRef copyAll(void)
+static CFDictionaryRef copyAll(SCDynamicStoreRef ref)
 {
 	CFDictionaryRef state = _SCCopyLocalState();
 	CFMutableDictionaryRef all = CFDictionaryCreateMutableCopy(NULL, 0, state);
 	CFRelease(state);
-	pthread_mutex_lock(&storeLock);
-	if (localValues) {
-		CFIndex n = CFDictionaryGetCount(localValues);
-		const void **k = malloc(sizeof(void *) * n), **v = malloc(sizeof(void *) * n);
-		CFDictionaryGetKeysAndValues(localValues, k, v);
-		for (CFIndex i = 0; i < n; i++) {
-			if (v[i] == kCFNull)
-				CFDictionaryRemoveValue(all, k[i]);
-			else
-				CFDictionarySetValue(all, k[i], v[i]);
-		}
-		free(k);
-		free(v);
+	Store *store = ref ? (Store *)ref : NULL;
+	xpc_connection_t temporaryConnection = NULL;
+	xpc_connection_t connection = store ? store->connection : NULL;
+	if (connection == NULL) {
+		temporaryConnection = _SCConfigdCreateConnection(NULL);
+		connection = temporaryConnection;
 	}
-	pthread_mutex_unlock(&storeLock);
+	xpc_object_t request = _SCConfigdCreateRequest("store.copy");
+	int status = kSCStatusNoStoreServer;
+	xpc_object_t reply = store ? storeSendRequest(store, request, &status) :
+	    _SCConfigdSendRequest(connection, request, &status);
+	CFPropertyListRef dynamicValues = status == kSCStatusOK ?
+	    _SCConfigdCopyPropertyList(reply, "plist") : NULL;
+	if (dynamicValues && CFGetTypeID(dynamicValues) == CFDictionaryGetTypeID()) {
+		CFIndex n = CFDictionaryGetCount(dynamicValues);
+		const void **keys = malloc(sizeof(void *) * (size_t)(n ? n : 1));
+		const void **values = malloc(sizeof(void *) * (size_t)(n ? n : 1));
+		if (keys && values) {
+			CFDictionaryGetKeysAndValues(dynamicValues, keys, values);
+			for (CFIndex i = 0; i < n; i++)
+				CFDictionarySetValue(all, keys[i], values[i]);
+		}
+		free(keys);
+		free(values);
+	}
+	if (dynamicValues)
+		CFRelease(dynamicValues);
+	if (reply)
+		xpc_release(reply);
+	if (request)
+		xpc_release(request);
+	if (temporaryConnection) {
+		xpc_connection_cancel(temporaryConnection);
+		xpc_release(temporaryConnection);
+	}
 	return all;
 }
 
@@ -521,6 +788,16 @@ SCDynamicStoreRef SCDynamicStoreCreateWithOptions(CFAllocatorRef allocator, CFSt
 		return NULL;
 	}
 	Store *s = (Store *)_SCCreateInstance(SCDynamicStoreGetTypeID(), sizeof(*s));
+	if (s == NULL) {
+		_SCErrorSet(kSCStatusFailed);
+		return NULL;
+	}
+	if (pthread_mutex_init(&s->subscriptionLock, NULL) != 0) {
+		CFRelease(s);
+		_SCErrorSet(kSCStatusFailed);
+		return NULL;
+	}
+	s->subscriptionLockInitialized = true;
 	s->name = CFStringCreateCopy(NULL, name);
 	s->callout = callout;
 	if (context) {
@@ -529,6 +806,18 @@ SCDynamicStoreRef SCDynamicStoreCreateWithOptions(CFAllocatorRef allocator, CFSt
 			s->context.info = (void *)context->retain(context->info);
 	}
 	s->changed = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+	s->connection = xpc_connection_create_mach_service(CONFIGD_SERVICE, NULL, 0);
+	if (s->connection) {
+		xpc_connection_t connection = s->connection;
+		xpc_connection_set_event_handler(connection, ^(xpc_object_t event) {
+			storeConnectionEvent(connection, event);
+		});
+		pthread_mutex_lock(&storeLock);
+		s->nextStore = allStores;
+		allStores = s;
+		pthread_mutex_unlock(&storeLock);
+		xpc_connection_resume(connection);
+	}
 	_SCErrorSet(kSCStatusOK);
 	return (SCDynamicStoreRef)s;
 }
@@ -555,7 +844,7 @@ CFPropertyListRef SCDynamicStoreCopyValue(SCDynamicStoreRef store, CFStringRef k
 		_SCErrorSet(kSCStatusInvalidArgument);
 		return NULL;
 	}
-	CFDictionaryRef all = copyAll();
+	CFDictionaryRef all = copyAll(store);
 	CFPropertyListRef v = CFDictionaryGetValue(all, key);
 	if (v)
 		CFRetain(v);
@@ -590,7 +879,7 @@ CFArrayRef SCDynamicStoreCopyKeyList(SCDynamicStoreRef store, CFStringRef patter
 		_SCErrorSet(kSCStatusInvalidArgument);
 		return NULL;
 	}
-	CFDictionaryRef all = copyAll();
+	CFDictionaryRef all = copyAll(store);
 	CFIndex n = CFDictionaryGetCount(all);
 	const void **keys = malloc(sizeof(void *) * n);
 	CFDictionaryGetKeysAndValues(all, keys, NULL);
@@ -636,39 +925,38 @@ CFDictionaryRef SCDynamicStoreCopyMultiple(SCDynamicStoreRef store, CFArrayRef k
 {
 	if (store && !validStore(store))
 		return NULL;
-	CFDictionaryRef all = copyAll();
+	CFDictionaryRef all = copyAll(store);
 	CFDictionaryRef out = copyMatching(all, keys, patterns);
 	CFRelease(all);
 	_SCErrorSet(kSCStatusOK);
 	return out;
 }
 
-static void notifyLocalChange(CFStringRef key);
-
-static Boolean setLocal(SCDynamicStoreRef store, CFStringRef key, CFPropertyListRef value, bool add)
+static Boolean setRemote(SCDynamicStoreRef ref, CFStringRef key,
+    CFPropertyListRef value, const char *operation)
 {
-	if (store && !validStore(store))
+	if (!validStore(ref))
 		return false;
-	if (!key || CFGetTypeID(key) != CFStringGetTypeID() || (!value && add)) {
+	if (!key || CFGetTypeID(key) != CFStringGetTypeID() || value == NULL ||
+	    !CFPropertyListIsValid(value, kCFPropertyListBinaryFormat_v1_0)) {
 		_SCErrorSet(kSCStatusInvalidArgument);
 		return false;
 	}
-	if (add) {
-		CFPropertyListRef have = SCDynamicStoreCopyValue(store, key);
-		if (have) {
-			CFRelease(have);
-			_SCErrorSet(kSCStatusKeyExists);
-			return false;
-		}
+	Store *store = (Store *)ref;
+	xpc_object_t request = _SCConfigdCreateRequest(operation);
+	if (request == NULL) {
+		_SCErrorSet(kSCStatusFailed);
+		return false;
 	}
-	pthread_mutex_lock(&storeLock);
-	if (!localValues)
-		localValues = newDict();
-	CFDictionarySetValue(localValues, key, value ? value : kCFNull);
-	pthread_mutex_unlock(&storeLock);
-	notifyLocalChange(key);
-	_SCErrorSet(kSCStatusOK);
-	return true;
+	bool encoded = _SCConfigdSetPropertyList(request, "key", key) &&
+	    _SCConfigdSetPropertyList(request, "value", value);
+	int status = encoded ? kSCStatusNoStoreServer : kSCStatusInvalidArgument;
+	xpc_object_t reply = encoded ? storeSendRequest(store, request, &status) : NULL;
+	if (reply)
+		xpc_release(reply);
+	xpc_release(request);
+	_SCErrorSet(status);
+	return status == kSCStatusOK;
 }
 
 Boolean SCDynamicStoreSetValue(SCDynamicStoreRef store, CFStringRef key, CFPropertyListRef value)
@@ -677,78 +965,106 @@ Boolean SCDynamicStoreSetValue(SCDynamicStoreRef store, CFStringRef key, CFPrope
 		_SCErrorSet(kSCStatusInvalidArgument);
 		return false;
 	}
-	return setLocal(store, key, value, false);
+	return setRemote(store, key, value, "store.set");
 }
 
 Boolean SCDynamicStoreAddValue(SCDynamicStoreRef store, CFStringRef key, CFPropertyListRef value)
 {
-	return setLocal(store, key, value, true);
+	return setRemote(store, key, value, "store.add");
 }
 
 Boolean SCDynamicStoreAddTemporaryValue(SCDynamicStoreRef store, CFStringRef key, CFPropertyListRef value)
 {
-	return setLocal(store, key, value, true);
+	return setRemote(store, key, value, "store.temporary");
 }
 
 Boolean SCDynamicStoreSetMultiple(SCDynamicStoreRef store, CFDictionaryRef keysToSet, CFArrayRef keysToRemove,
     CFArrayRef keysToNotify)
 {
-	if (store && !validStore(store))
+	if (!validStore(store))
 		return false;
-	if (keysToSet) {
-		CFIndex n = CFDictionaryGetCount(keysToSet);
-		const void **k = malloc(sizeof(void *) * n), **v = malloc(sizeof(void *) * n);
-		CFDictionaryGetKeysAndValues(keysToSet, k, v);
-		for (CFIndex i = 0; i < n; i++)
-			setLocal(store, k[i], v[i], false);
-		free(k);
-		free(v);
+	CFMutableDictionaryRef emptyDictionary = NULL;
+	CFMutableArrayRef emptyRemoves = NULL, emptyNotifies = NULL;
+	if (keysToSet == NULL) {
+		emptyDictionary = newDict();
+		keysToSet = emptyDictionary;
 	}
-	for (CFIndex i = 0; keysToRemove && i < CFArrayGetCount(keysToRemove); i++)
-		setLocal(store, CFArrayGetValueAtIndex(keysToRemove, i), NULL, false);
-	for (CFIndex i = 0; keysToNotify && i < CFArrayGetCount(keysToNotify); i++)
-		notifyLocalChange(CFArrayGetValueAtIndex(keysToNotify, i));
-	_SCErrorSet(kSCStatusOK);
-	return true;
+	if (keysToRemove == NULL) {
+		emptyRemoves = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+		keysToRemove = emptyRemoves;
+	}
+	if (keysToNotify == NULL) {
+		emptyNotifies = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+		keysToNotify = emptyNotifies;
+	}
+	xpc_object_t request = _SCConfigdCreateRequest("store.set-multiple");
+	bool encoded = request &&
+	    _SCConfigdSetPropertyList(request, "sets", keysToSet) &&
+	    _SCConfigdSetPropertyList(request, "removes", keysToRemove) &&
+	    _SCConfigdSetPropertyList(request, "notifies", keysToNotify);
+	int status = encoded ? kSCStatusNoStoreServer :
+	    (request ? kSCStatusInvalidArgument : kSCStatusFailed);
+	xpc_object_t reply = encoded ?
+	    storeSendRequest((Store *)store, request, &status) : NULL;
+	if (reply)
+		xpc_release(reply);
+	if (request)
+		xpc_release(request);
+	if (emptyDictionary)
+		CFRelease(emptyDictionary);
+	if (emptyRemoves)
+		CFRelease(emptyRemoves);
+	if (emptyNotifies)
+		CFRelease(emptyNotifies);
+	_SCErrorSet(status);
+	return status == kSCStatusOK;
 }
 
 Boolean SCDynamicStoreRemoveValue(SCDynamicStoreRef store, CFStringRef key)
 {
-	CFPropertyListRef have = SCDynamicStoreCopyValue(store, key);
-	if (!have) {
-		_SCErrorSet(kSCStatusNoKey);
+	if (!validStore(store))
+		return false;
+	if (!key || CFGetTypeID(key) != CFStringGetTypeID()) {
+		_SCErrorSet(kSCStatusInvalidArgument);
 		return false;
 	}
-	CFRelease(have);
-	return setLocal(store, key, NULL, false);
+	xpc_object_t request = _SCConfigdCreateRequest("store.remove");
+	bool encoded = request && _SCConfigdSetPropertyList(request, "key", key);
+	int status = encoded ? kSCStatusNoStoreServer :
+	    (request ? kSCStatusInvalidArgument : kSCStatusFailed);
+	xpc_object_t reply = encoded ?
+	    storeSendRequest((Store *)store, request, &status) : NULL;
+	if (reply)
+		xpc_release(reply);
+	if (request)
+		xpc_release(request);
+	_SCErrorSet(status);
+	return status == kSCStatusOK;
 }
 
 Boolean SCDynamicStoreNotifyValue(SCDynamicStoreRef store, CFStringRef key)
 {
-	if (store && !validStore(store))
+	if (!validStore(store))
 		return false;
-	notifyLocalChange(key);
-	_SCErrorSet(kSCStatusOK);
-	return true;
+	if (!key || CFGetTypeID(key) != CFStringGetTypeID()) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	xpc_object_t request = _SCConfigdCreateRequest("store.notify");
+	bool encoded = request && _SCConfigdSetPropertyList(request, "key", key);
+	int status = encoded ? kSCStatusNoStoreServer :
+	    (request ? kSCStatusInvalidArgument : kSCStatusFailed);
+	xpc_object_t reply = encoded ?
+	    storeSendRequest((Store *)store, request, &status) : NULL;
+	if (reply)
+		xpc_release(reply);
+	if (request)
+		xpc_release(request);
+	_SCErrorSet(status);
+	return status == kSCStatusOK;
 }
 
 /* ---- Notifications ---- */
-
-static bool watches(Store *s, CFStringRef key)
-{
-	if (s->watchedKeys && CFArrayContainsValue(s->watchedKeys, CFRangeMake(0, CFArrayGetCount(s->watchedKeys)), key))
-		return true;
-	for (CFIndex i = 0; s->watchedPatterns && i < CFArrayGetCount(s->watchedPatterns); i++) {
-		regex_t re;
-		if (!compilePattern(CFArrayGetValueAtIndex(s->watchedPatterns, i), &re))
-			continue;
-		bool m = keyMatches(&re, key);
-		regfree(&re);
-		if (m)
-			return true;
-	}
-	return false;
-}
 
 static void deliver(Store *s)
 {
@@ -797,23 +1113,6 @@ static void recordChanges(Store *s, CFArrayRef keys)
 		signalStore(s);
 }
 
-static void notifyLocalChange(CFStringRef key)
-{
-	CFArrayRef keys = CFArrayCreate(NULL, (const void **)&key, 1, &kCFTypeArrayCallBacks);
-	pthread_mutex_lock(&storeLock);
-	Store *list[64];
-	int n = 0;
-	for (Store *s = watchers; s && n < 64; s = s->nextWatcher)
-		if (watches(s, key))
-			list[n++] = (Store *)CFRetain(s);
-	pthread_mutex_unlock(&storeLock);
-	for (int i = 0; i < n; i++) {
-		recordChanges(list[i], keys);
-		CFRelease(list[i]);
-	}
-	CFRelease(keys);
-}
-
 /* Network changes: re-read the watched keys and report the ones that differ. */
 static void networkChanged(void)
 {
@@ -825,7 +1124,7 @@ static void networkChanged(void)
 	pthread_mutex_unlock(&storeLock);
 	if (!n)
 		return;
-	CFDictionaryRef all = copyAll();
+	CFDictionaryRef all = copyAll((SCDynamicStoreRef)list[0]);
 	for (int i = 0; i < n; i++) {
 		Store *s = list[i];
 		CFDictionaryRef now = copyMatching(all, s->watchedKeys, s->watchedPatterns);
@@ -868,7 +1167,7 @@ static void startWatching(Store *s)
 			networkChanged();
 		});
 	});
-	CFDictionaryRef all = copyAll();
+	CFDictionaryRef all = copyAll((SCDynamicStoreRef)s);
 	CFDictionaryRef now = copyMatching(all, s->watchedKeys, s->watchedPatterns);
 	CFRelease(all);
 	pthread_mutex_lock(&storeLock);
@@ -888,14 +1187,87 @@ Boolean SCDynamicStoreSetNotificationKeys(SCDynamicStoreRef store, CFArrayRef ke
 	if (!validStore(store))
 		return false;
 	Store *s = (Store *)store;
-	pthread_mutex_lock(&storeLock);
-	if (s->watchedKeys)
-		CFRelease(s->watchedKeys);
-	if (s->watchedPatterns)
-		CFRelease(s->watchedPatterns);
-	s->watchedKeys = keys ? CFArrayCreateCopy(NULL, keys) : NULL;
-	s->watchedPatterns = patterns ? CFArrayCreateCopy(NULL, patterns) : NULL;
-	pthread_mutex_unlock(&storeLock);
+	CFMutableArrayRef emptyKeys = NULL, emptyPatterns = NULL;
+	if (keys == NULL) {
+		emptyKeys = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+		keys = emptyKeys;
+	}
+	if (patterns == NULL) {
+		emptyPatterns = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+		patterns = emptyPatterns;
+	}
+	CFArrayRef savedKeys = keys ? CFArrayCreateCopy(NULL, keys) : NULL;
+	CFArrayRef savedPatterns = patterns ? CFArrayCreateCopy(NULL, patterns) : NULL;
+	if (savedKeys == NULL || savedPatterns == NULL) {
+		if (savedKeys) CFRelease(savedKeys);
+		if (savedPatterns) CFRelease(savedPatterns);
+		if (emptyKeys) CFRelease(emptyKeys);
+		if (emptyPatterns) CFRelease(emptyPatterns);
+		_SCErrorSet(kSCStatusFailed);
+		return false;
+	}
+	xpc_object_t request = _SCConfigdCreateRequest("store.subscribe");
+	bool encoded = request &&
+	    _SCConfigdSetPropertyList(request, "keys", keys) &&
+	    _SCConfigdSetPropertyList(request, "patterns", patterns);
+	int status = encoded ? kSCStatusNoStoreServer :
+	    (request ? kSCStatusInvalidArgument : kSCStatusFailed);
+	CFArrayRef oldKeys = NULL, oldPatterns = NULL;
+	bool oldPending = false, staged = false;
+	uint64_t requestEpoch = 0;
+	pthread_mutex_lock(&s->subscriptionLock);
+	if (encoded) {
+		pthread_mutex_lock(&storeLock);
+		oldKeys = s->watchedKeys;
+		oldPatterns = s->watchedPatterns;
+		oldPending = s->needsResubscribe;
+		s->watchedKeys = savedKeys;
+		s->watchedPatterns = savedPatterns;
+		savedKeys = NULL;
+		savedPatterns = NULL;
+		s->needsResubscribe = true;
+		requestEpoch = ++s->subscriptionEpoch;
+		staged = true;
+		pthread_mutex_unlock(&storeLock);
+	}
+	xpc_object_t reply = encoded ? _SCConfigdSendRequest(s->connection, request, &status) : NULL;
+	if (reply)
+		xpc_release(reply);
+	if (request)
+		xpc_release(request);
+	if (staged) {
+		pthread_mutex_lock(&storeLock);
+		if (status == kSCStatusOK) {
+			if (s->subscriptionEpoch == requestEpoch)
+				s->needsResubscribe = false;
+		} else {
+			if (s->watchedKeys)
+				CFRelease(s->watchedKeys);
+			if (s->watchedPatterns)
+				CFRelease(s->watchedPatterns);
+			s->watchedKeys = oldKeys;
+			s->watchedPatterns = oldPatterns;
+			oldKeys = NULL;
+			oldPatterns = NULL;
+			s->needsResubscribe = oldPending ||
+			    (s->subscriptionEpoch != requestEpoch && s->watchedKeys && s->watchedPatterns);
+			s->subscriptionEpoch++;
+		}
+		pthread_mutex_unlock(&storeLock);
+	}
+	pthread_mutex_unlock(&s->subscriptionLock);
+	if (oldKeys) CFRelease(oldKeys);
+	if (oldPatterns) CFRelease(oldPatterns);
+	if (savedKeys) CFRelease(savedKeys);
+	if (savedPatterns) CFRelease(savedPatterns);
+	if (emptyKeys)
+		CFRelease(emptyKeys);
+	if (emptyPatterns)
+		CFRelease(emptyPatterns);
+	if (status != kSCStatusOK) {
+		_SCErrorSet(status);
+		return false;
+	}
 	startWatching(s);
 	_SCErrorSet(kSCStatusOK);
 	return true;

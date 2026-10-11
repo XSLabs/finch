@@ -27,11 +27,16 @@ Contributions are accepted under the same dual license (inbound = outbound).
 | XNU, most Darwin userland | APSL 2.0 | Build and modify. Modifications to APSL files stay APSL and must be published. |
 | CF-Lite, libdispatch, swift-corelibs, Swift, LLVM/clang | Apache 2.0 / APSL | Build directly |
 | WebKit | BSD / LGPL | Build directly |
+| cron-52 | Vixie, BSD and Apple notices as supplied | Built from the pinned source, with Finch patches recorded and the full source licence installed. |
+| system_cmds-1042.100.6.0.1 at/atrun | BSD and Apple notices as supplied | Builds one-time jobs without the closed background-task service; source notices travel with the programs. |
+| mDNSResponder-2881.100.56.0.1 | Apache 2.0 daemon; BSD-3 client | Builds the DNS-SD client and portable POSIX daemon; keeps source notices. |
+| Mozilla CA roots, curl export 2026-09-25 | MPL 2.0 | Dated bundle checked by SHA-256; source record and licence installed beside Finch’s other notices. |
 | OpenSSL 3.5.9 | Apache 2.0 | Built and linked statically into Finch's libcorecrypto, Security.framework and Foundation.framework (TLS for the URL loading system) |
 | swift-foundation, swift-experimental-string-processing (`swift-6.3.1-RELEASE`), swift-collections 1.1.6 | Apache 2.0, with Swift's Runtime Library Exception where stated | Foundation's Swift value types and private collections; Swift's string and regex libraries. Source notices ship with the image. |
 | Swift Darwin overlays (`swift-5.4-RELEASE`, `swift-5.2.5-RELEASE`) | Apache 2.0 with Runtime Library Exception | Historical open Foundation, CoreFoundation, IOKit, simd and Darwin sources, adapted for the current SDK. Imported files retain their notices. |
 | objc4-951.7 and libdispatch-1542.100.32 Swift overlays | objc4 project APSL 2.0; Dispatch Swift sources Apache 2.0 with Runtime Library Exception | Built from their pinned source trees. The overlay build installs the project licences and the compiled files' copyright notices in `objc4-swift-overlay` and `libdispatch-swift-overlay`; the Dispatch folder also keeps Swift's licence and exception. |
 | configd-1405.100.8 | APSL 2.0 | SystemConfiguration's key helpers and generated schema constants. The build collects the source notices. |
+| DiskArbitration-535.100.31 | APSL 2.0 | Client framework and disk daemon from published source. Finch keeps its daemon changes as patches and installs the source licence. |
 | LZFSE 1.0, LZ4 1.10.0 (lib), Brotli 1.1.0 | BSD-3 / BSD-2 / MIT | Built and linked statically into Finch's libcompression |
 | XZ Utils 5.4.3 (liblzma), libxo, libsbuf | 0BSD / BSD | Build directly |
 | libxml2 (Apple's libxml2-39.10) | MIT | Build directly (Foundation's NSXMLParser links it) |
@@ -66,6 +71,8 @@ font family's licence (`OFL.txt`, `LICENSE`) at `/usr/share/finch/licenses/<fami
 carries its own notice (CORE-MATH's per-file authors, msun's mix of BSD and Sun
 fdlibm notices), `tools/collect-notices.py` collects them from exactly the
 files built in, listing each distinct notice once with the files it covers.
+The `msdosfs` and `diskdev_cmds` recipes install both Apple's licence and the
+notices from their compiled files, including the FAT tools' BSD notices.
 
 ## Clean-room rule for GPL drivers
 

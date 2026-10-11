@@ -8,6 +8,7 @@
 #                    default when build/vm has Finch's ramdisk; launchdsuffix=finch). Apple's launchd needs xpc SPI
 #                    Finch's libxpc doesn't have (docs/design/XPC.md), so with a
 #                    Finch image it stops at "Symbol not found".
+#   FINCH_DEV_CONSOLE=0  use login instead of the development VM's root shell
 #   BOOT_ARGS_EXTRA  extra boot-args to append
 #   KC / RAMDISK / TC  override images (defaults: darwin-vm bootkc, build/vm ramdisk if built)
 #   DEBUG=1          expose a GDB stub on :1234 and wait for the debugger
@@ -42,6 +43,9 @@ fi
 
 boot_args="rd=md0 serial=3 -v -noprogress wdt=-1 wlan-olyhal-abort"
 [[ "${FINCH_INIT:-0}" == 1 ]] && boot_args+=" launchdsuffix=finch"
+if [[ "${FINCH_INIT:-0}" == 1 && "${FINCH_DEV_CONSOLE:-1}" == 1 ]]; then
+    boot_args+=" finch_dev_console=1"
+fi
 # no RTC in the emulated M4: finch-init sets the clock from the host's time
 boot_args+=" finch_time=$(date +%s)"
 [[ -n "${BOOT_ARGS_EXTRA:-}" ]] && boot_args+=" ${BOOT_ARGS_EXTRA}"

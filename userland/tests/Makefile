@@ -5,9 +5,14 @@ CC      := xcrun -sdk macosx clang
 CFLAGS  := -arch arm64e -mmacosx-version-min=26.0 -O2 -Wall -Wextra -Werror
 CXX     := xcrun -sdk macosx clang++
 
-all: $(OUT)/finch-appkit-containers2-test $(OUT)/finch-appkit-misc2-test $(OUT)/finch-swift-runtime-test $(OUT)/finch-coreservices-test $(OUT)/finch-security-core-test $(OUT)/finch-sysconfig-core-test $(OUT)/finch-appkit-gestures-test $(OUT)/finch-appkit-controls2-test $(OUT)/finch-libsystem-test $(OUT)/finch-xpc-service-test $(OUT)/finch-launch-bench $(OUT)/finch-cxx-test $(OUT)/finch-objc-test $(OUT)/finch-crypto-test $(OUT)/finch-log-test $(OUT)/finch-hardened-test $(OUT)/finch-debuggee $(OUT)/finch-introspect-test $(OUT)/finch-socket-test $(OUT)/finch-cf-test $(OUT)/finch-swift-hello $(OUT)/finch-dlopen $(OUT)/finch-pam-test $(OUT)/finch-compression-test $(OUT)/finch-bridge-test $(OUT)/finch-forward-test $(OUT)/finch-foundation-test $(OUT)/finch-runtime-test $(OUT)/finch-files-test $(OUT)/finch-intl-test $(OUT)/finch-kvc-test $(OUT)/finch-data-test $(OUT)/finch-archive-test $(OUT)/finch-collections-test $(OUT)/finch-misc-test $(OUT)/finch-streams-test $(OUT)/finch-predicate-test $(OUT)/finch-documents-test $(OUT)/finch-cg-test $(OUT)/finch-cg-draw-test $(OUT)/finch-ct-test $(OUT)/finch-ctfonts-test $(OUT)/finch-font-replacements-test $(OUT)/finch-ws-test $(OUT)/finch-appkit-core-test $(OUT)/finch-appkit-window-test $(OUT)/finch-nib-test $(OUT)/finch-appkit-document-test $(OUT)/finch-uti-test $(OUT)/finch-quartzcore-test $(OUT)/finch-calayer-test $(OUT)/finch-cfnotify-test $(OUT)/finch-l10n-test $(OUT)/finch-appkit-containers-test $(OUT)/finch-app-test $(OUT)/apps/Hello.app/Contents/MacOS/Hello $(OUT)/finch-measurement-test $(OUT)/finch-xmlparser-test $(OUT)/finch-imageio-test $(OUT)/finch-cgpdf-test $(OUT)/finch-uifoundation-test $(OUT)/finch-appkit-draw-test $(OUT)/finch-appkit-menu-test $(OUT)/finch-appkit-menu-window-test $(OUT)/finch-appkit-controls-test $(OUT)/finch-appkit-controls-window-test $(OUT)/finch-appkit-text-test $(OUT)/finch-appkit-text-window-test $(OUT)/finch-textkit2-test $(OUT)/finch-appkit-bindings-test $(OUT)/finch-appkit-layout-test $(OUT)/finch-appkit-panels-test $(OUT)/finch-appkit-panels-window-test $(OUT)/apps/FinchXPCTest.app/Contents/MacOS/finch-nsxpc-test $(OUT)/finch-imagekit-test $(OUT)/apps/AssetsTest.app/Contents/MacOS/finch-assets-test $(OUT)/finch-appkit-tables-test $(OUT)/finch-appkit-tables-window-test $(OUT)/finch-swift-overlay-test $(OUT)/finch-rtf-test $(OUT)/finch-filecoordinator-test $(OUT)/finch-textfinder-test $(OUT)/finch-ruler-test $(OUT)/finch-textblock-test $(OUT)/finch-combine-test $(OUT)/finch-cftokenizer-test $(OUT)/finch-urlsession-test $(OUT)/finch-typedstream-test $(OUT)/finch-tiff-test $(OUT)/finch-colorsync-test $(OUT)/finch-hiservices-test $(OUT)/finch-scripting-test $(OUT)/finch-cfnetwork-test $(OUT)/finch-coreimage-test $(OUT)/finch-cgevent-test $(OUT)/finch-keylayout-test $(OUT)/finch-appkit-statusbar-test $(OUT)/finch-contacts-test $(OUT)/finch-accounts-test $(OUT)/finch-metal-test $(OUT)/finch-iosurface-test $(OUT)/finch-gss-test $(OUT)/finch-cfurl-test $(OUT)/finch-pasteboard-test $(OUT)/finch-coremedia-test $(OUT)/finch-corevideo-test $(OUT)/finch-audiotoolbox-test
+all: $(OUT)/finch-appkit-containers2-test $(OUT)/finch-appkit-misc2-test $(OUT)/finch-swift-runtime-test $(OUT)/finch-coreservices-test $(OUT)/finch-security-core-test $(OUT)/finch-security-roots-test $(OUT)/finch-sysconfig-core-test $(OUT)/finch-appkit-gestures-test $(OUT)/finch-appkit-controls2-test $(OUT)/finch-libsystem-test $(OUT)/finch-xpc-service-test $(OUT)/finch-launch-bench $(OUT)/finch-cxx-test $(OUT)/finch-objc-test $(OUT)/finch-crypto-test $(OUT)/finch-log-test $(OUT)/finch-hardened-test $(OUT)/finch-debuggee $(OUT)/finch-introspect-test $(OUT)/finch-socket-test $(OUT)/finch-cf-test $(OUT)/finch-swift-hello $(OUT)/finch-dlopen $(OUT)/finch-pam-test $(OUT)/finch-compression-test $(OUT)/finch-bridge-test $(OUT)/finch-forward-test $(OUT)/finch-foundation-test $(OUT)/finch-runtime-test $(OUT)/finch-files-test $(OUT)/finch-intl-test $(OUT)/finch-kvc-test $(OUT)/finch-data-test $(OUT)/finch-archive-test $(OUT)/finch-collections-test $(OUT)/finch-misc-test $(OUT)/finch-streams-test $(OUT)/finch-predicate-test $(OUT)/finch-documents-test $(OUT)/finch-cg-test $(OUT)/finch-cg-draw-test $(OUT)/finch-ct-test $(OUT)/finch-ctfonts-test $(OUT)/finch-font-replacements-test $(OUT)/finch-ws-test $(OUT)/finch-appkit-core-test $(OUT)/finch-appkit-window-test $(OUT)/finch-nib-test $(OUT)/finch-appkit-document-test $(OUT)/finch-uti-test $(OUT)/finch-quartzcore-test $(OUT)/finch-calayer-test $(OUT)/finch-cfnotify-test $(OUT)/finch-l10n-test $(OUT)/finch-appkit-containers-test $(OUT)/finch-app-test $(OUT)/apps/Hello.app/Contents/MacOS/Hello $(OUT)/finch-measurement-test $(OUT)/finch-xmlparser-test $(OUT)/finch-imageio-test $(OUT)/finch-cgpdf-test $(OUT)/finch-uifoundation-test $(OUT)/finch-appkit-draw-test $(OUT)/finch-appkit-menu-test $(OUT)/finch-appkit-menu-window-test $(OUT)/finch-appkit-controls-test $(OUT)/finch-appkit-controls-window-test $(OUT)/finch-appkit-text-test $(OUT)/finch-appkit-text-window-test $(OUT)/finch-textkit2-test $(OUT)/finch-appkit-bindings-test $(OUT)/finch-appkit-layout-test $(OUT)/finch-appkit-panels-test $(OUT)/finch-appkit-panels-window-test $(OUT)/apps/FinchXPCTest.app/Contents/MacOS/finch-nsxpc-test $(OUT)/finch-imagekit-test $(OUT)/apps/AssetsTest.app/Contents/MacOS/finch-assets-test $(OUT)/finch-appkit-tables-test $(OUT)/finch-appkit-tables-window-test $(OUT)/finch-swift-overlay-test $(OUT)/finch-rtf-test $(OUT)/finch-filecoordinator-test $(OUT)/finch-textfinder-test $(OUT)/finch-ruler-test $(OUT)/finch-textblock-test $(OUT)/finch-combine-test $(OUT)/finch-cftokenizer-test $(OUT)/finch-urlsession-test $(OUT)/finch-typedstream-test $(OUT)/finch-tiff-test $(OUT)/finch-colorsync-test $(OUT)/finch-hiservices-test $(OUT)/finch-scripting-test $(OUT)/finch-cfnetwork-test $(OUT)/finch-coreimage-test $(OUT)/finch-cgevent-test $(OUT)/finch-keylayout-test $(OUT)/finch-appkit-statusbar-test $(OUT)/finch-contacts-test $(OUT)/finch-accounts-test $(OUT)/finch-metal-test $(OUT)/finch-iosurface-test $(OUT)/finch-gss-test $(OUT)/finch-cfurl-test $(OUT)/finch-pasteboard-test $(OUT)/finch-coremedia-test $(OUT)/finch-corevideo-test $(OUT)/finch-audiotoolbox-test $(OUT)/finch-audioconverter-test
 
 all: $(OUT)/finch-appkit-containers2-render-test $(OUT)/finch-appkit-controls2-render-test $(OUT)/finch-appkit-color-browser-render-test
+all: $(OUT)/finch-console-policy-test
+
+$(OUT)/finch-console-policy-test: console-policy-test.c ../finch-init/console-policy.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -o $@ $<
 
 # Local application lookup, Apple event values and filesystem services.
 $(OUT)/finch-coreservices-test: coreservices-test.m coreservices-uttypes.inc
@@ -550,6 +555,15 @@ $(OUT)/finch-socket-test: socket-test.c
 	codesign -f -s - -i org.finch.test.socket $@
 
 clean:
+	rm -f $(OUT)/finch-console-policy-test
+	rm -f $(OUT)/finch-audioconverter-test $(OUT)/finch-security-roots-test
+	rm -f $(OUT)/finch-extaudiofile-test $(OUT)/finch-audiounit-test $(OUT)/finch-audioqueue-test $(OUT)/finch-avaudio-buffer-test $(OUT)/finch-mdnsd-test
+	rm -f $(OUT)/finch-avaudio-file-test $(OUT)/finch-avaudio-converter-test
+	rm -f $(OUT)/finch-configd-service-test $(OUT)/finch-diskarbitration-session-test
+	rm -f $(OUT)/finch-configd-daemon-test $(OUT)/finch-configd-contained-service
+	rm -f $(OUT)/finch-account-tools-test
+	rm -f $(OUT)/finch-account-login-test
+	rm -f $(OUT)/finch-configd-network-test
 	rm -f $(OUT)/finch-appkit-containers2-render-test $(OUT)/finch-appkit-controls2-render-test $(OUT)/finch-appkit-color-browser-render-test
 	rm -rf $(OUT)/finch-appkit-containers2-test $(OUT)/appkit-containers2-test.nib $(OUT)/appkit-color-browser-test.nib $(OUT)/appkit-controls2-test.nib
 	rm -f $(OUT)/finch-appkit-misc2-test
@@ -660,3 +674,68 @@ $(OUT)/finch-corevideo-test: corevideo-test.c
 $(OUT)/finch-audiotoolbox-test: audiotoolbox-test.c
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -Wno-unused-parameter -Wno-deprecated-declarations -Wno-four-char-constants -o $@ $< -framework AudioToolbox -framework CoreFoundation
+
+# AudioConverter: compare samples, channel maps and callback reads with the host.
+$(OUT)/finch-audioconverter-test: audioconverter-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework AudioToolbox
+
+# Finch's HTTPS root store and caller-selected trust anchors.
+$(OUT)/finch-security-roots-test: security-roots-test.c security-test-certs.inc
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework Security -framework CoreFoundation
+
+# Register and find a local service through Finch's running DNS-SD daemon.
+all: $(OUT)/finch-mdnsd-test
+$(OUT)/finch-mdnsd-test: mdnsd-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -o $@ $<
+
+# PCM files, format conversion and software audio units.
+all: $(OUT)/finch-extaudiofile-test $(OUT)/finch-audiounit-test $(OUT)/finch-avaudio-buffer-test $(OUT)/finch-audioqueue-test
+all: $(OUT)/finch-avaudio-file-test $(OUT)/finch-avaudio-converter-test
+all: $(OUT)/finch-configd-service-test $(OUT)/finch-diskarbitration-session-test
+all: $(OUT)/finch-configd-daemon-test
+all: $(OUT)/finch-configd-contained-service
+all: $(OUT)/finch-account-tools-test
+all: $(OUT)/finch-account-login-test
+all: $(OUT)/finch-configd-network-test
+$(OUT)/finch-configd-network-test: configd-network-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fblocks -Wno-deprecated-declarations -o $@ $< -framework SystemConfiguration -framework CoreFoundation
+$(OUT)/finch-account-tools-test: ../account-tools/tests/account_tools_test.c ../account-tools/account_tools.h ../../build/root/usr/lib/system/libfinchaccount.dylib
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -o $@ $< -L../../build/root/usr/lib/system -lfinchaccount
+$(OUT)/finch-account-login-test: account-login-test.c ../account-tools/account_tools.h ../../build/root/usr/lib/system/libfinchaccount.dylib
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -F$(shell xcrun --sdk macosx --show-sdk-path)/System/Library/Frameworks/OpenDirectory.framework/Frameworks -o $@ $< -L../../build/root/usr/lib/system -lfinchaccount -lpam -framework OpenDirectory -framework CoreFoundation
+$(OUT)/finch-configd-contained-service: configd-contained-service.c ../oss/configd.daemon.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fblocks -Wno-unused-parameter -Wno-deprecated-declarations -o $@ $< -framework CoreFoundation
+$(OUT)/finch-configd-daemon-test: configd-daemon-test.c ../oss/configd.daemon.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fblocks -Wno-unused-parameter -Wno-deprecated-declarations -o $@ $< -framework CoreFoundation
+$(OUT)/finch-configd-service-test: configd-service-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fblocks -Wno-deprecated-declarations -o $@ $< -framework SystemConfiguration -framework CoreFoundation
+$(OUT)/finch-diskarbitration-session-test: diskarbitration-session-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -o $@ $< -framework DiskArbitration -framework CoreFoundation
+$(OUT)/finch-avaudio-file-test: avaudio-file-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fno-objc-arc -fblocks -Wno-deprecated-declarations -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation
+$(OUT)/finch-avaudio-converter-test: avaudio-converter-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fno-objc-arc -fblocks -Wno-deprecated-declarations -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation
+$(OUT)/finch-avaudio-buffer-test: avaudio-buffer-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fno-objc-arc -fblocks -Wno-deprecated-declarations -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation -framework CoreMedia
+$(OUT)/finch-audioqueue-test: audioqueue-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework AudioToolbox -framework CoreFoundation
+$(OUT)/finch-extaudiofile-test: extaudiofile-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework AudioToolbox -framework CoreFoundation
+$(OUT)/finch-audiounit-test: audiounit-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework AudioToolbox -framework CoreFoundation

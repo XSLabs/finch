@@ -1,0 +1,21 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Installed roots keep their data on disk. Only the VM uses the tmpfs boot script.
+set -eu
+mkdir -p /private/tmp /private/var/tmp /private/var/run /private/var/log \
+    /private/var/root /private/var/empty /private/var/db /Users \
+    /Library/Preferences/SystemConfiguration \
+    /usr/lib/cron/tabs /usr/lib/cron/tmp /usr/lib/cron/jobs /usr/lib/cron/spool
+chmod 1777 /private/tmp /private/var/tmp
+chmod 755 /private/var/run /private/var/log /private/var/db /Users /usr/lib/cron
+chmod 755 /Library/Preferences /Library/Preferences/SystemConfiguration
+chmod 700 /private/var/root /usr/lib/cron/tabs /usr/lib/cron/tmp
+chown daemon:daemon /usr/lib/cron/jobs /usr/lib/cron/spool
+chmod 755 /usr/lib/cron/jobs /usr/lib/cron/spool
+mkdir -p /private/var/db/timezone
+ln -sfn /usr/share/zoneinfo /private/var/db/timezone/zoneinfo
+# Preserve existing access lists and queued jobs on every boot.
+if [ ! -e /usr/lib/cron/at.deny ]; then
+    : > /usr/lib/cron/at.deny
+    chmod 644 /usr/lib/cron/at.deny
+fi

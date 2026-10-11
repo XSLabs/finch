@@ -1,0 +1,5 @@
+Finch software audio units
+components 4 names versions filters ok
+converter lifecycle callback PCM resampling reset timestamps ok
+mixer float and integer inputs volume reset malformed callback paths ok
+output has no device and reports no connection

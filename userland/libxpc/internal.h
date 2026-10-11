@@ -154,7 +154,7 @@ struct _xpc_dictionary_s {
 	uint32_t reply_msgid;       /* message id to answer with */
 	xpc_object_t connection;    /* received messages: the connection (retained) */
 	uint32_t msgid;             /* received pipe requests: the Mach message id */
-	bool has_audit;             /* received pipe requests: sender's audit token */
+	bool has_audit;             /* received messages: sender's audit token */
 	audit_token_t audit;
 };
 

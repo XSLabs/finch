@@ -1,0 +1,252 @@
+diff --git a/cron.xcodeproj/project.pbxproj b/cron.xcodeproj/project.pbxproj
+index 8cd069e..b083b87 100644
+--- a/cron.xcodeproj/project.pbxproj
++++ b/cron.xcodeproj/project.pbxproj
+@@ -6,6 +6,8 @@
+ 	objectVersion = 54;
+ 	objects = {
+ 
++/* Finch omits cron hooks that require private BTM and CoreAnalytics frameworks. */
++
+ /* Begin PBXAggregateTarget section */
+ 		FDB437171492ED0500D5E278 /* All */ = {
+ 			isa = PBXAggregateTarget;
+@@ -22,9 +24,6 @@
+ /* End PBXAggregateTarget section */
+ 
+ /* Begin PBXBuildFile section */
+-		D02E38002A952C9600DF0FBD /* CoreAnalytics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D02E37FF2A952C9600DF0FBD /* CoreAnalytics.framework */; };
+-		D0679A332B16A00A001D6FB6 /* cronBTMToggle.plist in Install Feature Flag */ = {isa = PBXBuildFile; fileRef = D0679A312B169FBB001D6FB6 /* cronBTMToggle.plist */; };
+-		D0EAD4DC2AFAB0E1001D10F6 /* BackgroundTaskManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D0EAD4DA2AFAB0C6001D10F6 /* BackgroundTaskManagement.framework */; };
+ 		FDB436F11492EBDB00D5E278 /* entry.c in Sources */ = {isa = PBXBuildFile; fileRef = FDB436EC1492EBDB00D5E278 /* entry.c */; };
+ 		FDB436F21492EBDB00D5E278 /* env.c in Sources */ = {isa = PBXBuildFile; fileRef = FDB436ED1492EBDB00D5E278 /* env.c */; };
+ 		FDB436F41492EBDB00D5E278 /* misc.c in Sources */ = {isa = PBXBuildFile; fileRef = FDB436EF1492EBDB00D5E278 /* misc.c */; };
+@@ -78,17 +77,6 @@
+ /* End PBXContainerItemProxy section */
+ 
+ /* Begin PBXCopyFilesBuildPhase section */
+-		D0679A322B169FF0001D6FB6 /* Install Feature Flag */ = {
+-			isa = PBXCopyFilesBuildPhase;
+-			buildActionMask = 8;
+-			dstPath = /System/Library/FeatureFlags/Domain;
+-			dstSubfolderSpec = 0;
+-			files = (
+-				D0679A332B16A00A001D6FB6 /* cronBTMToggle.plist in Install Feature Flag */,
+-			);
+-			name = "Install Feature Flag";
+-			runOnlyForDeploymentPostprocessing = 1;
+-		};
+ 		FDB436D21492EB8E00D5E278 /* Install man1 */ = {
+ 			isa = PBXCopyFilesBuildPhase;
+ 			buildActionMask = 2147483647;
+@@ -136,10 +124,6 @@
+ /* End PBXCopyFilesBuildPhase section */
+ 
+ /* Begin PBXFileReference section */
+-		D02E37FF2A952C9600DF0FBD /* CoreAnalytics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreAnalytics.framework; path = System/Library/PrivateFrameworks/CoreAnalytics.framework; sourceTree = SDKROOT; };
+-		D0679A312B169FBB001D6FB6 /* cronBTMToggle.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = cronBTMToggle.plist; sourceTree = "<group>"; };
+-		D0679A342B16A201001D6FB6 /* FeatureFlags.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FeatureFlags.framework; path = System/Library/PrivateFrameworks/FeatureFlags.framework; sourceTree = SDKROOT; };
+-		D0EAD4DA2AFAB0C6001D10F6 /* BackgroundTaskManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = BackgroundTaskManagement.framework; path = System/Library/PrivateFrameworks/BackgroundTaskManagement.framework; sourceTree = SDKROOT; };
+ 		FDB436CC1492EB8500D5E278 /* libcron.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libcron.a; sourceTree = BUILT_PRODUCTS_DIR; };
+ 		FDB436D41492EB8E00D5E278 /* cron */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cron; sourceTree = BUILT_PRODUCTS_DIR; };
+ 		FDB436E11492EB9400D5E278 /* crontab */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = crontab; sourceTree = BUILT_PRODUCTS_DIR; };
+@@ -174,8 +158,6 @@
+ 			isa = PBXFrameworksBuildPhase;
+ 			buildActionMask = 2147483647;
+ 			files = (
+-				D0EAD4DC2AFAB0E1001D10F6 /* BackgroundTaskManagement.framework in Frameworks */,
+-				D02E38002A952C9600DF0FBD /* CoreAnalytics.framework in Frameworks */,
+ 				FDB437301492EEBE00D5E278 /* libcron.a in Frameworks */,
+ 				FDB437251492EE5000D5E278 /* libutil.dylib in Frameworks */,
+ 				FDB4372F1492EEB600D5E278 /* CoreFoundation.framework in Frameworks */,
+@@ -194,27 +176,15 @@
+ /* End PBXFrameworksBuildPhase section */
+ 
+ /* Begin PBXGroup section */
+-		D02E37FE2A952C9600DF0FBD /* Frameworks */ = {
+-			isa = PBXGroup;
+-			children = (
+-				D0679A342B16A201001D6FB6 /* FeatureFlags.framework */,
+-				D0EAD4DA2AFAB0C6001D10F6 /* BackgroundTaskManagement.framework */,
+-				D02E37FF2A952C9600DF0FBD /* CoreAnalytics.framework */,
+-			);
+-			name = Frameworks;
+-			sourceTree = "<group>";
+-		};
+ 		FDB436BB1492EB4400D5E278 = {
+ 			isa = PBXGroup;
+ 			children = (
+-				D0679A312B169FBB001D6FB6 /* cronBTMToggle.plist */,
+ 				FDB437341492EFCB00D5E278 /* com.vix.cron.plist */,
+ 				FDB436F51492EC1200D5E278 /* cron */,
+ 				FDB4370B1492EC8700D5E278 /* crontab */,
+ 				FDB436EA1492EBDB00D5E278 /* lib */,
+ 				FDB437311492EEEA00D5E278 /* Frameworks & Libraries */,
+ 				FDB436CD1492EB8500D5E278 /* Products */,
+-				D02E37FE2A952C9600DF0FBD /* Frameworks */,
+ 			);
+ 			sourceTree = "<group>";
+ 		};
+@@ -311,7 +281,6 @@
+ 				FDB436D21492EB8E00D5E278 /* Install man1 */,
+ 				FDB437331492EFB200D5E278 /* Install launchd plist */,
+ 				FDB437361492EFEC00D5E278 /* Install misc */,
+-				D0679A322B169FF0001D6FB6 /* Install Feature Flag */,
+ 			);
+ 			buildRules = (
+ 			);
+diff --git a/cron/cron.h b/cron/cron.h
+index a8b3a0f..6efdd06 100644
+--- a/cron/cron.h
++++ b/cron/cron.h
+@@ -38,7 +38,7 @@
+ #include <pwd.h>
+ #ifdef __APPLE__
+ #include <grp.h>
+-#include <xpc/xpc.h>
++/* Finch's cron has no CoreAnalytics payloads and needs no XPC types. */
+ #endif
+ #include <signal.h>
+ #include <stdio.h>
+@@ -228,11 +228,6 @@ void		set_cron_uid __P((void)),
+ 		log_it __P((char *, int, char *, char *)),
+ 		log_close __P((void));
+ 
+-#ifdef __APPLE__
+-static void report_jobs __P((xpc_object_t));
+-static xpc_object_t get_crontab_info __P((cron_db *));
+-#endif // __APPLE__
+-
+ int		job_runqueue __P((void)),
+ 		set_debug_flags __P((char *)),
+ 		get_char __P((FILE *)),
+diff --git a/cron/database.c b/cron/database.c
+index 4c3faaf..c2dcc16 100644
+--- a/cron/database.c
++++ b/cron/database.c
+@@ -26,7 +26,7 @@ static const char rcsid[] =
+ 
+ #include "cron.h"
+ #ifdef __APPLE__
+-#include <CoreAnalytics/CoreAnalytics.h>
++/* Finch leaves out Apple's optional CoreAnalytics job-count report. */
+ #include <libgen.h>
+ #include <string.h>
+ #endif // __APPLE__
+@@ -148,50 +148,9 @@ load_database(old_db)
+ 	*old_db = new_db;
+ 	Debug(DLOAD, ("load_database is done\n"))
+ 
+-#ifdef __APPLE__
+-	report_jobs(get_crontab_info(&new_db));
+-#endif
+-}
+-
+-#ifdef __APPLE__
+-static void report_jobs(dict)
+-xpc_object_t dict;
+-{
+-	analytics_send_event_lazy("com.apple.cron.jobs", ^xpc_object_t(void) { return dict; });
++	/* Finch does not report cron job counts to Apple's CoreAnalytics. */
+ }
+ 
+-static xpc_object_t
+-get_crontab_info(db)
+-	cron_db *db;
+-{
+-	int64_t num_entries = 0;
+-
+-	if (!db) {
+-		return NULL;
+-	}
+-
+-	xpc_object_t dict =  xpc_dictionary_create_empty();
+-
+-	user *user_cursor = db->head;
+-	while (user_cursor) {
+-		entry *crontab = user_cursor->crontab;
+-		while (crontab) {
+-			crontab = crontab->next;
+-			num_entries++;
+-		}
+-
+-		user_cursor = user_cursor->next;
+-		xpc_dictionary_set_int64(dict, "num_jobs", num_entries);
+-	}
+-
+-	return dict;
+-
+-error:
+-	xpc_release(dict);
+-
+-	return NULL;
+-}
+-#endif // __APPLE__
+ 
+ void
+ link_user(db, u)
+diff --git a/cron/job.c b/cron/job.c
+index 1dcca1e..40c99a8 100644
+--- a/cron/job.c
++++ b/cron/job.c
+@@ -23,10 +23,7 @@ static const char rcsid[] =
+ 
+ #include "cron.h"
+ 
+-#ifdef __APPLE__
+-#include <btm.h>
+-#include <os/feature_private.h>
+-#endif
++/* Finch does not use Apple's private BackgroundTaskManagement policy. */
+ 
+ typedef	struct _job {
+ 	struct _job	*next;
+@@ -70,24 +67,8 @@ job_runqueue()
+ 	register int	run = 0;
+ 
+ 	for (j=jhead; j; j=jn) {
+-#ifdef __APPLE__
+-		if (os_feature_enabled(cronBTMToggle, cronBTMCheck)) {
+-			bool cron_enabled = FALSE;
+-			btm_error_code_t error = btm_get_enablement_status_for_subsystem_and_uid(btm_subsystem_cron, BTMGlobalDataUID, &cron_enabled);
+-
+-			if (error != btm_error_none) {
+-				Debug(DMISC, ("Error contacting BTM to check enablement state: %d", error));
+-			}
+-
+-			if (cron_enabled) {
+-				do_command(j->e, j->u);
+-			}
+-		} else {
+-			do_command(j->e, j->u);
+-		}
+-#else
++		/* Finch runs scheduled work without Apple's private BTM gate. */
+ 		do_command(j->e, j->u);
+-#endif
+ 		jn = j->next;
+ 		free(j);
+ 		run++;
+diff --git a/xcodescripts/install_misc.sh b/xcodescripts/install_misc.sh
+index 9f929a7..c160e02 100644
+--- a/xcodescripts/install_misc.sh
++++ b/xcodescripts/install_misc.sh
+@@ -1,12 +1,13 @@
+ #!/bin/sh
+ set -ex
+ 
+-install -o daemon -d "${DSTROOT}/private/var/at"
+-install -m 644 "${SRCROOT}/cron.deny" "${DSTROOT}/private/var/at"
++# Finch: cron uses /usr/lib/cron for its policy file and editable job spool.
++install -d "${DSTROOT}/usr/lib/cron"
++install -m 644 "${SRCROOT}/cron.deny" "${DSTROOT}/usr/lib/cron/cron.deny"
+ 
+-mkdir -p "${DSTROOT}/private/var/at/tabs"
+-mkdir -p "${DSTROOT}/private/var/at/tmp"
+-chmod 700 "${DSTROOT}/private/var/at/tabs" "${DSTROOT}/private/var/at/tmp"
++mkdir -p "${DSTROOT}/usr/lib/cron/tabs"
++mkdir -p "${DSTROOT}/usr/lib/cron/tmp"
++chmod 700 "${DSTROOT}/usr/lib/cron" "${DSTROOT}/usr/lib/cron/tabs" "${DSTROOT}/usr/lib/cron/tmp"
+ 
+ mkdir -p "${DSTROOT}/usr/local/OpenSourceVersions"
+ install -m 0444 "${SRCROOT}/cron.plist" "${DSTROOT}/usr/local/OpenSourceVersions/cron.plist"

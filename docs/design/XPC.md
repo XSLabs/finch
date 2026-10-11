@@ -151,6 +151,12 @@ symbols are: the bundle SPI (`xpc_bundle_*`, `xpc_string_cache_create`,
   Measured: a fresh process takes about 2 s to start in the emulator, because there's
   no dyld shared cache and each process maps about 170 dylibs one by one. A Finch shared
   cache is worth doing before services start launching on demand.
+- **Caller identity (2026-10-11):** received requests and replies keep their own
+  kernel-provided audit token. Reading a held request no longer returns the
+  identity of a later message or disconnect notice. The connection test keeps
+  a request after the client disconnects and checks its original PID and UID;
+  both checks failed before this fix and passed afterward. Privileged services
+  must check the request's token when deciding whether to allow a change.
 - **NSXPC fixes (2026-10-09):** `xpc_connection_set_target_queue` no longer crashes
   (connection queues were made with `dispatch_queue_create_with_target`, whose target
   can't change); a client takes the server's audit token from each reply and a peer

@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Installer creates the first user. System accounts cannot log in with a password.
+root:*:0:0::0:0:System Administrator:/var/root:/bin/zsh
+daemon:*:1:1::0:0:System Services:/var/root:/sbin/nologin
+nobody:*:-2:-2::0:0:Unprivileged User:/var/empty:/sbin/nologin

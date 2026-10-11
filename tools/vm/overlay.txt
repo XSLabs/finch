@@ -35,6 +35,7 @@ build/userland/finch-crypto-test /usr/local/bin/finch-crypto-test
 build/userland/finch-cf-test /usr/local/bin/finch-cf-test
 build/userland/finch-coreservices-test /usr/local/bin/finch-coreservices-test
 build/userland/finch-security-core-test /usr/local/bin/finch-security-core-test
+build/userland/finch-security-roots-test /usr/local/bin/finch-security-roots-test
 build/userland/finch-sysconfig-core-test /usr/local/bin/finch-sysconfig-core-test
 build/userland/finch-appkit-gestures-test /usr/local/bin/finch-appkit-gestures-test
 build/userland/finch-appkit-misc2-test /usr/local/bin/finch-appkit-misc2-test
@@ -197,3 +198,29 @@ build/userland/finch-pasteboard-test /usr/local/bin/finch-pasteboard-test
 build/userland/finch-coremedia-test /usr/local/bin/finch-coremedia-test
 build/userland/finch-corevideo-test /usr/local/bin/finch-corevideo-test
 build/userland/finch-audiotoolbox-test /usr/local/bin/finch-audiotoolbox-test
+build/userland/finch-audioconverter-test /usr/local/bin/finch-audioconverter-test
+
+# Offline HTTPS chain for Finch root-store checks.
+userland/tests/security-https-chain.pem /usr/local/share/finch/security-https-chain.pem
+userland/LaunchDaemons/com.vix.cron.plist /System/Library/Finch/LaunchDaemons/com.vix.cron.plist
+userland/LaunchDaemons/com.apple.atrun.plist /System/Library/Finch/LaunchDaemons/com.apple.atrun.plist
+
+userland/LaunchDaemons/com.apple.mDNSResponder.plist /System/Library/Finch/LaunchDaemons/com.apple.mDNSResponder.plist
+build/userland/finch-mdnsd-test /usr/local/bin/finch-mdnsd-test
+build/userland/finch-extaudiofile-test /usr/local/bin/finch-extaudiofile-test
+build/userland/finch-audiounit-test /usr/local/bin/finch-audiounit-test
+build/userland/finch-avaudio-buffer-test /usr/local/bin/finch-avaudio-buffer-test
+build/userland/finch-avaudio-file-test /usr/local/bin/finch-avaudio-file-test
+build/userland/finch-avaudio-converter-test /usr/local/bin/finch-avaudio-converter-test
+build/userland/finch-configd-service-test /usr/local/bin/finch-configd-service-test
+build/userland/finch-configd-daemon-test /usr/local/bin/finch-configd-daemon-test
+build/userland/finch-configd-contained-service /usr/local/bin/finch-configd-contained-service
+build/userland/finch-configd-network-test /usr/local/bin/finch-configd-network-test
+build/userland/finch-account-tools-test /usr/local/bin/finch-account-tools-test
+build/userland/finch-account-login-test /usr/local/bin/finch-account-login-test
+userland/release/etc/master.passwd /usr/local/share/finch/account-fixture/master.passwd
+userland/release/etc/group /usr/local/share/finch/account-fixture/group
+build/userland/finch-diskarbitration-session-test /usr/local/bin/finch-diskarbitration-session-test
+userland/LaunchDaemons/com.apple.SystemConfiguration.configd.plist /System/Library/Finch/LaunchDaemons/com.apple.SystemConfiguration.configd.plist
+userland/LaunchDaemons/com.apple.diskarbitrationd.plist /System/Library/Finch/LaunchDaemons/com.apple.diskarbitrationd.plist
+build/userland/finch-audioqueue-test /usr/local/bin/finch-audioqueue-test

@@ -8,6 +8,7 @@
 #
 #   tools/build-system.sh            # everything
 #   tools/build-system.sh libmalloc  # one step (names below)
+#   tools/build-system.sh Foundation CFNetwork  # selected steps, in build order
 #
 # Stops at the first step that fails, and prints where its log is.
 set -uo pipefail
@@ -15,20 +16,28 @@ FINCH_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${FINCH_ROOT}"
 
 oss() {   # oss <project> <targets...>: build, then fail on any compile/link error
-    local out
+    local out status
     out=$(tools/build-oss.sh "$@" 2>&1)
+    status=$?
     echo "${out}"
-    ! grep -q "failed in:" <<<"${out}" \
+    [[ "${status}" -eq 0 ]] && grep -q "(build exit 0)" <<<"${out}" \
+        && ! grep -q "failed in:" <<<"${out}" \
         && ! grep -q "linker command failed" "build/logs/$1.log"
 }
 
 # Like oss, for command projects: the tools listed in userland/oss/<project>.deferred
 # (userland/INVENTORY.md) may fail; anything else failing stops the build.
 oss_cmds() {   # oss_cmds <project> <targets...>
-    local out failed allowed f
+    local out failed allowed f status
     out=$(tools/build-oss.sh "$@" 2>&1)
+    status=$?
     echo "${out}"
+    [[ "${status}" -eq 0 ]] || return 1
     failed=$(sed -n 's/^  failed in: \(.*\)  (see.*/\1/p' <<<"${out}")
+    if ! grep -q "(build exit 0)" <<<"${out}" && [[ -z "${failed}" ]]; then
+        echo "error: $1 failed without a known deferred target; see build/logs/$1.log" >&2
+        return 1
+    fi
     allowed=$(grep -v '^\s*#' "userland/oss/$1.deferred" 2>/dev/null)
     for f in ${failed}; do
         grep -qx "${f}" <<<"${allowed}" || { echo "error: $1: ${f} failed and isn't deferred" >&2; return 1; }
@@ -72,8 +81,10 @@ steps=(
     # ICU (libicucore + data), for CoreFoundation (docs/design/COREFOUNDATION.md)
     "ICU|oss ICU"
     "tzdata|userland/tzdata/build.sh"
+    "ca-certificates|userland/certificates/build.sh"
     "CoreFoundation|userland/CoreFoundation/build.sh"
     "SystemConfiguration|userland/SystemConfiguration/build.sh"
+    "configd|userland/oss/configd.daemon.build.sh"
     # libxml2, for Foundation's NSXMLParser
     "libxml2|oss libxml2"
     # Auto Layout's private framework, which Foundation re-exports (docs/design/APPKIT.md)
@@ -131,6 +142,7 @@ steps=(
     "IOSurface|userland/IOSurface/build.sh"
     "GSS|userland/GSS/build.sh"
     "CoreMedia|userland/CoreMedia/build.sh"
+    "AVFAudio|userland/AVFAudio/build.sh"
     # Image Capture's frameworks: ImageCaptureCore, ICADevices, and Quartz with ImageKit
     # (docs/design/IMAGECAPTURE.md)
     "ImageCaptureCore|userland/ImageCaptureCore/build.sh"
@@ -148,6 +160,9 @@ steps=(
     "libsbuf|userland/libsbuf/build.sh"
     # Closed on macOS; Finch's, over open codecs (needs zlib and xz first).
     "libcompression|userland/libcompression/build.sh"
+    # Account checks use CommonCrypto, installed with Finch's corecrypto.
+    "corecrypto|make -s -C userland/corecrypto install"
+    "account-tools|make -s -C userland/account-tools"
     "OpenDirectory|make -s -C userland/OpenDirectory"
     # The Swift runtime (libobjc links it, as Apple's does)
     "swift|userland/swift/build.sh"
@@ -156,10 +171,12 @@ steps=(
     "pam|make -s -C userland/pam"
     "libsystem-finch|make -s -C userland/libsystem"
     "libm|make -s -C userland/libm"
-    "corecrypto|make -s -C userland/corecrypto install"
     "Security|userland/Security/build.sh"
-    # DiskArbitration's client, from Apple's source (the daemon is still to port)
+    # DiskArbitration's client and daemon, from Apple's source.
     "DiskArbitration|userland/DiskArbitration/build.sh"
+    "diskarbitrationd|userland/oss/DiskArbitration.daemon.build.sh"
+    "diskdev_cmds|userland/oss/diskdev_cmds.build.sh"
+    "msdosfs|userland/oss/msdosfs.build.sh"
     "trace|make -s -C userland/libsystem/trace install"
     "Libsystem|oss Libsystem Libsystem"
     "llvm-runtimes|tools/build-llvm-runtimes.sh"
@@ -180,15 +197,26 @@ steps=(
     "bash|oss bash bash"
     "zsh|oss zsh"
     "bc|oss bc"
+    "cron|oss cron"
     # Finch's own, after the commands so they're what the image gets
     "sh|make -s -C userland/sh"
     "mount_tmpfs|make -s -C userland/mount_tmpfs"
 )
 
-only="${1:-}"
+selected="$*"
+for requested in "$@"; do
+    known=0
+    for s in "${steps[@]}"; do
+        [[ "${s%%|*}" == "${requested}" ]] && known=1
+    done
+    if [[ "${known}" -eq 0 ]]; then
+        echo "error: unknown build step '${requested}'" >&2
+        exit 1
+    fi
+done
 for s in "${steps[@]}"; do
     name="${s%%|*}" cmd="${s#*|}"
-    [[ -n "${only}" && "${only}" != "${name}" ]] && continue
+    [[ -n "${selected}" && " ${selected} " != *" ${name} "* ]] && continue
     echo "==> ${name}"
     if ! eval "${cmd}"; then
         echo "error: step '${name}' failed (logs in build/logs/)" >&2

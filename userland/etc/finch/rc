@@ -12,7 +12,11 @@ for dir in /private/tmp /private/var/tmp /private/var/run /private/var/log \
            /private/var/root /private/var/rw; do
     mount_tmpfs "$dir" || echo "rc: warning: tmpfs on $dir failed"
 done
+chown root:wheel /private/tmp /private/var/tmp /private/var/run /private/var/log \
+    /private/var/root /private/var/rw
 chmod 1777 /private/tmp /private/var/tmp
+# Only root may replace service state or resolver files in these folders.
+chmod 755 /private/var/run /private/var/log
 # Per-user temporary and cache directories (dirhelper's /var/folders). System
 # Policy refuses tmpfs there too, so the image links it into /private/var/tmp.
 mkdir -p /private/var/tmp/folders && chmod 755 /private/var/tmp/folders
@@ -25,6 +29,16 @@ mkdir -p /private/var/rw/db/timezone
 ln -sfn /usr/share/zoneinfo /private/var/rw/db/timezone/zoneinfo
 chmod 755 /private/var/rw /private/var/rw/db /private/var/rw/Users
 chmod 750 /private/var/root
+# The read-only image holds cron's defaults; its spool lives with writable state.
+if [ -d /usr/share/finch/cron ] && [ ! -d /private/var/rw/cron ]; then
+    cp -R /usr/share/finch/cron /private/var/rw/cron
+    chown -R root:wheel /private/var/rw/cron
+    chmod 755 /private/var/rw/cron
+    chmod 700 /private/var/rw/cron/tabs /private/var/rw/cron/tmp
+    mkdir -p /private/var/rw/cron/jobs /private/var/rw/cron/spool
+    chown daemon:daemon /private/var/rw/cron/jobs /private/var/rw/cron/spool
+    chmod 755 /private/var/rw/cron/jobs /private/var/rw/cron/spool
+fi
 
 # Home directories with macOS's standard folders (its User Template's): apps
 # expect ~/Library and the rest to be there (Stickies makes ~/Library/Stickies,

@@ -1,0 +1,103 @@
+diff --git a/diskdev_cmds.xcodeproj/project.pbxproj b/diskdev_cmds.xcodeproj/project.pbxproj
+index d36c783..99e7a98 100644
+--- a/diskdev_cmds.xcodeproj/project.pbxproj
++++ b/diskdev_cmds.xcodeproj/project.pbxproj
+@@ -927,7 +927,6 @@
+ 			buildActionMask = 2147483647;
+ 			files = (
+ 				B19B239F21C8DF7B0001F35C /* CoreFoundation.framework in Frameworks */,
+-				B19B239E21C8DF740001F35C /* APFS.framework in Frameworks */,
+ 				B19B239D21C8DF6E0001F35C /* IOKit.framework in Frameworks */,
+ 			);
+ 			runOnlyForDeploymentPostprocessing = 0;
+@@ -936,11 +935,7 @@
+ 			isa = PBXFrameworksBuildPhase;
+ 			buildActionMask = 2147483647;
+ 			files = (
+-				DB255C202B1FE30200F37A3C /* FSKit.framework in Frameworks */,
+-				DB55FAB42B2E66B9007FD123 /* LiveFS.framework in Frameworks */,
+-				B1EBE452298BF127006FF901 /* UserManagementLayout.framework in Frameworks */,
+ 				1A9041062091EE980061D05A /* CoreFoundation.framework in Frameworks */,
+-				1A9041042091EE910061D05A /* APFS.framework in Frameworks */,
+ 				1A9041022091EE830061D05A /* IOKit.framework in Frameworks */,
+ 				4D559389153CE794009F2584 /* libdisk.a in Frameworks */,
+ 			);
+@@ -952,7 +947,6 @@
+ 			files = (
+ 				B19B23A521C8DFE10001F35C /* CoreFoundation.framework in Frameworks */,
+ 				B19B23A421C8DFD50001F35C /* IOKit.framework in Frameworks */,
+-				B19B23A321C8DFCF0001F35C /* APFS.framework in Frameworks */,
+ 				4D55939D153CE8AF009F2584 /* libdisk.a in Frameworks */,
+ 			);
+ 			runOnlyForDeploymentPostprocessing = 0;
+diff --git a/disklib/fskit_support.m b/disklib/fskit_support.m
+index fb1dcdd..6aa1fd4 100644
+--- a/disklib/fskit_support.m
++++ b/disklib/fskit_support.m
+@@ -26,7 +26,7 @@
+ /** **This file must be compiled with ARC enabled.**  **/
+ 
+ #import "fskit_support.h"
+-#if __has_include(<FSKit/FSKit.h>)
++#if __has_include(<FSKit/FSKit.h>) && !defined(FINCH_NO_FSKIT)
+ #define HAS_FSKIT
+ #import <FSKit/FSKit.h>
+ #import <FSKit/FSKit_private.h>
+@@ -500,4 +500,3 @@
+     return ENOTSUP;
+ }
+ #endif /* __has_include(<FSKit/FSKit.h>) */
+-
+diff --git a/mount.tproj/mount.c b/mount.tproj/mount.c
+index 92982d0..14ccb30 100644
+--- a/mount.tproj/mount.c
++++ b/mount.tproj/mount.c
+@@ -73,8 +73,10 @@
+ #include <TargetConditionals.h>
+ #include <sysexits.h>
+ #include <sys/sysctl.h>
++#if (TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR)
+ #include <APFS/APFS.h>
+ #include <APFS/APFSConstants.h>
++#endif
+ 
+ #include "edt_fstab.h"
+ #include "fsck.h"
+@@ -155,7 +157,7 @@ errno_or_sysexit(int err, int sysexit)
+ 	return (ret_errno ? err : sysexit);
+ }
+ 
+-#if TARGET_OS_OSX
++#if TARGET_OS_OSX && !defined(FINCH_NO_APFS)
+ static int
+ booted_apfs(void) {
+ 	struct statfs *mntbuf;
+@@ -181,8 +183,9 @@ booted_rosv(void) {
+ 
+ 	return 0;
+ }
+-#endif /* TARGET_OS_OSX */
++#endif /* TARGET_OS_OSX && !FINCH_NO_APFS */
+ 
++#if !defined(FINCH_NO_APFS)
+ static void
+ bootstrap_apfs(int phase)
+ {
+@@ -195,6 +198,8 @@ bootstrap_apfs(int phase)
+ 	errx(errno_or_sysexit(errno, -1), "apfs_boot_util exec failed");
+ }
+ 
++#endif /* !FINCH_NO_APFS */
++
+ int
+ mount_main(int argc, char *argv[])
+ {
+@@ -430,7 +435,7 @@ mount_main(int argc, char *argv[])
+ 				}
+ #endif
+ 			} else if (bootstrap_macos) {
+-#if TARGET_OS_OSX
++#if TARGET_OS_OSX && !defined(FINCH_NO_APFS)
+ 				if (mount_phase == MOUNT_PHASE_1) {
+ 					if (booted_apfs()) {
+ 						bootstrap_apfs(MOUNT_PHASE_1);

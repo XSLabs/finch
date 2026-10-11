@@ -7,6 +7,31 @@ closed is borrowed above the kernel: each closed library or framework is built f
 Apple's open source or written by Finch when something needs it. Apple's kexts (and, in
 the Tier 2 VM, its kernel) stay borrowed until Phase 3 replaces them.
 
+## Progress saved on 2026-10-11
+
+This batch adds working software audio conversion and file handling, more system
+services, web certificate roots, local account tools and a checked install archive.
+Finch 1.0 is still open. The checks below cover specific parts of the system.
+
+- Audio conversion, audio files, software audio units, offline queues and the
+  first AVFAudio classes pass focused host and VM checks. Sound hardware and
+  compressed audio codecs remain open.
+- Cron, one-time jobs, local Bonjour discovery and Disk Arbitration sessions pass
+  in QEMU. FAT32 formatting and checking pass on a disposable disk image in VZ;
+  real disk mounting under Finch remains open.
+- Shared settings, user access rules and recovery after a service restart pass
+  in QEMU. Manual loopback IPv4 and DNS settings also pass, including repeat
+  apply. Failed requests try to remove newly added addresses; full undo, DHCP,
+  Wi-Fi and settings that survive reboot remain open.
+- Local account creation and password changes pass host and QEMU checks. Correct,
+  wrong and locked passwords pass through PAM and OpenDirectory in a private
+  QEMU test folder. A full console login and first-user setup remain open.
+- The install archive passes file, owner, permission and required-library checks.
+  Test runners now reject failed programs even when their partial output matches.
+  A clean installation, signed updates and a full release test run remain open.
+- HTTPS uses pinned Mozilla roots. File keychains still store secrets without
+  encryption; keychain file-access hardening is deferred to the next batch.
+
 ## Phase 0: Our kernel boots
 Build XNU from source and boot it on real Apple Silicon with Apple's own kexts.
 - [x] Reproducible XNU build for `xnu-12377.101.15` (matches dev machine) with KDK: `tools/build-kernel.sh`
@@ -99,8 +124,8 @@ Apple's is closed. Developed in the emulated M4 first. The map is
       - [x] finch-logd and `log show`/`log stream`: os_log over libdispatch's open-source
             firehose server (`docs/design/LOGD.md`, 2026-10-08)
       - [x] aslmanager (on demand), newsyslog, dynamic_pager (2026-10-08)
-      - [ ] cron, configd, mDNSResponder, diskarbitrationd. They link closed frameworks,
-            which Finch builds or writes first (nothing closed is borrowed):
+      - [ ] Finish configd and diskarbitrationd. Cron and mDNSPosix now run in QEMU.
+            Their supporting frameworks come from source (nothing closed is borrowed):
             `docs/design/COREFOUNDATION.md`
         - [x] libicucore (ICU-76142.4.7; all 8,979 exports)
         - [ ] CoreFoundation (swift-corelibs base; C API, then the ObjC collection classes)
@@ -128,14 +153,30 @@ Apple's is closed. Developed in the emulated M4 first. The map is
         - [x] IOKit.framework from IOKitUser: IOKitLib, power management, power sources
               (`userland/IOKit`; nvram, iostat and shutdown run on it, 2026-10-08)
         - [x] SystemConfiguration's local preference and network-state reads, schema keys,
-              and synchronous route checks (2026-10-09). Writes, subscriptions and configd
-              remain unfinished; see [Security and SystemConfiguration](design/SECURITY.md).
+              and synchronous route checks (2026-10-09). Shared store writes,
+              subscriptions, user access rules and temporary-key cleanup now pass
+              in QEMU through Finch's configd (2026-10-11). Watches recover after
+              service restart. Preference file writes and readback pass in a
+              private VM test root. Manual loopback IPv4 and DNS apply also pass,
+              including repeat apply and host checks of address cleanup on failure;
+              reboot persistence and broader network setup remain open. See
+              [Security and SystemConfiguration](design/SECURITY.md).
         - [x] DiskArbitration.framework, the client, from Apple's source (2026-10-10);
               without diskarbitrationd a session can't be made, as when the daemon is down
         - [x] finch-pboardd, the pasteboard server: each user's pasteboards shared by their
               processes, promised data asked of the writer (2026-10-10); NSPasteboard and the
               Pasteboard Manager on it
-        - [ ] cron; diskarbitrationd; configd; mDNSPosix
+        - [x] cron: root and non-root reboot jobs; mDNSPosix: local-only registration
+              and discovery. Both pass in QEMU (2026-10-11).
+        - [x] at/atrun: root and non-root one-time jobs pass in QEMU. The
+              development check uses a temporary root-owned `at`; release
+              ownership and persistent job storage remain open (2026-10-11).
+        - [x] diskarbitrationd runs and accepts client sessions in QEMU (2026-10-11).
+        - [x] FAT32 formatting and a read-only filesystem check pass on a new
+              guest-local image in VZ with Finch's tools (2026-10-11). This uses
+              Apple's guest kernel and does not prove mounting under Finch.
+        - [ ] Finish configd preference storage and network apply, and prove
+              disk probing and mounting.
   - [x] libmalloc no longer depends on libcorecrypto
   - [x] libsystem_featureflags, coreservices, darwindirectory, eligibility, symptoms,
         trial, secinit, sanitizers, libRosetta: Finch's own (`userland/libsystem`)
@@ -207,10 +248,10 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
       values and local dispatch, and Foundation's event/activity wrappers (2026-10-09).
       The host check matches Apple's 1,366 body lines. Interprocess Apple events,
       Handoff and DictionaryServices remain unfinished; see [CoreServices](design/CORESERVICES.md).
-- [x] Security's supported RSA/EC keys, certificate reads and caller-supplied trust roots
-      (2026-10-09). Keychain, authorization and code-signing services return errors until
-      implemented. Tests check signing, tampering, encryption and refused trust/rights;
-      see [Security](design/SECURITY.md).
+- [x] Security's supported RSA/EC keys, certificate reads, web and caller-supplied trust
+      roots, file keychain and code-signature checks. Tests check signing, tampering,
+      encryption and refused trust/rights. Keychain encryption, shared authorization
+      and enforced app restrictions remain open; see [Security](design/SECURITY.md).
 - [ ] CoreGraphics, CoreText, ImageIO over open renderers (`docs/design/COREGRAPHICS.md`)
   - [x] Skia (chrome/m155) builds for arm64e with FreeType and the open codecs, and
         without Apple's graphics frameworks (`userland/skia`, 2026-10-08)
@@ -449,9 +490,28 @@ and AppKit come in Phase 2).
 - [ ] The URL loading system (Apple's is in CFNetwork; Finch's is in Foundation)
   - [x] Requests, responses, sessions; file, data and HTTP/1.1 loading; TLS over OpenSSL;
         Swift's URLRequest and async methods (2026-10-09)
-  - [ ] A CA bundle in the image (Mozilla's, pinned), caching, cookies, authentication,
-        HTTP/2, streaming delegate data, WebSocket and stream tasks
-- [ ] AVFoundation / CoreAudio / CoreMedia
+  - [x] Pinned Mozilla CA bundle in the image; HTTPS trust checks pass on the host
+        and in QEMU (2026-10-11).
+  - [ ] Caching, cookies, authentication, HTTP/2, streaming delegate data,
+        WebSocket and stream tasks
+- [ ] AVFoundation / CoreAudio / CoreMedia ([media plan](design/MEDIA.md))
+  - [x] CoreMedia and CoreVideo's buffer, time and format operations (2026-10-10).
+  - [x] AudioToolbox format properties and PCM audio files (2026-10-10).
+  - [x] Packed/unpacked PCM and G.711 conversion, channel maps, planar channels,
+        callback reads, dithering and sample-rate conversion. Host and QEMU checks
+        pass (2026-10-11); the resampling filter is Finch’s own.
+  - [x] ExtAudioFile PCM/G.711 reads and writes, seek and sample-rate conversion;
+        software AudioUnit converter/mixer paths. Host and QEMU checks pass
+        (2026-10-11). Hardware output reports no connection.
+  - [x] Offline interleaved PCM queues; AVFAudio formats, channel layouts and
+        PCM buffers, including copies and caller-owned memory. Host, QEMU and
+        VZ checks pass (2026-10-11).
+  - [x] AVAudioFile PCM/G.711 reads and writes, seeks and short reads;
+        AVAudioConverter software conversion, resampling and reset. Host,
+        QEMU and VZ results match the focused native tests (2026-10-11).
+  - [ ] Compressed conversion, remaining audio properties and queue operations,
+        remaining AVFAudio file/converter formats, players and engine,
+        VideoToolbox, AVFoundation and AVKit. Real audio output needs Phase 3.
 
 **Exit:** a defined app corpus (e.g., top 50 non-App-Store Mac apps) runs with no Apple
 binaries.
@@ -459,6 +519,39 @@ binaries.
 ## Phase 5: Finch 1.0
 Installer (the standalone install from Phase 3, run from recoveryOS), updates, Finch desktop polish, security model (code signing, sandbox, SIP-like
 protections under Finch's own keys).
+
+Earlier unchecked work remains part of the release. A completed framework entry means
+its listed operations work; exported names and passing small tests do not establish
+that every app works. These release checks were missing from the Phase 5 list:
+
+- [ ] **Boot and install:** finish Phase 3's open boot-path drivers and prove a clean
+      install from recoveryOS on the dedicated Finch container. Keep a working recovery
+      path. The borrowed-kernel VM is a development target, not this release check.
+- [ ] **Release image:** root-owned files, persistent user data, the deferred commands
+      needed by the installer and desktop, and a repeatable build with source versions
+      and licence notices recorded. Phase 1's remaining items stay open until checked.
+      The [install payload](design/RELEASE.md) now records owners, permissions and
+      file hashes. Archive checks and required-library checks pass. This is still
+      an unsigned development payload; installation and persistent accounts remain open.
+- [ ] **System services:** cron, configd, disk mounting and Bonjour; network settings
+      that persist and notify apps when they change. Framework clients alone do not
+      complete these services. See [Security and SystemConfiguration](design/SECURITY.md).
+- [ ] **Trust and access:** a maintained system certificate store, persistent key storage,
+      authorization, code-signature checks and enforced app restrictions. Test refused
+      access as well as allowed access. Finch now has pinned web roots, a file
+      keychain and signature checks. Keychain encryption, shared authorization,
+      certificate updates and enforced app restrictions remain open.
+- [ ] **Updates:** signed update files, interrupted-download recovery, safe installation,
+      rollback to a working system and preservation of user files and settings.
+- [ ] **App checks:** name and pin the Phase 4 app set, record what works in each app,
+      and test launch, open/save, clipboard, printing, network access and media where
+      used. Track missing APIs and failed checks rather than counting exported names.
+- [ ] **Daily use:** persistent accounts and settings, accessibility, keyboard navigation,
+      sleep/wake, shutdown, storage errors and low-space recovery on the target M4.
+- [ ] **Test runner:** a failed program must fail the run even if its partial output
+      matches. Exit checks are added and checked on the host (2026-10-11); the full
+      host and VM suites still need a release pass, with each exception recorded.
+
 - [ ] Fieldwork, Finch's design language (`docs/design/FIELDWORK.md`). Its parts:
   - [x] Theme tokens: Day and Night system colours, palette and metrics, in a theme file.
         A theme switch: Fieldwork by default, Classic (Aqua-compatible) for the comparison

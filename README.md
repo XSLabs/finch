@@ -12,22 +12,28 @@ built on Darwin/XNU, that aims to run Mac software.</p>
 
 ## Status
 
-Phase 2 of the [roadmap](docs/ROADMAP.md): the open graphics stack and the first app.
+Work spans Phases 2 and 4 of the [roadmap](docs/ROADMAP.md): the desktop, Mac app
+compatibility and media frameworks. Finch 1.0 is not ready; open hardware drivers,
+a standalone installer, updates and core security services remain unfinished.
 Finch is tested in emulation (an emulated M4 in QEMU) and in a Virtualization.framework
 VM. Bare metal comes after the GUI stack.
 
 - **Kernel:** Finch builds XNU (`xnu-12377.101.15`) from source and boots it. Apple's
   kexts are still borrowed until Phase 3's open drivers replace them.
-- **Userland (Phase 1, done 2026-10-07):** the VM boots to a shell with no closed Apple
+- **Userland (running in the VM):** the VM boots to a shell with no closed Apple
   binaries above the kernel. Finch's own PID 1, `finch-init`, is a launchd-compatible
   service manager and bootstrap server. dyld, libSystem, a Finch-built dyld shared cache,
   Finch's ABI-compatible libxpc, os_log via `finch-logd`, PAM logins, about 230
-  commands, zsh and bash all run from source.
+  commands, zsh and bash all run from source. Cron jobs and local Bonjour discovery
+  now pass VM checks. Remaining service, command and image-ownership work stays
+  listed in Phase 1.
 - **Nothing closed is borrowed** above the kernel (since 2026-10-08). Every library
   Finch builds links only Finch-built code (`tools/check-closed.py`). Closed pieces are
   built from Apple's open source or written by Finch as they come up.
 - **Frameworks (Phase 2, in progress):** each is checked by test programs that print the
-  same output against Apple's framework and Finch's.
+  same output against Apple's framework and Finch's where the behavior is
+  deterministic. Independent checks cover Finch's own audio filters and unavailable
+  devices.
   - CoreFoundation (swift-corelibs-foundation's CF plus Finch's Objective-C bridge),
     IOKit, OpenDirectory, libcompression and ICU are built from source.
   - Finch's own **Foundation** (about 130 of Apple's classes, URL resource values,
@@ -44,8 +50,13 @@ VM. Bare metal comes after the GUI stack.
   - **A Cocoa app runs:** `userland/tests/apps/Hello`, built the usual way (a nib from
     ibtool, `NSApplicationMain`), puts up its menu bar and window on Finch's window server
     and answers clicks and typing, on the host (`tools/run-app.sh`) and in the VM.
-- **Next:** Swift overlays, Auto Layout, bindings, panels and TextKit 2, until Apple's
-  TextEdit, unmodified, runs on Finch.
+- **Further work:** Swift overlays, Auto Layout, bindings, panels and TextKit 2 now have
+  implementations and tests. CoreMedia, CoreVideo, CFNetwork and CoreImage have also
+  grown. These are partial implementations; the [roadmap](docs/ROADMAP.md) records
+  what remains. The current media work starts with AudioToolbox's files and converters.
+- **Before 1.0:** finish the earlier roadmap gaps alongside the desktop. The release
+  checks now cover installation, system services, trust, updates, daily use and a named
+  set of apps.
 
 ## Principles
 

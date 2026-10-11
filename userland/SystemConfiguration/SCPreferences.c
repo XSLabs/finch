@@ -1,13 +1,9 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
 /*
- * SCPreferences: configd's preferences files, read and written directly
- * (docs/design/SECURITY.md). The system's are
- * /Library/Preferences/SystemConfiguration/preferences.plist; a relative
- * prefsID names a file in that directory, an absolute one any file. Changes
- * are kept in the session until SCPreferencesCommitChanges writes the file
- * (atomically; it fails with kSCStatusAccessError where the caller can't
- * write). There's no configd helper to commit with an AuthorizationRef.
- * Callbacks fire when the file changes on disk.
+ * SCPreferences sessions read through configd when it is available and keep
+ * local edits until the daemon commits them. System preferences are writable
+ * only by a root connection. If configd is absent, reads can still use the
+ * readable file, but writes fail with kSCStatusNoStoreServer.
  */
 #include "SCFinch.h"
 #include <errno.h>
@@ -57,6 +53,7 @@ typedef struct {
 	CFRuntimeBase base;
 	CFStringRef name, prefsID;
 	char path[PATH_MAX];
+	xpc_connection_t connection;
 	CFMutableDictionaryRef prefs;   /* NULL until read */
 	CFDataRef signature;            /* of the file as read */
 	bool changed, locked;
@@ -77,6 +74,10 @@ static void prefsFree(CFTypeRef o)
 	}
 	if (p->queue)
 		dispatch_release(p->queue);
+	if (p->connection) {
+		xpc_connection_cancel(p->connection);
+		xpc_release(p->connection);
+	}
 	if (p->context.release && p->context.info)
 		p->context.release(p->context.info);
 	CFTypeRef refs[] = {p->name, p->prefsID, p->prefs, p->signature, p->runLoop, p->runLoopMode};
@@ -113,12 +114,33 @@ static CFDataRef signatureOf(const char *path)
 static CFMutableDictionaryRef access_(Prefs *p)
 {
 	if (!p->prefs) {
-		p->prefs = readPlist(p->path);
+		xpc_object_t request = _SCConfigdCreateRequest("prefs.read");
+		int status = kSCStatusNoStoreServer;
+		xpc_object_t reply = NULL;
+		if (request) {
+			xpc_dictionary_set_string(request, "path", p->path);
+			reply = _SCConfigdSendRequest(p->connection, request, &status);
+			xpc_release(request);
+		}
+		CFPropertyListRef remote = status == kSCStatusOK ?
+		    _SCConfigdCopyPropertyList(reply, "plist") : NULL;
+		if (remote && CFGetTypeID(remote) == CFDictionaryGetTypeID())
+			p->prefs = (CFMutableDictionaryRef)remote;
+		else if (remote)
+			CFRelease(remote);
+		if (reply) {
+			xpc_object_t signature = xpc_dictionary_get_value(reply, "signature");
+			if (signature && xpc_get_type(signature) == XPC_TYPE_DATA)
+				p->signature = CFDataCreate(NULL, xpc_data_get_bytes_ptr(signature),
+				    (CFIndex)xpc_data_get_length(signature));
+			xpc_release(reply);
+		}
+		if (!p->prefs)
+			p->prefs = readPlist(p->path);
 		if (!p->prefs)
 			p->prefs = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-		if (p->signature)
-			CFRelease(p->signature);
-		p->signature = signatureOf(p->path);
+		if (!p->signature)
+			p->signature = signatureOf(p->path);
 		p->changed = false;
 	}
 	return p->prefs;
@@ -133,6 +155,7 @@ SCPreferencesRef SCPreferencesCreateWithOptions(CFAllocatorRef allocator, CFStri
 	}
 	Prefs *p = (Prefs *)_SCCreateInstance(SCPreferencesGetTypeID(), sizeof(*p));
 	p->name = CFStringCreateCopy(NULL, name);
+	p->connection = _SCConfigdCreateConnection(NULL);
 	char id[PATH_MAX] = "";
 	if (prefsID) {
 		p->prefsID = CFStringCreateCopy(NULL, prefsID);
@@ -266,11 +289,26 @@ Boolean SCPreferencesLock(SCPreferencesRef ref, Boolean wait)
 		return false;
 	}
 	access_(p);
-	CFDataRef now = signatureOf(p->path);
-	bool stale = !CFEqual(now, p->signature);
-	CFRelease(now);
-	if (stale) {
-		_SCErrorSet(kSCStatusStale);
+	if (p->signature == NULL) {
+		_SCErrorSet(kSCStatusFailed);
+		return false;
+	}
+	xpc_object_t request = _SCConfigdCreateRequest("prefs.lock");
+	if (request == NULL) {
+		_SCErrorSet(kSCStatusFailed);
+		return false;
+	}
+	xpc_dictionary_set_string(request, "path", p->path);
+	xpc_dictionary_set_bool(request, "wait", wait);
+	xpc_dictionary_set_data(request, "signature", CFDataGetBytePtr(p->signature),
+	    (size_t)CFDataGetLength(p->signature));
+	int status = kSCStatusNoStoreServer;
+	xpc_object_t reply = _SCConfigdSendRequest(p->connection, request, &status);
+	if (reply)
+		xpc_release(reply);
+	xpc_release(request);
+	if (status != kSCStatusOK) {
+		_SCErrorSet(status);
 		return false;
 	}
 	p->locked = true;
@@ -287,6 +325,21 @@ Boolean SCPreferencesUnlock(SCPreferencesRef ref)
 		_SCErrorSet(kSCStatusNeedLock);
 		return false;
 	}
+	xpc_object_t request = _SCConfigdCreateRequest("prefs.unlock");
+	if (request == NULL) {
+		_SCErrorSet(kSCStatusFailed);
+		return false;
+	}
+	xpc_dictionary_set_string(request, "path", p->path);
+	int status = kSCStatusNoStoreServer;
+	xpc_object_t reply = _SCConfigdSendRequest(p->connection, request, &status);
+	if (reply)
+		xpc_release(reply);
+	xpc_release(request);
+	if (status != kSCStatusOK) {
+		_SCErrorSet(status);
+		return false;
+	}
 	p->locked = false;
 	_SCErrorSet(kSCStatusOK);
 	return true;
@@ -301,40 +354,71 @@ Boolean SCPreferencesCommitChanges(SCPreferencesRef ref)
 		_SCErrorSet(kSCStatusOK);
 		return true;
 	}
-	CFDataRef d = CFPropertyListCreateData(NULL, p->prefs, kCFPropertyListBinaryFormat_v1_0, 0, NULL);
-	char tmp[PATH_MAX];
-	snprintf(tmp, sizeof(tmp), "%s-new", p->path);
-	int fd = d ? open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644) : -1;
-	bool ok = fd >= 0 && write(fd, CFDataGetBytePtr(d), CFDataGetLength(d)) == CFDataGetLength(d) && fsync(fd) == 0;
-	int err = errno;
-	if (fd >= 0)
-		close(fd);
-	if (ok && rename(tmp, p->path) < 0) {
-		ok = false;
-		err = errno;
-	}
-	if (!ok && fd >= 0)
-		unlink(tmp);
-	if (d)
-		CFRelease(d);
-	if (!ok) {
-		_SCErrorSet(err == EACCES || err == EPERM || err == EROFS ? kSCStatusAccessError : kSCStatusFailed);
+	if (p->signature == NULL || p->prefs == NULL) {
+		_SCErrorSet(kSCStatusFailed);
 		return false;
 	}
-	if (p->signature)
-		CFRelease(p->signature);
-	p->signature = signatureOf(p->path);
-	p->changed = false;
+	xpc_object_t request = _SCConfigdCreateRequest("prefs.commit");
+	bool encoded = request != NULL;
+	if (encoded) {
+		xpc_dictionary_set_string(request, "path", p->path);
+		xpc_dictionary_set_data(request, "signature", CFDataGetBytePtr(p->signature),
+		    (size_t)CFDataGetLength(p->signature));
+		encoded = _SCConfigdSetPropertyList(request, "plist", p->prefs);
+	}
+	int status = encoded ? kSCStatusNoStoreServer :
+	    (request ? kSCStatusInvalidArgument : kSCStatusFailed);
+	xpc_object_t reply = encoded ?
+	    _SCConfigdSendRequest(p->connection, request, &status) : NULL;
+	if (reply && status == kSCStatusOK) {
+		xpc_object_t signature = xpc_dictionary_get_value(reply, "signature");
+		if (signature && xpc_get_type(signature) == XPC_TYPE_DATA) {
+			CFDataRef updated = CFDataCreate(NULL, xpc_data_get_bytes_ptr(signature),
+			    (CFIndex)xpc_data_get_length(signature));
+			if (updated) {
+				CFRelease(p->signature);
+				p->signature = updated;
+			}
+		} else {
+			CFRelease(p->signature);
+			p->signature = signatureOf(p->path);
+		}
+		p->changed = false;
+	}
+	if (reply)
+		xpc_release(reply);
+	if (request)
+		xpc_release(request);
+	if (status != kSCStatusOK) {
+		_SCErrorSet(status);
+		return false;
+	}
 	_SCErrorSet(kSCStatusOK);
 	return true;
 }
 
 Boolean SCPreferencesApplyChanges(SCPreferencesRef ref)
 {
-	if (!valid(ref))
+	Prefs *p = valid(ref);
+	if (!p)
 		return false;
-	_SCErrorSet(kSCStatusOK);
-	return true;
+	if (p->changed) {
+		_SCErrorSet(kSCStatusFailed);
+		return false;
+	}
+	xpc_object_t request = _SCConfigdCreateRequest("prefs.apply");
+	if (request == NULL) {
+		_SCErrorSet(kSCStatusFailed);
+		return false;
+	}
+	xpc_dictionary_set_string(request, "path", p->path);
+	int status = kSCStatusNoStoreServer;
+	xpc_object_t reply = _SCConfigdSendRequest(p->connection, request, &status);
+	if (reply)
+		xpc_release(reply);
+	xpc_release(request);
+	_SCErrorSet(status);
+	return status == kSCStatusOK;
 }
 
 /* ---- Callbacks: the file changing on disk ---- */

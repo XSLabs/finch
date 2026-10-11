@@ -1,0 +1,38 @@
+#!/usr/bin/expect -f
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Prove a normal Finch boot asks for login and refuses an unknown account.
+# Run under tools/vm/with-vm-lock.sh. Only the disposable QEMU guest is touched.
+set timeout 180
+set root [file normalize [file dirname [info script]]/../..]
+set env(FINCH_INIT) 1
+set env(FINCH_DEV_CONSOLE) 0
+unset -nocomplain env(BOOT_ARGS_EXTRA)
+spawn $root/tools/vm/run.sh
+proc fail {message} {
+    puts "\n### $message"
+    catch {send "\x01x"}
+    catch {expect eof}
+    exit 1
+}
+expect {
+    "development root console enabled" { fail "root console was enabled without opt-in" }
+    "login: " {}
+    "root@" { fail "normal boot reached a root shell" }
+    "panic" { fail "guest panicked" }
+    eof { fail "guest exited before login" }
+    timeout { fail "login prompt did not appear" }
+}
+send "finch-login-denied\r"
+expect {
+    "Password:" {
+        send "invalid-test-password\r"
+        exp_continue
+    }
+    "login: " {}
+    "root@" { fail "unknown account reached a root shell" }
+    eof { fail "guest exited during refused login" }
+    timeout { fail "refused login did not return to the login prompt" }
+}
+send "\x01x"
+expect eof
+puts "console login: normal boot requires authentication and refuses an unknown account"

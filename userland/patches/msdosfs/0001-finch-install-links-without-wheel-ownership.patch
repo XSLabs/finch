@@ -1,0 +1,40 @@
+diff --git a/msdosfs.xcodeproj/project.pbxproj b/msdosfs.xcodeproj/project.pbxproj
+index 1ef469a..90d065b 100644
+--- a/msdosfs.xcodeproj/project.pbxproj
++++ b/msdosfs.xcodeproj/project.pbxproj
+@@ -1968,7 +1968,7 @@
+ 			);
+ 			runOnlyForDeploymentPostprocessing = 1;
+ 			shellPath = /bin/sh;
+-			shellScript = "ln -sfhv ${FS_BUNDLE_BIN_PATH}/mount_msdos \"${DSTROOT}/sbin/mount_msdos\"\nchgrp -h wheel \"${DSTROOT}/sbin/mount_msdos\"\n";
++			shellScript = "ln -sfhv ${FS_BUNDLE_BIN_PATH}/mount_msdos \"${DSTROOT}/sbin/mount_msdos\"\n";
+ 			showEnvVarsInLog = 0;
+ 		};
+ 		4D42A02C1505621500720D1A /* ShellScript */ = {
+@@ -1984,7 +1984,7 @@
+ 			);
+ 			runOnlyForDeploymentPostprocessing = 1;
+ 			shellPath = /bin/sh;
+-			shellScript = "\tln -sfhv ${FS_BUNDLE_BIN_PATH}/newfs_msdos \"${DSTROOT}/sbin/newfs_msdos\"\n\tchgrp -h wheel \"${DSTROOT}/sbin/newfs_msdos\"\n";
++			shellScript = "\tln -sfhv ${FS_BUNDLE_BIN_PATH}/newfs_msdos \"${DSTROOT}/sbin/newfs_msdos\"\n";
+ 		};
+ 		4D42A02D1505622800720D1A /* Run Script */ = {
+ 			isa = PBXShellScriptBuildPhase;
+@@ -2000,7 +2000,7 @@
+ 			);
+ 			runOnlyForDeploymentPostprocessing = 1;
+ 			shellPath = /bin/sh;
+-			shellScript = "ln -sfhv ${FS_BUNDLE_BIN_PATH}/fsck_msdos \"${DSTROOT}/sbin/fsck_msdos\"\nchgrp -h wheel \"${DSTROOT}/sbin/fsck_msdos\"\n";
++			shellScript = "ln -sfhv ${FS_BUNDLE_BIN_PATH}/fsck_msdos \"${DSTROOT}/sbin/fsck_msdos\"\n";
+ 			showEnvVarsInLog = 0;
+ 		};
+ 		D1AC333C1FFCC8800066739C /* ShellScript */ = {
+@@ -2049,7 +2049,7 @@
+ 			);
+ 			runOnlyForDeploymentPostprocessing = 1;
+ 			shellPath = /bin/sh;
+-			shellScript = "ln -sfhv ${FS_BUNDLE_BIN_PATH}/fsck_msdos \"${DSTROOT}/sbin/fsck_msdos\"\nchgrp -h wheel \"${DSTROOT}/sbin/fsck_msdos\"\n";
++			shellScript = "ln -sfhv ${FS_BUNDLE_BIN_PATH}/fsck_msdos \"${DSTROOT}/sbin/fsck_msdos\"\n";
+ 			showEnvVarsInLog = 0;
+ 		};
+ /* End PBXShellScriptBuildPhase section */

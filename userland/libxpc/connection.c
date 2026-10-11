@@ -364,6 +364,11 @@ _xpc_connection_set_remote(xpc_object_t dict, struct xpc_connection_s *c, mach_m
 {
 	struct _xpc_dictionary_s *d = dict;
 
+	/* Handlers run after the receive loop drains its queue. Keep this
+	 * message's kernel-supplied identity even if another message arrives. */
+	d->audit = c->audit;
+	d->has_audit = true;
+
 	if (MACH_PORT_VALID(h->msgh_remote_port) &&
 	    MACH_MSGH_BITS_REMOTE(h->msgh_bits) == MACH_MSG_TYPE_PORT_SEND_ONCE) {
 		d->reply_port = h->msgh_remote_port;   /* answered via create_reply */
@@ -740,6 +745,9 @@ _xpc_connection_take_reply(struct xpc_connection_s *c, mach_port_t rp, mach_msg_
 			if (reply != NULL) {
 				mach_msg_audit_trailer_t *t = (mach_msg_audit_trailer_t *)
 				    ((uint8_t *)h + round_msg(h->msgh_size));
+				struct _xpc_dictionary_s *d = reply;
+				d->audit = t->msgh_audit;
+				d->has_audit = true;
 				os_unfair_lock_lock(&c->lock);
 				c->audit = t->msgh_audit;
 				os_unfair_lock_unlock(&c->lock);

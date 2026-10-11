@@ -79,8 +79,10 @@ Most of it is published: `dyld`, `Libc`, `libpthread`, `libmalloc`, `libdispatch
 `objc4`, `Libnotify`, `Libinfo`, `bash`/`zsh`, `file_cmds` and others, all built by Finch
 at pinned tags (`userland/projects.txt`). Where Apple doesn't publish, Finch writes its
 own: `finch-init` (PID 1, in place of the closed launchd), libxpc, `finch-logd`,
-libsystem_trace and the private libSystem pieces. Phase 1 finished on 2026-10-07: the
-VM boots with no closed Apple binaries above the kernel (`docs/design/PHASE1-EXIT.md`).
+libsystem_trace and the private libSystem pieces. The VM boot check passed on
+2026-10-07 with no closed Apple binaries above the kernel
+(`docs/design/PHASE1-EXIT.md`). Remaining Phase 1 commands and services are tracked
+in the roadmap; that boot result does not complete them.
 
 ### Frameworks (the other hard part)
 This layer is what makes Finch "compatible with Mac software." Options per framework:
