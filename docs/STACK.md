@@ -45,7 +45,7 @@ ColorSync (ICC profiles, Apple's named ones written by Finch and installed as th
 HIServices (the accessibility client API, which reports no trust until Finch has an
 accessibility server, Universal Access settings and the Process Manager) and
 DataDetectorsCore (links, addresses, phone numbers and IP addresses found in text). With them, Apple's Terminal runs on Finch. Foundation carries the URL loading system
-(file, data and HTTP(S) loading over OpenSSL), and CFNetwork is Finch's own: HTTP
+(file, data and HTTP(S) loading over OpenSSL, with cookies), and CFNetwork is Finch's own: HTTP
 messages, authentication and streams, socket streams, CFHost, Bonjour over dns_sd,
 proxy settings and FTP, matching Apple's in its comparison test. CoreImage is Finch's
 own too: images are recipes rendered on the CPU in Apple's working space, and about seventy
@@ -132,7 +132,7 @@ block-beta
     block:L5
         columns 4
         t5["Foundation layer"]
-        foundation["Foundation<br/>strings, numbers, decimals, threads,<br/>files, bundles, formatters, queues,<br/>KVC/KVO, JSON, archiving, regexes,<br/>attributed strings, map/hash tables,<br/>undo, proxies, transforms,<br/>file handles, pipes, tasks,<br/>predicates, progress, file wrappers,<br/>units and measurements, XML parsing,<br/>list, relative-date and name formatters,<br/>item providers, URL resource values,<br/>NSXPCConnection, URL loading (HTTP/1.1,<br/>TLS via OpenSSL, cache, custom protocols)"]
+        foundation["Foundation<br/>strings, numbers, decimals, threads,<br/>files, bundles, formatters, queues,<br/>KVC/KVO, JSON, archiving, regexes,<br/>attributed strings, map/hash tables,<br/>undo, proxies, transforms,<br/>file handles, pipes, tasks,<br/>predicates, progress, file wrappers,<br/>units and measurements, XML parsing,<br/>list, relative-date and name formatters,<br/>item providers, URL resource values,<br/>NSXPCConnection, URL loading (HTTP/1.1,<br/>TLS via OpenSSL, cache, cookies,<br/>custom protocols)"]
         uti["UniformTypeIdentifiers<br/>UTType, declared and<br/>dynamic types"]
         cfnetwork["CFNetwork<br/>HTTP messages and streams,<br/>socket streams (TLS via OpenSSL),<br/>CFHost, Bonjour (dns_sd),<br/>proxies, FTP"]
         cf["CoreFoundation<br/>swift-corelibs CF + Finch ObjC:<br/>toll-free dispatch, collections,<br/>ordered sets, NSCache, NSData, NSDate,<br/>NSURL, locales, calendars, defaults,<br/>run loops, attributed strings,<br/>streams, Mach ports, notifications;<br/>bundle languages and .loctable files"]
