@@ -40,6 +40,8 @@ enum {
 /* Expose the cell frame before the outline view's indentation. */
 - (NSRect)_finchPlainFrameOfCellAtColumn:(NSInteger)column row:(NSInteger)row;
 - (void)_finchRowsChanged;
+/* Type select (NSTableViewTypeSelect.m): YES if it took the key. */
+- (BOOL)_finchTypeSelect:(NSEvent *)event;
 @end
 
 @interface NSTableColumn (FinchTable)

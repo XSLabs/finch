@@ -1945,7 +1945,9 @@ tc_defaults(NSTreeController *self)
     _FinchBinding *b = FinchBindingFor(self, NSSortDescriptorsBinding);
     if (b && !b->_pushing)
         [b push:descriptors];
-    [self rearrangeObjects];
+    /* (none: the arrangement stays as it is until rearranged, as Apple's) */
+    if ([descriptors count])
+        [self rearrangeObjects];
 }
 
 #pragma mark Content

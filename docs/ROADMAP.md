@@ -365,8 +365,11 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           removal, moves, sorting and rearranging, add/insert/addChild/insertChild, the
           content, selection-index-paths and sort-descriptor bindings and nib keys;
           `tree-test` matches Apple's (2026-10-12).
-    - [ ] Outline view bindings to a tree controller (content, selection index paths,
-          column values), and Core Data's controllers.
+    - [x] Outline view bindings to a tree controller (content, selection index paths,
+          sort descriptors, column values, view-based rows' objects); the controller's
+          selection expands the items above it. `outline-bindings-test` matches Apple's
+          on the host and in the VM (2026-10-12).
+    - [ ] Core Data's controllers (entity names, fetch predicates, managed object contexts).
   - [x] Auto Layout and storyboards: `NSLayoutConstraint`, the visual format language, anchors and
         guides in a private CoreAutoLayout that Foundation re-exports, solved by Finch's own Cassowary
         simplex; views' constraint API, autoresizing masks as constraints, intrinsic sizes, fitting
@@ -380,8 +383,8 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         bindings (content, selection indexes, sort descriptors, column values) and their nib keys;
         scroll views' automatic insets under full-size content windows' bars.
         `finch-appkit-tables-test` matches Apple's on the host and in the VM; `finch-appkit-tables-window-test` clicks,
-        types, sorts, resizes, edits and expands through the server (2026-10-09); drag and drop, type
-        select and `NSTreeController` to come
+        types, sorts, resizes, edits and expands through the server (2026-10-09); drag and drop and
+        outline bindings to `NSTreeController` and type select since (2026-10-12)
   - [x] Search, combo, token, date and path controls, switches, combo buttons, matrices
         and forms: 730 comparison lines match Apple, with drawing and typing/click checks
         (2026-10-09). Path drag sessions and some completion/dropdown details remain.

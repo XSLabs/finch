@@ -343,8 +343,8 @@ draws (`userland/tests/app-test.c`).
   views, both controllers, the defaults controller on a private suite, a nib of bound controls,
   NSFontManager on Liberation Sans and Inter) prints the same against Apple's AppKit and Finch's on
   the host; the October 9 follow-up below records the VM result. Table and column bindings
-  are covered in the tables entry below. Not yet: `NSTreeController`, `NSDictionaryController`,
-  outline/collection view bindings, Core Data (managed object contexts, fetching), validation alerts, display patterns,
+  are covered in the tables entry below; `NSTreeController` and outline view bindings in the
+  October 12 entry. Not yet: `NSDictionaryController`, collection view bindings, Core Data (managed object contexts, fetching), validation alerts, display patterns,
   font bindings beyond `font` (fontBold, fontSize...), the font panel's collections and effects,
   font collections kept on disk; Apple's `convertWeight:` quirks with italics and light faces are
   not copied.
@@ -506,8 +506,8 @@ draws (`userland/tests/app-test.c`).
   host and in the VM; `finch-appkit-tables-window-test` clicks, Shift- and Command-clicks, arrows, sorts, resizes,
   edits, expands and selects through the window server and samples the drawing (compare with
   `appkit-tables-window-test.expected`). Not yet: drag and drop (sources, destinations, gaps, reordering
-  rows and columns by dragging), type select, column autosave, floating group rows, automatic row heights,
-  hidden rows, `NSTreeController` and outline bindings, table animations, Apple's half-point
+  rows and columns by dragging), column autosave, floating group rows, automatic row heights,
+  hidden rows, table animations, Apple's half-point
   rounding of uniformly autoresized columns and of grid items, the grid layout's switch to sideways
   scrolling when rows overflow, collection view drag and drop and section collapsing.
 - 2026-10-09: full-size content windows (`NSWindowStyleMaskFullSizeContentView`, as Image Capture's):
@@ -736,4 +736,18 @@ draws (`userland/tests/app-test.c`).
   RGB values, as Apple's does. Both match Apple's byte for byte in `finch-rtf-test`.
   `NSTextView` switches to TextKit 1 for text with blocks, as Apple's does, so TextEdit draws
   tables with their backgrounds and borders.
-
+- 2026-10-12: outline views bound to a tree controller and type select. A column's value
+  binding to a tree controller's `arrangedObjects.key` binds the outline view's content,
+  selection index paths and sort descriptors, as Apple's does (the content alone can be
+  bound too). The items are then the controller's nodes, expandable unless leaves, and a
+  row's object is its node's represented object: what bound columns show and edit, and
+  what a view-based row's cell views hold. Selecting rows sets the controller's index paths;
+  the controller's selection selects the rows, expanding the items above them, and
+  survives inserts, removals and sorting. Unbinding keeps the rows until a reload. Clearing
+  a tree controller's sort descriptors now leaves the arrangement as it is, as Apple's does.
+  Type select (`NSTableViewTypeSelect.m`) in tables and outlines: keys typed within about
+  1.2 seconds of each other (wall-clock) grow the search, every visible column's string
+  counts (the delegate's, the cell's, or a cell view's text field's), matches ignore case
+  and diacritics, a new search starts after the selected row and wraps, and the delegate
+  can refuse a key, give the strings or do the search. `finch-outline-bindings-test` and
+  `finch-typeselect-test` match Apple's on the host and in the VM.

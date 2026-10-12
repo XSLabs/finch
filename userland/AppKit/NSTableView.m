@@ -2315,6 +2315,8 @@ shift_for_remove(NSIndexSet *set, NSIndexSet *removed)
 
 - (void)keyDown:(NSEvent *)event
 {
+    if ([self _finchTypeSelect:event])
+        return;
     [self interpretKeyEvents:@[ event ]];
 }
 

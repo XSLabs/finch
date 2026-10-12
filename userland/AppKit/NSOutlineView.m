@@ -26,6 +26,13 @@
  *     items that are hidden by a collapse are deselected, with a
  *     notification.
  *
+ * Bound to a tree controller (content to its arrangedObjects, as a column's value
+ * binding to "arrangedObjects.key" does, with the selection index paths and sort
+ * descriptors), the items are the controller's tree nodes, expandable unless leaves,
+ * and a row's object is its node's represented object: the value a column shows,
+ * edits go to, and a view-based row's cell views hold. The selection goes both ways
+ * by index path; the controller's selection expands the items above it.
+ *
  * Nib keys: NSOutlineViewIndentationPerLevelKey,
  * NSOutlineViewAutoresizesOutlineColumnKey, NSOutineViewStronglyReferencesItems,
  * NSOutlineViewOutlineTableColumnKey.
@@ -61,6 +68,11 @@ static const CGFloat disclosure_width = 13;
 - (BOOL)_finchIsViewBased;
 - (NSArray *)_finchDelegateNotifications;
 - (NSInteger)_finchUpdateDepth;
+- (id)_finchContentObjectAtRow:(NSInteger)row;
+@end
+
+@interface NSTableColumn (FinchOutlineAccess)
+- (BOOL)_finchHasValueBinding;
 @end
 
 @implementation NSOutlineView {
@@ -74,6 +86,7 @@ static const CGFloat disclosure_width = 13;
     NSMutableData *_levels;   /* each row's level (NSInteger) */
     NSInteger _maxLevel;
     BOOL _autoresizesOutline, _followsCell, _strongRefs, _built, _autosaveExpanded;
+    BOOL _pushingPaths; /* the selection binding is being pushed or followed */
 }
 
 static void
@@ -216,6 +229,13 @@ item_of(id key)
     NSArray *c = [_children objectForKey:key_for(item)];
     if (c)
         return c;
+    NSTreeNode *root = [self _finchBoundRoot];
+    if (root) {
+        NSArray *nodes = [(item ?: root) respondsToSelector:@selector(childNodes)] ? [(item ?: root) childNodes] : nil;
+        c = nodes ? [[nodes copy] autorelease] : @[];
+        [_children setObject:c forKey:key_for(item)];
+        return c;
+    }
     id ds = [self dataSource];
     NSMutableArray *a = [NSMutableArray array];
     NSInteger n = [ds respondsToSelector:@selector(outlineView:numberOfChildrenOfItem:)]
@@ -248,7 +268,7 @@ add_rows(NSOutlineView *self, id parent, NSInteger level)
     [_parents removeAllObjects];
     [_levels setLength:0];
     _built = YES;
-    if (![self dataSource])
+    if (![self dataSource] && ![self _finchBoundRoot])
         return;
     add_rows(self, nil, 0);
 }
@@ -266,6 +286,141 @@ row_level(NSOutlineView *self, NSInteger row)
     if (row < 0 || (NSUInteger)row >= [self->_items count])
         return -1;
     return ((const NSInteger *)[self->_levels bytes])[row];
+}
+
+#pragma mark - Bound to a tree controller
+
+/* The tree the content binding gives (a tree controller's arranged objects). */
+- (NSTreeNode *)_finchBoundRoot
+{
+    _FinchBinding *b = FinchBindingFor(self, NSContentBinding);
+    if (!b)
+        return nil;
+    id root = [b rawValue];
+    return [root isKindOfClass:[NSTreeNode class]] ? root : nil;
+}
+
+- (id)_finchContentObjectAtRow:(NSInteger)row
+{
+    if (!FinchBindingFor(self, NSContentBinding))
+        return nil;
+    id item = [self itemAtRow:row];
+    return [item isKindOfClass:[NSTreeNode class]] ? [item representedObject] : item;
+}
+
+/* The selected rows' index paths in the tree. */
+- (NSArray *)_finchSelectedIndexPaths
+{
+    NSMutableArray *paths = [NSMutableArray array];
+    [[self selectedRowIndexes] enumerateIndexesUsingBlock:^(NSUInteger r, BOOL *stop) {
+        id item = [self itemAtRow:(NSInteger)r];
+        if ([item isKindOfClass:[NSTreeNode class]])
+            [paths addObject:[item indexPath]];
+    }];
+    return paths;
+}
+
+- (void)_finchPushSelectedPaths
+{
+    _FinchBinding *b = FinchBindingFor(self, NSSelectionIndexPathsBinding);
+    if (!b || _pushingPaths)
+        return;
+    _pushingPaths = YES;
+    [b push:[self _finchSelectedIndexPaths]];
+    _pushingPaths = NO;
+}
+
+- (void)_finchSetSelectedRows:(NSIndexSet *)rows anchor:(NSInteger)anchor notify:(BOOL)notify
+{
+    [super _finchSetSelectedRows:rows anchor:anchor notify:notify];
+    [self _finchPushSelectedPaths];
+}
+
+/* The controller's selection: its items' rows, the items above them expanded. */
+- (void)_finchFollowSelectedPaths
+{
+    _FinchBinding *b = FinchBindingFor(self, NSSelectionIndexPathsBinding);
+    NSTreeNode *root = [self _finchBoundRoot];
+    if (!b || !root || _pushingPaths)
+        return;
+    id v = [b rawValue];
+    NSArray *paths = [v isKindOfClass:[NSArray class]] ? v : @[];
+    NSMutableArray *nodes = [NSMutableArray array];
+    BOOL expand = NO;
+    for (NSIndexPath *p in paths) {
+        NSTreeNode *n = [p isKindOfClass:[NSIndexPath class]] ? [root descendantNodeAtIndexPath:p] : nil;
+        if (!n)
+            continue;
+        [nodes addObject:n];
+        for (NSTreeNode *up = [n parentNode]; up && up != root; up = [up parentNode])
+            if (![_expanded containsObject:up])
+                expand = YES;
+    }
+    _pushingPaths = YES;
+    if (expand)
+        for (NSTreeNode *n in nodes) {
+            NSMutableArray *chain = [NSMutableArray array];
+            for (NSTreeNode *up = [n parentNode]; up && up != root; up = [up parentNode])
+                [chain insertObject:up atIndex:0];
+            for (NSTreeNode *up in chain)
+                if (![_expanded containsObject:up])
+                    [self expandItem:up];
+        }
+    NSMutableIndexSet *rows = [NSMutableIndexSet indexSet];
+    for (NSTreeNode *n in nodes) {
+        NSInteger r = [self rowForItem:n];
+        if (r >= 0)
+            [rows addIndex:(NSUInteger)r];
+    }
+    if (![rows isEqualToIndexSet:[self selectedRowIndexes]])
+        [self _finchSetSelectedRows:rows anchor:[rows count] ? (NSInteger)[rows lastIndex] : -1 notify:YES];
+    _pushingPaths = NO;
+}
+
++ (NSArray *)_finchBuiltinBindings
+{
+    NSMutableArray *a = [[[super _finchBuiltinBindings] mutableCopy] autorelease];
+    [a replaceObjectAtIndex:[a indexOfObject:NSSelectionIndexesBinding] withObject:NSSelectionIndexPathsBinding];
+    return a;
+}
+
+- (BOOL)_finchHandlesBinding:(NSString *)binding
+{
+    return [binding isEqualToString:NSSelectionIndexPathsBinding] || [super _finchHandlesBinding:binding];
+}
+
+- (Class)_finchValueClassForBinding:(NSString *)binding
+{
+    if ([binding isEqualToString:NSSelectionIndexPathsBinding])
+        return [NSArray class];
+    return [super _finchValueClassForBinding:binding];
+}
+
+- (void)_finchBindingChanged:(_FinchBinding *)b
+{
+    NSString *name = b->_name;
+    if ([name isEqualToString:NSContentBinding]) {
+        /* the rows follow the tree; the selection is the controller's, not the old rows' */
+        BOOL was = _pushingPaths;
+        _pushingPaths = YES;
+        [self reloadData];
+        _pushingPaths = was;
+        [self _finchFollowSelectedPaths];
+        return;
+    }
+    if ([name isEqualToString:NSSelectionIndexPathsBinding]) {
+        [self _finchFollowSelectedPaths];
+        return;
+    }
+    [super _finchBindingChanged:b];
+}
+
+/* (the rows stay as they were until reloaded, as Apple's) */
+- (void)_finchBindingRemoved:(NSString *)binding
+{
+    if ([binding isEqualToString:NSContentBinding])
+        return;
+    [super _finchBindingRemoved:binding];
 }
 
 - (id)_finchObjectValueForColumn:(NSTableColumn *)column row:(NSInteger)row
@@ -287,7 +442,16 @@ row_level(NSOutlineView *self, NSInteger row)
     id ds = [self dataSource];
     if ([ds respondsToSelector:@selector(outlineView:setObjectValue:forTableColumn:byItem:)])
         [ds outlineView:self setObjectValue:value forTableColumn:column byItem:[self itemAtRow:row]];
-    else
+    else if ([column _finchHasValueBinding] && FinchBindingFor(self, NSContentBinding)) {
+        _FinchBinding *b = FinchBindingFor(column, NSValueBinding);
+        NSRange dot = [b->_keyPath rangeOfString:@"."];
+        id object = [self _finchContentObjectAtRow:row];
+        if (dot.location == NSNotFound || !object)
+            return;
+        if (b->_transformer && [[b->_transformer class] allowsReverseTransformation])
+            value = [b->_transformer reverseTransformedValue:value];
+        [object setValue:value forKeyPath:[b->_keyPath substringFromIndex:NSMaxRange(dot)]];
+    } else
         [super _finchSetObjectValue:value forColumn:column row:row];
 }
 
@@ -472,6 +636,8 @@ row_level(NSOutlineView *self, NSInteger row)
 {
     if (!item)
         return YES;
+    if ([self _finchBoundRoot])
+        return [item isKindOfClass:[NSTreeNode class]] && ![item isLeaf];
     id ds = [self dataSource];
     return [ds respondsToSelector:@selector(outlineView:isItemExpandable:)] && [ds outlineView:self isItemExpandable:item];
 }
@@ -512,6 +678,8 @@ row_level(NSOutlineView *self, NSInteger row)
     }
     NSInteger anchor = anchorItem ? [self rowForItem:anchorItem] : -1;
     [self _finchQuietlySelect:now anchor:anchor];
+    if ([now count] != [selItems count])
+        [self _finchPushSelectedPaths];
     if ([now count] != [selItems count])
         [[NSNotificationCenter defaultCenter] postNotificationName:[self _finchSelectionDidChangeName] object:self];
 }
@@ -636,7 +804,7 @@ row_level(NSOutlineView *self, NSInteger row)
 {
     /* keep what's expanded; ask for children again */
     [_children removeAllObjects];
-    if (!_built || [self dataSource]) {
+    if (!_built || [self dataSource] || [self _finchBoundRoot]) {
         NSIndexSet *sel = [self selectedRowIndexes];
         NSMutableArray *selItems = [NSMutableArray array];
         [sel enumerateIndexesUsingBlock:^(NSUInteger r, BOOL *stop) {

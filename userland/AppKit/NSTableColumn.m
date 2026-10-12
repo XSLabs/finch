@@ -358,6 +358,12 @@ split_value_path(NSString *keyPath, NSString **content, NSString **key)
                 if (!FinchBindingFor(t, NSSortDescriptorsBinding))
                     [t bind:NSSortDescriptorsBinding toObject:b->_observed withKeyPath:@"sortDescriptors" options:nil];
             }
+            if ([b->_observed isKindOfClass:[NSTreeController class]]) {
+                if (!FinchBindingFor(t, NSSelectionIndexPathsBinding))
+                    [t bind:NSSelectionIndexPathsBinding toObject:b->_observed withKeyPath:@"selectionIndexPaths" options:nil];
+                if (!FinchBindingFor(t, NSSortDescriptorsBinding))
+                    [t bind:NSSortDescriptorsBinding toObject:b->_observed withKeyPath:@"sortDescriptors" options:nil];
+            }
         }
         [t _finchRowsChanged];
         return;
