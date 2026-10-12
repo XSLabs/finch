@@ -299,10 +299,42 @@ graphs(void)
     [engine stop];
 }
 
+static void
+components(void)
+{
+    AVAudioUnitComponentManager *m = [AVAudioUnitComponentManager sharedAudioUnitComponentManager];
+    printf("standard tags: %s\n", [m.standardLocalizedTagNames componentsJoinedByString:@", "].UTF8String);
+    const AudioComponentDescription ds[] = {
+        {'aufx', 'dely', 'appl', 0, 0},
+        {'aufx', 'lpas', 'appl', 0, 0},
+        {'aufc', 'nutp', 'appl', 0, 0},
+        {'aumu', 'samp', 'appl', 0, 0},
+    };
+    for (int i = 0; i < 4; i++) {
+        NSArray *found = [m componentsMatchingDescription:ds[i]];
+        AVAudioUnitComponent *c = found.firstObject;
+        NSDictionary *config = c.configurationDictionary;
+        printf("component %s (%lu found): %s by %s, %s/%s, version %lu %s, sandbox %d, MIDI %d/%d, tags %s\n", fourcc(ds[i].componentSubType),
+            (unsigned long)found.count, c.name.UTF8String, c.manufacturerName.UTF8String, c.typeName.UTF8String, c.localizedTypeName.UTF8String,
+            (unsigned long)c.version, c.versionString.UTF8String, c.sandboxSafe, c.hasMIDIInput, c.hasMIDIOutput,
+            [c.allTagNames componentsJoinedByString:@","].UTF8String);
+        printf("  initial in %s out %s, takes 2/2 %d 1/1 %d, arm64 %d\n", [config[@"InitialInputs"] componentsJoinedByString:@","].UTF8String,
+            [config[@"InitialOutputs"] componentsJoinedByString:@","].UTF8String, [c supportsNumberInputChannels:2 outputChannels:2],
+            [c supportsNumberInputChannels:1 outputChannels:1], [c.availableArchitectures containsObject:@(NSBundleExecutableArchitectureARM64)]);
+    }
+    NSArray *delays = [m componentsMatchingPredicate:[NSPredicate predicateWithFormat:@"name == 'AUDelay' AND typeName == %@", AVAudioUnitTypeEffect]];
+    printf("predicate AUDelay: %lu\n", (unsigned long)delays.count);
+    NSArray *samplers = [m componentsPassingTest:^BOOL(AVAudioUnitComponent *c, BOOL *stop) {
+      return [c.allTagNames containsObject:@"Sampler"] && [c.manufacturerName isEqualToString:AVAudioUnitManufacturerNameApple];
+    }];
+    printf("Apple samplers: %lu, tags include Reverb %d\n", (unsigned long)samplers.count, [m.tagNames containsObject:@"Reverb"]);
+}
+
 int
 main(void)
 {
     @autoreleasepool {
+        components();
         units();
         eq();
         kinds();

@@ -13,8 +13,9 @@ This batch adds working software audio conversion and file handling, more system
 services, web certificate roots, local account tools and a checked install archive.
 Finch 1.0 is still open. The checks below cover specific parts of the system.
 
-- Audio conversion, audio files, software audio units, offline queues and the
-  first AVFAudio classes pass focused host and VM checks. Sound hardware and
+- Audio conversion, audio files, software audio units (now with Apple's effect,
+  time and instrument units), offline queues and AVFAudio through the engine,
+  players and effect units pass focused host checks. Sound hardware and
   compressed audio codecs remain open.
 - Cron, one-time jobs, local Bonjour discovery and Disk Arbitration sessions pass
   in QEMU. FAT32 formatting and checking pass on a disposable disk image in VZ;
@@ -509,9 +510,15 @@ and AppKit come in Phase 2).
   - [x] AVAudioFile PCM/G.711 reads and writes, seeks and short reads;
         AVAudioConverter software conversion, resampling and reset. Host,
         QEMU and VZ results match the focused native tests (2026-10-11).
+  - [x] AVFAudio's engine graph (players, mixer, source/sink nodes, taps, offline
+        rendering), AVAudioPlayer, the session, speech timing, AVAudioUnit with the
+        delay, distortion, EQ, reverb, time-pitch, varispeed and sampler units over
+        Finch's own effect DSP, and unit components. Host comparisons match Apple's
+        (2026-10-11).
   - [ ] Compressed conversion, remaining audio properties and queue operations,
-        remaining AVFAudio file/converter formats, players and engine,
-        VideoToolbox, AVFoundation and AVKit. Real audio output needs Phase 3.
+        remaining AVFAudio pieces (environment node, sequencer, recorder,
+        AUAudioUnit), VideoToolbox, AVFoundation and AVKit. Real audio output
+        needs Phase 3.
 
 **Exit:** a defined app corpus (e.g., top 50 non-App-Store Mac apps) runs with no Apple
 binaries.

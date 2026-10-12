@@ -12,6 +12,7 @@ exec "${FINCH_ROOT}/tools/build-small-framework.sh" \
     "${FINCH_ROOT}/userland/AVFAudio/AVAudioTime.m" \
     "${FINCH_ROOT}/userland/AVFAudio/AVAudioEngine.m" \
     "${FINCH_ROOT}/userland/AVFAudio/AVAudioUnit.m" \
+    "${FINCH_ROOT}/userland/AVFAudio/AVAudioUnitComponent.m" \
     "${FINCH_ROOT}/userland/AVFAudio/AVAudioPlayer.m" \
     "${FINCH_ROOT}/userland/AVFAudio/AVFConstants.m" \
     "${FINCH_ROOT}/userland/AVFAudio/AVAudioSession.m" \

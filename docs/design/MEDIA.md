@@ -77,8 +77,9 @@ CoreAudio (HAL)                devices: none until Finch has an audio driver
   nodes, taps, offline rendering), `AVAudioPlayer`, the session, speech timing
   and `AVAudioUnit` with every named unit (delay, distortion, EQ, reverb,
   time-pitch, varispeed, sampler) followed; `avaudio-unit-test` matches Apple's
-  output. `AUAudioUnit` (the version 3 interface), unit components and the
-  sequencer remain open.
+  output, as do unit components and their manager. `AUAudioUnit` (the version 3
+  interface), the environment node (3D mixing), the sequencer and MIDI player,
+  the recorder and compressed buffers remain open, parked behind AVFoundation.
 
 The converter, extended-file, software-unit, queue and AVFAudio buffer checks
 pass on the host, in QEMU and in the VZ guest (2026-10-11). These checks exercise
