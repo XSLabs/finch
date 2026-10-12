@@ -258,3 +258,6 @@ build/userland/finch-appkit-compat-test /usr/local/bin/finch-appkit-compat-test
 build/userland/finch-pdf-image-rep-test /usr/local/bin/finch-pdf-image-rep-test
 build/userland/finch-sounddesc-test /usr/local/bin/finch-sounddesc-test
 build/userland/finch-avasset-test /usr/local/bin/finch-avasset-test
+build/userland/finch-avreader-test /usr/local/bin/finch-avreader-test
+build/userland/finch-avwriter-test /usr/local/bin/finch-avwriter-test
+build/userland/finch-avimage-test /usr/local/bin/finch-avimage-test

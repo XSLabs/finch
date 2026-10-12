@@ -89,8 +89,16 @@ CoreAudio (HAL)                devices: none until Finch has an audio driver
   AVAsset, AVURLAsset, AVAssetTrack, AVAssetTrackSegment and AVMetadataItem. The test
   writes its own movie (JPEG frames and PCM audio with user data) so both systems read
   the same bytes, and the assets, tracks, format descriptions, metadata, loading and
-  errors match Apple's (`avasset-test`, 2026-10-12). Readers, writers, image generation
-  and playback come next, then codecs through VideoToolbox.
+  errors match Apple's (`avasset-test`, 2026-10-12).
+- AVFoundation's second stage: AVAssetReader gives stored samples with the marker buffers
+  Apple's does (EditBoundary, ResetDecoderBeforeDecoding, DrainAfterDecoding,
+  PostNotificationWhenConsumed, EmptyMedia), JPEG frames decoded through ImageIO and PCM
+  converted by AudioToolbox in 8192-frame buffers; AVAssetWriter writes QuickTime and
+  MPEG-4 with Finch's own muxer (JPEG through ImageIO, PCM, stored samples, metadata);
+  AVAssetImageGenerator picks the frame on screen at a time. `avreader-test`,
+  `avwriter-test` and `avimage-test` match Apple's, and Apple's AVFoundation reads what
+  Finch writes. Playback comes next, then H.264, HEVC and AAC through VideoToolbox and
+  AudioToolbox.
 
 The converter, extended-file, software-unit, queue and AVFAudio buffer checks
 pass on the host, in QEMU and in the VZ guest (2026-10-11). These checks exercise

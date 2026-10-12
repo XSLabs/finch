@@ -701,10 +701,16 @@ and AppKit come in Phase 2).
         tracks' times, sizes, rates and format descriptions, user data and common
         metadata, loading by key and its errors; `avasset-test` (a movie the test writes
         itself) matches Apple's on the host and in the VM (2026-10-12).
-  - [ ] AVFoundation, next: AVAssetReader and AVAssetWriter (passthrough, then PCM and
-        JPEG through ImageIO), AVAssetImageGenerator, AVPlayer/AVPlayerItem/AVPlayerLayer
-        on CoreMedia timebases, export sessions, compositions; codecs (H.264 and AAC)
-        through VideoToolbox and AudioToolbox.
+  - [x] AVFoundation, second stage: AVAssetReader (stored samples with Apple's marker
+        buffers, JPEG decoded through ImageIO, PCM converted), AVAssetWriter with its
+        inputs and pixel buffer adaptor (Finch's own QuickTime/MPEG-4 muxer; JPEG
+        encoded through ImageIO, PCM, stored samples; QuickTime metadata and user data),
+        AVAssetImageGenerator, and AVTime's NSValue and NSCoder additions. `avreader-test`,
+        `avwriter-test` and `avimage-test` match Apple's on the host and in the VM, and
+        Apple's AVFoundation reads and decodes the files Finch writes (2026-10-12).
+  - [ ] AVFoundation, next: AVPlayer/AVPlayerItem/AVPlayerLayer on CoreMedia timebases,
+        export sessions, compositions; H.264, HEVC and AAC through VideoToolbox and
+        AudioToolbox (the writer can't apply settings for them until then).
   - [ ] Compressed conversion, remaining audio properties and queue operations,
         remaining AVFAudio pieces (environment node, sequencer, recorder,
         AUAudioUnit), VideoToolbox and AVKit. Real audio output needs Phase 3.

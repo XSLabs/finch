@@ -514,6 +514,12 @@ asset_keys(void)
     return _movie;
 }
 
+- (NSError *)_finchError
+{
+    [self _finchRead];
+    return _error;
+}
+
 - (CMTime)duration
 {
     AVFMovie *m = [self _finchMovie];

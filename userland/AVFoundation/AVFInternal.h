@@ -32,3 +32,6 @@ NSArray<AVMetadataItem *> *AVFCommonMetadata(NSArray<AVMetadataItem *> *items);
 /* The types and MIME types AVURLAsset opens (AVFTypes.m). */
 NSArray<NSString *> *AVFAudiovisualTypes(void);
 NSArray<NSString *> *AVFAudiovisualMIMETypes(void);
+
+/* A video sample decoded (JPEG, through ImageIO), or NULL (AVAssetReader.m). */
+CGImageRef AVFCopySampleImage(AVFTrack *track, NSData *file, size_t index);
