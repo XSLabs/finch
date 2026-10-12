@@ -516,6 +516,14 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           the Rail hears it, and answers Apps' Launchpad request with its launcher) and
           Time Machine's backup-server calls (CarbonCore; no backup server yet). Apps
           opens the launcher in QEMU (2026-10-11).
+    - [x] Bluetooth File Exchange runs in the VM and, finding no Bluetooth controller,
+          shows Apple's own "Bluetooth isn't available" alert (2026-10-12). Siri.app is
+          a launcher for the assistant in CoreServices, which Finch doesn't have: it
+          runs and exits, as Apps does without Launchpad.
+    - [ ] Screenshot: the app runs `screencapture` through the
+          `com.apple.screencapture.connection` service, whose capture toolbar and
+          selection UI are macOS's own (screencaptureui). Finch needs its own
+          `screencapture` tool and that service over ScreenCaptureKit.
     - [x] FeatureFlags (private; `isFeatureEnabled` over libsystem's feature table) and
           libMobileGestalt: a Mac's answers (device class, product, versions, serial,
           device ID from the chip IDs, architecture, screen scale, disk usage);
