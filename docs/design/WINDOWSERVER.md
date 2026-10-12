@@ -72,6 +72,14 @@ last window the active app ordered front and asked to make key. Moving and
 resizing windows is the app's business (AppKit tracks the drag and sets the
 frame), as on macOS.
 
+Drags between apps: the app running a drag finds the frontmost window under the
+pointer in the window list; when another app owns it, the app sends that window
+FWS_DRAG messages (enter, update, exit, drop, end) and the server delivers each to the
+window's owner as an FWS_EVENT_DRAG event. The owner answers with FWS_DRAG (an
+FWS_EVENT_DRAG_REPLY carrying the operation its destination takes), which the server
+routes back to the sender by message id; a message for a window that's gone is answered
+at once, with no operation. The drag pasteboard is the pasteboard server's.
+
 ## The host viewer
 
 `tools/vz/finch-viewer` (a host-side dev tool, built with

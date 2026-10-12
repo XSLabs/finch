@@ -36,6 +36,7 @@ enum {
     FWS_INPUT_STATE,    /* replies an FWSInputState */
     FWS_REGISTER_HOTKEY,   /* FWSHotKey: the key goes to this client, whichever window is key */
     FWS_UNREGISTER_HOTKEY, /* FWSHotKey (its id) */
+    FWS_DRAG,              /* an FWSEvent: a drag message to a window's owner, or a reply (below) */
     /* server -> client */
     FWS_REPLY = 100,
     FWS_EVENT,
@@ -159,7 +160,16 @@ enum {
     FWS_EVENT_WINDOW_MOVED = 1002,     /* FWS_WINDOW_MOVED: the new frame in x, y, delta_x (width), delta_y (height) */
     /* sent by the server: a registered hot key, pressed or released (its id in button) */
     FWS_EVENT_HOTKEY_DOWN = 1003, FWS_EVENT_HOTKEY_UP = 1004,
+    /* drags between apps (FWS_DRAG): a message for the window `window` (key_code the phase,
+       button the drag's sequence number, click_count the message's id, modifiers the
+       source's operations), delivered to the window's owner with x, y in the window; and
+       the owner's reply to message click_count (modifiers the operation it takes),
+       delivered to the client that sent the message */
+    FWS_EVENT_DRAG = 1005, FWS_EVENT_DRAG_REPLY = 1006,
 };
+
+/* A drag message's phase (FWS_EVENT_DRAG's key_code). */
+enum { FWS_DRAG_ENTER = 1, FWS_DRAG_UPDATE = 2, FWS_DRAG_EXIT = 3, FWS_DRAG_DROP = 4, FWS_DRAG_END = 5 };
 
 /* FWS_EVENT, FWS_POST_EVENT */
 typedef struct {

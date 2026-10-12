@@ -417,6 +417,9 @@ FWS_EXPORT void FWSMakeKeyWindow(uint32_t w) { simple(FWS_MAKE_KEY, w, NULL, 0);
 FWS_EXPORT void FWSWarpCursor(double x, double y) { FWSPoint p = {x, y}; simple(FWS_WARP_CURSOR, 0, &p, sizeof p); }
 FWS_EXPORT void FWSSetCursorVisible(bool v) { FWSInt i = {v}; simple(FWS_SET_CURSOR_VISIBLE, 0, &i, sizeof i); }
 FWS_EXPORT void FWSPostEvent(const FWSEvent *e) { simple(FWS_POST_EVENT, 0, e, sizeof *e); }
+
+/* A drag message to another app's window, or a reply to one (FWS_EVENT_DRAG, _REPLY). */
+FWS_EXPORT void FWSSendDrag(const FWSEvent *e) { simple(FWS_DRAG, 0, e, sizeof *e); }
 FWS_EXPORT bool FWSIsActive(void) { return active; }
 
 FWS_EXPORT void

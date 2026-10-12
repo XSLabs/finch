@@ -445,7 +445,7 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           newer cursors, mnemonics, table grids, the object controllers' Core Data
           settings, application search and document order, event touches, split-view
           accessories and tab toolbars; `windowing-more-test` matches Apple's (2026-10-12).
-  - [ ] Drag and drop: within an app, then between apps through the window server and
+  - [x] Drag and drop: within an app, and between apps through the window server and
         the pasteboard server.
     - [x] Within an app: NSDraggingSession runs the drag once the event that began it is
           handled (the drag image follows the pointer; the frontmost view registered for
@@ -460,7 +460,11 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           pasteboard forms), proposed rows, items and index paths validated and
           retargeted, drops accepted, and a line or outline showing where; the drag test
           reorders a table and a collection and moves an outline item (2026-10-12).
-    - [ ] Between apps, through the window server and the pasteboard server.
+    - [x] Between apps: over another app's window the drag sends it enter, update, exit,
+          drop and end messages through the window server (FWS_DRAG), and that app runs
+          its destination and answers; the drag pasteboard is the pasteboard server's.
+          `tools/vm/test-drag.sh` drags a string and text from one process to another in
+          the VM (2026-10-12).
     - [x] Foundation: NSItemProvider (with NSString's and NSURL's item-provider
           conformance, and UniformTypeIdentifiers' UTType methods), NSListFormatter,
           NSRelativeDateTimeFormatter, NSPersonNameComponentsFormatter,

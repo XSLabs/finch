@@ -1,0 +1,16 @@
+source:
+  source: mask asked within
+  source: mask asked outside
+  source: mask asked outside
+  source: mask asked outside
+  source: ended copy
+  source: mask asked within
+  source: mask asked outside
+  source: mask asked outside
+  source: mask asked outside
+  source: ended copy
+destination:
+  dest: entered (mask copy, source elsewhere)
+  dest: perform [from the other app]
+  dest: ended
+  text: [Hello more text]

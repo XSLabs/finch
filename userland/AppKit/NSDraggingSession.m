@@ -12,9 +12,17 @@
  * and gives the operations allowed. The older dragImage:at:offset:... runs the same
  * drag synchronously and calls its source's older methods. Escape cancels.
  *
- * Drags between apps (through the window server) aren't here yet.
+ * Between apps: over another app's window (the frontmost under the pointer, from the
+ * window server's list), the source sends that window enter, update, exit, drop and
+ * end messages through the window server (FWS_DRAG) and waits briefly for each reply;
+ * the other app runs the same destination search in its window and answers with the
+ * operation its destination takes. The drag pasteboard is the pasteboard server's,
+ * shared by every app.
  */
 #import "AppKit_Finch.h"
+#include "../WindowServer/FinchWSProtocol.h"
+
+void FWSSendDrag(const FWSEvent *e);
 
 @class NSDraggingSession;
 
@@ -35,6 +43,7 @@
     NSInteger _validItems;
     NSDraggingFormation _formation;
     BOOL _animates;
+    NSInteger _sequence; /* another app's drag's */
 }
 @end
 
@@ -157,6 +166,23 @@ destination_at(NSPoint screen, NSWindow *except, NSArray *types, NSWindow **wind
     return nil;
 }
 
+/* In a given window: the deepest view under the point registered for the types, else
+   the window if it is. */
+static id
+destination_in(NSWindow *w, NSPoint screen, NSArray *types, NSWindow **windowOut)
+{
+    *windowOut = w;
+    NSPoint inWindow = [w convertPointFromScreen:screen];
+    NSView *top = [[w contentView] superview] ?: [w contentView];
+    NSView *v = [top hitTest:[top superview] ? [[top superview] convertPoint:inWindow fromView:nil] : inWindow];
+    for (; v; v = [v superview])
+        if ([[v registeredDraggedTypes] firstObjectCommonWithArray:types])
+            return v;
+    if ([[w _finchRegisteredDraggedTypes] firstObjectCommonWithArray:types])
+        return w;
+    return nil;
+}
+
 /* The one operation a destination's answer comes to, within what the source allows. */
 static NSDragOperation
 choose(NSDragOperation answer, NSDragOperation allowed)
@@ -186,19 +212,80 @@ set_drag_cursor(NSDragOperation op)
         [[NSCursor arrowCursor] set];
 }
 
+#pragma mark Other apps' windows
+
+/* The frontmost window of any app under a point (Cocoa screen coordinates), skipping
+   the windows given; its owner's process ID out. */
+static uint32_t
+window_at(NSPoint screen, NSArray<NSNumber *> *skip, pid_t *ownerOut)
+{
+    CFArrayRef list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
+    CGFloat height = NSMaxY([[[NSScreen screens] firstObject] frame]);
+    uint32_t found = 0;
+    for (NSDictionary *info in (NSArray *)list) {
+        NSNumber *number = info[(id)kCGWindowNumber];
+        if ([skip containsObject:number])
+            continue;
+        CGRect b;
+        if (!CGRectMakeWithDictionaryRepresentation((CFDictionaryRef)info[(id)kCGWindowBounds], &b))
+            continue;
+        NSRect r = NSMakeRect(b.origin.x, height - b.origin.y - b.size.height, b.size.width, b.size.height);
+        if (!NSPointInRect(screen, r))
+            continue;
+        found = [number unsignedIntValue];
+        *ownerOut = [info[(id)kCGWindowOwnerPID] intValue];
+        break;
+    }
+    if (list)
+        CFRelease(list);
+    return found;
+}
+
+static NSMutableDictionary<NSNumber *, NSNumber *> *drag_replies;
+static uint32_t drag_message_id;
+
+/* A message to another app's window, and its answer (waited for, a while). */
+static NSDragOperation
+send_drag(uint32_t window, int phase, NSPoint screen, NSDragOperation mask, NSInteger sequence)
+{
+    FWSEvent e;
+    memset(&e, 0, sizeof e);
+    e.type = FWS_EVENT_DRAG;
+    e.window = window;
+    e.key_code = (uint32_t)phase;
+    e.button = (uint32_t)sequence;
+    e.click_count = ++drag_message_id;
+    e.modifiers = mask;
+    CGFloat height = NSMaxY([[[NSScreen screens] firstObject] frame]);
+    e.screen_x = screen.x, e.screen_y = height - screen.y;
+    if (!drag_replies)
+        drag_replies = [[NSMutableDictionary alloc] init];
+    NSNumber *key = @(e.click_count);
+    FWSSendDrag(&e);
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:phase == FWS_DRAG_DROP ? 10 : 1];
+    while (!drag_replies[key] && [deadline timeIntervalSinceNow] > 0)
+        CFRunLoopRunInMode((CFStringRef)NSEventTrackingRunLoopMode, 0.01, true);
+    NSDragOperation op = [drag_replies[key] unsignedIntegerValue];
+    [drag_replies removeObjectForKey:key];
+    return op;
+}
+
 #pragma mark Running
 
-- (NSDragOperation)_finchSourceMask
+- (NSDragOperation)_finchSourceMaskLocal:(BOOL)local
 {
     if (_legacy) {
         if ([_source respondsToSelector:@selector(draggingSourceOperationMaskForLocal:)])
-            return [_source draggingSourceOperationMaskForLocal:YES];
-        return NSDragOperationEvery;
+            return [_source draggingSourceOperationMaskForLocal:local];
+        return local ? NSDragOperationEvery : NSDragOperationCopy;
     }
     if ([_source respondsToSelector:@selector(draggingSession:sourceOperationMaskForDraggingContext:)])
-        return [_source draggingSession:self sourceOperationMaskForDraggingContext:NSDraggingContextWithinApplication];
+        return [_source draggingSession:self
+            sourceOperationMaskForDraggingContext:local ? NSDraggingContextWithinApplication : NSDraggingContextOutsideApplication];
     return NSDragOperationNone;
 }
+
+- (NSDragOperation)_finchSourceMask { return [self _finchSourceMaskLocal:YES]; }
 
 /* The drag, from where it began until the mouse goes up (or Escape). */
 - (NSDragOperation)_finchRun
@@ -239,6 +326,7 @@ set_drag_cursor(NSDragOperation op)
     for (NSString *t in [_pasteboard types])
         [types addObjectsFromArray:FinchPasteboardTypeNames(t)];
     id current = nil;
+    uint32_t external = 0; /* another app's window the drag is over */
     NSDragOperation op = NSDragOperationNone;
     NSPoint screen = _startScreen;
     BOOL cancelled = NO;
@@ -270,6 +358,30 @@ set_drag_cursor(NSDragOperation op)
                 [_source draggedImage:image movedTo:info->_imageScreenOrigin];
         } else if ([_source respondsToSelector:@selector(draggingSession:movedToPoint:)])
             [_source draggingSession:self movedToPoint:screen];
+        /* another app's window in front: messages to it through the window server */
+        pid_t owner = getpid();
+        uint32_t under = window_at(screen, shown ? @[ @([shown windowNumber]) ] : @[], &owner);
+        if (owner != getpid() && under) {
+            if ([current respondsToSelector:@selector(draggingExited:)])
+                [current draggingExited:info];
+            current = nil;
+            NSDragOperation outside = [self _finchSourceMaskLocal:NO];
+            if (under != external) {
+                if (external)
+                    send_drag(external, FWS_DRAG_EXIT, screen, outside, _sequence);
+                external = under;
+                op = choose(send_drag(external, FWS_DRAG_ENTER, screen, outside, _sequence), outside);
+            } else
+                op = choose(send_drag(external, FWS_DRAG_UPDATE, screen, outside, _sequence), outside);
+            set_drag_cursor(op);
+            if ([e type] == NSEventTypeLeftMouseUp)
+                break;
+            continue;
+        }
+        if (external) {
+            send_drag(external, FWS_DRAG_EXIT, screen, [self _finchSourceMaskLocal:NO], _sequence);
+            external = 0;
+        }
         NSWindow *window = nil;
         id dest = destination_at(screen, shown, types, &window);
         info->_destinationWindow = window;
@@ -289,7 +401,15 @@ set_drag_cursor(NSDragOperation op)
             break;
     }
     BOOL done = NO;
-    if (!cancelled && current && op != NSDragOperationNone) {
+    if (external) {
+        NSDragOperation outside = [self _finchSourceMaskLocal:NO];
+        if (!cancelled && op != NSDragOperationNone) {
+            op = choose(send_drag(external, FWS_DRAG_DROP, screen, outside, _sequence), outside);
+            done = op != NSDragOperationNone;
+        } else
+            send_drag(external, FWS_DRAG_EXIT, screen, outside, _sequence);
+        send_drag(external, FWS_DRAG_END, screen, outside, _sequence);
+    } else if (!cancelled && current && op != NSDragOperationNone) {
         BOOL prepared = ![current respondsToSelector:@selector(prepareForDragOperation:)] || [current prepareForDragOperation:info];
         done = prepared && [current respondsToSelector:@selector(performDragOperation:)] && [current performDragOperation:info];
         if (done && [current respondsToSelector:@selector(concludeDragOperation:)])
@@ -325,9 +445,13 @@ set_drag_cursor(NSDragOperation op)
     return _destinationWindow ? [_destinationWindow convertPointFromScreen:_imageScreenOrigin] : _imageScreenOrigin;
 }
 - (NSImage *)draggedImage { return _image; }
-- (NSPasteboard *)draggingPasteboard { return [_session draggingPasteboard]; }
+/* (another app's drag has no session here: the drag pasteboard, shared by every app) */
+- (NSPasteboard *)draggingPasteboard
+{
+    return _session ? [_session draggingPasteboard] : [NSPasteboard pasteboardWithName:NSPasteboardNameDrag];
+}
 - (id)draggingSource { return _source; }
-- (NSInteger)draggingSequenceNumber { return [_session draggingSequenceNumber]; }
+- (NSInteger)draggingSequenceNumber { return _session ? [_session draggingSequenceNumber] : _sequence; }
 - (void)slideDraggedImageTo:(NSPoint)screenPoint {}
 - (NSArray<NSString *> *)namesOfPromisedFilesDroppedAtDestination:(NSURL *)dropDestination { return nil; }
 - (NSDraggingFormation)draggingFormation { return _formation; }
@@ -471,3 +595,105 @@ FinchRunPendingDrag(void)
 }
 
 @end
+
+#pragma mark - Drags from other apps
+
+/* The destination in one of this app's windows for another app's drag, kept across its
+   messages (by the drag's sequence number). */
+static NSMutableDictionary<NSNumber *, id> *incoming_targets;
+static NSMutableDictionary<NSNumber *, _FinchDraggingInfo *> *incoming_infos;
+
+static void
+reply_drag(const FWSEvent *message, NSDragOperation op)
+{
+    FWSEvent r = *message;
+    r.type = FWS_EVENT_DRAG_REPLY;
+    r.modifiers = op;
+    FWSSendDrag(&r);
+}
+
+/* (NSApplication passes the window server's drag messages here) */
+void
+FinchDragMessage(const FWSEvent *e)
+{
+    if (e->type == FWS_EVENT_DRAG_REPLY) {
+        if (!drag_replies)
+            drag_replies = [[NSMutableDictionary alloc] init];
+        drag_replies[@(e->click_count)] = @(e->modifiers);
+        return;
+    }
+    if (!incoming_targets) {
+        incoming_targets = [[NSMutableDictionary alloc] init];
+        incoming_infos = [[NSMutableDictionary alloc] init];
+    }
+    NSNumber *seq = @(e->button);
+    NSWindow *w = nil;
+    for (NSWindow *candidate in [NSApp windows])
+        if ((uint32_t)[candidate windowNumber] == e->window)
+            w = candidate;
+    CGFloat height = NSMaxY([[[NSScreen screens] firstObject] frame]);
+    NSPoint screen = NSMakePoint(e->screen_x, height - e->screen_y);
+    _FinchDraggingInfo *info = incoming_infos[seq];
+    if (!info) {
+        info = [[[_FinchDraggingInfo alloc] init] autorelease];
+        incoming_infos[seq] = info;
+    }
+    info->_destinationWindow = w;
+    info->_sequence = e->button;
+    info->_screenLocation = screen;
+    info->_imageScreenOrigin = screen;
+    info->_sourceMask = (NSDragOperation)e->modifiers;
+    info->_validItems = 1;
+    info->_animates = YES;
+    id current = incoming_targets[seq];
+    NSDragOperation op = NSDragOperationNone;
+    switch (e->key_code) {
+    case FWS_DRAG_ENTER:
+    case FWS_DRAG_UPDATE: {
+        extern NSArray<NSString *> *FinchPasteboardTypeNames(NSString *type);
+        NSMutableArray *types = [NSMutableArray array];
+        for (NSString *t in [[NSPasteboard pasteboardWithName:NSPasteboardNameDrag] types])
+            [types addObjectsFromArray:FinchPasteboardTypeNames(t)];
+        NSWindow *found = nil;
+        id dest = w ? destination_in(w, screen, types, &found) : nil;
+        if (dest != current) {
+            if ([current respondsToSelector:@selector(draggingExited:)])
+                [current draggingExited:info];
+            current = dest;
+            if (current)
+                incoming_targets[seq] = current;
+            else
+                [incoming_targets removeObjectForKey:seq];
+            if ([current respondsToSelector:@selector(draggingEntered:)])
+                op = choose([current draggingEntered:info], info->_sourceMask);
+            else if ([current respondsToSelector:@selector(performDragOperation:)])
+                op = choose(NSDragOperationEvery, info->_sourceMask);
+        } else if ([current respondsToSelector:@selector(draggingUpdated:)])
+            op = choose([current draggingUpdated:info], info->_sourceMask);
+        else if (current)
+            op = choose(NSDragOperationEvery, info->_sourceMask);
+        break;
+    }
+    case FWS_DRAG_EXIT:
+        if ([current respondsToSelector:@selector(draggingExited:)])
+            [current draggingExited:info];
+        [incoming_targets removeObjectForKey:seq];
+        break;
+    case FWS_DRAG_DROP:
+        if (current) {
+            BOOL prepared = ![current respondsToSelector:@selector(prepareForDragOperation:)] || [current prepareForDragOperation:info];
+            BOOL done = prepared && [current respondsToSelector:@selector(performDragOperation:)] && [current performDragOperation:info];
+            if (done && [current respondsToSelector:@selector(concludeDragOperation:)])
+                [current concludeDragOperation:info];
+            op = done ? choose(NSDragOperationEvery, info->_sourceMask) : NSDragOperationNone;
+        }
+        break;
+    case FWS_DRAG_END:
+        if ([current respondsToSelector:@selector(draggingEnded:)])
+            [current draggingEnded:info];
+        [incoming_targets removeObjectForKey:seq];
+        [incoming_infos removeObjectForKey:seq];
+        break;
+    }
+    reply_drag(e, op);
+}

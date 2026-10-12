@@ -555,6 +555,36 @@ deliver(Window *w, FWSEvent e)
     send_message(w->owner, FWS_EVENT, 0, w->id, &e, sizeof e);
 }
 
+/* Drags between apps: a message goes to the target window's owner; its reply goes back to
+   the client that sent the message (remembered by the receiving client and message id).
+   A message for a window that's gone is answered at once, with no operation. */
+static std::map<std::pair<Client *, uint32_t>, Client *> drag_senders;
+
+static void
+relay_drag(Client *from, FWSEvent e)
+{
+    if (e.type == FWS_EVENT_DRAG) {
+        auto it = windows.find(e.window);
+        if (it == windows.end()) {
+            FWSEvent r = e;
+            r.type = FWS_EVENT_DRAG_REPLY;
+            r.modifiers = 0;
+            send_message(from, FWS_EVENT, 0, 0, &r, sizeof r);
+            return;
+        }
+        drag_senders[{it->second->owner, e.click_count}] = from;
+        deliver(it->second, e);
+    } else if (e.type == FWS_EVENT_DRAG_REPLY) {
+        auto it = drag_senders.find({from, e.click_count});
+        if (it == drag_senders.end())
+            return;
+        Client *to = it->second;
+        drag_senders.erase(it);
+        if (std::find(clients.begin(), clients.end(), to) != clients.end())
+            send_message(to, FWS_EVENT, 0, 0, &e, sizeof e);
+    }
+}
+
 /* Hot keys, by client: a key with its modifiers goes to the client that registered it. */
 struct HotKey {
     Client *client;
@@ -835,6 +865,10 @@ handle(Client *c, const FWSHeader &h, const uint8_t *body)
         if (want(sizeof(FWSEvent)))
             handle_input(*(const FWSEvent *)body);
         break;
+    case FWS_DRAG:
+        if (want(sizeof(FWSEvent)))
+            relay_drag(c, *(const FWSEvent *)body);
+        break;
     case FWS_REGISTER_HOTKEY:
         if (want(sizeof(FWSHotKey))) {
             const FWSHotKey *k = (const FWSHotKey *)body;
@@ -891,6 +925,8 @@ drop_client(Client *c)
         destroy_window(w);
     close(c->fd);
     hotkeys.erase(std::remove_if(hotkeys.begin(), hotkeys.end(), [&](const HotKey &h) { return h.client == c; }), hotkeys.end());
+    for (auto it = drag_senders.begin(); it != drag_senders.end();)
+        it = it->first.first == c || it->second == c ? drag_senders.erase(it) : std::next(it);
     clients.erase(std::find(clients.begin(), clients.end(), c));
     if (active_pid == c->pid)
         active_pid = 0;

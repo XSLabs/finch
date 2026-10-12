@@ -306,6 +306,12 @@ set_current(NSApplication *app, NSEvent *e)
         FinchWindowServerEvent(e);
         return;
     }
+    if (e->type == FWS_EVENT_DRAG || e->type == FWS_EVENT_DRAG_REPLY) {
+        /* a drag from another app over one of ours, or another app's answer to ours */
+        extern void FinchDragMessage(const FWSEvent *e); /* (NSDraggingSession.m) */
+        FinchDragMessage(e);
+        return;
+    }
     if (e->type == FWS_EVENT_HOTKEY_DOWN || e->type == FWS_EVENT_HOTKEY_UP) {
         /* a Carbon hot key (RegisterEventHotKey): to HIToolbox's handlers */
         static void (*carbon_hotkey)(uint32_t, bool);
