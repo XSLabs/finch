@@ -11,8 +11,9 @@
  *     chunked and length-delimited bodies.
  * Tasks run on a private queue; completion handlers and delegate calls go to the
  * session's delegate queue. Responses are cached and custom protocols answer requests
- * through NSURLCache.m. Cookies, authentication challenges, HTTP/2 and background
- * sessions aren't there yet.
+ * through NSURLCache.m. Cookies are sent and kept through the session's cookie storage
+ * (NSHTTPCookie.m). Authentication challenges, HTTP/2 and background sessions aren't
+ * there yet.
  */
 #import <Foundation/Foundation.h>
 #include "../certificates/ca-bundle.h"
@@ -643,9 +644,21 @@ conn_open(Connection *c, NSURL *url, NSTimeInterval timeout)
     return 0;
 }
 
-/* One request and its response over HTTP/1.1 (the connection closes after it). */
+/* The cookie storage of the session loading on this thread (set around each load; nil when
+   the session doesn't set cookies). Without a session, the shared storage, as on macOS. */
+static __thread NSHTTPCookieStorage *current_cookies;
+static __thread BOOL current_cookies_set;
+
+static NSHTTPCookieStorage *
+cookie_store(void)
+{
+    return current_cookies_set ? current_cookies : [NSHTTPCookieStorage sharedHTTPCookieStorage];
+}
+
+/* One request and its response over HTTP/1.1 (the connection closes after it). Each
+   Set-Cookie line comes back on its own in setCookies (folded together they'd be ambiguous). */
 static NSData *
-load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outResponse, NSInteger *outError)
+load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outResponse, NSInteger *outError, NSMutableArray *setCookies)
 {
     Connection c;
     NSInteger err = conn_open(&c, url, [request timeoutInterval] > 0 ? [request timeoutInterval] : 60);
@@ -714,6 +727,8 @@ load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outRespons
         NSString *k = [lines[i] substringToIndex:colon.location];
         NSString *v = [[lines[i] substringFromIndex:NSMaxRange(colon)]
             stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if ([k caseInsensitiveCompare:@"Set-Cookie"] == NSOrderedSame)
+            [setCookies addObject:v];
         h[k] = h[k] ? [NSString stringWithFormat:@"%@, %@", h[k], v] : v;
     }
     *outResponse = [[[NSHTTPURLResponse alloc] initWithURL:url statusCode:[status[1] integerValue] HTTPVersion:status[0]
@@ -772,7 +787,21 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
     for (int hops = 0; hops < 16; hops++) {
         NSHTTPURLResponse *resp = nil;
         NSInteger code = 0;
-        NSData *d = load_http_once(r, [r URL], &resp, &code);
+        NSHTTPCookieStorage *jar = [r HTTPShouldHandleCookies] ? cookie_store() : nil;
+        if (jar && ![r valueForHTTPHeaderField:@"Cookie"]) {
+            NSString *cookie = [NSHTTPCookie requestHeaderFieldsWithCookies:[jar cookiesForURL:[r URL]]][@"Cookie"];
+            if (cookie)
+                [r setValue:cookie forHTTPHeaderField:@"Cookie"];
+        }
+        NSMutableArray *setCookies = [NSMutableArray array];
+        NSData *d = load_http_once(r, [r URL], &resp, &code, setCookies);
+        if (jar && !code)
+            for (NSString *line in setCookies)
+                [jar setCookies:[NSHTTPCookie cookiesWithResponseHeaderFields:@{@"Set-Cookie" : line} forURL:[r URL]]
+                         forURL:[r URL]
+                mainDocumentURL:[r mainDocumentURL] ?: [request mainDocumentURL] ?: [r URL]];
+        /* (a redirect's next request gets its own cookies) */
+        [r setValue:nil forHTTPHeaderField:@"Cookie"];
         if (code) {
             *outError = url_error(code, [r URL], nil);
             return nil;
@@ -805,6 +834,7 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
 {
     NSURLSessionConfiguration *c = [[[self alloc] init] autorelease];
     c.URLCache = [NSURLCache sharedURLCache];
+    c.HTTPCookieStorage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
     return c;
 }
 
@@ -813,6 +843,7 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
 {
     NSURLSessionConfiguration *c = [[[self alloc] init] autorelease];
     c.URLCache = [[[NSURLCache alloc] initWithMemoryCapacity:4 << 20 diskCapacity:0 directoryURL:nil] autorelease];
+    c.HTTPCookieStorage = [[[NSHTTPCookieStorage alloc] init] autorelease]; /* (in memory, the session's own) */
     return c;
 }
 + (NSURLSessionConfiguration *)backgroundSessionConfigurationWithIdentifier:(NSString *)identifier
@@ -830,6 +861,7 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
         self.allowsCellularAccess = YES;
         self.HTTPMaximumConnectionsPerHost = 6;
         self.HTTPShouldSetCookies = YES;
+        self.HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain;
         self.requestCachePolicy = NSURLRequestUseProtocolCachePolicy;
     }
     return self;
@@ -855,6 +887,8 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
     c.URLCache = self.URLCache;
     c.protocolClasses = self.protocolClasses;
     c.HTTPShouldSetCookies = self.HTTPShouldSetCookies;
+    c.HTTPCookieStorage = self.HTTPCookieStorage;
+    c.HTTPCookieAcceptPolicy = self.HTTPCookieAcceptPolicy;
     c.HTTPMaximumConnectionsPerHost = self.HTTPMaximumConnectionsPerHost;
     return c;
 }
@@ -948,7 +982,13 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
       NSURLResponse *response = nil;
       NSError *error = nil;
       /* (through the cache and any protocol classes, NSURLCache.m) */
+      current_cookies = configuration.HTTPShouldSetCookies && configuration.HTTPCookieAcceptPolicy != NSHTTPCookieAcceptPolicyNever
+                            ? configuration.HTTPCookieStorage
+                            : nil;
+      current_cookies_set = YES;
       NSData *data = _FinchURLLoad(configuration, self, request, &response, &error, load);
+      current_cookies = nil;
+      current_cookies_set = NO;
       id result = data;
       if (data && download) {
           NSString *tmp = [NSTemporaryDirectory() stringByAppendingPathComponent:

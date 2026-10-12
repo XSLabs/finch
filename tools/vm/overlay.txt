@@ -188,6 +188,7 @@ build/userland/finch-iconservices-test /usr/local/bin/finch-iconservices-test
 build/userland/finch-smallprivate-test /usr/local/bin/finch-smallprivate-test
 build/userland/finch-quicklook-test /usr/local/bin/finch-quicklook-test
 build/userland/finch-exports-test /usr/local/bin/finch-exports-test
+build/userland/finch-cookies-test /usr/local/bin/finch-cookies-test
 build/userland/finch-hiservices-test /usr/local/bin/finch-hiservices-test
 build/userland/finch-scripting-test /usr/local/bin/finch-scripting-test
 build/userland/finch-coreimage-test /usr/local/bin/finch-coreimage-test

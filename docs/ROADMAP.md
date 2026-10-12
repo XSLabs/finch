@@ -443,7 +443,12 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           functions (`NSStringFromBOOL`, `_NSFullMethodName`, `NSRequestConcreteImplementation`,
           the autorelease-pool calls, `_NSCenteredRectForImage`, UIKit's rounding helpers,
           accessibility entry points) apps import (2026-10-12); `exports-test` matches
-          Apple's. Still short: HTTP cookies, ubiquitous key-value storage, diffable data
+          Apple's.
+    - [x] HTTP cookies (2026-10-12): NSHTTPCookie (properties, Set-Cookie parsing with
+          Apple's 400-day cap) and NSHTTPCookieStorage (matching, replacement, persistence
+          per app); URL loading sends and keeps cookies through the session's storage;
+          `cookies-test` matches Apple's, a round trip included.
+    - [ ] Next: ubiquitous key-value storage, diffable data
           sources and the Swift overlays' async notification sequences, among others
           ([`APPS.md`](APPS.md)).
     - [ ] Every class and method the public headers declare, as Apple's answers them:
