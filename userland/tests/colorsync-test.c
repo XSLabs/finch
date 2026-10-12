@@ -5,7 +5,8 @@
  * descriptions and kinds, conversions between them (floats to two places, 8-bit
  * values exactly, with each alpha layout), and what a profile made from ICC bytes
  * reports: its header, tags, MD5 and edits. Then signatures as strings, and localized
- * strings written as an 'mluc' tag and read back (private calls ColorSync Utility makes).
+ * strings written as an 'mluc' tag and read back, chromatic adaptation matrices and a
+ * UUID's number (private calls ColorSync Utility makes).
  */
 #include <ColorSync/ColorSync.h>
 #include <dlfcn.h>
@@ -280,5 +281,22 @@ main(void)
            got && CFEqual(CFDictionaryGetValue(got, CFSTR("fr_FR")), CFSTR("Bonjour")));
     print_string("description now", ColorSyncProfileCopyDescriptionString(m));
     printf("no such tag: %p\n", (void *)copy_strings(m, CFSTR("zzzz")));
+
+    void (*adapt)(uint32_t, double (*)[3], const double *, const double *) =
+        (void (*)(uint32_t, double (*)[3], const double *, const double *))dlsym(RTLD_DEFAULT, "ColorSyncGetAdaptationMtx");
+    void (*apply)(const double *, double *, double (*)[3]) =
+        (void (*)(const double *, double *, double (*)[3]))dlsym(RTLD_DEFAULT, "ColorSyncConvertXYZToXYZWithChromaticAdaptationMatrix");
+    uint32_t (*uuid_number)(CFUUIDRef) = (uint32_t(*)(CFUUIDRef))dlsym(RTLD_DEFAULT, "ColorSyncGetUInt32FromUUID");
+    const double d65[3] = {0.95047, 1.0, 1.08883}, d50[3] = {0.96422, 1.0, 0.82521};
+    for (uint32_t method = 0; method < 4; method++) {
+        double mtx[3][3] = {{0}};
+        adapt(method, mtx, d65, d50);
+        double out[3];
+        apply(d65, out, mtx);
+        printf("adaptation %u: D65 white becomes %.4f %.4f %.4f, first row %.4f %.4f %.4f\n", method, out[0], out[1], out[2],
+               mtx[0][0], mtx[0][1], mtx[0][2]);
+    }
+    CFUUIDRef u = CFUUIDCreateFromString(NULL, CFSTR("12345678-9ABC-DEF0-1234-56789ABCDEF0"));
+    printf("uuid number %08x, none %08x\n", uuid_number(u), uuid_number(NULL));
     return 0;
 }

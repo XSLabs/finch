@@ -91,8 +91,9 @@ static NSLock *bundlesLock;
     return [self _finchBundleForCFBundle:CFBundleGetBundleWithIdentifier((CFStringRef)identifier)];
 }
 
-/* The bundle around the image a class is in: the framework or app the
- * binary sits inside, else the main bundle. */
+/* The bundle around the image a class is in: the bundle whose Contents/MacOS the binary
+ * is in (whatever its extension), else the framework, app or plug-in it sits inside, else
+ * the main bundle. */
 + (NSBundle *)bundleForClass:(Class)aClass
 {
     const char *image = aClass ? class_getImageName(aClass) : NULL;
@@ -103,6 +104,14 @@ static NSLock *bundlesLock;
     if (_NSGetExecutablePath(exe, &size) == 0 && [[[NSString stringWithUTF8String:exe] stringByResolvingSymlinksInPath]
             isEqualToString:[path stringByResolvingSymlinksInPath]])
         return [self mainBundle];
+    /* a bundle with any extension (a plug-in's own, as .csutil) whose binary this is:
+       X/Contents/MacOS/binary */
+    NSString *macos = [path stringByDeletingLastPathComponent];
+    if ([[macos lastPathComponent] isEqualToString:@"MacOS"] &&
+        [[[macos stringByDeletingLastPathComponent] lastPathComponent] isEqualToString:@"Contents"]) {
+        NSBundle *b = [self bundleWithPath:[[macos stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]];
+        if (b) return b;
+    }
     for (NSString *dir = [path stringByDeletingLastPathComponent]; [dir length] > 1; dir = [dir stringByDeletingLastPathComponent]) {
         NSString *ext = [dir pathExtension];
         if ([ext isEqualToString:@"framework"] || [ext isEqualToString:@"bundle"] || [ext isEqualToString:@"app"] ||

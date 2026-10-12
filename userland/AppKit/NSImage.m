@@ -343,8 +343,21 @@ NSImage *FinchSystemImageNamed(NSString *name);
     return i ?: FinchSystemImageNamed(name);  /* AppKit's own (NSSystemImages.m) */
 }
 
-+ (instancetype)imageWithSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)description { return nil; }
-+ (instancetype)imageWithSystemSymbolName:(NSString *)name variableValue:(double)value accessibilityDescription:(NSString *)description { return nil; }
+/* Symbol images: Finch's own glyphs under the symbol names (NSSystemImages.m). */
+NSImage *FinchSymbolImage(NSString *name, NSImageSymbolConfiguration *config, NSString *description);
+NSString *FinchSymbolImageName(NSImage *image);
+NSImageSymbolConfiguration *FinchSymbolImageConfiguration(NSImage *image);
+
++ (instancetype)imageWithSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)description
+{
+    return FinchSymbolImage(name, nil, description);
+}
++ (instancetype)imageWithSystemSymbolName:(NSString *)name variableValue:(double)value accessibilityDescription:(NSString *)description
+{
+    return FinchSymbolImage(name, nil, description);
+}
+/* SPI */
++ (instancetype)_imageWithSystemSymbolName:(NSString *)name { return FinchSymbolImage(name, nil, nil); }
 + (instancetype)imageWithSymbolName:(NSString *)name variableValue:(double)value { return nil; }
 + (instancetype)imageWithSymbolName:(NSString *)name bundle:(NSBundle *)bundle variableValue:(double)value { return nil; }
 
@@ -481,8 +494,22 @@ NSImage *FinchSystemImageNamed(NSString *name);
 - (void)setCachedSeparately:(BOOL)flag { _cachedSeparately = flag; }
 - (BOOL)cacheDepthMatchesImageDepth { return _cacheDepthMatches; }
 - (void)setCacheDepthMatchesImageDepth:(BOOL)flag { _cacheDepthMatches = flag; }
-- (NSImageSymbolConfiguration *)symbolConfiguration { return nil; }
-- (NSImage *)imageWithSymbolConfiguration:(NSImageSymbolConfiguration *)configuration { return nil; }
+/* (any image has one, as Apple's: a symbol image's own, else an empty one) */
+- (NSImageSymbolConfiguration *)symbolConfiguration
+{
+    return FinchSymbolImageConfiguration(self) ?: [NSImageSymbolConfiguration configurationWithScale:(NSImageSymbolScale)0];
+}
+
+/* A symbol image again with the configuration applied over its own; other images ignore it. */
+- (NSImage *)imageWithSymbolConfiguration:(NSImageSymbolConfiguration *)configuration
+{
+    NSString *name = FinchSymbolImageName(self);
+    if (!name)
+        return self;
+    NSImageSymbolConfiguration *mine = FinchSymbolImageConfiguration(self);
+    NSImageSymbolConfiguration *c = mine ? [mine configurationByApplyingConfiguration:configuration] : configuration;
+    return FinchSymbolImage(name, c, [self accessibilityDescription]);
+}
 - (NSImage *)imageWithLocale:(NSLocale *)locale { return self; }
 - (NSLocale *)locale { return nil; }
 

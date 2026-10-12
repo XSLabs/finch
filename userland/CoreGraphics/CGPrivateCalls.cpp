@@ -573,3 +573,40 @@ CGPDFDocumentCopyOutputIntents(CGPDFDocumentRef document)
 
 /* (named destinations aren't looked up yet) */
 CGPDFDictionaryRef CGPDFDocumentGetDestination(CGPDFDocumentRef document, const char *name) { return NULL; }
+
+/* --- more SkyLight calls (ColorSync Utility's Devices module) --- */
+
+typedef void (*CGSNotifyProcPtr)(int type, void *data, uint32_t length, void *userInfo);
+
+/* (the public call, which the SDK marks unavailable to callers: CGEvent.cpp) */
+extern "C" CGImageRef finch_windows_image(CGRect bounds, CFArrayRef windows, CGWindowImageOption option)
+    __asm__("_CGWindowListCreateImageFromArray");
+
+/* Windows' contents in a screen rectangle, through the window server's captures. */
+extern "C" CGError
+CGSCaptureWindowsContentsToRectWithOptions(CGSConnectionID cid, const CGSWindowID *windows, int count, CGRect rect, int options,
+                                           CGImageRef *out)
+{
+    if (!out || !windows || count <= 0)
+        return kCGErrorIllegalArgument;
+    CFMutableArrayRef ids = CFArrayCreateMutable(kCFAllocatorDefault, count, NULL);
+    for (int i = 0; i < count; i++)
+        CFArrayAppendValue(ids, (const void *)(uintptr_t)windows[i]);
+    *out = finch_windows_image(rect, ids, kCGWindowImageDefault);
+    CFRelease(ids);
+    return *out ? kCGErrorSuccess : kCGErrorFailure;
+}
+
+/* (Finch's window server sets its cursors by shape: custom cursor data and the system's
+   numbered cursors are taken and not shown; the server doesn't capture events for a
+   client; notify procs are kept for nothing yet) */
+extern "C" CGError
+CGSSetCursorFromData(CGSConnectionID cid, const void *data, size_t size, size_t bytesPerRow, int width, int height, int bpp, int spp)
+{
+    return kCGErrorSuccess;
+}
+
+extern "C" CGError CGSSetEventCapture(CGSConnectionID cid, void *a, void *b, void *c) { return kCGErrorSuccess; }
+extern "C" CGError CGSSetSystemDefinedCursor(CGSConnectionID cid, int cursor) { return kCGErrorSuccess; }
+extern "C" CGError CGSRegisterNotifyProc(CGSNotifyProcPtr proc, int type, void *userInfo) { return proc ? kCGErrorSuccess : kCGErrorIllegalArgument; }
+extern "C" CGError CGSRemoveNotifyProc(CGSNotifyProcPtr proc, int type, void *userInfo) { return kCGErrorSuccess; }

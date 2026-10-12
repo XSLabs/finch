@@ -534,8 +534,12 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         `+imageNamed:` finds all 140 names, including the private disclosure triangles,
         at Apple's sizes and with Apple's template flags; `system-images-test` matches
         Apple's (2026-10-12).
-  - [ ] Symbol images (`+imageWithSystemSymbolName:`, SF Symbols' names): Finch's own
-        glyphs for the names apps use most; today they return nil.
+  - [x] Symbol images (`+imageWithSystemSymbolName:`, SF Symbols' names): Finch's own
+        glyphs for the 143 base names apps use most, drawn in the Fieldwork line style,
+        with the `.fill`, `.circle`, `.square`, `.slash` and `.badge.plus/minus/checkmark`
+        variants; symbol configurations (point size, weight, scale) size and weigh them as
+        Apple's do. Names Finch has no glyph for return nil. `symbols-test` matches Apple's
+        (2026-10-12).
   - [x] A Cocoa app bundle built the usual way (`userland/tests/apps/Hello`: NSApplicationMain,
         a MainMenu nib from ibtool, outlets and actions) launches on Finch's frameworks and window
         server, shows its menu bar and window, and responds to clicks and typing
@@ -688,7 +692,18 @@ and AppKit come in Phase 2).
         light; text reached work-buffer contexts only through a fill copied too early).
         `printcore-test`, `quartzfilters-test`, `colorsync-test` and `private-calls-test`
         match Apple's, and pass in the VM.
-  - [ ] Its window: it needs symbol images (below), then whatever comes next.
+  - [x] Its window, with all five utilities (2026-10-12): Profile First Aid with its help
+        text, Profiles, Devices, Filters (Finch's filters listed) and Calculator with the
+        installed profiles. What they needed: symbol images, `+bundleForClass:` finding a
+        plug-in bundle of any extension (`.csutil`), `+loadNibNamed:owner:` taking a name
+        with `.nib` (as `NSMainNibFile` gives it), a pop-up button cell taking its
+        button's bindings, `NSByteCountFormatter` declining to parse, SkyLight's capture,
+        cursor and notification calls, and ColorSync's chromatic adaptation. Finch's
+        ColorSync now writes the standard profiles into `/System/Library/ColorSync/Profiles`,
+        and `tools/app-sweep.py` counts the plug-in bundles an app loads (not its app
+        extensions) against Finch as well.
+  - [ ] The Profiles and Devices browsers list profiles and devices; Calculator's colour
+        swatches show the converted colour; toolbar items show their icon and label.
 - [x] Combine: OpenCombine (MIT) adapted to Apple's ABI, with Finch's Merge, CombineLatest
       and collecting by time; every Combine symbol the system apps import (2026-10-09)
 - [ ] SwiftUI: OpenSwiftUI (MIT) built as SwiftUI and SwiftUICore (`docs/design/SWIFTUI.md`)

@@ -37,17 +37,29 @@ def executable(app):
 
 
 def bundled(app):
-    """The binaries of the frameworks an app carries (Contents/Frameworks/*.framework):
-    their imports from the system count against Finch too."""
+    """The binaries an app carries besides its own: its frameworks (Contents/Frameworks/
+    *.framework) and the plug-in bundles it loads (any bundle with an executable under
+    Contents/PlugIns or Contents/Resources, as ColorSync Utility's .csutil modules; app
+    extensions run in processes of their own, so they don't count). Their imports from
+    the system count against Finch too."""
     found = []
     top = os.path.join(app, "Contents", "Frameworks")
-    if not os.path.isdir(top):
-        return found
-    for entry in sorted(os.listdir(top)):
-        if entry.endswith(".framework"):
-            binary = os.path.join(top, entry, entry[: -len(".framework")])
-            if os.path.isfile(binary):
-                found.append(os.path.realpath(binary))
+    if os.path.isdir(top):
+        for entry in sorted(os.listdir(top)):
+            if entry.endswith(".framework"):
+                binary = os.path.join(top, entry, entry[: -len(".framework")])
+                if os.path.isfile(binary):
+                    found.append(os.path.realpath(binary))
+    for folder in ("PlugIns", "Resources"):
+        top = os.path.join(app, "Contents", folder)
+        if not os.path.isdir(top):
+            continue
+        for entry in sorted(os.listdir(top)):
+            path = os.path.join(top, entry)
+            if os.path.isdir(os.path.join(path, "Contents")) and not entry.endswith((".app", ".appex")):
+                binary = executable(path)
+                if binary:
+                    found.append(os.path.realpath(binary))
     return found
 
 

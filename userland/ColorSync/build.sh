@@ -4,6 +4,7 @@
 # files or memory, or written here for the named profiles; transforms
 # (ColorSyncTransform.c) convert matrix/curve, gray, Lab and XYZ profiles themselves and
 # lookup-table profiles through skcms. ColorSyncConstants.c has Apple's constant values.
+# The standard profiles are installed in /System/Library/ColorSync/Profiles (write-profiles.c).
 #   userland/ColorSync/build.sh -> build/root/System/Library/Frameworks/ColorSync.framework
 set -euo pipefail
 FINCH_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -15,3 +16,12 @@ CFLAGS="-I${FINCH_ROOT}/build/src/skia/modules/skcms" \
     /System/Library/Frameworks/ColorSync.framework/Versions/A/ColorSync 3813.3.3 1 com.apple.ColorSync 4.13.0 \
     "${HERE}/ColorSyncConstants.c" "${HERE}/ColorSyncProfile.c" "${HERE}/ColorSyncTransform.c" \
     -- -framework CoreFoundation -L"$(dirname "${SKCMS}")" -Wl,-hidden-lskcms -lc++
+
+# The installed profiles: the standard ones this ColorSync writes (write-profiles.c).
+PROFILES="${FINCH_ROOT}/build/root/System/Library/ColorSync/Profiles"
+mkdir -p "${PROFILES}" "${FINCH_ROOT}/build/obj/colorsync"
+# (built against the SDK, run against this ColorSync: the install names match)
+xcrun clang -O2 "${HERE}/write-profiles.c" -framework ColorSync \
+    -framework CoreFoundation -o "${FINCH_ROOT}/build/obj/colorsync/write-profiles"
+DYLD_FRAMEWORK_PATH="${FINCH_ROOT}/build/root/System/Library/Frameworks:${FINCH_ROOT}/build/root/System/Library/PrivateFrameworks" \
+    "${FINCH_ROOT}/build/obj/colorsync/write-profiles" "${PROFILES}"

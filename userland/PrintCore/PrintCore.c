@@ -1717,3 +1717,12 @@ PMSessionCopyCurrentPrinterColorSyncProfile(PMPrintSession s, PMPrintSettings ps
     *profile = NULL;
     return noErr;
 }
+
+/* (private) The default printer's name: none, with no printing system yet. */
+PM_EXPORT CFStringRef
+CPLCopyDefaultPrinterName(OSStatus *error)
+{
+    if (error)
+        *error = kPMNoDefaultPrinter;
+    return NULL;
+}

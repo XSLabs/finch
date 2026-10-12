@@ -137,6 +137,17 @@ NSDraggingImageComponentKey const NSDraggingImageComponentLabelKey = @"label";
 
 + (BOOL)supportsSecureCoding { return YES; }
 
+/* (for symbol images, NSSystemImages.m: the size, weight and scale it sets, or 0 for each it doesn't) */
+- (void)_finchPointSize:(CGFloat *)pointSize weight:(NSFontWeight *)weight hasWeight:(BOOL *)hasWeight scale:(NSImageSymbolScale *)scale
+{
+    *pointSize = _hasPointSize ? _pointSize
+                 : _textStyle  ? [NSFont preferredFontForTextStyle:_textStyle options:@{}].pointSize
+                               : 0;
+    *weight = _weight;
+    *hasWeight = _hasWeight;
+    *scale = _hasScale ? _scale : (NSImageSymbolScale)0;
+}
+
 + (instancetype)configurationWithPointSize:(CGFloat)pointSize weight:(NSFontWeight)weight scale:(NSImageSymbolScale)scale
 {
     NSImageSymbolConfiguration *c = [[[self alloc] init] autorelease];

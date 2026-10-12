@@ -1504,6 +1504,46 @@ as_array(id v)
 
 @end
 
+/* A pop-up button's cell takes the button's content and selection bindings (nibs bind
+   them on the cell); the button keeps them. */
+@implementation NSPopUpButtonCell (FinchBindings)
+
+- (NSPopUpButton *)_finchBindingButton:(NSString *)binding
+{
+    NSPopUpButton *b = (NSPopUpButton *)[self controlView];
+    return [b isKindOfClass:[NSPopUpButton class]] && [b cell] == self &&
+                   (is_content_binding(binding) || is_selection_binding(binding))
+               ? b
+               : nil;
+}
+
+- (void)bind:(NSBindingName)binding toObject:(id)observable withKeyPath:(NSString *)keyPath
+     options:(NSDictionary<NSBindingOption, id> *)options
+{
+    NSPopUpButton *b = [self _finchBindingButton:binding];
+    if (b)
+        [b bind:binding toObject:observable withKeyPath:keyPath options:options];
+    else
+        [super bind:binding toObject:observable withKeyPath:keyPath options:options];
+}
+
+- (void)unbind:(NSBindingName)binding
+{
+    NSPopUpButton *b = [self _finchBindingButton:binding];
+    if (b)
+        [b unbind:binding];
+    else
+        [super unbind:binding];
+}
+
+- (NSDictionary<NSBindingInfoKey, id> *)infoForBinding:(NSBindingName)binding
+{
+    NSPopUpButton *b = [self _finchBindingButton:binding];
+    return b ? [b infoForBinding:binding] : [super infoForBinding:binding];
+}
+
+@end
+
 #pragma mark - Text views
 
 @implementation NSTextView (FinchBindings)

@@ -1325,3 +1325,65 @@ ColorSyncProfileCreateFlexGTCLookupData(ColorSyncProfileRef prof, CFTypeRef info
 {
     return NULL;
 }
+
+/* --- chromatic adaptation (private calls ColorSync Utility's Calculator makes) --- */
+
+/* An XYZ through a 3x3 matrix (rows). */
+void
+ColorSyncConvertXYZToXYZWithChromaticAdaptationMatrix(const double in[3], double out[3], const double m[3][3])
+{
+    double v[3] = {in[0], in[1], in[2]};
+    for (int r = 0; r < 3; r++)
+        out[r] = m[r][0] * v[0] + m[r][1] * v[1] + m[r][2] * v[2];
+}
+
+static void
+mat_mul(const double a[3][3], const double b[3][3], double out[3][3])
+{
+    double t[3][3];
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 3; c++)
+            t[r][c] = a[r][0] * b[0][c] + a[r][1] * b[1][c] + a[r][2] * b[2][c];
+    memcpy(out, t, sizeof t);
+}
+
+/* The matrix adapting colours seen under one white point to another, as Apple's numbers
+   them: 1 XYZ scaling, 0 and 2 von Kries, 3 (and any other) Bradford. */
+void
+ColorSyncGetAdaptationMtx(uint32_t method, double out[3][3], const double srcWhite[3], const double dstWhite[3])
+{
+    static const double bradford[3][3] = {{0.8951, 0.2664, -0.1614}, {-0.7502, 1.7135, 0.0367}, {0.0389, -0.0685, 1.0296}};
+    static const double bradford_inv[3][3] = {{0.9869929, -0.1470543, 0.1599627}, {0.4323053, 0.5183603, 0.0492912}, {-0.0085287, 0.0400428, 0.9684867}};
+    static const double vonkries[3][3] = {{0.40024, 0.70760, -0.08081}, {-0.22630, 1.16532, 0.04570}, {0.0, 0.0, 0.91822}};
+    static const double vonkries_inv[3][3] = {{1.8599364, -1.1293816, 0.2198974}, {0.3611914, 0.6388125, -0.0000064}, {0.0, 0.0, 1.0890636}};
+    static const double identity[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    if (!srcWhite || !dstWhite || !out)
+        return;
+    if (method == 0)
+        method = 2;
+    if (method < 1 || method > 3)
+        method = 3;
+    const double (*m)[3] = method == 1 ? identity : method == 2 ? vonkries : bradford;
+    const double (*mi)[3] = method == 1 ? identity : method == 2 ? vonkries_inv : bradford_inv;
+    double s[3], d[3];
+    for (int r = 0; r < 3; r++) {
+        s[r] = m[r][0] * srcWhite[0] + m[r][1] * srcWhite[1] + m[r][2] * srcWhite[2];
+        d[r] = m[r][0] * dstWhite[0] + m[r][1] * dstWhite[1] + m[r][2] * dstWhite[2];
+        if (s[r] == 0)
+            return;
+    }
+    double scale[3][3] = {{d[0] / s[0], 0, 0}, {0, d[1] / s[1], 0}, {0, 0, d[2] / s[2]}};
+    double t[3][3];
+    mat_mul(scale, m, t);
+    mat_mul(mi, t, out);
+}
+
+/* A UUID's first four bytes as a number (how ColorSync names a device by its UUID). */
+uint32_t
+ColorSyncGetUInt32FromUUID(CFUUIDRef uuid)
+{
+    if (!uuid)
+        return 0;
+    CFUUIDBytes b = CFUUIDGetUUIDBytes(uuid);
+    return (uint32_t)b.byte0 << 24 | (uint32_t)b.byte1 << 16 | (uint32_t)b.byte2 << 8 | b.byte3;
+}

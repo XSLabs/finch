@@ -124,8 +124,12 @@ typedef enum { KIND_FILE, KIND_DIRECTORY, KIND_LINK } Kind;
     if ((self = [super init])) {
         /* Without following a final symbolic link. */
         if (![[NSFileManager defaultManager] attributesOfItemAtPath:[url path] error:NULL]) {
-            if (outError) *outError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadNoSuchFileError
-                                                      userInfo:@{ NSFilePathErrorKey: [url path] ? [url path] : @"", NSURLErrorKey: url }];
+            if (outError) {
+                NSMutableDictionary *info = [NSMutableDictionary dictionaryWithObject:[url path] ?: @"" forKey:NSFilePathErrorKey];
+                if (url)
+                    info[NSURLErrorKey] = url;
+                *outError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadNoSuchFileError userInfo:info];
+            }
             [self release];
             return nil;
         }

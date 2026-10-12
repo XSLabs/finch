@@ -1114,8 +1114,11 @@ nib_data_at(NSString *path)
 
 + (BOOL)loadNibNamed:(NSString *)name owner:(id)owner
 {
+    /* (the owner's bundle when the nib is there; the name may carry its extension, as an
+       Info.plist's NSMainNibFile does) */
     NSBundle *b = [owner isKindOfClass:[NSObject class]] ? [NSBundle bundleForClass:[owner class]] : nil;
-    if (!b || ![b pathForResource:name ofType:@"nib"])
+    NSString *base = [[name pathExtension] isEqualToString:@"nib"] ? [name stringByDeletingPathExtension] : name;
+    if (!b || ![b pathForResource:base ofType:@"nib"])
         b = [NSBundle mainBundle];
     return [b loadNibNamed:name owner:owner topLevelObjects:NULL];
 }

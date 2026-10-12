@@ -384,6 +384,14 @@ trimmed_number(double v, int decimals, BOOL pad)
     return [obj isKindOfClass:[NSNumber class]] ? [self stringFromByteCount:[obj longLongValue]] : nil;
 }
 
+/* (byte counts aren't read back from text, as with Apple's) */
+- (BOOL)getObjectValue:(id *)obj forString:(NSString *)string errorDescription:(NSString **)error
+{
+    if (obj)
+        *obj = nil;
+    return NO;
+}
+
 @end
 
 /* MARK: - NSISO8601DateFormatter */

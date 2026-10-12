@@ -17,48 +17,50 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 
 | Missing | Apps blocked | Kind |
 |---|---|---|
-| AppKit | 27 | 177 symbols short |
-| Foundation | 23 | 168 symbols short |
+| AppKit | 30 | 181 symbols short |
+| Foundation | 24 | 174 symbols short |
 | AppIntents | 22 | no image |
+| OnBoardingKit | 19 | no image |
 | SwiftUI | 19 | 1005 symbols short |
 | ContactsUI | 18 | no image |
-| OnBoardingKit | 18 | no image |
+| IconServices | 18 | no image |
 | CoreSpotlight | 16 | no image |
-| IconServices | 16 | no image |
 | WebKit | 15 | no image |
 | UIKit | 14 | no image |
 | LinkPresentation | 12 | no image |
 | AppleMediaServices | 11 | no image |
 | AuthKit | 11 | no image |
+| CoreGraphics | 11 | 59 symbols short |
 | Intents | 11 | no image |
+| QuickLookUI | 11 | no image |
 | SwiftUI | 11 | no image |
 | AVFoundation | 10 | 71 symbols short |
 | AVKit | 10 | no image |
 | Accelerate | 10 | no image |
 | AppSupport | 10 | no image |
 | CloudKit | 10 | no image |
-| CoreGraphics | 9 | 48 symbols short |
+| CoreServices | 10 | 80 symbols short |
+| SoftLinking | 10 | no image |
 | CoreText | 9 | 50 symbols short |
 | CrashReporterSupport | 9 | no image |
-| QuickLookUI | 9 | no image |
-| SoftLinking | 9 | no image |
 | TipKit | 9 | no image |
-| ApplicationServices | 8 | 24 symbols short |
-| CoreServices | 8 | 78 symbols short |
+| UIKitMacHelper | 9 | no image |
+| ApplicationServices | 8 | 23 symbols short |
 | MapKit | 8 | no image |
 | Network | 8 | no image |
 | PerformanceAnalysis | 8 | no image |
 | RecapPerformanceTesting | 8 | no image |
 | TelephonyUtilities | 8 | no image |
 | WidgetKit | 8 | no image |
+| AccountsUI | 7 | no image |
 | AppAnalytics | 7 | no image |
 | AppSupportUI | 7 | no image |
+| AppleAccount | 7 | no image |
 | CoreData | 7 | no image |
+| CoreSuggestions | 7 | no image |
 | PDFKit | 7 | no image |
 | _AppIntents_AppKit | 7 | no image |
 | _LocationEssentials | 7 | no image |
-| AppleAccount | 6 | no image |
-| CoreSuggestions | 6 | no image |
 | CoreTelephony | 6 | no image |
 | GeoServices | 6 | no image |
 | MediaPlayer | 6 | no image |
@@ -78,6 +80,7 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | ContactsAutocompleteUI | 5 | no image |
 | CoreRecents | 5 | no image |
 | CryptoKit | 5 | no image |
+| DataDetectorsCore | 5 | 10 symbols short |
 | FamilyCircle | 5 | no image |
 | ImageIO | 5 | 22 symbols short |
 | JavaScriptCore | 5 | no image |
@@ -96,22 +99,26 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | libswiftCoreMedia.dylib | 5 | no image |
 | AOSAccounts | 4 | no image |
 | AOSUI | 4 | no image |
-| AccountsUI | 4 | no image |
 | AppleMediaServicesUI | 4 | no image |
 | ApplePushService | 4 | no image |
 | AskPermission | 4 | no image |
 | BiomeLibrary | 4 | no image |
 | Carbon | 4 | 47 symbols short |
+| CharacterPicker | 4 | no image |
 | Charts | 4 | no image |
 | Coherence | 4 | no image |
+| CommunicationsFilter | 4 | no image |
 | ConfigurationProfiles | 4 | no image |
 | ContactsAutocomplete | 4 | no image |
 | CoreFoundation | 4 | 11 symbols short |
+| CorePhoneNumbers | 4 | no image |
+| DataDetectors | 4 | no image |
 | EventKit | 4 | no image |
 | FrontBoardServices | 4 | no image |
 | GraphicsServices | 4 | no image |
 | IDS | 4 | no image |
 | IMCore | 4 | no image |
+| IntlPreferences | 4 | no image |
 | JetUI | 4 | no image |
 | ManagedConfiguration | 4 | no image |
 | MediaAccessibility | 4 | no image |
@@ -128,6 +135,8 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | TeaFoundation | 4 | no image |
 | TeaSettings | 4 | no image |
 | TeaUI | 4 | no image |
+| ToneKit | 4 | no image |
+| ToneLibrary | 4 | no image |
 | UIAccessibility | 4 | no image |
 | UserManagement | 4 | no image |
 | VisionKitCore | 4 | no image |
@@ -135,6 +144,7 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | _MapKit_SwiftUI | 4 | no image |
 | iTunesCloud | 4 | no image |
 | libswiftSystem.dylib | 4 | no image |
+| login | 4 | no image |
 | AccessibilityUtilities | 3 | no image |
 | AggregateDictionary | 3 | no image |
 | AppleSRP | 3 | no image |
@@ -144,7 +154,6 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | CalendarUI | 3 | no image |
 | ChronoServices | 3 | no image |
 | CollectionsInternal | 3 | no image |
-| CommunicationsFilter | 3 | no image |
 | ContactsFoundation | 3 | no image |
 | ConversationKit | 3 | no image |
 | CoreAudio | 3 | 7 symbols short |
@@ -152,15 +161,16 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | CoreDuet | 3 | no image |
 | CoreEmoji | 3 | no image |
 | CoreMedia | 3 | 23 symbols short |
-| CorePhoneNumbers | 3 | no image |
+| CoreSymbolication | 3 | no image |
 | CoreUtils | 3 | no image |
 | EmailAddressing | 3 | no image |
 | FeedbackService | 3 | no image |
 | GeoKit | 3 | no image |
 | GroupActivities | 3 | no image |
+| IMFoundation | 3 | no image |
+| IconFoundation | 3 | no image |
 | InternalSwiftProtobuf | 3 | no image |
 | InternationalSupport | 3 | no image |
-| IntlPreferences | 3 | no image |
 | MapsUI | 3 | no image |
 | MediaCoreUI | 3 | no image |
 | MediaServices | 3 | no image |
@@ -174,11 +184,11 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | PaperKit | 3 | no image |
 | PersonalizationPortrait | 3 | no image |
 | RTTUtilities | 3 | no image |
+| SidecarCore | 3 | no image |
 | SocialAppsCore | 3 | no image |
 | SoftwareUpdate | 3 | no image |
 | Suggestions | 3 | no image |
 | Synapse | 3 | no image |
-| UIKitMacHelper | 3 | no image |
 | _IconServices_SwiftUI | 3 | no image |
 | iCalendar | 3 | no image |
 | iTunesLibrary | 3 | no image |
@@ -212,7 +222,6 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | CallsAppUI | 2 | no image |
 | CallsDialer | 2 | no image |
 | CallsSearch | 2 | no image |
-| CharacterPicker | 2 | no image |
 | CloudDocs | 2 | no image |
 | CloudKitCode | 2 | no image |
 | CommonUtilities | 2 | no image |
@@ -225,7 +234,6 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | CoreRoutine | 2 | no image |
 | CoreSuggestionsUI | 2 | no image |
 | CryptoTokenKit | 2 | no image |
-| DataDetectorsCore | 2 | 4 symbols short |
 | DiskImages | 2 | no image |
 | DiskManagement | 2 | no image |
 | ExtensionFoundation | 2 | no image |
@@ -236,6 +244,8 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | FaceTimeMacHelperCore | 2 | no image |
 | FaceTimeMessageStore | 2 | no image |
 | FaceTimeSettingsUI | 2 | no image |
+| FaceTimeTouchBarProtocols | 2 | no image |
+| FaceTimeTouchBarSupport | 2 | no image |
 | Feedback | 2 | no image |
 | FindMyBase | 2 | no image |
 | FindMyLocate | 2 | no image |
@@ -243,9 +253,7 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | GameCenterFoundation | 2 | no image |
 | HealthKit | 2 | no image |
 | IASUtilities | 2 | no image |
-| IMFoundation | 2 | no image |
 | IOKit | 2 | 15 symbols short |
-| IconFoundation | 2 | no image |
 | ImagePlayground | 2 | no image |
 | IntentsCore | 2 | no image |
 | LiveCommunicationKit | 2 | no image |
@@ -267,6 +275,7 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | NewsPersonalization | 2 | no image |
 | NewsSubscription | 2 | no image |
 | NewsUI | 2 | no image |
+| NotificationCenterUI | 2 | no image |
 | PIP | 2 | no image |
 | PassKitCore | 2 | no image |
 | PhoneKit | 2 | no image |
@@ -285,8 +294,8 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | ScriptingBridge | 2 | no image |
 | SearchFoundation | 2 | no image |
 | ShazamKit | 2 | no image |
-| SidecarCore | 2 | no image |
 | Silex | 2 | no image |
+| SkyLight | 2 | 4 symbols short |
 | SymptomDiagnosticReporter | 2 | no image |
 | SystemAdministration | 2 | 3 symbols short |
 | SystemDesktopAppearance | 2 | no image |
@@ -308,8 +317,8 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | libDiskUnlock.dylib | 2 | no image |
 | libexpat.1.dylib | 2 | no image |
 | libswiftCoreLocation.dylib | 2 | no image |
-| login | 2 | no image |
 | ? | 1 | no image |
+| AAAFoundation | 1 | no image |
 | ARKit | 1 | no image |
 | AVConference | 1 | no image |
 | AXAssetLoader | 1 | no image |
@@ -396,13 +405,12 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | CorePDF | 1 | no image |
 | CoreParsec | 1 | no image |
 | CoreRE | 1 | no image |
-| CoreSymbolication | 1 | no image |
 | CoreUI | 1 | 10 symbols short |
 | CoreVideo | 1 | 9 symbols short |
 | DFRFoundation | 1 | no image |
 | DataAccess | 1 | no image |
 | DataAccessExpress | 1 | no image |
-| DataDetectors | 1 | no image |
+| DataDetectors | 1 | 5 symbols short |
 | DataDetectorsUI | 1 | no image |
 | DeauthorizationKit | 1 | no image |
 | DeclaredAgeRange | 1 | no image |
@@ -466,6 +474,7 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | Hydra | 1 | no image |
 | IDSFoundation | 1 | no image |
 | IMAP | 1 | no image |
+| IMDPersistence | 1 | no image |
 | IMSharedUtilities | 1 | no image |
 | IOPlatformPluginFamily | 1 | no image |
 | IdleTimerServices | 1 | no image |
@@ -568,6 +577,7 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | RealityFoundation | 1 | no image |
 | RealityKit | 1 | no image |
 | ReminderKitInternal | 1 | no image |
+| ReminderKitUI | 1 | no image |
 | RemindersUICore | 1 | no image |
 | RemoteTextInput | 1 | no image |
 | Restore | 1 | no image |
@@ -590,6 +600,7 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | ShareServicesCore | 1 | no image |
 | Sharing | 1 | no image |
 | ShimGameServices | 1 | no image |
+| SidecarUI | 1 | no image |
 | SilexVideo | 1 | no image |
 | SilexWeb | 1 | no image |
 | Slideshows | 1 | no image |
@@ -609,6 +620,7 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | StoreUI | 1 | no image |
 | SwiftData | 1 | no image |
 | SyncedDefaults | 1 | no image |
+| SystemUIPlugin | 1 | no image |
 | TSReading | 1 | no image |
 | TSUtility | 1 | no image |
 | TVLibrary | 1 | no image |
@@ -625,7 +637,6 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | TipsUI | 1 | no image |
 | TokenGeneration | 1 | no image |
 | TokenGenerationCore | 1 | no image |
-| ToneLibrary | 1 | no image |
 | ToolKit | 1 | no image |
 | TranslationUI | 1 | no image |
 | Tungsten | 1 | no image |
@@ -680,44 +691,44 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 
 | App | Lacks |
 |---|---|
-| Activity Monitor | AssetCacheServicesExtensions, CoreSymbolication, NetworkStatistics, RemoteServiceDiscovery, SafeEjectGPU, libIOReport.dylib, libLaunchServicesSupport.dylib, libquit.dylib, libsystemstats.dylib, Suggestions, OpenCL, CrashReporterSupport, CoreGraphics (2 symbols) |
+| Activity Monitor | AssetCacheServicesExtensions, CoreSymbolication, NetworkStatistics, RemoteServiceDiscovery, SafeEjectGPU, libIOReport.dylib, libLaunchServicesSupport.dylib, libquit.dylib, libsystemstats.dylib, Suggestions, OpenCL, CrashReporterSupport, CoreGraphics (1 symbols) |
 | AirPort Utility | AOSKit, AppleSRP |
 | App Store | AOSUI, AVKit, AddressBook, AppIntents, AppState, AppStoreDaemon, AppStoreFoundation, AppStoreKit, AppleMediaServices, AppleMediaServicesUI, AskPermission, AuthKit, CommerceKit, ContactsUI, CoreSpotlight, FamilyCircle, FamilyCircleUI, GameCenterFoundation, GameCenterUI, JetEngine, JetUI, LinkPresentation, OnBoardingKit, StoreFoundation, StoreJavaScript, StoreUI, VideoSubscriberAccount, _AppIntents_AppKit, _JetEngine_SwiftUI, SoftwareUpdate, AppStoreUI, AppKit (5 symbols), CoreText (1 symbols) |
 | Audio MIDI Setup | AVRouting, AudioVideoBridging, CoreAudioKit, CoreMIDI, MobileDevice, SceneKit, caulk, libAudioStatistics.dylib, ScriptingBridge, AppKit (1 symbols) |
 | Automator | Automator, ViewBridge, OSAKit |
-| Books | AVKit, AXRuntime, AppAnalytics, AppIntents, AppleMediaServices, AppleMediaServicesUI, AudioToolboxCore, AuthKit, BookCoverUtility, BookDataStore, BookFoundation, BookKit, BookLibraryCore, BookUtility, CloudKit, ContactsUI, CoreData, CoreSpotlight, DataDetectorsUI, Intents, InternalSwiftProtobuf, JavaScriptCore, JetEngine, JetUI, LinkPresentation, MediaCoreUI, MediaPlayer, NaturalLanguage, OnBoardingKit, QuickLookThumbnailing, RecapPerformanceTesting, RevealCore, ShareSheet, StoreKit, SwiftUI, TSReading, TeaFoundation, TeaSettings, TeaUI, TipKit, UIAccessibility, UIKit, WebKit, _AppIntents_SwiftUI, _AppIntents_UIKit, iTunesCloud, libAccessibility.dylib, libswiftCoreMedia.dylib, TSUtility, BookLibrary, PDFKit, VisionKitCore, WebKitLegacy, TranslationUIServices, AVRouting, MediaRemote, GraphicsServices, MediaAccessibility, MessageUI, SceneKit, BiomeStreams, CoreTelephony, CrashReporterSupport, _JetEngine_SwiftUI, AppSupport, CMPhoto, CloudDocs, Coherence, CoreBrightness, ProtocolBuffer, RemoteConfiguration, libsqlite3.dylib, Network, VideoToolbox, SharedWithYou, SocialLayer, Symbols, TVAppServices, WatchListKit, ComputationalGraph, Charts, AskPermission, FamilyCircle, FrontBoardServices, AVFoundation (6 symbols), Foundation (48 symbols), CoreText (8 symbols), ImageIO (3 symbols) |
+| Books | AVKit, AXRuntime, AppAnalytics, AppIntents, AppleMediaServices, AppleMediaServicesUI, AudioToolboxCore, AuthKit, BookCoverUtility, BookDataStore, BookFoundation, BookKit, BookLibraryCore, BookUtility, CloudKit, ContactsUI, CoreData, CoreSpotlight, DataDetectorsUI, Intents, InternalSwiftProtobuf, JavaScriptCore, JetEngine, JetUI, LinkPresentation, MediaCoreUI, MediaPlayer, NaturalLanguage, OnBoardingKit, QuickLookThumbnailing, RecapPerformanceTesting, RevealCore, ShareSheet, StoreKit, SwiftUI, TSReading, TeaFoundation, TeaSettings, TeaUI, TipKit, UIAccessibility, UIKit, WebKit, _AppIntents_SwiftUI, _AppIntents_UIKit, iTunesCloud, libAccessibility.dylib, libswiftCoreMedia.dylib, TSUtility, BookLibrary, PDFKit, VisionKitCore, WebKitLegacy, TranslationUIServices, AVRouting, MediaRemote, GraphicsServices, MediaAccessibility, MessageUI, SceneKit, BiomeStreams, CoreTelephony, CrashReporterSupport, _JetEngine_SwiftUI, AppSupport, CMPhoto, CloudDocs, Coherence, CoreBrightness, ProtocolBuffer, RemoteConfiguration, libsqlite3.dylib, Network, VideoToolbox, SharedWithYou, SocialLayer, Symbols, TVAppServices, WatchListKit, ComputationalGraph, Charts, AskPermission, FamilyCircle, FrontBoardServices, SoftLinking, UIKitMacHelper, AVFoundation (6 symbols), Foundation (48 symbols), CoreText (8 symbols), ImageIO (3 symbols), AppKit (1 symbols) |
 | Boot Camp Assistant | APFS, CacheDelete, DiskImages, DiskManagement, SoftwareUpdate, libDiskUnlock.dylib |
 | Calculator | AXCoreUtilities, AppIntents, Calculate, CalculateUI, Network, SwiftData, TipKit, TextInputUI, AppKit (1 symbols), SwiftUI (101 symbols) |
-| Calendar | AccountsUI, AppIntents, AppSupport, CalDAV, CalendarDatabase, CalendarDraw, CalendarFoundation, CalendarLink, CalendarUIKitInternal, CalendarWeatherKit, CommunicationsFilter, ContactsAutocomplete, ContactsUI, CoreDAV, CoreData, CoreRecents, CoreSpotlight, CoreSuggestions, DataAccess, DataAccessExpress, EmailAddressing, EventKit, ExchangeWebServices, Intents, IntlPreferences, ReminderKit, RemindersAppIntents, Suggestions, TCC, iCalendar, CalendarUI, CalendarUIKit, GeoKit, MapKit, PerformanceAnalysis, SecurityInterface, AppKit (7 symbols), ApplicationServices (2 symbols), CoreServices (1 symbols), CoreUI (10 symbols), Foundation (2 symbols), RecapPerformanceTesting (1 symbols) |
+| Calendar | AccountsUI, AppIntents, AppSupport, CalDAV, CalendarDatabase, CalendarDraw, CalendarFoundation, CalendarLink, CalendarUIKitInternal, CalendarWeatherKit, CommunicationsFilter, ContactsAutocomplete, ContactsUI, CoreDAV, CoreData, CoreRecents, CoreSpotlight, CoreSuggestions, DataAccess, DataAccessExpress, EmailAddressing, EventKit, ExchangeWebServices, Intents, IntlPreferences, ReminderKit, RemindersAppIntents, Suggestions, TCC, iCalendar, CalendarUI, CalendarUIKit, GeoKit, MapKit, PerformanceAnalysis, SecurityInterface, IconServices, SystemUIPlugin, AppKit (7 symbols), ApplicationServices (2 symbols), CoreServices (1 symbols), CoreUI (10 symbols), Foundation (2 symbols), RecapPerformanceTesting (1 symbols) |
 | Chess | GameKit, GroupActivities, MetalPerformanceShaders, MetalKit, ModelIO |
-| Clock | AppSupport, AppSupportUI, GeoServices, Intents, MediaPlayer, MobileTimer, MobileTimerSupport, MobileTimerUI, NetAppsUtilities, NetAppsUtilitiesUI, RecapPerformanceTesting, SwiftUI, ToneLibrary, UIKit, _LocationEssentials, HealthKit, OnBoardingKit, MobileCoreServices, GraphicsServices, Accelerate, SoftLinking, CoreDuet, AggregateDictionary, CoreText (1 symbols) |
+| Clock | AppSupport, AppSupportUI, GeoServices, Intents, MediaPlayer, MobileTimer, MobileTimerSupport, MobileTimerUI, NetAppsUtilities, NetAppsUtilitiesUI, RecapPerformanceTesting, SwiftUI, ToneLibrary, UIKit, _LocationEssentials, HealthKit, OnBoardingKit, MobileCoreServices, GraphicsServices, Accelerate, SoftLinking, CoreDuet, AggregateDictionary, ToneKit, IconFoundation, IconServices, IntlPreferences, CoreText (1 symbols), AppKit (1 symbols), CoreServices (1 symbols) |
 | Console | ConsoleKit, OSAnalytics |
 | Contacts | AccountsDaemon, AccountsUI, AddressBook, AppIntents, Backup, ContactsAutocomplete, ContactsAutocompleteUI, ContactsDonation, ContactsFoundation, ContactsPersistence, ContactsUI, ContactsUICore, CoreData, CoreSuggestions, FamilyCircle, IntlPreferences, PerformanceAnalysis, QuickLook, QuickLookUI, RTTUtilities, SoftLinking, TCC, vCard, MessagesKit, PrintingPrivate, SecurityInterface, ShareKit, ContactsMetrics, ApplicationServices (1 symbols), Foundation (1 symbols), SwiftUI (9 symbols) |
 | Dictionary | MobileAsset, RTTUtilities, WebKit, InternationalSupport, AppKit (2 symbols), Carbon (1 symbols), CoreServices (52 symbols) |
 | Disk Utility | APFS, DiskImages, DiskManagement, FindMyDeviceUI, LoginUIKit, MobileObliteration, Restore, SecurityInterface, StorageKit, apfs_boot_mount, libDiskUnlock.dylib, libsandbox.1.dylib, IASUtilities, LocalAuthenticationRecoveryUI |
-| FaceTime | AddressBookCore, AppSupportUI, CallHistory, CallsAppServices, CallsAppUI, CallsDialer, CallsSearch, CollectionsInternal, CommonUtilities, CommunicationTrust, CommunicationsUI, ContactsAutocomplete, ContactsUI, ConversationKit, CoreEmoji, CorePhoneNumbers, FaceTimeAuthentication, FaceTimeMac, FaceTimeMacHelperCore, FaceTimeMessageStore, FaceTimeNotificationCore, IDS, IMFoundation, LiveCommunicationKit, PhoneKit, RTTUtilities, ScreenTimeUI, SwiftUI, TelephonyUI, TelephonyUtilities, UIKit, FaceTimeDockSupport, AuthKit, AuthKitUI, AppSupport, AVConference, ContactsUICore, CoreTelephony, FrontBoardServices, IMCore, MapsUI, MessageUI, OnBoardingKit, PhoneNumbers, ContactsAutocompleteUI, FaceTimeSettingsUI, FTServices, AVFoundation (1 symbols), Foundation (4 symbols), IOKit (7 symbols) |
+| FaceTime | AddressBookCore, AppSupportUI, CallHistory, CallsAppServices, CallsAppUI, CallsDialer, CallsSearch, CollectionsInternal, CommonUtilities, CommunicationTrust, CommunicationsUI, ContactsAutocomplete, ContactsUI, ConversationKit, CoreEmoji, CorePhoneNumbers, FaceTimeAuthentication, FaceTimeMac, FaceTimeMacHelperCore, FaceTimeMessageStore, FaceTimeNotificationCore, IDS, IMFoundation, LiveCommunicationKit, PhoneKit, RTTUtilities, ScreenTimeUI, SwiftUI, TelephonyUI, TelephonyUtilities, UIKit, FaceTimeDockSupport, AuthKit, AuthKitUI, AppSupport, AVConference, ContactsUICore, CoreTelephony, FrontBoardServices, IMCore, MapsUI, MessageUI, OnBoardingKit, PhoneNumbers, ContactsAutocompleteUI, FaceTimeSettingsUI, FTServices, AccountsUI, DataDetectors, FaceTimeTouchBarSupport, NotificationCenterUI, QuickLookUI, ToneLibrary, UIKitMacHelper, FaceTimeTouchBarProtocols, login, ToneKit, AVFoundation (1 symbols), Foundation (5 symbols), IOKit (7 symbols), CoreGraphics (6 symbols), DataDetectorsCore (2 symbols), SkyLight (2 symbols) |
 | FindMy | AppSupportUI, AuthKitUI, BiomeLibrary, BluetoothManager, ChronoServices, CloudKit, ContactsUI, CoreBluetooth, CoreDuet, CorePhoneNumbers, CryptoKit, FMCore, FMCoreLite, FMCoreUI, FMF, FMFCore, FMIPCore, FindMyBase, FindMyCore, FindMyDevice, FindMyLocate, FindMyMessaging, FindMyUICore, GeoServices, IDS, Intents, MapKit, MapsUI, MessageUI, OnBoardingKit, SPOwner, SPShared, SwiftUI, UIKitMacHelper, _LocationEssentials, _MapKit_SwiftUI, libswiftCoreMedia.dylib, ManagedConfiguration, CoreTelephony, AppSupport, AuthKit, UIKit, ContactsAutocompleteUI |
 | Font Book | IconServices, MobileAsset, Network, FontServices, ApplicationServices, ApplicationServices (7 symbols), CoreServices (7 symbols), CoreText (32 symbols), Foundation (1 symbols), SwiftUI (179 symbols) |
 | Freeform | Accelerate, AppAnalytics, AppIntents, AppSubscriptions, AppleAccount, AppleMediaServices, AppleMediaServicesKitInternal, AppleMediaServicesUIKitInternal, AuthKit, CloudDocs, CloudKit, CloudKitCode, CloudSharing, Coherence, ContactsUI, CoreCDPUI, CoreML, CoreRE, CoreSpotlight, CryptoKit, ExtensionFoundation, ExtensionKit, GroupActivities, IconServices, ImagePlayground, InternalSwiftProtobuf, LinkPresentation, MetalKit, Network, OSEligibility, OnBoardingKit, PDFKit, PencilKit, PhotosFormats, PhotosUI, QuickLookThumbnailing, QuickLookUI, RealityFoundation, RealityKit, RunningBoardServices, SharedWithYou, Symbols, TelephonyUtilities, TipKit, TranslationUIServices, UniversalAccess, VideoToolbox, Vision, VisionKitCore, WebKit, _AppIntents_AppKit, _Coherence_CloudKit_Private, iCloudQuotaUI, libsqlite3.dylib, libusd_ms.dylib, MetalPerformanceShaders, FeedbackService, Photos, _PhotosUI_SwiftUI, AppRemoteAssets, GameplayKit, DeclaredAgeRange, MobileStoreDemoCore, NetworkServiceProxy, RemoteConfiguration, libswiftAppleArchive.dylib, libswiftSystem.dylib, AVFoundation (9 symbols), AppKit (9 symbols), CoreText (2 symbols), Foundation (20 symbols), ImageIO (1 symbols), RecapPerformanceTesting (1 symbols), StoreKit (7 symbols), SwiftUI (189 symbols), libswiftCore (603 symbols), CoreServices (8 symbols) |
 | Games | AppState, AppleMediaServices, BaseBoard, CoreSpotlight, GameCenterFoundation, GameServices, GameStoreKit, JetEngine, ShimGameServices, _JetEngine_SwiftUI, SwiftUI (39 symbols) |
 | Home | AppIntents, HMFoundation, HomeAccessoryControlUI, HomeKitFeatures, HomeRecommendationEngine, HomeUI2, Intents, NetAppsUtilities, Network, OnBoardingKit, RecapPerformanceTesting, UIKit, WebKit, WidgetKit, _AppIntents_SwiftUI, CoreCDP, CoreCDPUI, SwiftUI, AggregateDictionary, AppSupportUI, AuthKit, AssistantServices, ContactsUI, CoreRecents, Home, HomeKit, HomeUI, ManagedConfiguration, NetAppsUtilitiesUI, Sharing, MapKit |
 | Image Playground | ImagePlaygroundInternal, ImagePlayground, Frameworks, SwiftUI (7 symbols) |
-| Journal | Accelerate, AppAnalytics, AppIntents, AsyncAlgorithmsInternal, Charts, CloudKit, Coherence, CollectionsInternal, CoreData, CoreEmoji, CoreSpotlight, GenerativeFunctions, GenerativeFunctionsFoundation, GenerativeModels, GenerativeModelsFoundation, GeoServices, GeoToolbox, HealthKit, HelpKit, IconServices, JournalShared, JournalUI, LinkPresentation, MapKit, MediaPlayer, MobileKeyBag, ModelCatalog, MusicKit, NaturalLanguage, Network, OnBoardingKit, PaperKit, PencilKit, Photos, PhotosFormats, PhotosUI, PhotosUICore, PrintKitUI, PromptKit, RecapPerformanceTesting, Speech, StoreKit, SwiftUI, Symbols, TipKit, TokenGeneration, TokenGenerationCore, UIKitServices, VectorKit, WebKit, WidgetKit, _GeoToolbox_AppIntents, _LocationEssentials, _MapKit_SwiftUI, libswiftAVFoundation.dylib, libswiftCoreLocation.dylib, libswiftCoreMedia.dylib, libswiftMapKit.dylib, libswiftNaturalLanguage.dylib, libswiftSystem.dylib, UIKit, Frameworks, AVFoundation (4 symbols), AppKit (3 symbols), Foundation (31 symbols) |
+| Journal | Accelerate, AppAnalytics, AppIntents, AsyncAlgorithmsInternal, Charts, CloudKit, Coherence, CollectionsInternal, CoreData, CoreEmoji, CoreSpotlight, GenerativeFunctions, GenerativeFunctionsFoundation, GenerativeModels, GenerativeModelsFoundation, GeoServices, GeoToolbox, HealthKit, HelpKit, IconServices, JournalShared, JournalUI, LinkPresentation, MapKit, MediaPlayer, MobileKeyBag, ModelCatalog, MusicKit, NaturalLanguage, Network, OnBoardingKit, PaperKit, PencilKit, Photos, PhotosFormats, PhotosUI, PhotosUICore, PrintKitUI, PromptKit, RecapPerformanceTesting, Speech, StoreKit, SwiftUI, Symbols, TipKit, TokenGeneration, TokenGenerationCore, UIKitServices, VectorKit, WebKit, WidgetKit, _GeoToolbox_AppIntents, _LocationEssentials, _MapKit_SwiftUI, libswiftAVFoundation.dylib, libswiftCoreLocation.dylib, libswiftCoreMedia.dylib, libswiftMapKit.dylib, libswiftNaturalLanguage.dylib, libswiftSystem.dylib, UIKit, Frameworks, CharacterPicker, SidecarCore, SidecarUI, UIKitMacHelper, AVFoundation (4 symbols), AppKit (3 symbols), Foundation (31 symbols) |
 | Magnifier | MagnifierSupport |
 | Mail | AccountsDaemon, AccountsUI, AccountsUISettings, AddressBook, AppIntents, AuthKit, CalendarUIKit, CloudKit, ConfigurationProfiles, ContactsAutocompleteUI, ContactsFoundation, ContactsUI, CoreRecents, CoreSpotlight, CoreSuggestions, CoreSuggestionsUI, DFRFoundation, DataDetectors, Email, EmailAddressing, EmailCore, EmailDaemon, EmailFoundation, EventKit, IMAP, IconServices, Mail, MailCore, MailKit, MailService, MailSupport, MailUI, MarkupUI, NetworkServiceProxy, PDFKit, PassKitCore, PassKitUI, PerformanceAnalysis, PhotosUI, QuickLookUI, SearchFoundation, SecurityInterface, SidecarCore, SocialAppsCore, SpotlightServices, Suggestions, Synapse, TelephonyUtilities, UserNotificationsSettings, WebKit, _AppIntents_AppKit, iCalendar, AppleAccount, Backup, CalendarUI, CrashReporterSupport, icloudMCCKit, SymptomDiagnosticReporter, AppKit (52 symbols), DataDetectorsCore (1 symbols), Foundation (10 symbols), ImageIO (1 symbols), Quartz (1 symbols), UniformTypeIdentifiers (1 symbols), libSystem (1 symbols) |
 | Maps | Accelerate, AppIntents, AppSupportUI, AppleMediaServices, ApplePushService, AssistantServices, AuthenticationServices, BiomeLibrary, Charts, ChronoServices, CommunicationsFilter, ContactsUI, CoreDuet, CoreMotion, CoreRecents, CoreRoutine, CoreSpotlight, CoreSuggestions, CoreTelephony, EventKit, FindMyBase, FindMyLocate, FrontBoardServices, GeoAnalytics, GeoServices, GeoServicesCore, GraphicsServices, IDS, IconFoundation, IconServices, IntentsUI, IntentsCore, LinkPresentation, MapKit, MapsDesign, MapsIntelligence, MapsSuggestions, MapsSupport, MapsSync, MapsUI, Navigation, OnBoardingKit, PassKitCore, PeopleSuggester, Photos, ProtocolBuffer, RecapPerformanceTesting, RunningBoardServices, SAObjects, SafariServices, ShareSheet, SoftLinking, SwiftUI, TCC, TelephonyUtilities, TipKit, UIKitMacHelper, UserManagement, VectorKit, VirtualGarage, WeatherKit, WeatherUI, WebKit, WidgetKit, _AppIntents_UIKit, _LocationEssentials, _MapKit_SwiftUI, iCalendar, libsqlite3.dylib, libswiftCoreLocation.dylib, PerformanceAnalysis, CarPlay, libCTGreenTeaLogger.dylib, JavaScriptCore, ARKit, libarchive.2.dylib, IdleTimerServices, NanoRegistry, IMCore, Speech, Weather, BackBoardServices, CryptoKit, AppleAccount, StoreKit, PersonalizationPortrait, DeviceCheck, CloudKit, AggregateDictionary, Intents, QuickLook, AppSupport, MobileCoreServices, UIKit, AVFoundation (1 symbols), AppKit (3 symbols), Contacts (1 symbols), CoreFoundation (3 symbols), CoreText (1 symbols), DataDetectorsCore (3 symbols), Foundation (3 symbols), GSS (1 symbols), IOKit (8 symbols) |
-| Messages | ChatKit, ContactsUI, FTClientServices, FTServices, IDSFoundation, IMCore, IMSharedUtilities, SoftLinking, UIKit, BackBoardServices, Photos, Marco |
+| Messages | ChatKit, ContactsUI, FTClientServices, FTServices, IDSFoundation, IMCore, IMSharedUtilities, SoftLinking, UIKit, BackBoardServices, Photos, Marco, AAAFoundation, AccountsUI, AppleAccount, CharacterPicker, CoreSuggestions, IMFoundation, ReminderKitUI, ToneKit, ToneLibrary, UIKitMacHelper, CommunicationsFilter, CorePhoneNumbers, DataDetectors, IMDPersistence, CoreServices (1 symbols), DataDetectors (5 symbols), DataDetectorsCore (2 symbols) |
 | Migration Assistant | LoginUIKit, OnBoardingKit, SetupAssistantFramework, login, IASUtilities, AppKit (2 symbols), CoreGraphics (3 symbols), SystemAdministration (1 symbols) |
-| Music | AMPDesktopUI, AMPDevices, AMPLibrary, AVFoundationCF, AVKit, AVRouting, Accelerate, AppIntents, ApplePushService, AppleSRP, ApplicationFirewall, AskPermission, AudioUnit, AuthKitUI, BluetoothServices, CharacterPicker, ConfigurationProfiles, ContactsUI, CoreRecognition, CoreUtils, CrashReporterSupport, CryptoKit, DiscRecording, FamilyCircle, IconServices, JetEngine, JetUI, MediaAccessibility, MediaCoreUI, MediaPlayer, MediaRemote, MediaServices, MediaToolbox, MetalKit, MetalPerformanceShaders, MusicKit, MusicKitInternal, MusicUI_Mac, NaturalLanguage, OnBoardingKit, PIP, PhotosFormats, RTCReporting, ShazamKit, Symbols, ViewBridge, WebKit, _AppIntents_AppKit, _MusicKitInternal_MediaPlayer, iTunesCloud, iTunesLibrary, libexpat.1.dylib, libsqlite3.dylib, libswiftNaturalLanguage.dylib, AppleMediaServices, AuthKit, AOSAccounts, CryptoTokenKit, JavaScriptCore, SoftwareUpdate, MediaLibrary, PhotosUI, AppKit (24 symbols), ApplicationServices (1 symbols), AudioToolbox (8 symbols), CFNetwork (36 symbols), Carbon (17 symbols), CoreAudio (3 symbols), CoreFoundation (6 symbols), CoreGraphics (1 symbols), CoreMedia (10 symbols), CoreServices (4 symbols), CoreText (2 symbols), Foundation (7 symbols), Metal (1 symbols), Quartz (1 symbols), QuartzCore (1 symbols), RecapPerformanceTesting (1 symbols), SwiftUI (2 symbols) |
+| Music | AMPDesktopUI, AMPDevices, AMPLibrary, AVFoundationCF, AVKit, AVRouting, Accelerate, AppIntents, ApplePushService, AppleSRP, ApplicationFirewall, AskPermission, AudioUnit, AuthKitUI, BluetoothServices, CharacterPicker, ConfigurationProfiles, ContactsUI, CoreRecognition, CoreUtils, CrashReporterSupport, CryptoKit, DiscRecording, FamilyCircle, IconServices, JetEngine, JetUI, MediaAccessibility, MediaCoreUI, MediaPlayer, MediaRemote, MediaServices, MediaToolbox, MetalKit, MetalPerformanceShaders, MusicKit, MusicKitInternal, MusicUI_Mac, NaturalLanguage, OnBoardingKit, PIP, PhotosFormats, RTCReporting, ShazamKit, Symbols, ViewBridge, WebKit, _AppIntents_AppKit, _MusicKitInternal_MediaPlayer, iTunesCloud, iTunesLibrary, libexpat.1.dylib, libsqlite3.dylib, libswiftNaturalLanguage.dylib, AppleMediaServices, AuthKit, AOSAccounts, CryptoTokenKit, JavaScriptCore, SoftwareUpdate, MediaLibrary, PhotosUI, CoreSymbolication, AppKit (24 symbols), ApplicationServices (1 symbols), AudioToolbox (8 symbols), CFNetwork (36 symbols), Carbon (17 symbols), CoreAudio (3 symbols), CoreFoundation (6 symbols), CoreGraphics (1 symbols), CoreMedia (10 symbols), CoreServices (4 symbols), CoreText (2 symbols), Foundation (7 symbols), Metal (1 symbols), Quartz (1 symbols), QuartzCore (1 symbols), RecapPerformanceTesting (1 symbols), SwiftUI (2 symbols) |
 | News | AXRuntime, Accelerate, AppIntents, AppSupport, BiomeLibrary, ChronoServices, CookingKit, CookingSupport, CoreSpotlight, Intents, NewsAds, NewsAnalytics, NewsArticles, NewsCore, NewsEngagement, NewsFeed, NewsFoundation, NewsPersonalization, NewsServicesInternal, NewsSubscription, NewsTransport, NewsUI2, PersonalizationPortrait, Silex, TeaFoundation, TeaSnappy, TeaUI, TelephonyUtilities, UIKit, WebKit, WidgetKit, SilexWeb, CloudKit, MobileCoreServices, libsqlite3.dylib, CoreTelephony, MessageUI, StoreKit, AVKit, UIAccessibility, BackBoardServices, ManagedConfiguration, AppStoreDaemon, Weather, ProactiveEventTracker, SearchFoundation, CoreRoutine, OnBoardingKit, SilexVideo, AuthenticationServices, AppleMediaServices, LinkPresentation, AdPlatforms, GraphicsServices, MediaPlayer, InternationalSupport, NewsKit, TVAppServices, CoreParsec, SocialLayer, EmailAddressing, WatchListKit, NewsAnalyticsUpload, NewsDaemon, AppleMediaServicesUI, SoftLinking, TeaSettings, DistributedEvaluation, AppAnalytics, NewsUI |
 | Notes | AVKit, AccountsUI, AppIntents, CloudKitCode, ContactsUI, CoreCDPUI, CoreData, CoreSpotlight, DocumentCamera, ExchangeSyncExpress, GroupActivities, IconServices, Intents, InternalSwiftProtobuf, LinkPresentation, NotesAnalytics, NotesEditor, NotesHTML, NotesShared, NotesSiriUI, NotesSupport, NotesUI, PDFKit, PaperKit, PencilKit, QuickLookUI, ?, SecurityInterface, SharedWithYou, Speech, Synapse, TabularData, TelephonyUtilities, VisionKitCore, WebKit, _AppIntents_AppKit, iCloudQuotaUI, libswiftSystem.dylib, AppleAccount, AuthKit, AuthKitUI, CloudKitCodeProtobuf, ContactsFoundation, CoreEmoji, LocalAuthenticationUI, MarkupUI, QuickLookThumbnailing, SidecarCore, TextComposer, UserManagement, VisionKit, CloudKit, AppKit (11 symbols), CoreText (2 symbols), Foundation (7 symbols), SwiftUI (24 symbols) |
 | Passwords | PasswordManagerUI, SafariCore, SwiftUI (24 symbols) |
-| Phone | AppSupport, CallHistory, CallsAppServices, CallsAppUI, CallsDialer, CallsSearch, CommonUtilities, CommunicationTrust, CommunicationsUI, ContactsUI, ConversationKit, FaceTimeAuthentication, FaceTimeMac, FaceTimeMacHelperCore, FaceTimeMessageStore, IDS, LiveCommunicationKit, PhoneKit, SwiftUI, TelephonyUtilities, UIKit, FaceTimeSettingsUI, FaceTimeDockSupport |
+| Phone | AppSupport, CallHistory, CallsAppServices, CallsAppUI, CallsDialer, CallsSearch, CommonUtilities, CommunicationTrust, CommunicationsUI, ContactsUI, ConversationKit, FaceTimeAuthentication, FaceTimeMac, FaceTimeMacHelperCore, FaceTimeMessageStore, IDS, LiveCommunicationKit, PhoneKit, SwiftUI, TelephonyUtilities, UIKit, FaceTimeSettingsUI, FaceTimeDockSupport, AccountsUI, DataDetectors, FaceTimeTouchBarSupport, NotificationCenterUI, QuickLookUI, ToneLibrary, UIKitMacHelper, FaceTimeTouchBarProtocols, login, OnBoardingKit, ToneKit, CoreGraphics (6 symbols), DataDetectorsCore (2 symbols), Foundation (5 symbols), SkyLight (2 symbols) |
 | Photo Booth | AVKit, AudioUnit, CPAnalytics, DisplayServices, IOPlatformPluginFamily, OpenCL, PerformanceAnalysis, QuickLookUI, SceneKit, ScriptingBridge, VideoToolbox, Vision, WebKit, login, VisionKit, MessagesKit, CrashReporterSupport, MediaToolbox, AVFoundation (7 symbols), AppKit (2 symbols), CoreGraphics (6 symbols), CoreServices (1 symbols), CoreVideo (9 symbols), ImageKit (6 symbols), Quartz (12 symbols) |
 | Photos | AOSUI, AVKit, CPAnalytics, ContactsUI, CoreMediaStream, CoreSpotlight, Feedback, FeedbackService, FileProvider, GeoKit, Geode, GridZero, IMCore, IMFoundation, IconServices, LibraryRepair, MapKit, MediaConversionService, MediaStream, MediaToolbox, Mondrian, NeutrinoCore, NeutrinoKit, OSAKit, OnBoardingKit, PAImaging, PAImagingCore, PhotoFoundation, PhotoFoundationLegacy, PhotoImaging, PhotoLibraryServices, PhotoLibraryServicesCore, PhotoPrintProduct, PhotosSwiftUICore, PhotosFormats, PhotosImagingFoundation, PhotosIntelligence, PhotosPlayer, PhotosUI, PhotosUICore, PhotosUIEdit, PhotosUIFoundation, PhotosUIPrivate, Portrait, QuickLookUI, ShareServicesCore, Slideshows, SocialAppsCore, SocialUI, Tungsten, UXKit, _LocationEssentials, iTunesLibrary, AddressBook, AOSAccounts, QueryParser, CloudPhotoServicesConfiguration, GeoServices, Intents, OpenCL, PerformanceAnalysis, Photos, PlugInKit, SocialLayer, SoftLinking, VideoToolbox, ViewBridge, AVFoundation (2 symbols), AppKit (8 symbols), ApplicationServices (2 symbols), Foundation (7 symbols), ImageIO (1 symbols), RecapPerformanceTesting (1 symbols), SwiftUI (4 symbols), UniformTypeIdentifiers (2 symbols) |
 | Podcasts | AppIntents, AppSupport, AppleMediaServices, AppleMediaServicesUI, AssistantServices, AuthKit, BackgroundTasks, ClassKit, CoreData, CoreSpotlight, Intents, JetEngine, JetUI, LinkPresentation, MediaCoreUI, MediaPlaybackCore, MediaPlayer, MediaRemote, MediaServices, OnBoardingKit, PodcastServices, PodcastsFoundation, PodcastsUI, RunningBoardServices, SAObjects, ShareSheet, SoftLinking, SwiftUI, UIKit, UIKitMacHelper, UserManagement, WidgetKit, _JetEngine_SwiftUI, iTunesCloud, libAccessibility.dylib, AssertionServices, ManagedConfiguration, CoreTelephony, MobileKeyBag, CrashReporterSupport, ApplePushService, CoreSuggestions, PersonalizationPortrait, RecapPerformanceTesting, UserActivity, MessageUI, _AppIntents_SwiftUI, JavaScriptCore, AppIntentsServices, AVRouting, ShazamKit, libswiftAVFoundation.dylib, libswiftCoreMedia.dylib, AccessibilityUtilities, AtomicsInternal, AuthenticationServices, CollectionsInternal, ContactsUI, IconServices, SocialLayer, Symbols, _IconServices_SwiftUI, AVKit, StoreKit, UIAccessibility, _AppIntents_UIKit, libswiftSystem.dylib, AVFoundation (8 symbols), CoreText (1 symbols), AppKit (2 symbols), CoreGraphics (4 symbols), Foundation (1 symbols) |
 | Preview | Accelerate, AnnotationKit, AppIntents, CoreMediaIO, CorePDF, FinderKit, Hydra, MediaAccessibility, MetalKit, PDFKit, PaperKit, PerformanceAnalysis, QuickLook, QuickLookUI, SceneKit, SoftLinking, Synapse, TipKit, VisionKitCore, _AppIntents_AppKit, _LocationEssentials, _MapKit_SwiftUI, ModelIO, AppKit (10 symbols), CoreGraphics (13 symbols), CoreServices (1 symbols), Foundation (1 symbols), ImageCaptureCore (2 symbols), ImageIO (16 symbols), Quartz (6 symbols), QuartzCore (2 symbols), RecapPerformanceTesting (1 symbols), SwiftUI (15 symbols) |
-| Print Center | ActivityKit, AppIntents, LinkMetadata, PDFKit, PrintKit, PrintingPrivate, QuickLookThumbnailing, VoiceShortcutClient, libcups.2.dylib, QuickLook, CoreUtils, AppKit (1 symbols), ApplicationServices (9 symbols), Foundation (1 symbols), SwiftUI (35 symbols) |
+| Print Center | ActivityKit, AppIntents, LinkMetadata, PDFKit, PrintKit, PrintingPrivate, QuickLookThumbnailing, VoiceShortcutClient, libcups.2.dylib, QuickLook, CoreUtils, AppKit (1 symbols), ApplicationServices (8 symbols), Foundation (1 symbols), SwiftUI (35 symbols) |
 | QuickTime Player | AVKit, Accelerate, CoreMediaIO, GeoKit, MediaRemote, MediaToolbox, MobileAsset, MonitorPanel, PerformanceAnalysis, PhotosFormats, QuickLook, QuickLookUI, TCC, VideoToolbox, WebKit, AVFoundation (20 symbols), AppKit (7 symbols), CoreGraphics (13 symbols), CoreMedia (3 symbols), Foundation (6 symbols) |
 | Reminders | AOSKit, AppIntents, AppSupportUI, AppleAccount, AsyncAlgorithmsInternal, CalendarFoundation, CalendarUI, CharacterPicker, CloudKit, ContactsAutocomplete, ContactsAutocompleteUI, ContactsUI, CoreSpotlight, CoreSuggestions, Feedback, FeedbackService, IconServices, LinkPresentation, QuickLookUI, ReminderKitInternal, RemindersAppIntents, RemindersUICore, SharedWithYou, TCC, TipKit, WebKit, AOSAccounts, MapKit, CoreRecents, NLP, ReminderKit, AppKit (2 symbols), SwiftUI (5 symbols) |
 | Screen Sharing | AddressBook, CommunicationsFilter, ConfigurationProfiles, ContactsUI, CorePhoneNumbers, ScreenSharing, SocialAppsCore, TimeSync, ConversationKit, Kerberos, KerberosHelper, PreferencePanes, PhoneNumbers, Foundation (1 symbols), SwiftUI (47 symbols) |
@@ -726,11 +737,11 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | Stocks | AppAnalytics, AppIntents, NewsAds, NewsArticles, NewsCore, NewsEngagement, NewsFeed, NewsPersonalization, NewsSubscription, NewsUI, ShareSheet, Silex, StocksAnalytics, StocksCore, StocksPersonalization, StocksUI, TeaCharts, TeaDB, TeaFoundation, TeaSettings, TeaSnappy, TeaTemplate, TeaUI, UIKit, WidgetKit, _AppIntents_UIKit, StocksKit, EventKitUI, EventKit, NewsFoundation |
 | System Information | AboutSettings, AppleSystemInfo, CoreDisplay, DeviceRegulatoryInfo, ExpansionSlotSupport, IconServices, PDFKit, SPSupport, Seeding, SystemDesktopAppearance, AOSUI, AppleAccount, CrashReporterSupport, NewDeviceOutreachMacUI, ViewBridge, PrivateFrameworks, AppKit (1 symbols), CoreGraphics (5 symbols) |
 | System Settings | AppleSystemInfo, BaseBoard, BiomeLibrary, CoreFollowUpUI, CoreSpotlight, ExtensionFoundation, IconServices, PreferencePanesSupport, Settings, SystemDesktopAppearance, _IconServices_SwiftUI, ViewBridge, AOSUI, CoreFollowUp, PreferencePanes, DeauthorizationKit, AppKit (1 symbols), Foundation (1 symbols), SwiftUI (85 symbols) |
-| TV | AMPDesktopUI, AMPDevices, AMPLibrary, AVFoundationCF, AVKit, AVRouting, AccessibilitySupport, AppleMediaServices, ApplePushService, ApplicationFirewall, AskPermission, AuthKit, AuthKitUI, ConfigurationProfiles, CoreRecognition, CrashReporterSupport, FamilyCircle, MediaAccessibility, MediaRemote, MediaToolbox, OnBoardingKit, PIP, PhotosFormats, RTCReporting, RemoteServiceDiscovery, SymptomDiagnosticReporter, TVLibrary, VideosUI, WebKit, iTunesCloud, libAccessibility.dylib, libexpat.1.dylib, libsqlite3.dylib, iTunesLibrary, Accelerate, AppleSRP, InternationalSupport, ClassroomKit, IntlPreferences, CoreUtils, AOSAccounts, IconServices, CryptoTokenKit, JavaScriptCore, ViewBridge, AppKit (13 symbols), ApplicationServices (1 symbols), AudioToolbox (1 symbols), CFNetwork (36 symbols), Carbon (16 symbols), CoreAudio (3 symbols), CoreMedia (10 symbols), CoreServices (4 symbols), Foundation (5 symbols), Quartz (1 symbols) |
+| TV | AMPDesktopUI, AMPDevices, AMPLibrary, AVFoundationCF, AVKit, AVRouting, AccessibilitySupport, AppleMediaServices, ApplePushService, ApplicationFirewall, AskPermission, AuthKit, AuthKitUI, ConfigurationProfiles, CoreRecognition, CrashReporterSupport, FamilyCircle, MediaAccessibility, MediaRemote, MediaToolbox, OnBoardingKit, PIP, PhotosFormats, RTCReporting, RemoteServiceDiscovery, SymptomDiagnosticReporter, TVLibrary, VideosUI, WebKit, iTunesCloud, libAccessibility.dylib, libexpat.1.dylib, libsqlite3.dylib, iTunesLibrary, Accelerate, AppleSRP, InternationalSupport, ClassroomKit, IntlPreferences, CoreUtils, AOSAccounts, IconServices, CryptoTokenKit, JavaScriptCore, ViewBridge, CoreSymbolication, AppKit (13 symbols), ApplicationServices (1 symbols), AudioToolbox (1 symbols), CFNetwork (36 symbols), Carbon (16 symbols), CoreAudio (3 symbols), CoreMedia (10 symbols), CoreServices (4 symbols), Foundation (5 symbols), Quartz (1 symbols) |
 | Tips | AppIntents, AssistantServices, CoreSpotlight, CrashReporterSupport, HelpData, IntentsCore, LinkPresentation, PegasusAPI, TipsCore, TipsUI, WebKit, _AppIntents_SwiftUI, AppKit (1 symbols), Foundation (2 symbols), SwiftUI (63 symbols) |
 | VoiceMemos | Accelerate, AccessibilityUtilities, AppAnalytics, AppIntents, AppSupportUI, AppleMediaServices, AssistantServices, AudioToolboxCore, Cinematic, CoreData, CoreSpotlight, LinkPresentation, NaturalLanguage, OnBoardingKit, PencilKit, RecapPerformanceTesting, ShareSheet, Speech, StoreKit, SwiftUI, Symbols, TelephonyUtilities, TipKit, UIAccessibility, UIKit, UserManagement, VoiceMemos, WidgetKit, _AppIntents_UIKit, libswiftAVFoundation.dylib, libswiftCoreAudio.dylib, libswiftCoreMedia.dylib, libswiftNaturalLanguage.dylib, MediaExperience, RunningBoardServices, MediaToolbox, CloudKit, AppSupport, FrontBoardServices, NetAppsUtilities, MediaRemote, MediaServices, AVFoundation (13 symbols), AppKit (2 symbols), Foundation (1 symbols), QuartzCore (2 symbols) |
 | VoiceOver Utility | AXAssetLoader, AXCoreUtilities, AccessibilityUtilities, AccessibilitySettingsUI, AccessibilitySharedSupport, ScreenReader, CoreBluetooth, CoreBluetoothUI, IconFoundation, IconServices, MultitouchSupport, ScreenReaderCore, SoftLinking, SpeechObjects, TextToSpeechVoiceBankingUI, TranslationUI, UniversalAccess, libAXSafeCategoryBundle.dylib, AccessibilitySharedUISupport, AccessibilitySupport, TextToSpeech, AppKit (1 symbols), ApplicationServices (1 symbols), CoreAudio (1 symbols), Foundation (2 symbols), SwiftUI (39 symbols), SystemAdministration (2 symbols), libScreenReader (2 symbols) |
-| Weather | AppAnalytics, AppIntents, AppleMediaServices, BackgroundTaskManagement, Charts, Coherence, CoreHaptics, CoreSuggestionsUI, CryptoKit, GeoServices, IconServices, Intents, MapKit, Network, NewsFeed, NewsKit, OnBoardingKit, RecapPerformanceTesting, SafariServices, SwiftUI, TeaDB, TeaFoundation, TeaSettings, TeaUI, TipKit, UIKit, VFX, WeatherAnalytics, WeatherAppSupport, WeatherCore, WeatherDaemon, WeatherKit, WeatherMaps, WeatherUI, WidgetKit, _AppIntents_SwiftUI, _AppIntents_UIKit, _LocationEssentials, libAccessibility.dylib, AppSSOCore, SyncedDefaults, Foundation (6 symbols), QuartzCore (1 symbols) |
+| Weather | AppAnalytics, AppIntents, AppleMediaServices, BackgroundTaskManagement, Charts, Coherence, CoreHaptics, CoreSuggestionsUI, CryptoKit, GeoServices, IconServices, Intents, MapKit, Network, NewsFeed, NewsKit, OnBoardingKit, RecapPerformanceTesting, SafariServices, SwiftUI, TeaDB, TeaFoundation, TeaSettings, TeaUI, TipKit, UIKit, VFX, WeatherAnalytics, WeatherAppSupport, WeatherCore, WeatherDaemon, WeatherKit, WeatherMaps, WeatherUI, WidgetKit, _AppIntents_SwiftUI, _AppIntents_UIKit, _LocationEssentials, libAccessibility.dylib, AppSSOCore, SyncedDefaults, UIKitMacHelper, Foundation (6 symbols), QuartzCore (1 symbols), AppKit (2 symbols) |
 | iPhone Mirroring | ScreenContinuityServices, ScreenSharingKit, BaseBoard, LocalAuthenticationUI, Network, RemoteTextInput, UniversalDrag, UniversalHID, WiFiPeerToPeer, CoreFoundation (1 symbols), CoreGraphics (1 symbols), SwiftUI (96 symbols) |
 
 Ready: Apps, Bluetooth File Exchange, ColorSync Utility, Digital Color Meter, Grapher, Image Capture, Mission Control, Screenshot, Siri, Stickies, Terminal, TextEdit, Time Machine.
