@@ -1,0 +1,75 @@
+Security source: Finch
+empty path: pass (-50)
+empty path returned no keychain: pass
+invalid UTF-8 path: pass (-50)
+invalid UTF-8 returned no keychain: pass
+test folder is private: pass
+create: pass (0)
+create returned a keychain: pass
+status: pass (0)
+status reports unlocked: pass
+add dummy secret: pass (0)
+read dummy secret: pass (0)
+first secret matches: pass
+update dummy secret: pass (0)
+read updated secret: pass (0)
+updated secret matches: pass
+create existing keychain: pass (-25296)
+duplicate create returned no keychain: pass
+duplicate create left file unchanged: pass
+reopen: pass (0)
+read after reopen: pass (0)
+saved secret survived reopen: pass
+make malformed fixture: pass
+malformed status: pass (-25295)
+failed status cleared output: pass
+read malformed file: pass (-25295)
+malformed read returned no secret: pass
+write malformed file: pass (-25295)
+open malformed file: pass (-25295)
+invalid open returned no keychain: pass
+create over malformed file: pass (-25295)
+invalid create returned no keychain: pass
+delete malformed file: pass (-25295)
+rejected file stayed untouched: pass
+make victim file: pass
+make symlink: pass
+open symlink: pass (-25295)
+symlink open returned no keychain: pass
+create over symlink: pass (-25295)
+symlink create returned no keychain: pass
+symlink target stayed untouched: pass
+make FIFO: pass
+open FIFO without waiting: pass (-25295)
+FIFO open returned no keychain: pass
+create over FIFO without waiting: pass (-25295)
+FIFO create returned no keychain: pass
+FIFO stayed in place: pass
+make hard-link source: pass
+make hard link: pass
+open hard-linked file: pass (-25295)
+hard-link open returned no keychain: pass
+create over hard-linked file: pass (-25295)
+hard-link create returned no keychain: pass
+hard-linked contents stayed untouched: pass
+make permissive file: pass
+open permissions on fixture: pass
+open permissive file: pass (-25295)
+create over permissive file: pass (-25295)
+permissive file stayed untouched: pass
+make existing empty file: pass
+create over empty file: pass (-25295)
+open empty file: pass (-25295)
+empty file stayed empty: pass
+make oversized file: pass
+open oversized file: pass (-25295)
+create over oversized file: pass (-25295)
+oversized file stayed in place: pass
+make public parent: pass
+create under public folder: pass (-25243)
+public parent got no keychain: pass
+create delete fixture: pass (0)
+delete valid keychain: pass (0)
+status missing file: pass (-25294)
+missing status cleared output: pass
+failures: 0

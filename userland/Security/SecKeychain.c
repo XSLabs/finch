@@ -97,9 +97,18 @@ static CFStringRef homeDirectory(void)
 /* Relative keychain paths are relative to ~/Library/Keychains, as Apple's. */
 static CFStringRef absolutePath(const char *path)
 {
+	if (!path || !*path)
+		return NULL;
+	/* (bytes that aren't UTF-8 name no keychain) */
+	CFStringRef check = CFStringCreateWithBytes(NULL, (const UInt8 *)path, (CFIndex)strlen(path), kCFStringEncodingUTF8, false);
+	if (!check)
+		return NULL;
+	CFRelease(check);
 	if (path[0] == '/')
 		return CFStringCreateWithCString(NULL, path, kCFStringEncodingUTF8);
 	CFStringRef home = homeDirectory();
+	if (!home)
+		return NULL;
 	CFStringRef p = CFStringCreateWithFormat(NULL, NULL, CFSTR("%@/Library/Keychains/%s"), home, path);
 	CFRelease(home);
 	return p;
@@ -107,7 +116,11 @@ static CFStringRef absolutePath(const char *path)
 
 static SecKeychainRef keychainCreate(CFStringRef path)
 {
+	if (!path)
+		return NULL;
 	Keychain *k = (Keychain *)_SecCreateInstance(SecKeychainGetTypeID(), sizeof(*k));
+	if (!k)
+		return NULL;
 	k->path = CFRetain(path);
 	return (SecKeychainRef)k;
 }
@@ -134,21 +147,232 @@ typedef struct {
 	CFMutableDictionaryRef db;
 	CFMutableArrayRef items;
 	bool dirty;
+	bool created;
 } Store;
 
-static void mkdirs(const char *path)
+/* The file contains secrets, so never trust a keychain path just because
+ * open(2) succeeded. Resolve only the known macOS /tmp and /var aliases,
+ * then walk the path without following any other links. */
+static OSStatus pathError(int error)
 {
-	char dir[PATH_MAX];
-	strlcpy(dir, path, sizeof(dir));
-	char *slash = strrchr(dir, '/');
-	if (!slash || slash == dir)
-		return;
-	*slash = 0;
+	if (error == ENOENT)
+		return errSecNoSuchKeychain;
+	if (error == EACCES || error == EPERM)
+		return errSecNoAccessForItem;
+	if (error == ELOOP || error == ENOTDIR)
+		return errSecInvalidKeychain;
+	return errSecIO;
+}
+
+static bool trustedTempDirectory(const char *path)
+{
+	return !strcmp(path, "/tmp") || !strcmp(path, "/var/tmp") ||
+	    !strcmp(path, "/private/tmp") || !strcmp(path, "/private/var/tmp");
+}
+
+/* Only these two aliases are followed. Any other symlink in a supplied
+ * parent path is rejected by the no-follow directory walk below. */
+static OSStatus resolveAllowedAlias(const char *path, char out[PATH_MAX])
+{
+	const char *alias = NULL;
+	const char *allowedA = NULL, *allowedB = NULL;
+	if (!strncmp(path, "/tmp", 4) && (path[4] == 0 || path[4] == '/')) {
+		alias = "/tmp";
+		allowedA = "/tmp";
+		allowedB = "/private/tmp";
+	} else if (!strncmp(path, "/var", 4) && (path[4] == 0 || path[4] == '/')) {
+		alias = "/var";
+		allowedA = "/var";
+		allowedB = "/private/var";
+	}
+	if (!alias)
+		return strlcpy(out, path, PATH_MAX) >= PATH_MAX ? errSecParam : 0;
+	char target[PATH_MAX];
+	if (!realpath(alias, target))
+		return pathError(errno);
+	if (strcmp(target, allowedA) && strcmp(target, allowedB))
+		return errSecNoAccessForItem;
+	int n = snprintf(out, PATH_MAX, "%s%s", target, path + strlen(alias));
+	return n < 0 || n >= PATH_MAX ? errSecParam : 0;
+}
+
+static OSStatus checkDirectory(int fd, const char *path, bool *created, bool privateLeaf)
+{
 	struct stat st;
-	if (stat(dir, &st) == 0)
-		return;
-	mkdirs(dir);
-	mkdir(dir, 0700);
+	if (fstat(fd, &st) < 0)
+		return errSecIO;
+	if (!S_ISDIR(st.st_mode) || (st.st_uid != geteuid() && st.st_uid != 0))
+		return errSecNoAccessForItem;
+	if (created && *created) {
+		/* Only fix permissions on directories this call created. */
+		if (st.st_uid != geteuid())
+			return errSecNoAccessForItem;
+		if (fchmod(fd, 0700) < 0)
+			return errSecIO;
+		*created = false;
+		if (fstat(fd, &st) < 0)
+			return errSecIO;
+	}
+	if (privateLeaf) {
+		/* The keychain's own folder: the user's, and nobody else may write
+		 * in it (Apple's ~/Library/Keychains is 0755; the files are 0600). */
+		if (st.st_uid != geteuid() || (st.st_mode & 0022))
+			return errSecNoAccessForItem;
+	} else if ((st.st_mode & 0022) &&
+	    !(st.st_uid == 0 && (st.st_mode & S_ISVTX) && trustedTempDirectory(path)))
+		return errSecNoAccessForItem;
+	return 0;
+}
+
+static OSStatus openParentDirectory(const char *path, bool create, int *parentFD,
+	char leaf[NAME_MAX + 1])
+{
+	if (!path || path[0] != '/' || !parentFD || !leaf)
+		return errSecParam;
+	*parentFD = -1;
+	size_t pathLength = strlen(path);
+	if (pathLength == 0 || pathLength >= PATH_MAX || path[pathLength - 1] == '/')
+		return errSecParam;
+	char fullPath[PATH_MAX];
+	strlcpy(fullPath, path, sizeof(fullPath));
+	char *slash = strrchr(fullPath, '/');
+	if (!slash)
+		return errSecParam;
+	const char *name = slash + 1;
+	if (!*name || !strcmp(name, ".") || !strcmp(name, "..") || strlen(name) > NAME_MAX)
+		return errSecParam;
+	strlcpy(leaf, name, NAME_MAX + 1);
+	char parent[PATH_MAX];
+	if (slash == fullPath)
+		strlcpy(parent, "/", sizeof(parent));
+	else {
+		*slash = 0;
+		if (strlcpy(parent, fullPath, sizeof(parent)) >= sizeof(parent))
+			return errSecParam;
+	}
+	OSStatus err = resolveAllowedAlias(parent, fullPath);
+	if (err)
+		return err;
+	int fd = -1;
+	if (strlcpy(parent, fullPath, sizeof(parent)) >= sizeof(parent))
+		return errSecParam;
+	/* Walk the path directly. This rejects arbitrary parent symlinks instead
+	 * of letting realpath silently turn them into another trusted location. */
+	fd = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	if (fd < 0)
+		return pathError(errno);
+	err = checkDirectory(fd, "/", NULL, false);
+	if (err) {
+		close(fd);
+		return err;
+	}
+	char current[PATH_MAX] = "/";
+	char *cursor = parent + 1;
+	while (*cursor) {
+		char *nextSlash = strchr(cursor, '/');
+		if (nextSlash)
+			*nextSlash = 0;
+		if (!*cursor && nextSlash) {
+			/* (an empty component, "a//b", names the same folder) */
+			cursor = nextSlash + 1;
+			continue;
+		}
+		if (!*cursor || !strcmp(cursor, ".") || !strcmp(cursor, "..")) {
+			close(fd);
+			return errSecInvalidKeychain;
+		}
+		if (strlen(cursor) > NAME_MAX) {
+			close(fd);
+			return errSecParam;
+		}
+		bool made = false;
+		int child = openat(fd, cursor, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+		if (child < 0 && errno == ENOENT && create) {
+			if (mkdirat(fd, cursor, 0700) == 0)
+				made = true;
+			else if (errno != EEXIST) {
+				err = pathError(errno);
+				close(fd);
+				return err;
+			}
+			child = openat(fd, cursor, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+		}
+		if (child < 0) {
+			err = pathError(errno);
+			close(fd);
+			return err;
+		}
+		size_t used = strlen(current), remaining = sizeof(current) - used;
+		int n = snprintf(current + used, remaining, !strcmp(current, "/") ? "%s" : "/%s", cursor);
+		if (n < 0 || (size_t)n >= remaining) {
+			close(fd);
+			close(child);
+			return errSecParam;
+		}
+		err = checkDirectory(child, current, &made, nextSlash == NULL);
+		close(fd);
+		if (err) {
+			close(child);
+			return err;
+		}
+		fd = child;
+		if (!nextSlash)
+			break;
+		cursor = nextSlash + 1;
+	}
+	*parentFD = fd;
+	return 0;
+}
+
+static OSStatus checkKeychainFile(int fd, struct stat *out)
+{
+	struct stat st;
+	if (fstat(fd, &st) < 0)
+		return errSecIO;
+	if (!S_ISREG(st.st_mode) || st.st_uid != geteuid() || st.st_nlink != 1 ||
+	    (st.st_mode & 07777) != 0600)
+		return errSecInvalidKeychain;
+	if (out)
+		*out = st;
+	return 0;
+}
+
+static OSStatus openKeychainFile(int parentFD, const char *leaf, bool write,
+	bool create, int *fdOut, bool *created)
+{
+	*fdOut = -1;
+	*created = false;
+	int flags = (write ? O_RDWR : O_RDONLY) | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK;
+	int fd;
+	if (create) {
+		fd = openat(parentFD, leaf, flags | O_CREAT | O_EXCL, 0600);
+		if (fd >= 0)
+			*created = true;
+		else if (errno == EEXIST)
+			fd = openat(parentFD, leaf, flags);
+	} else
+		fd = openat(parentFD, leaf, flags);
+	if (fd < 0)
+		return pathError(errno);
+	OSStatus err = 0;
+	if (*created) {
+		struct stat st;
+		if (fstat(fd, &st) < 0)
+			err = errSecIO;
+		else if (!S_ISREG(st.st_mode) || st.st_uid != geteuid() || st.st_nlink != 1)
+			err = errSecInvalidKeychain;
+		else if (fchmod(fd, 0600) < 0)
+			err = errSecIO;
+	}
+	if (!err)
+		err = checkKeychainFile(fd, NULL);
+	if (err) {
+		close(fd);
+		*fdOut = -1;
+		return err;
+	}
+	*fdOut = fd;
+	return 0;
 }
 
 /* Opens a keychain file, locked. create: make it if missing (the default
@@ -160,23 +384,57 @@ static OSStatus storeOpen(SecKeychainRef kc, bool write, bool create, Store *s)
 	s->fd = -1;
 	if (!pathOf(kc, path, sizeof(path)))
 		return errSecParam;
-	if (create)
-		mkdirs(path);
-	s->fd = open(path, (write ? O_RDWR : O_RDONLY) | (create ? O_CREAT : 0) | O_CLOEXEC, 0600);
-	if (s->fd < 0)
-		return errno == ENOENT ? errSecNoSuchKeychain : errSecIO;
+	int parentFD = -1;
+	char leaf[NAME_MAX + 1];
+	OSStatus err = openParentDirectory(path, create, &parentFD, leaf);
+	if (err)
+		return err;
+	err = openKeychainFile(parentFD, leaf, write, create, &s->fd, &s->created);
+	close(parentFD);
+	if (err)
+		return err;
 	if (flock(s->fd, write ? LOCK_EX : LOCK_SH) < 0) {
 		close(s->fd);
 		s->fd = -1;
 		return errSecIO;
 	}
 	struct stat st;
-	fstat(s->fd, &st);
+	err = checkKeychainFile(s->fd, &st);
+	if (err) {
+		close(s->fd);
+		s->fd = -1;
+		return err;
+	}
+	if (st.st_size < 0 || st.st_size > 64 * 1024 * 1024) {
+		close(s->fd);
+		s->fd = -1;
+		return errSecInvalidKeychain;
+	}
 	if (st.st_size > 0) {
-		CFMutableDataRef d = CFDataCreateMutable(NULL, st.st_size);
-		CFDataSetLength(d, st.st_size);
-		ssize_t n = pread(s->fd, CFDataGetMutableBytePtr(d), st.st_size, 0);
-		CFPropertyListRef p = n == st.st_size
+		CFMutableDataRef d = CFDataCreateMutable(NULL, (CFIndex)st.st_size);
+		if (!d) {
+			close(s->fd);
+			s->fd = -1;
+			return errSecAllocate;
+		}
+		CFDataSetLength(d, (CFIndex)st.st_size);
+		UInt8 *bytes = CFDataGetMutableBytePtr(d);
+		if (!bytes) {
+			CFRelease(d);
+			close(s->fd);
+			s->fd = -1;
+			return errSecAllocate;
+		}
+		size_t wanted = (size_t)st.st_size, offset = 0;
+		while (offset < wanted) {
+			ssize_t n = pread(s->fd, bytes + offset, wanted - offset, (off_t)offset);
+			if (n < 0 && errno == EINTR)
+				continue;
+			if (n <= 0)
+				break;
+			offset += (size_t)n;
+		}
+		CFPropertyListRef p = offset == wanted
 		    ? CFPropertyListCreateWithData(NULL, d, kCFPropertyListMutableContainersAndLeaves, NULL, NULL)
 		    : NULL;
 		CFRelease(d);
@@ -190,9 +448,18 @@ static OSStatus storeOpen(SecKeychainRef kc, bool write, bool create, Store *s)
 		}
 		s->db = (CFMutableDictionaryRef)p;
 		s->items = (CFMutableArrayRef)CFDictionaryGetValue(s->db, CFSTR("items"));
-	} else {
+	} else if (s->created) {
 		s->db = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 		s->items = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+		if (!s->db || !s->items) {
+			if (s->db)
+				CFRelease(s->db);
+			if (s->items)
+				CFRelease(s->items);
+			close(s->fd);
+			s->fd = -1;
+			return errSecAllocate;
+		}
 		CFDictionarySetValue(s->db, CFSTR("items"), s->items);
 		CFRelease(s->items);
 		int v = 1;
@@ -200,6 +467,10 @@ static OSStatus storeOpen(SecKeychainRef kc, bool write, bool create, Store *s)
 		CFDictionarySetValue(s->db, CFSTR("version"), n);
 		CFRelease(n);
 		s->dirty = write;
+	} else {
+		close(s->fd);
+		s->fd = -1;
+		return errSecInvalidKeychain;
 	}
 	return 0;
 }
@@ -348,21 +619,20 @@ OSStatus SecKeychainCreate(const char *pathName, UInt32 passwordLength, const vo
 		return errSecParam;
 	*keychain = NULL;
 	CFStringRef path = absolutePath(pathName);
+	if (!path)
+		return errSecParam;
 	SecKeychainRef kc = keychainCreate(path);
 	CFRelease(path);
-	char p[PATH_MAX];
-	pathOf(kc, p, sizeof(p));
-	mkdirs(p);
-	int fd = open(p, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
-	if (fd < 0) {
-		CFRelease(kc);
-		return errno == EEXIST ? errSecDuplicateKeychain : errSecIO;
-	}
-	close(fd);
+	if (!kc)
+		return errSecAllocate;
 	Store s;
-	OSStatus st = storeOpen(kc, true, false, &s);
-	if (st == 0)
+	OSStatus st = storeOpen(kc, true, true, &s);
+	bool created = st == 0 && s.created;
+	if (st == 0) {
 		st = storeClose(&s);
+		if (st == 0 && !created)
+			st = errSecDuplicateKeychain;
+	}
 	if (st) {
 		CFRelease(kc);
 		return st;
@@ -376,9 +646,23 @@ OSStatus SecKeychainOpen(const char *pathName, SecKeychainRef *keychain)
 {
 	if (!pathName || !keychain)
 		return errSecParam;
+	*keychain = NULL;
 	CFStringRef path = absolutePath(pathName);
-	*keychain = keychainCreate(path);
+	if (!path)
+		return errSecParam;
+	SecKeychainRef kc = keychainCreate(path);
 	CFRelease(path);
+	if (!kc)
+		return errSecAllocate;
+	Store s;
+	OSStatus st = storeOpen(kc, false, false, &s);
+	if (!st)
+		st = storeClose(&s);
+	if (st) {
+		CFRelease(kc);
+		return st;
+	}
+	*keychain = kc;
 	return 0;
 }
 
@@ -397,10 +681,42 @@ OSStatus SecKeychainDelete(SecKeychainRef keychainOrArray)
 	}
 	if (!isType(keychainOrArray, SecKeychainGetTypeID()))
 		return errSecInvalidKeychain;
-	char p[PATH_MAX];
-	pathOf(keychainOrArray, p, sizeof(p));
-	if (unlink(p) < 0)
-		return errSecNoSuchKeychain;
+	char p[PATH_MAX], leaf[NAME_MAX + 1];
+	if (!pathOf(keychainOrArray, p, sizeof(p)))
+		return errSecInvalidKeychain;
+	int parentFD = -1;
+	OSStatus st = openParentDirectory(p, false, &parentFD, leaf);
+	if (st)
+		return st;
+	/* Keep the validated file descriptor and its lock through unlink. */
+	Store contents;
+	st = storeOpen((SecKeychainRef)keychainOrArray, false, false, &contents);
+	if (st) {
+		close(parentFD);
+		return st;
+	}
+	if (flock(contents.fd, LOCK_EX) < 0) {
+		storeClose(&contents);
+		close(parentFD);
+		return errSecIO;
+	}
+	struct stat opened, current;
+	st = checkKeychainFile(contents.fd, &opened);
+	if (!st &&
+	    fstatat(parentFD, leaf, &current, AT_SYMLINK_NOFOLLOW) < 0) {
+		st = errno == ENOENT ? errSecNoSuchKeychain : errSecIO;
+	} else if (!st && (!S_ISREG(current.st_mode) || current.st_uid != geteuid() ||
+	    current.st_nlink != 1 || (current.st_mode & 07777) != 0600 ||
+	    current.st_dev != opened.st_dev || current.st_ino != opened.st_ino)) {
+		st = errSecInvalidKeychain;
+	} else if (!st && unlinkat(parentFD, leaf, 0) < 0)
+		st = pathError(errno);
+	OSStatus closeStatus = storeClose(&contents);
+	close(parentFD);
+	if (!st)
+		st = closeStatus;
+	if (st)
+		return st;
 	notify(kSecKeychainListChangedEvent, keychainOrArray, NULL);
 	return 0;
 }
@@ -472,15 +788,20 @@ OSStatus SecKeychainGetStatus(SecKeychainRef keychain, SecKeychainStatus *status
 {
 	if (!status)
 		return errSecParam;
+	*status = 0;
 	SecKeychainRef kc = keychain ? (SecKeychainRef)CFRetain(keychain) : defaultKeychain();
-	char p[PATH_MAX];
-	pathOf(kc, p, sizeof(p));
+	if (!isType(kc, SecKeychainGetTypeID())) {
+		CFRelease(kc);
+		return errSecInvalidKeychain;
+	}
+	Store s;
+	OSStatus st = storeOpen(kc, false, false, &s);
+	if (!st)
+		st = storeClose(&s);
 	CFRelease(kc);
-	if (access(p, F_OK) < 0)
-		return errSecNoSuchKeychain;
-	*status = kSecUnlockStateStatus | (access(p, R_OK) == 0 ? kSecReadPermStatus : 0) |
-	    (access(p, W_OK) == 0 ? kSecWritePermStatus : 0);
-	return 0;
+	if (!st)
+		*status = kSecUnlockStateStatus | kSecReadPermStatus | kSecWritePermStatus;
+	return st;
 }
 
 /* Finch's keychains aren't encrypted: locking and unlocking always succeed. */

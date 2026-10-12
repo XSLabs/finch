@@ -9,4 +9,6 @@ exec "${FINCH_ROOT}/tools/build-small-framework.sh" \
     "${FINCH_ROOT}/userland/AVFAudio/AVAudioBuffer.m" \
     "${FINCH_ROOT}/userland/AVFAudio/AVAudioFile.m" \
     "${FINCH_ROOT}/userland/AVFAudio/AVAudioConverter.m" \
+    "${FINCH_ROOT}/userland/AVFAudio/AVAudioTime.m" \
+    "${FINCH_ROOT}/userland/AVFAudio/AVAudioEngine.m" \
     -- -framework Foundation -framework AudioToolbox -framework CoreMedia

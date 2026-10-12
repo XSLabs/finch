@@ -27,8 +27,14 @@ SHA-256 during the build. The image includes its source record and MPL 2.0
 licence. Updating the pin and shipping refreshed roots remain release work;
 there is no automatic certificate download or revocation fetch.
 
-The file keychain stores items across calls and processes, with file locks,
-owner-only permissions and duplicate checks. It is **not encrypted**. Authorization
+The file keychain stores items across calls and processes, with file locks and
+duplicate checks. Its path is walked without following links (except the system's
+/tmp and /var aliases); every folder on the way must belong to the user or root and
+not be writable by others (a sticky temporary folder excepted), and the file must be
+the user's own regular file, mode 0600, with one link and a sane size. It is **not
+encrypted** yet: the authenticated-encryption format (`SecKeychainCrypto.c`,
+PBKDF2-SHA256 and AES-GCM) is written and tested on its own but not used by the file
+keychain. Lock and unlock calls currently do not protect stored items. Authorization
 rules run inside the calling process; there is no shared authorization service
 or password dialog. Code checks read signatures and validate file hashes,
 resources and CMS signatures. Requirement parsing and trust serialization also

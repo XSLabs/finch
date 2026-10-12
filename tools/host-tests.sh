@@ -28,7 +28,7 @@ trap 'rm -rf "${TMP}"' EXIT
 
 # name|arguments: comparison tests (arguments are relative to the repo root)
 COMPARE=(
-    "avaudio-file-test|" "avaudio-converter-test|"
+    "avaudio-file-test|" "avaudio-converter-test|" "avaudio-engine-test|"
     "cf-test|" "foundation-test|" "intl-test|" "misc-test|" "data-test|" "collections-test|" "kvc-test|" "typedstream-test|" "tiff-test|" "colorsync-test|" "hiservices-test|" "scripting-test|" "cfnetwork-test|" "coreimage-test|" "cgevent-test|" "keylayout-test|" "contacts-test|" "accounts-test|" "metal-test|" "iosurface-test|" "gss-test|" "cfurl-test|" "pasteboard-test|" "coremedia-test|" "corevideo-test|" "audiotoolbox-test|" "audioconverter-test|" "extaudiofile-test|" "extaudiofile-test|--src-check"
     "archive-test|" "predicate-test|" "measurement-test|" "bridge-test|" "streams-test|" "documents-test|"
     "files-test|" "xmlparser-test|" "cfnotify-test|" "l10n-test|" "uti-test|" "cg-test|" "imageio-test|"
@@ -41,7 +41,7 @@ COMPARE=(
 )
 # Finch-only window-server tests and their expected output
 EXPECT=(window controls-window menu-window text-window panels-window tables-window statusbar)
-FINCH_ONLY=("security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "configd-daemon-test|")
+FINCH_ONLY=("keychain-crypto-test|" "security-keychain-storage-test|" "security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "configd-daemon-test|")
 
 want() {
     [[ $# -eq 0 || -z "${SELECTED}" ]] && return 0

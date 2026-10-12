@@ -555,6 +555,8 @@ $(OUT)/finch-socket-test: socket-test.c
 	codesign -f -s - -i org.finch.test.socket $@
 
 clean:
+	rm -f $(OUT)/finch-keychain-crypto-test
+	rm -f $(OUT)/finch-security-keychain-storage-test
 	rm -f $(OUT)/finch-console-policy-test
 	rm -f $(OUT)/finch-audioconverter-test $(OUT)/finch-security-roots-test
 	rm -f $(OUT)/finch-extaudiofile-test $(OUT)/finch-audiounit-test $(OUT)/finch-audioqueue-test $(OUT)/finch-avaudio-buffer-test $(OUT)/finch-mdnsd-test
@@ -680,6 +682,18 @@ $(OUT)/finch-audioconverter-test: audioconverter-test.c
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework AudioToolbox
 
+# Test encrypted bytes without opening any keychain files.
+all: $(OUT)/finch-keychain-crypto-test
+$(OUT)/finch-keychain-crypto-test: keychain-crypto-test.c ../Security/SecKeychainCrypto.c ../Security/SecKeychainCrypto.h ../../build/obj/corecrypto-openssl/libcrypto.a
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -I../../build/obj/corecrypto-openssl/include -I../../build/src/openssl/include -o $@ keychain-crypto-test.c ../Security/SecKeychainCrypto.c ../../build/obj/corecrypto-openssl/libcrypto.a
+
+# Keychain checks use only an explicit private temporary folder.
+all: $(OUT)/finch-security-keychain-storage-test
+$(OUT)/finch-security-keychain-storage-test: security-keychain-storage-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -o $@ $< -framework Security -framework Foundation
+
 # Finch's HTTPS root store and caller-selected trust anchors.
 $(OUT)/finch-security-roots-test: security-roots-test.c security-test-certs.inc
 	@mkdir -p $(OUT)
@@ -693,7 +707,7 @@ $(OUT)/finch-mdnsd-test: mdnsd-test.c
 
 # PCM files, format conversion and software audio units.
 all: $(OUT)/finch-extaudiofile-test $(OUT)/finch-audiounit-test $(OUT)/finch-avaudio-buffer-test $(OUT)/finch-audioqueue-test
-all: $(OUT)/finch-avaudio-file-test $(OUT)/finch-avaudio-converter-test
+all: $(OUT)/finch-avaudio-file-test $(OUT)/finch-avaudio-converter-test $(OUT)/finch-avaudio-engine-test
 all: $(OUT)/finch-configd-service-test $(OUT)/finch-diskarbitration-session-test
 all: $(OUT)/finch-configd-daemon-test
 all: $(OUT)/finch-configd-contained-service
@@ -723,10 +737,13 @@ $(OUT)/finch-diskarbitration-session-test: diskarbitration-session-test.c
 	$(CC) $(CFLAGS) -o $@ $< -framework DiskArbitration -framework CoreFoundation
 $(OUT)/finch-avaudio-file-test: avaudio-file-test.m
 	@mkdir -p $(OUT)
-	$(CC) $(CFLAGS) -fno-objc-arc -fblocks -Wno-deprecated-declarations -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation
+	$(CC) $(CFLAGS) -fno-objc-arc -fblocks -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation
 $(OUT)/finch-avaudio-converter-test: avaudio-converter-test.m
 	@mkdir -p $(OUT)
-	$(CC) $(CFLAGS) -fno-objc-arc -fblocks -Wno-deprecated-declarations -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation
+	$(CC) $(CFLAGS) -fno-objc-arc -fblocks -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation
+$(OUT)/finch-avaudio-engine-test: avaudio-engine-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fno-objc-arc -fblocks -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation
 $(OUT)/finch-avaudio-buffer-test: avaudio-buffer-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fno-objc-arc -fblocks -Wno-deprecated-declarations -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation -framework CoreMedia
