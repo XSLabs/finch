@@ -410,7 +410,7 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         (AppKit, Foundation, CoreGraphics, QuartzCore, CoreFoundation).
     - [ ] Every class and method the public headers declare, as Apple's answers them:
           `tools/api-audit.sh` lists what Finch lacks. 2026-10-12: Foundation 61 classes
-          and 140 methods (from 67 and 225), AppKit 50 classes and 475 methods (from 562).
+          and 140 methods (from 67 and 225), AppKit 49 classes and 337 methods (from 50 and 562).
     - [x] Foundation, first audit batch: collection searches, tests with options,
           sorted keys and removals; KVC's set and ordered-set proxies (changes now reach
           the object; set mutations report the objects changed, as Apple's) and its
@@ -430,6 +430,14 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           renaming, duplicating, printing and page layout, Export as PDF, file-presenter
           callbacks, scripting commands, the document user activity and restoration;
           `document-more-test` matches Apple's (2026-10-12).
+    - [x] The text system's declared methods: NSTextView's Format commands (underline,
+          superscript, baseline, kerning, ligatures, outline, Copy/Paste Style and Ruler,
+          writing direction), the substitution toggles and their defaults from the
+          user's Text Input settings, smart insert and delete, completion, text checking,
+          links, the format panels, dragging and highlights; NSText's own actions;
+          NSLayoutManager's ruler markers (NSTextView now asks it, as Apple's), glyph
+          storage, underline and strikethrough drawing; NSGlyphGenerator; NSTextStorage's
+          scripting collections. `textview-more-test` matches Apple's (2026-10-12).
     - [x] Foundation: NSItemProvider (with NSString's and NSURL's item-provider
           conformance, and UniformTypeIdentifiers' UTType methods), NSListFormatter,
           NSRelativeDateTimeFormatter, NSPersonNameComponentsFormatter,

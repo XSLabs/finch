@@ -276,6 +276,18 @@ tv_defaults(NSTextView *self)
     self->_t.editable = self->_t.selectable = self->_t.rich = YES;
     self->_t.drawsBackground = self->_t.usesFontPanel = self->_t.usesRuler = self->_t.smartInsert = YES;
     self->_t.completion = self->_t.smartCopyPaste = YES;
+    /* As Apple's: the user's Text Input choices (smart quotes and dashes, spelling
+       correction, grammar), on unless turned off; text replacement on. */
+    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
+    BOOL (^pref)(NSString *) = ^BOOL(NSString *key) {
+        id v = [ud objectForKey:key];
+        return v ? [v boolValue] : YES;
+    };
+    self->_t.quotes = pref(@"NSAutomaticQuoteSubstitutionEnabled");
+    self->_t.dashes = pref(@"NSAutomaticDashSubstitutionEnabled");
+    self->_t.spellingCorrection = pref(@"NSAutomaticSpellingCorrectionEnabled");
+    self->_t.grammar = pref(@"NSGrammarCheckingEnabled");
+    self->_t.replacement = YES;
     self->_goalX = 0;
     self->_mark = NSNotFound;
     self->_marked = NSMakeRange(NSNotFound, 0);
@@ -655,8 +667,17 @@ FLAG(smartCopyPasteEnabled, setSmartCopyPasteEnabled, smartCopyPaste)
     [_typingUndo release];
     _typingUndo = nil;
 }
-- (NSWritingDirection)baseWritingDirection { return NSWritingDirectionNatural; }
-- (void)setBaseWritingDirection:(NSWritingDirection)direction {}
+/* (the whole text's: the first paragraph's direction, set on every paragraph) */
+- (NSWritingDirection)baseWritingDirection
+{
+    NSParagraphStyle *ps = [_storage length] ? [_storage attribute:NSParagraphStyleAttributeName atIndex:0 effectiveRange:NULL]
+                                             : _typing[NSParagraphStyleAttributeName];
+    return ps ? [ps baseWritingDirection] : NSWritingDirectionNatural;
+}
+- (void)setBaseWritingDirection:(NSWritingDirection)direction
+{
+    [self setBaseWritingDirection:direction range:NSMakeRange(0, [_storage length])];
+}
 - (BOOL)displaysLinkToolTips { return YES; }
 - (void)setDisplaysLinkToolTips:(BOOL)flag {}
 - (BOOL)acceptsGlyphInfo { return NO; }
@@ -812,7 +833,12 @@ set_paragraph_value(NSTextView *self, NSRange range, void (^change)(NSMutablePar
       [ps setAlignment:alignment];
     });
 }
-- (void)setBaseWritingDirection:(NSWritingDirection)direction range:(NSRange)range {}
+- (void)setBaseWritingDirection:(NSWritingDirection)direction range:(NSRange)range
+{
+    set_paragraph_value(self, paragraph_range([_storage string], range), ^(NSMutableParagraphStyle *ps) {
+      [ps setBaseWritingDirection:direction];
+    });
+}
 
 #pragma mark - The ruler
 
@@ -948,36 +974,17 @@ ruler_width(NSTextView *self)
     NSRulerView *ruler = [[self enclosingScrollView] horizontalRulerView];
     if (!ruler || !_t.usesRuler)
         return;
-    CGFloat left = ruler_left(self), width = ruler_width(self);
+    CGFloat left = ruler_left(self);
     NSParagraphStyle *ps = paragraph_style_at(self, _sel.location);
     if ([ruler clientView] != self) {
         [ruler setClientView:self];
         [ruler setReservedThicknessForAccessoryView:30];
-        [ruler setAccessoryView:ruler_accessory(self)];
+        [ruler setAccessoryView:[[self layoutManager] rulerAccessoryViewForTextView:self paragraphStyle:ps ruler:ruler
+                                                                            enabled:[self isEditable]]];
     }
     [ruler setOriginOffset:left];
-    NSMutableArray *markers = [NSMutableArray array];
-    NSRulerMarker *m = [[[NSRulerMarker alloc] initWithRulerView:ruler markerLocation:left + [ps headIndent]
-                                                           image:indent_image(NO) imageOrigin:NSMakePoint(4, 0)] autorelease];
-    [m setRepresentedObject:kHeadTag];
-    [markers addObject:m];
-    CGFloat tail = [ps tailIndent];
-    m = [[[NSRulerMarker alloc] initWithRulerView:ruler markerLocation:left + (tail > 0 ? tail : width + tail)
-                                            image:indent_image(NO) imageOrigin:NSMakePoint(4, 0)] autorelease];
-    [m setRepresentedObject:kTailTag];
-    [markers addObject:m];
-    m = [[[NSRulerMarker alloc] initWithRulerView:ruler markerLocation:left + [ps firstLineHeadIndent]
-                                            image:indent_image(YES) imageOrigin:NSMakePoint(4, 0)] autorelease];
-    [m setRepresentedObject:kFirstTag];
-    [markers addObject:m];
-    for (NSTextTab *tab in [ps tabStops]) {
-        m = [[[NSRulerMarker alloc] initWithRulerView:ruler markerLocation:left + [tab location]
-                                                image:tab_image() imageOrigin:NSZeroPoint] autorelease];
-        [m setRepresentedObject:tab];
-        [m setRemovable:YES];
-        [markers addObject:m];
-    }
-    [ruler setMarkers:markers];
+    /* (the layout manager's markers, as Apple's asks it, so a subclass can change them) */
+    [ruler setMarkers:[[self layoutManager] rulerMarkersForTextView:self paragraphStyle:ps ruler:ruler]];
     NSSegmentedControl *align = (NSSegmentedControl *)find_tagged([ruler accessoryView], kRulerAlignTag);
     NSInteger seg = -1;
     switch ([ps alignment]) {
@@ -3175,4 +3182,50 @@ static const void *field_editor_key = &field_editor_key;
 {
     return [self attributedSubstringForProposedRange:r actualRange:NULL];
 }
+@end
+
+#pragma mark - The layout manager's ruler support
+
+@implementation NSLayoutManager (NSTextViewRulerSupport)
+
+/* The paragraph's head, tail and first-line indents and its tab stops, as markers. */
+- (NSArray<NSRulerMarker *> *)rulerMarkersForTextView:(NSTextView *)view paragraphStyle:(NSParagraphStyle *)style ruler:(NSRulerView *)ruler
+{
+    NSParagraphStyle *ps = style ?: [NSParagraphStyle defaultParagraphStyle];
+    CGFloat left = ruler_left(view), width = ruler_width(view);
+    NSMutableArray *markers = [NSMutableArray array];
+    NSRulerMarker *m = [[[NSRulerMarker alloc] initWithRulerView:ruler markerLocation:left + [ps headIndent]
+                                                           image:indent_image(NO) imageOrigin:NSMakePoint(4, 0)] autorelease];
+    [m setRepresentedObject:kHeadTag];
+    [markers addObject:m];
+    CGFloat tail = [ps tailIndent];
+    m = [[[NSRulerMarker alloc] initWithRulerView:ruler markerLocation:left + (tail > 0 ? tail : width + tail)
+                                            image:indent_image(NO) imageOrigin:NSMakePoint(4, 0)] autorelease];
+    [m setRepresentedObject:kTailTag];
+    [markers addObject:m];
+    m = [[[NSRulerMarker alloc] initWithRulerView:ruler markerLocation:left + [ps firstLineHeadIndent]
+                                            image:indent_image(YES) imageOrigin:NSMakePoint(4, 0)] autorelease];
+    [m setRepresentedObject:kFirstTag];
+    [markers addObject:m];
+    for (NSTextTab *tab in [ps tabStops]) {
+        m = [[[NSRulerMarker alloc] initWithRulerView:ruler markerLocation:left + [tab location]
+                                                image:tab_image() imageOrigin:NSZeroPoint] autorelease];
+        [m setRepresentedObject:tab];
+        [m setRemovable:YES];
+        [markers addObject:m];
+    }
+    return markers;
+}
+
+/* The format bar: alignment and line spacing. */
+- (NSView *)rulerAccessoryViewForTextView:(NSTextView *)view paragraphStyle:(NSParagraphStyle *)style ruler:(NSRulerView *)ruler
+                                  enabled:(BOOL)isEnabled
+{
+    NSView *bar = ruler_accessory(view);
+    for (NSView *v in [bar subviews])
+        if ([v respondsToSelector:@selector(setEnabled:)])
+            [(NSControl *)v setEnabled:isEnabled];
+    return bar;
+}
+
 @end
