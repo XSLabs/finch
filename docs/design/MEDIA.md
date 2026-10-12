@@ -97,8 +97,13 @@ CoreAudio (HAL)                devices: none until Finch has an audio driver
   MPEG-4 with Finch's own muxer (JPEG through ImageIO, PCM, stored samples, metadata);
   AVAssetImageGenerator picks the frame on screen at a time. `avreader-test`,
   `avwriter-test` and `avimage-test` match Apple's, and Apple's AVFoundation reads what
-  Finch writes. Playback comes next, then H.264, HEVC and AAC through VideoToolbox and
-  AudioToolbox.
+  Finch writes.
+- Playback: AVPlayer, AVPlayerItem, AVQueuePlayer, AVPlayerLooper, AVPlayerItemVideoOutput
+  and AVPlayerLayer, driven by the host clock and a 60 Hz main-thread timer (status and
+  timeControlStatus as Apple's, seeks, time observers, the end notification); the layer
+  shows decoded frames as its contents, so they reach the window server like any layer.
+  `avplayer-test` matches Apple's; `appkit-avplayer-test` checks the screen. Audio waits
+  for a device; H.264, HEVC and AAC for VideoToolbox and AudioToolbox.
 
 The converter, extended-file, software-unit, queue and AVFAudio buffer checks
 pass on the host, in QEMU and in the VZ guest (2026-10-11). These checks exercise

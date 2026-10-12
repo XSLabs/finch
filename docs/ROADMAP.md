@@ -708,9 +708,17 @@ and AppKit come in Phase 2).
         AVAssetImageGenerator, and AVTime's NSValue and NSCoder additions. `avreader-test`,
         `avwriter-test` and `avimage-test` match Apple's on the host and in the VM, and
         Apple's AVFoundation reads and decodes the files Finch writes (2026-10-12).
-  - [ ] AVFoundation, next: AVPlayer/AVPlayerItem/AVPlayerLayer on CoreMedia timebases,
-        export sessions, compositions; H.264, HEVC and AAC through VideoToolbox and
-        AudioToolbox (the writer can't apply settings for them until then).
+  - [x] AVFoundation, playback: AVPlayer, AVPlayerItem (and its tracks), AVQueuePlayer,
+        AVPlayerLooper, AVPlayerItemVideoOutput and AVPlayerLayer on the host clock:
+        loading and status, play/pause and timeControlStatus, seeking, periodic and
+        boundary observers, the end notification and action, frames on screen through
+        Finch's window server. `avplayer-test` matches Apple's and
+        `appkit-avplayer-test` shows the frames, on the host and in the VM (2026-10-12).
+        Audio isn't heard until Finch has an audio device.
+  - [ ] AVFoundation, next: export sessions, compositions and audio mixes, AVMovie,
+        capture (with no devices), AVTimeFormatter, route detection; H.264, HEVC and AAC
+        through VideoToolbox and AudioToolbox (the writer can't apply settings for them
+        until then).
   - [ ] Compressed conversion, remaining audio properties and queue operations,
         remaining AVFAudio pieces (environment node, sequencer, recorder,
         AUAudioUnit), VideoToolbox and AVKit. Real audio output needs Phase 3.

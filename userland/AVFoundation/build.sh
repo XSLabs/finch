@@ -10,6 +10,6 @@ HERE="${FINCH_ROOT}/userland/AVFoundation"
 OBJC_ARC=1 exec "${FINCH_ROOT}/tools/build-small-framework.sh" \
     /System/Library/Frameworks/AVFoundation.framework/Versions/A/AVFoundation 2 1 com.apple.avfoundation 2.0 \
     "${HERE}/AVFConstants.m" "${HERE}/AVFTypes.m" "${HERE}/AVMetadataTables.m" "${HERE}/AVMetadataItem.m" \
-    "${HERE}/AVFMovie.m" "${HERE}/AVAsset.m" "${HERE}/AVAssetReader.m" "${HERE}/AVAssetWriter.m" "${HERE}/AVAssetImageGenerator.m" "${HERE}/AVTime.m" \
-    -- -framework Foundation -framework CoreMedia -framework CoreGraphics -framework CoreVideo -framework UniformTypeIdentifiers -framework AudioToolbox -framework ImageIO \
+    "${HERE}/AVFMovie.m" "${HERE}/AVAsset.m" "${HERE}/AVAssetReader.m" "${HERE}/AVAssetWriter.m" "${HERE}/AVAssetImageGenerator.m" "${HERE}/AVTime.m" "${HERE}/AVPlayer.m" \
+    -- -framework Foundation -framework CoreMedia -framework CoreGraphics -framework CoreVideo -framework UniformTypeIdentifiers -framework AudioToolbox -framework ImageIO -framework QuartzCore \
     -Wl,-reexport_framework,AVFAudio

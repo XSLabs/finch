@@ -1,0 +1,5 @@
+item ready 1, layer ready 1, video rect {{0, 0}, {320, 240}}
+at 0: red; beside the picture: red
+at 1/6 s: blue
+while playing: red 1 blue 1
+after the end: rate 0.0, blue
