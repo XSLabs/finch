@@ -68,16 +68,23 @@ FinchAbstract(id self, SEL _cmd)
         kind, object_getClassName(self), sel_getName(_cmd), kind, object_getClassName(self), sel_getName(_cmd));
 }
 
+/* A format's locale, as CF's formatting takes it: the locale itself (or an old-style
+   dictionary of NSDecimalSeparator and the like), which sets separators and grouping. */
 CFDictionaryRef
 FinchFormatOptions(id locale)
 {
+    if ([locale isKindOfClass:[NSLocale class]] || [locale isKindOfClass:[NSDictionary class]])
+        return (CFDictionaryRef)locale;
     return NULL;
 }
 
+/* (%@ asks for the object's description in the locale, when it has one) */
 static CFStringRef
 copy_description(void *object, const void *options)
 {
-    NSString *d = [(id)object description];
+    id o = (id)object;
+    NSString *d = options && [o respondsToSelector:@selector(descriptionWithLocale:)] ? [o descriptionWithLocale:(id)options]
+                                                                                     : [o description];
     return d ? CFRetain((CFStringRef)d) : CFSTR("(null)");
 }
 
@@ -284,7 +291,7 @@ NSLogv(NSString *format, va_list args)
     pthread_threadid_np(NULL, &tid);
     const char *prog = getprogname();
     size_t len = strlen(utf8);
-    fprintf(stderr, "%s %s[%d:%llx] %s%s", when, prog ? prog : "?", getpid(), (unsigned long long)tid, utf8,
+    fprintf(stderr, "%s %s[%d:%llu] %s%s", when, prog ? prog : "?", getpid(), (unsigned long long)tid, utf8,
         len && utf8[len - 1] == '\n' ? "" : "\n");
     CFRelease(msg);
 }

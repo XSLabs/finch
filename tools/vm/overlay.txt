@@ -241,3 +241,5 @@ build/userland/finch-appkit-swift2-test /usr/local/bin/finch-appkit-swift2-test
 build/userland/finch-private-calls-test /usr/local/bin/finch-private-calls-test
 build/userland/finch-mobilegestalt-test /usr/local/bin/finch-mobilegestalt-test
 build/userland/finch-utilities-test /usr/local/bin/finch-utilities-test
+build/userland/finch-foundation-audit-test /usr/local/bin/finch-foundation-audit-test
+build/userland/finch-tree-test /usr/local/bin/finch-tree-test

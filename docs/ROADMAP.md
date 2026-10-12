@@ -360,6 +360,13 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         `NSFontPanel`. `finch-appkit-bindings-test` matches Apple's on the host and in the VM (2026-10-09);
         (table bindings: below)
   - [ ] `NSTreeController`, outline view bindings and Core Data's controllers
+    - [x] `NSTreeNode` and `NSTreeController`: nodes kept by identity, children by key path
+          (leaf and count key paths, KVO on children), index-path selection, insertion,
+          removal, moves, sorting and rearranging, add/insert/addChild/insertChild, the
+          content, selection-index-paths and sort-descriptor bindings and nib keys;
+          `tree-test` matches Apple's (2026-10-12).
+    - [ ] Outline view bindings to a tree controller (content, selection index paths,
+          column values), and Core Data's controllers.
   - [x] Auto Layout and storyboards: `NSLayoutConstraint`, the visual format language, anchors and
         guides in a private CoreAutoLayout that Foundation re-exports, solved by Finch's own Cassowary
         simplex; views' constraint API, autoresizing masks as constraints, intrinsic sizes, fitting
@@ -401,6 +408,17 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         AVFoundation). The next frameworks are picked from it.
   - [ ] Close the symbol gaps in Finch's own frameworks that block the most apps
         (AppKit, Foundation, CoreGraphics, QuartzCore, CoreFoundation).
+    - [ ] Every class and method the public headers declare, as Apple's answers them:
+          `tools/api-audit.sh` lists what Finch lacks. 2026-10-12: Foundation 66 classes
+          and 140 methods (from 67 and 225), AppKit 50 classes and 562 methods.
+    - [x] Foundation, first audit batch: collection searches, tests with options,
+          sorted keys and removals; KVC's set and ordered-set proxies (changes now reach
+          the object; set mutations report the objects changed, as Apple's) and its
+          deprecated names; dependent keys by +setKeys:...; string transforms, folding,
+          validated formats, encoding detection, path completion and property lists;
+          data compression and search; calendar-format dates and NSCalendarDate;
+          formats honour their locale (separators, grouping, numbers' descriptions);
+          `foundation-audit-test` matches Apple's (2026-10-12).
     - [x] Foundation: NSItemProvider (with NSString's and NSURL's item-provider
           conformance, and UniformTypeIdentifiers' UTType methods), NSListFormatter,
           NSRelativeDateTimeFormatter, NSPersonNameComponentsFormatter,

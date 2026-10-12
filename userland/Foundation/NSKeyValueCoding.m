@@ -255,6 +255,151 @@ getter_for(Class cls, NSString *key)
 
 @end
 
+/* MARK: - Set proxy */
+
+/* mutableSetValueForKey:'s set: changes go through add<Key>Object:/remove<Key>Object:
+   (or add<Key>:/remove<Key>:) when the object has them, else through a changed copy set
+   with the setter, posting set-mutation KVO either way. */
+@interface __NSKeyValueMutableSetProxy : NSMutableSet {
+@public
+    id _object;
+    NSString *_key;
+}
+@end
+
+@implementation __NSKeyValueMutableSetProxy
+
+- (void)dealloc { [_object release]; [_key release]; [super dealloc]; }
+
+- (NSSet *)_finchSet
+{
+    id v = [_object valueForKey:_key];
+    return [v isKindOfClass:[NSSet class]] ? v : v ? [NSSet setWithArray:[v allObjects]] : [NSSet set];
+}
+
+- (NSUInteger)count { return [[self _finchSet] count]; }
+- (id)member:(id)o { return [[self _finchSet] member:o]; }
+- (NSEnumerator *)objectEnumerator { return [[[[[self _finchSet] allObjects] copy] autorelease] objectEnumerator]; }
+
+- (void)_finchChange:(NSKeyValueSetMutationKind)kind objects:(NSSet *)objects with:(void (^)(NSMutableSet *))edit
+{
+    NSMutableSet *m = [[[self _finchSet] mutableCopy] autorelease];
+    [_object willChangeValueForKey:_key withSetMutation:kind usingObjects:objects];
+    edit(m);
+    FinchKVOQuietly(_object, _key, ^{ [_object setValue:m forKey:_key]; });
+    [_object didChangeValueForKey:_key withSetMutation:kind usingObjects:objects];
+}
+
+- (void)addObject:(id)o
+{
+    if (!o)
+        return;
+    SEL one = selector(@"add%@Object:", capitalized(_key)), many = selector(@"add%@:", capitalized(_key));
+    if ([_object respondsToSelector:one]) ((void (*)(id, SEL, id))objc_msgSend)(_object, one, o);
+    else if ([_object respondsToSelector:many]) ((void (*)(id, SEL, id))objc_msgSend)(_object, many, [NSSet setWithObject:o]);
+    else [self _finchChange:NSKeyValueUnionSetMutation objects:[NSSet setWithObject:o] with:^(NSMutableSet *m) { [m addObject:o]; }];
+}
+
+- (void)removeObject:(id)o
+{
+    if (!o)
+        return;
+    SEL one = selector(@"remove%@Object:", capitalized(_key)), many = selector(@"remove%@:", capitalized(_key));
+    if ([_object respondsToSelector:one]) ((void (*)(id, SEL, id))objc_msgSend)(_object, one, o);
+    else if ([_object respondsToSelector:many]) ((void (*)(id, SEL, id))objc_msgSend)(_object, many, [NSSet setWithObject:o]);
+    else [self _finchChange:NSKeyValueMinusSetMutation objects:[NSSet setWithObject:o] with:^(NSMutableSet *m) { [m removeObject:o]; }];
+}
+
+- (void)unionSet:(NSSet *)other
+{
+    SEL many = selector(@"add%@:", capitalized(_key)), one = selector(@"add%@Object:", capitalized(_key));
+    if ([_object respondsToSelector:many]) ((void (*)(id, SEL, id))objc_msgSend)(_object, many, other);
+    else if ([_object respondsToSelector:one]) for (id o in other) ((void (*)(id, SEL, id))objc_msgSend)(_object, one, o);
+    else [self _finchChange:NSKeyValueUnionSetMutation objects:other with:^(NSMutableSet *m) { [m unionSet:other]; }];
+}
+
+- (void)minusSet:(NSSet *)other
+{
+    SEL many = selector(@"remove%@:", capitalized(_key)), one = selector(@"remove%@Object:", capitalized(_key));
+    NSSet *gone = [[other copy] autorelease];
+    if ([_object respondsToSelector:many]) ((void (*)(id, SEL, id))objc_msgSend)(_object, many, gone);
+    else if ([_object respondsToSelector:one]) for (id o in gone) ((void (*)(id, SEL, id))objc_msgSend)(_object, one, o);
+    else [self _finchChange:NSKeyValueMinusSetMutation objects:gone with:^(NSMutableSet *m) { [m minusSet:gone]; }];
+}
+
+- (void)intersectSet:(NSSet *)other
+{
+    SEL sel = selector(@"intersect%@:", capitalized(_key));
+    if ([_object respondsToSelector:sel]) ((void (*)(id, SEL, id))objc_msgSend)(_object, sel, other);
+    else [self _finchChange:NSKeyValueIntersectSetMutation objects:other with:^(NSMutableSet *m) { [m intersectSet:other]; }];
+}
+
+- (void)setSet:(NSSet *)other
+{
+    [self _finchChange:NSKeyValueSetSetMutation objects:other with:^(NSMutableSet *m) { [m setSet:other]; }];
+}
+
+- (void)removeAllObjects { [self minusSet:[[[self _finchSet] copy] autorelease]]; }
+
+@end
+
+/* MARK: - Ordered set proxy */
+
+@interface __NSKeyValueMutableOrderedSetProxy : NSMutableOrderedSet {
+@public
+    id _object;
+    NSString *_key;
+}
+@end
+
+@implementation __NSKeyValueMutableOrderedSetProxy
+
+- (void)dealloc { [_object release]; [_key release]; [super dealloc]; }
+
+- (NSOrderedSet *)_finchSet
+{
+    id v = [_object valueForKey:_key];
+    return [v isKindOfClass:[NSOrderedSet class]] ? v : v ? [NSOrderedSet orderedSetWithArray:[v isKindOfClass:[NSArray class]] ? v : [v allObjects]]
+                                                           : [NSOrderedSet orderedSet];
+}
+
+- (NSUInteger)count { return [[self _finchSet] count]; }
+- (id)objectAtIndex:(NSUInteger)i { return [[self _finchSet] objectAtIndex:i]; }
+- (NSUInteger)indexOfObject:(id)o { return [[self _finchSet] indexOfObject:o]; }
+
+- (void)_finchChange:(NSKeyValueChange)kind at:(NSUInteger)index with:(void (^)(NSMutableOrderedSet *))edit
+{
+    NSIndexSet *idx = [NSIndexSet indexSetWithIndex:index];
+    NSMutableOrderedSet *m = [[[self _finchSet] mutableCopy] autorelease];
+    [_object willChange:kind valuesAtIndexes:idx forKey:_key];
+    edit(m);
+    FinchKVOQuietly(_object, _key, ^{ [_object setValue:m forKey:_key]; });
+    [_object didChange:kind valuesAtIndexes:idx forKey:_key];
+}
+
+- (void)insertObject:(id)o atIndex:(NSUInteger)i
+{
+    SEL s = selector(@"insertObject:in%@AtIndex:", capitalized(_key));
+    if ([_object respondsToSelector:s]) ((void (*)(id, SEL, id, NSUInteger))objc_msgSend)(_object, s, o, i);
+    else [self _finchChange:NSKeyValueChangeInsertion at:i with:^(NSMutableOrderedSet *m) { [m insertObject:o atIndex:i]; }];
+}
+
+- (void)removeObjectAtIndex:(NSUInteger)i
+{
+    SEL s = selector(@"removeObjectFrom%@AtIndex:", capitalized(_key));
+    if ([_object respondsToSelector:s]) ((void (*)(id, SEL, NSUInteger))objc_msgSend)(_object, s, i);
+    else [self _finchChange:NSKeyValueChangeRemoval at:i with:^(NSMutableOrderedSet *m) { [m removeObjectAtIndex:i]; }];
+}
+
+- (void)replaceObjectAtIndex:(NSUInteger)i withObject:(id)o
+{
+    SEL s = selector(@"replaceObjectIn%@AtIndex:withObject:", capitalized(_key));
+    if ([_object respondsToSelector:s]) ((void (*)(id, SEL, NSUInteger, id))objc_msgSend)(_object, s, i, o);
+    else [self _finchChange:NSKeyValueChangeReplacement at:i with:^(NSMutableOrderedSet *m) { [m replaceObjectAtIndex:i withObject:o]; }];
+}
+
+@end
+
 /* MARK: - NSObject */
 
 @implementation NSObject (NSKeyValueCoding)
@@ -410,9 +555,65 @@ getter_for(Class cls, NSString *key)
 
 - (NSMutableSet *)mutableSetValueForKey:(NSString *)key
 {
-    NSMutableSet *s = [NSMutableSet setWithSet:[self valueForKey:key]];
-    return s;
+    __NSKeyValueMutableSetProxy *p = [[[__NSKeyValueMutableSetProxy alloc] init] autorelease];
+    p->_object = [self retain];
+    p->_key = [key copy];
+    return p;
 }
+
+- (NSMutableSet *)mutableSetValueForKeyPath:(NSString *)keyPath
+{
+    NSRange dot = [keyPath rangeOfString:@"." options:NSBackwardsSearch];
+    if (dot.location == NSNotFound) return [self mutableSetValueForKey:keyPath];
+    return [[self valueForKeyPath:[keyPath substringToIndex:dot.location]] mutableSetValueForKey:[keyPath substringFromIndex:dot.location + 1]];
+}
+
+- (NSMutableOrderedSet *)mutableOrderedSetValueForKey:(NSString *)key
+{
+    __NSKeyValueMutableOrderedSetProxy *p = [[[__NSKeyValueMutableOrderedSetProxy alloc] init] autorelease];
+    p->_object = [self retain];
+    p->_key = [key copy];
+    return p;
+}
+
+- (NSMutableOrderedSet *)mutableOrderedSetValueForKeyPath:(NSString *)keyPath
+{
+    NSRange dot = [keyPath rangeOfString:@"." options:NSBackwardsSearch];
+    if (dot.location == NSNotFound) return [self mutableOrderedSetValueForKey:keyPath];
+    return [[self valueForKeyPath:[keyPath substringToIndex:dot.location]] mutableOrderedSetValueForKey:[keyPath substringFromIndex:dot.location + 1]];
+}
+
+/* MARK: Deprecated names (NSKeyValueCodingDeprecated), as the current ones */
+
++ (BOOL)useStoredAccessor { return YES; }
+/* (takeValue:forKey:, takeValue:forKeyPath:, valuesForKeys: and takeValuesFromDictionary:
+   warn once each, as Apple's do) */
+static void
+deprecated(SEL sel)
+{
+    static NSMutableSet *warned;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        warned = [[NSMutableSet alloc] init];
+    });
+    NSString *name = NSStringFromSelector(sel);
+    @synchronized(warned) {
+        if ([warned containsObject:name])
+            return;
+        [warned addObject:name];
+    }
+    NSLog(@"*** WARNING: -[NSObject(NSKeyValueCoding) %@] is deprecated. It will be removed in a future release and should no longer be used.", name);
+}
+
+- (id)storedValueForKey:(NSString *)key { return [self valueForKey:key]; }
+- (void)takeStoredValue:(id)value forKey:(NSString *)key { [self setValue:value forKey:key]; }
+- (void)takeValue:(id)value forKey:(NSString *)key { deprecated(_cmd); [self setValue:value forKey:key]; }
+- (void)takeValue:(id)value forKeyPath:(NSString *)keyPath { deprecated(_cmd); [self setValue:value forKeyPath:keyPath]; }
+- (id)handleQueryWithUnboundKey:(NSString *)key { return [self valueForUndefinedKey:key]; }
+- (void)handleTakeValue:(id)value forUnboundKey:(NSString *)key { [self setValue:value forUndefinedKey:key]; }
+- (void)unableToSetNilForKey:(NSString *)key { [self setNilValueForKey:key]; }
+- (NSDictionary *)valuesForKeys:(NSArray *)keys { deprecated(_cmd); return [self dictionaryWithValuesForKeys:keys]; }
+- (void)takeValuesFromDictionary:(NSDictionary *)properties { deprecated(_cmd); [self setValuesForKeysWithDictionary:properties]; }
 
 @end
 

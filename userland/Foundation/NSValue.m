@@ -287,14 +287,13 @@ strip_names(const char *type)
 {
     const char *t = [self objCType];
     Scalar v = [self _finchScalar];
-    if (*t == 'c' || *t == 'B') {
-        if (*t == 'B') return v.u ? @"1" : @"0";
-        return [NSString stringWithFormat:@"%d", (int)v.s];
-    }
-    if (*t == 'f') return [NSString stringWithFormat:@"%0.7g", v.d];
-    if (*t == 'd') return [NSString stringWithFormat:@"%0.16g", v.d];
-    if (v.isUnsigned) return [NSString stringWithFormat:@"%llu", v.u];
-    return [NSString stringWithFormat:@"%lld", v.s];
+    /* (with a locale, the same formats in it: its separators and grouping, as Apple's) */
+    if (*t == 'B') return v.u ? @"1" : @"0";
+    if (*t == 'c') return [[[NSString alloc] initWithFormat:@"%d" locale:locale, (int)v.s] autorelease];
+    if (*t == 'f') return [[[NSString alloc] initWithFormat:@"%0.7g" locale:locale, v.d] autorelease];
+    if (*t == 'd') return [[[NSString alloc] initWithFormat:@"%0.16g" locale:locale, v.d] autorelease];
+    if (v.isUnsigned) return [[[NSString alloc] initWithFormat:@"%llu" locale:locale, v.u] autorelease];
+    return [[[NSString alloc] initWithFormat:@"%lld" locale:locale, v.s] autorelease];
 }
 
 - (NSComparisonResult)compare:(NSNumber *)other

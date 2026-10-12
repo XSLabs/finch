@@ -183,6 +183,63 @@ will_change(id obj, NSString *key, NSKeyValueChange kind, NSIndexSet *indexes)
     for (NSString *d in dependents_of(obj, key)) [obj willChangeValueForKey:d];
 }
 
+/* A set mutation's change, as Apple's reports it: the objects added (new) or removed
+   (old), worked out against the set before the change. */
+static NSString *const FinchSetNewKey = @"FinchSetNew";
+
+static void
+will_change_set(id obj, NSString *key, NSKeyValueSetMutationKind m, NSSet *objects)
+{
+    __NSKVOInfo *info = info_of(obj, NO);
+    if (!info) return;
+    NSSet *current = [obj valueForKey:key] ?: [NSSet set];
+    NSMutableSet *added = nil, *removed = nil;
+    NSKeyValueChange kind = NSKeyValueChangeReplacement;
+    switch (m) {
+    case NSKeyValueUnionSetMutation:
+        kind = NSKeyValueChangeInsertion;
+        added = [[objects mutableCopy] autorelease];
+        [added minusSet:current];
+        break;
+    case NSKeyValueMinusSetMutation:
+        kind = NSKeyValueChangeRemoval;
+        removed = [[objects mutableCopy] autorelease];
+        [removed intersectSet:current];
+        break;
+    case NSKeyValueIntersectSetMutation:
+        kind = NSKeyValueChangeRemoval;
+        removed = [[current mutableCopy] autorelease];
+        [removed minusSet:objects];
+        break;
+    case NSKeyValueSetSetMutation:
+        added = [[objects mutableCopy] autorelease];
+        [added minusSet:current];
+        removed = [[current mutableCopy] autorelease];
+        [removed minusSet:objects];
+        break;
+    }
+    NSMutableDictionary *change = [NSMutableDictionary dictionaryWithObject:@(kind) forKey:NSKeyValueChangeKindKey];
+    if (removed) [change setObject:removed forKey:NSKeyValueChangeOldKey];
+    if (added) [change setObject:added forKey:FinchSetNewKey];
+    [change setObject:@YES forKey:@"FinchSetMutation"]; /* (a removal has no new value) */
+    pthread_mutex_lock(&kvoLock);
+    NSMutableArray *stack = [info->_pending objectForKey:key];
+    if (!stack) {
+        stack = [NSMutableArray array];
+        [info->_pending setObject:stack forKey:key];
+    }
+    [stack addObject:change];
+    pthread_mutex_unlock(&kvoLock);
+    for (__NSKVOObservance *o in observances_for(obj, key)) {
+        if (!(o->_options & NSKeyValueObservingOptionPrior)) continue;
+        NSMutableDictionary *prior = [NSMutableDictionary dictionaryWithObject:@(kind) forKey:NSKeyValueChangeKindKey];
+        [prior setObject:(id)kCFBooleanTrue forKey:NSKeyValueChangeNotificationIsPriorKey];
+        if ((o->_options & NSKeyValueObservingOptionOld) && removed) [prior setObject:removed forKey:NSKeyValueChangeOldKey];
+        send(o, obj, prior);
+    }
+    for (NSString *d in dependents_of(obj, key)) [obj willChangeValueForKey:d];
+}
+
 static void
 did_change(id obj, NSString *key)
 {
@@ -205,7 +262,10 @@ did_change(id obj, NSString *key)
         if (indexes) [change setObject:indexes forKey:NSKeyValueChangeIndexesKey];
         if ((o->_options & NSKeyValueObservingOptionOld) && [pending objectForKey:NSKeyValueChangeOldKey])
             [change setObject:[pending objectForKey:NSKeyValueChangeOldKey] forKey:NSKeyValueChangeOldKey];
-        if (o->_options & NSKeyValueObservingOptionNew) {
+        if ((o->_options & NSKeyValueObservingOptionNew) && [pending objectForKey:FinchSetNewKey]) {
+            [change setObject:[pending objectForKey:FinchSetNewKey] forKey:NSKeyValueChangeNewKey];
+        } else if ([pending objectForKey:@"FinchSetMutation"]) {
+        } else if (o->_options & NSKeyValueObservingOptionNew) {
             if (!haveNew) {
                 newValue = [obj valueForKey:key];
                 if (indexes) newValue = kind == NSKeyValueChangeRemoval ? nil : [newValue objectsAtIndexes:indexes];
@@ -623,7 +683,7 @@ remove_observance(id self, NSObject *observer, NSString *keyPath, BOOL anyContex
 - (void)didChange:(NSKeyValueChange)changeKind valuesAtIndexes:(NSIndexSet *)indexes forKey:(NSString *)key { did_change(self, key); }
 - (void)willChangeValueForKey:(NSString *)key withSetMutation:(NSKeyValueSetMutationKind)m usingObjects:(NSSet *)objects
 {
-    will_change(self, key, m == NSKeyValueUnionSetMutation ? NSKeyValueChangeInsertion : m == NSKeyValueMinusSetMutation ? NSKeyValueChangeRemoval : NSKeyValueChangeReplacement, nil);
+    will_change_set(self, key, m, objects ?: [NSSet set]);
 }
 - (void)didChangeValueForKey:(NSString *)key withSetMutation:(NSKeyValueSetMutationKind)m usingObjects:(NSSet *)objects { did_change(self, key); }
 
@@ -631,10 +691,43 @@ remove_observance(id self, NSObject *observer, NSString *keyPath, BOOL anyContex
 
 @implementation NSObject (NSKeyValueObservingCustomization)
 
+/* +setKeys:triggerChangeNotificationsForDependentKey:'s pairs, by class: dependent key ->
+   the keys that affect it. */
+static NSMutableDictionary *
+legacy_dependents(void)
+{
+    static NSMutableDictionary *d;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        d = [[NSMutableDictionary alloc] init];
+    });
+    return d;
+}
+
++ (void)setKeys:(NSArray *)keys triggerChangeNotificationsForDependentKey:(NSString *)dependentKey
+{
+    NSMutableDictionary *all = legacy_dependents();
+    @synchronized(all) {
+        NSString *cls = NSStringFromClass(self);
+        NSMutableDictionary *mine = all[cls];
+        if (!mine)
+            all[cls] = mine = [NSMutableDictionary dictionary];
+        mine[dependentKey] = [NSSet setWithArray:keys ?: @[]];
+    }
+}
+
 + (NSSet<NSString *> *)keyPathsForValuesAffectingValueForKey:(NSString *)key
 {
     SEL s = NSSelectorFromString([@"keyPathsForValuesAffecting" stringByAppendingString:capitalized(key)]);
     if ([self respondsToSelector:s]) return ((id (*)(id, SEL))objc_msgSend)(self, s);
+    NSMutableDictionary *all = legacy_dependents();
+    @synchronized(all) {
+        for (Class c = self; c; c = class_getSuperclass(c)) {
+            NSSet *keys = all[NSStringFromClass(c)][key];
+            if (keys)
+                return keys;
+        }
+    }
     return [NSSet set];
 }
 

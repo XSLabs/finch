@@ -2,7 +2,8 @@
 /*
  * The Cocoa bindings controllers: NSController (editors and their commits),
  * NSObjectController (one content object, its selection proxy), NSArrayController
- * (sorting, filtering and the selection of an array) and NSUserDefaultsController
+ * (sorting, filtering and the selection of an array), NSTreeController (a tree of
+ * objects by their children, selected by index path) and NSUserDefaultsController
  * (a bindable view of NSUserDefaults, "values.key").
  *
  * The selection (and NSUserDefaultsController's values) is a proxy,
@@ -25,6 +26,7 @@
  * selected objects selects the object that took their place.
  */
 #import "NSKeyValueBinding_Finch.h"
+#import "NSTreeNode_Finch.h"
 
 #pragma mark - Proxies
 
@@ -1507,6 +1509,911 @@ static int rearrangeContext;
     if ([name isEqualToString:NSFilterPredicateBinding]) {
         b->_pushing = YES;
         [self setFilterPredicate:[v isKindOfClass:[NSPredicate class]] ? v : nil];
+        b->_pushing = NO;
+        return;
+    }
+    [super _finchBindingChanged:b];
+}
+
+@end
+
+#pragma mark - NSTreeController
+
+@class NSTreeController;
+extern NSArray *FinchTreeNodeSortDescriptors(NSArray *sortDescriptors); /* (NSTreeNode.m) */
+
+/* A tree controller's node: its children are its object's, by the controller's
+   children key path, built when first asked for and kept (so a node stays the same
+   object) until the controller rearranges or the object's children change under KVO. */
+@interface NSTreeControllerTreeNode : NSTreeNode {
+@public
+    NSTreeController *_controller; /* (not retained) */
+    BOOL _built, _observing;
+}
+@end
+
+/* The arranged objects: the root node, whose object holds the content under the
+   children key path, as Apple's. */
+@interface _NSControllerTreeProxy : NSTreeControllerTreeNode
+@end
+
+@interface NSTreeController ()
+- (NSArray *)_finchChildObjectsOfNode:(NSTreeControllerTreeNode *)node;
+- (BOOL)_finchNodeIsLeaf:(NSTreeControllerTreeNode *)node;
+- (void)_finchChildrenChangedOfNode:(NSTreeControllerTreeNode *)node;
+- (BOOL)_finchIsMutating;
+@end
+
+static char tree_children_context;
+
+@implementation NSTreeControllerTreeNode
+
+- (void)_finchStopObserving
+{
+    if (_observing && _controller && [_controller childrenKeyPath])
+        @try {
+            [[self representedObject] removeObserver:self forKeyPath:[_controller childrenKeyPath] context:&tree_children_context];
+        } @catch (NSException *e) {
+        }
+    _observing = NO;
+}
+
+/* (the whole subtree stops watching and forgets its controller) */
+- (void)_finchDetach
+{
+    [self _finchStopObserving];
+    for (NSTreeControllerTreeNode *c in [self _finchChildStorage])
+        [c _finchDetach];
+    _controller = nil;
+}
+
+- (void)dealloc
+{
+    [self _finchStopObserving];
+    [super dealloc];
+}
+
+- (void)_finchBuild
+{
+    if (_built || !_controller)
+        return;
+    _built = YES;
+    if ([_controller _finchNodeIsLeaf:self] && ![self isKindOfClass:[_NSControllerTreeProxy class]])
+        return;
+    NSArray *objects = [_controller _finchChildObjectsOfNode:self];
+    NSMutableArray *nodes = [NSMutableArray arrayWithCapacity:[objects count]];
+    for (id o in objects) {
+        NSTreeControllerTreeNode *n = [[NSTreeControllerTreeNode alloc] initWithRepresentedObject:o];
+        n->_controller = _controller;
+        [nodes addObject:n];
+        [n release];
+    }
+    [self _finchSetChildren:nodes];
+    if (!_observing && ![self isKindOfClass:[_NSControllerTreeProxy class]] && [_controller childrenKeyPath]) {
+        [[self representedObject] addObserver:self forKeyPath:[_controller childrenKeyPath] options:0 context:&tree_children_context];
+        _observing = YES;
+    }
+}
+
+/* Rebuilt from the objects as they are now, keeping the nodes of objects still there
+   (and their subtrees, rebuilt in turn). */
+- (void)_finchRebuild
+{
+    if (!_built) {
+        [self _finchBuild];
+        return;
+    }
+    NSArray *objects = [_controller _finchNodeIsLeaf:self] && ![self isKindOfClass:[_NSControllerTreeProxy class]]
+                           ? @[]
+                           : [_controller _finchChildObjectsOfNode:self];
+    NSArray *old = [[[self _finchChildStorage] copy] autorelease];
+    NSMutableArray *nodes = [NSMutableArray arrayWithCapacity:[objects count]];
+    for (id o in objects) {
+        NSTreeControllerTreeNode *found = nil;
+        for (NSTreeControllerTreeNode *n in old)
+            if ([n representedObject] == o && ![nodes containsObject:n]) {
+                found = n;
+                break;
+            }
+        if (!found) {
+            found = [[[NSTreeControllerTreeNode alloc] initWithRepresentedObject:o] autorelease];
+            found->_controller = _controller;
+        }
+        [nodes addObject:found];
+    }
+    for (NSTreeControllerTreeNode *n in old)
+        if (![nodes containsObject:n])
+            [n _finchDetach];
+    [self _finchSetChildren:nodes];
+    for (NSTreeControllerTreeNode *n in nodes)
+        if (n->_built)
+            [n _finchRebuild];
+    if (!_observing && ![self isKindOfClass:[_NSControllerTreeProxy class]] && [_controller childrenKeyPath] && [nodes count]) {
+        [[self representedObject] addObserver:self forKeyPath:[_controller childrenKeyPath] options:0 context:&tree_children_context];
+        _observing = YES;
+    }
+}
+
+- (NSArray *)childNodes
+{
+    [self _finchBuild];
+    return [super childNodes];
+}
+
+- (BOOL)isLeaf
+{
+    if ([self isKindOfClass:[_NSControllerTreeProxy class]])
+        return NO;
+    return _controller ? [_controller _finchNodeIsLeaf:self] : [super isLeaf];
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+    if (context != &tree_children_context) {
+        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+        return;
+    }
+    if (_controller && ![_controller _finchIsMutating])
+        [_controller _finchChildrenChangedOfNode:self];
+}
+
+@end
+
+@implementation _NSControllerTreeProxy
+@end
+
+enum { TC_CONTENT = 1, TC_ARRANGED = 2, TC_SELECTION = 4, TC_ALL = 7 };
+
+static NSArray *
+tree_change_keys(int mask)
+{
+    NSMutableArray *k = [NSMutableArray array];
+    if (mask & TC_CONTENT)
+        [k addObject:@"content"];
+    if (mask & TC_ARRANGED)
+        [k addObject:@"arrangedObjects"];
+    if (mask & (TC_SELECTION | TC_ARRANGED))
+        [k addObjectsFromArray:@[ @"selectionIndexPaths", @"selectionIndexPath", @"selectedObjects", @"selectedNodes", @"selection",
+                                  @"canRemove", @"canAddChild", @"canInsertChild" ]];
+    return k;
+}
+
+static NSIndexPath *
+path_by_adding(NSIndexPath *p, NSUInteger index)
+{
+    return p ? [p indexPathByAddingIndex:index] : [NSIndexPath indexPathWithIndex:index];
+}
+
+@implementation NSTreeController {
+    NSString *_childrenKeyPath, *_countKeyPath, *_leafKeyPath;
+    NSArray *_treeSortDescriptors;
+    NSMutableArray *_selectionPaths;
+    _NSControllerTreeProxy *_root;
+    struct {
+        unsigned avoidsEmpty : 1;
+        unsigned preserves : 1;
+        unsigned selectsInserted : 1;
+        unsigned alwaysMultiple : 1;
+    } _tc;
+    NSInteger _mutating;
+}
+
++ (BOOL)automaticallyNotifiesObserversForKey:(NSString *)key
+{
+    static NSSet *keys;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        keys = [[NSSet alloc] initWithArray:@[ @"selectionIndexPaths", @"selectionIndexPath", @"selectedNodes", @"canAddChild",
+                                               @"canInsertChild", @"childrenKeyPath", @"countKeyPath", @"leafKeyPath" ]];
+    });
+    if ([keys containsObject:key])
+        return NO;
+    return [super automaticallyNotifiesObserversForKey:key];
+}
+
++ (NSArray *)_finchBuiltinBindings
+{
+    return @[
+        NSEditableBinding, NSContentArrayBinding, NSContentObjectBinding, NSSelectionIndexPathsBinding, NSSortDescriptorsBinding,
+        NSManagedObjectContextBinding
+    ];
+}
+
+static void
+tc_defaults(NSTreeController *self)
+{
+    self->_selectionPaths = [[NSMutableArray alloc] init];
+    self->_tc.avoidsEmpty = self->_tc.preserves = self->_tc.selectsInserted = 1;
+}
+
+- (instancetype)initWithContent:(id)content
+{
+    self = [super initWithContent:nil];
+    if (!self)
+        return nil;
+    tc_defaults(self);
+    if (content)
+        [self setContent:content];
+    return self;
+}
+
+- (instancetype)initWithCoder:(NSCoder *)coder
+{
+    self = [super initWithCoder:coder];
+    if (!self)
+        return nil;
+    tc_defaults(self);
+    _childrenKeyPath = [[coder decodeObjectForKey:@"NSTreeContentChildrenKey"] copy];
+    _countKeyPath = [[coder decodeObjectForKey:@"NSTreeContentCountKey"] copy];
+    _leafKeyPath = [[coder decodeObjectForKey:@"NSTreeContentLeafKey"] copy];
+    _tc.avoidsEmpty = [coder decodeBoolForKey:@"NSAvoidsEmptySelection"];
+    _tc.preserves = [coder decodeBoolForKey:@"NSPreservesSelection"];
+    _tc.selectsInserted = [coder decodeBoolForKey:@"NSSelectsInsertedObjects"];
+    _tc.alwaysMultiple = [coder decodeBoolForKey:@"NSAlwaysUsesMultipleValuesMarker"];
+    return self;
+}
+
+- (void)encodeWithCoder:(NSCoder *)coder
+{
+    [super encodeWithCoder:coder];
+    if (_childrenKeyPath)
+        [coder encodeObject:_childrenKeyPath forKey:@"NSTreeContentChildrenKey"];
+    if (_countKeyPath)
+        [coder encodeObject:_countKeyPath forKey:@"NSTreeContentCountKey"];
+    if (_leafKeyPath)
+        [coder encodeObject:_leafKeyPath forKey:@"NSTreeContentLeafKey"];
+    if (_tc.avoidsEmpty)
+        [coder encodeBool:YES forKey:@"NSAvoidsEmptySelection"];
+    if (_tc.preserves)
+        [coder encodeBool:YES forKey:@"NSPreservesSelection"];
+    if (_tc.selectsInserted)
+        [coder encodeBool:YES forKey:@"NSSelectsInsertedObjects"];
+    if (_tc.alwaysMultiple)
+        [coder encodeBool:YES forKey:@"NSAlwaysUsesMultipleValuesMarker"];
+}
+
+- (void)dealloc
+{
+    [_root _finchDetach];
+    [_root release];
+    [_childrenKeyPath release];
+    [_countKeyPath release];
+    [_leafKeyPath release];
+    [_treeSortDescriptors release];
+    [_selectionPaths release];
+    [super dealloc];
+}
+
+#pragma mark Change notification
+
+- (void)_finchWillChange { [self _finchWillChange:TC_ALL]; }
+
+- (void)_finchWillChange:(int)mask
+{
+    if (_changeDepth++) {
+        _changeMask |= mask;
+        return;
+    }
+    _changeMask = mask;
+    for (NSString *k in tree_change_keys(mask))
+        [self willChangeValueForKey:k];
+}
+
+- (void)_finchDidChange
+{
+    if (--_changeDepth)
+        return;
+    [self _finchObjectsChanged];
+    for (NSString *k in [tree_change_keys(_changeMask) reverseObjectEnumerator])
+        [self didChangeValueForKey:k];
+}
+
+- (NSArray *)_finchProxyObjects { return [self selectedObjects]; }
+- (BOOL)_finchAlwaysUsesMultipleValuesMarker { return _tc.alwaysMultiple; }
+- (BOOL)_finchIsMutating { return _mutating > 0; }
+
+- (BOOL)_finchContentIsBound
+{
+    return FinchBindingFor(self, NSContentArrayBinding) || [super _finchContentIsBound];
+}
+
+#pragma mark Keys and flags
+
+- (NSString *)childrenKeyPath { return _childrenKeyPath; }
+- (NSString *)countKeyPath { return _countKeyPath; }
+- (NSString *)leafKeyPath { return _leafKeyPath; }
+
+/* (a key path changes what the nodes are: the tree is made again) */
+- (void)_finchSetKey:(NSString **)slot to:(NSString *)value
+{
+    if (*slot == value || [*slot isEqualToString:value])
+        return;
+    [self _finchWillChange:TC_ARRANGED];
+    [_root _finchDetach];
+    [_root release];
+    _root = nil;
+    [*slot release];
+    *slot = [value copy];
+    [self _finchDidChange];
+}
+
+- (void)setChildrenKeyPath:(NSString *)keyPath { [self _finchSetKey:&_childrenKeyPath to:keyPath]; }
+- (void)setCountKeyPath:(NSString *)keyPath { [self _finchSetKey:&_countKeyPath to:keyPath]; }
+- (void)setLeafKeyPath:(NSString *)keyPath { [self _finchSetKey:&_leafKeyPath to:keyPath]; }
+- (NSString *)childrenKeyPathForNode:(NSTreeNode *)node { return _childrenKeyPath; }
+- (NSString *)countKeyPathForNode:(NSTreeNode *)node { return _countKeyPath; }
+- (NSString *)leafKeyPathForNode:(NSTreeNode *)node { return _leafKeyPath; }
+
+- (BOOL)avoidsEmptySelection { return _tc.avoidsEmpty; }
+- (void)setAvoidsEmptySelection:(BOOL)flag { _tc.avoidsEmpty = flag; }
+- (BOOL)preservesSelection { return _tc.preserves; }
+- (void)setPreservesSelection:(BOOL)flag { _tc.preserves = flag; }
+- (BOOL)selectsInsertedObjects { return _tc.selectsInserted; }
+- (void)setSelectsInsertedObjects:(BOOL)flag { _tc.selectsInserted = flag; }
+- (BOOL)alwaysUsesMultipleValuesMarker { return _tc.alwaysMultiple; }
+- (void)setAlwaysUsesMultipleValuesMarker:(BOOL)flag
+{
+    [self _finchWillChange:TC_SELECTION];
+    _tc.alwaysMultiple = flag;
+    [self _finchDidChange];
+}
+
+#pragma mark The tree
+
+/* A node's child objects: the content for the root, the object's children by the
+   children key path otherwise, sorted by the sort descriptors. */
+- (NSArray *)_finchChildObjectsOfNode:(NSTreeControllerTreeNode *)node
+{
+    id kids = node == _root ? _content : [[node representedObject] valueForKeyPath:_childrenKeyPath];
+    NSArray *objects = content_array(kids);
+    if ([_treeSortDescriptors count] && [objects count] > 1)
+        objects = [objects sortedArrayUsingDescriptors:_treeSortDescriptors];
+    return objects;
+}
+
+/* As Apple's: the leaf key path's value if there is one, else no children by the count
+   key path, else no children at all. */
+- (BOOL)_finchNodeIsLeaf:(NSTreeControllerTreeNode *)node
+{
+    id o = [node representedObject];
+    if (_leafKeyPath)
+        return [[o valueForKeyPath:_leafKeyPath] boolValue];
+    if (_countKeyPath)
+        return [[o valueForKeyPath:_countKeyPath] unsignedIntegerValue] == 0;
+    id kids = _childrenKeyPath ? [o valueForKeyPath:_childrenKeyPath] : nil;
+    return !kids || [kids count] == 0;
+}
+
+- (_NSControllerTreeProxy *)_finchRoot
+{
+    if (!_root) {
+        id holder = _childrenKeyPath ? @{_childrenKeyPath : content_array(_content)} : @{};
+        _root = [[_NSControllerTreeProxy alloc] initWithRepresentedObject:holder];
+        _root->_controller = self;
+    }
+    return _root;
+}
+
+- (id)arrangedObjects
+{
+    if (!_childrenKeyPath)
+        [NSException raise:NSInternalInconsistencyException
+                    format:@"%@[object class: %@] Cannot perform operation because childrenKeyPath is nil", self,
+                           NSStringFromClass([self objectClass])];
+    return [self _finchRoot];
+}
+
+- (NSTreeControllerTreeNode *)_finchNodeAtPath:(NSIndexPath *)path
+{
+    if (!path || !_childrenKeyPath)
+        return nil;
+    return (NSTreeControllerTreeNode *)[[self _finchRoot] descendantNodeAtIndexPath:path];
+}
+
+/* A node's children changed under KVO: rebuilt, the arrangement notified. */
+- (void)_finchChildrenChangedOfNode:(NSTreeControllerTreeNode *)node
+{
+    [self _finchWillChange:TC_ARRANGED];
+    [node _finchRebuild];
+    [self _finchDidChange];
+}
+
+- (void)rearrangeObjects
+{
+    [self _finchWillChange:TC_ARRANGED];
+    if (_root) {
+        NSDictionary *holder = _childrenKeyPath ? @{_childrenKeyPath : content_array(_content)} : @{};
+        _NSControllerTreeProxy *root = [[_NSControllerTreeProxy alloc] initWithRepresentedObject:holder];
+        root->_controller = self;
+        root->_built = YES;
+        [root _finchSetChildren:[_root childNodes]];
+        [_root release];
+        _root = root;
+        [_root _finchRebuild];
+    }
+    [self _finchDidChange];
+}
+
+- (NSArray *)sortDescriptors { return _treeSortDescriptors ?: @[]; }
+
+- (void)setSortDescriptors:(NSArray *)descriptors
+{
+    [self willChangeValueForKey:@"sortDescriptors"];
+    [_treeSortDescriptors release];
+    _treeSortDescriptors = [descriptors copy];
+    [self didChangeValueForKey:@"sortDescriptors"];
+    _FinchBinding *b = FinchBindingFor(self, NSSortDescriptorsBinding);
+    if (b && !b->_pushing)
+        [b push:descriptors];
+    [self rearrangeObjects];
+}
+
+#pragma mark Content
+
+- (NSArray *)_finchSelectedObjectsNow
+{
+    NSMutableArray *objects = [NSMutableArray array];
+    for (NSIndexPath *p in _selectionPaths) {
+        id o = [[self _finchNodeAtPath:p] representedObject];
+        if (o)
+            [objects addObject:o];
+    }
+    return objects;
+}
+
+- (NSIndexPath *)_finchPathOfObject:(id)object under:(NSTreeNode *)node
+{
+    for (NSTreeNode *c in [node childNodes]) {
+        if ([c representedObject] == object)
+            return [c indexPath];
+        if (![c isLeaf]) {
+            NSIndexPath *p = [self _finchPathOfObject:object under:c];
+            if (p)
+                return p;
+        }
+    }
+    return nil;
+}
+
+/* New content: the tree is made again (keeping nodes of objects still there); the
+   selection keeps its objects where it can (preservesSelection) and selects the first
+   object when it would be empty (avoidsEmptySelection). */
+- (void)_finchSetContent:(id)content
+{
+    NSArray *kept = _tc.preserves && _childrenKeyPath ? [self _finchSelectedObjectsNow] : nil;
+    [self _finchWillChange:TC_ALL];
+    [content retain];
+    [_content release];
+    _content = content;
+    if (_root) {
+        NSDictionary *holder = _childrenKeyPath ? @{_childrenKeyPath : content_array(_content)} : @{};
+        _NSControllerTreeProxy *root = [[_NSControllerTreeProxy alloc] initWithRepresentedObject:holder];
+        root->_controller = self;
+        root->_built = YES;
+        [root _finchSetChildren:[_root childNodes]];
+        [_root release];
+        _root = root;
+        [_root _finchRebuild];
+    }
+    [_selectionPaths removeAllObjects];
+    if (_childrenKeyPath) {
+        for (id o in kept) {
+            NSIndexPath *p = [self _finchPathOfObject:o under:[self _finchRoot]];
+            if (p)
+                [_selectionPaths addObject:p];
+        }
+        if (![_selectionPaths count] && _tc.avoidsEmpty && [content_array(_content) count])
+            [_selectionPaths addObject:[NSIndexPath indexPathWithIndex:0]];
+    }
+    [self _finchDidChange];
+    [self _finchSelectionChangedByController];
+}
+
+- (void)setContent:(id)content { [self _finchSetContent:content]; }
+
+/* The model array a node's children come from: the content for the root (through the
+   content binding when there is one), the object's children otherwise. */
+- (void)_finchMutateChildrenOf:(NSTreeControllerTreeNode *)parent with:(void (^)(NSMutableArray *objects))change
+{
+    _mutating++;
+    @try {
+        if (parent != _root) {
+            change([[parent representedObject] mutableArrayValueForKeyPath:_childrenKeyPath]);
+            return;
+        }
+        _FinchBinding *b = FinchBindingFor(self, NSContentArrayBinding);
+        if (b && b->_observed) {
+            b->_pushing = YES;
+            @try {
+                change([b->_observed mutableArrayValueForKeyPath:b->_keyPath]);
+            } @finally {
+                b->_pushing = NO;
+            }
+            id now = [b rawValue];
+            if (now != _content) {
+                [now retain];
+                [_content release];
+                _content = now;
+            }
+        } else if ([_content isKindOfClass:[NSMutableArray class]]) {
+            change(_content);
+        } else {
+            NSMutableArray *copy = [NSMutableArray arrayWithArray:content_array(_content)];
+            change(copy);
+            [_content release];
+            _content = [copy retain];
+        }
+    } @finally {
+        _mutating--;
+    }
+}
+
+/* (the arranged index's model index: where the node now there sits in the model, or the
+   end when sorted; the same index when not) */
+static NSUInteger
+model_index(NSArray *model, NSTreeNode *parent, NSUInteger arranged, BOOL sorted)
+{
+    if (!sorted)
+        return MIN(arranged, [model count]);
+    NSArray *kids = [parent childNodes];
+    if (arranged < [kids count]) {
+        NSUInteger at = [model indexOfObjectIdenticalTo:[kids[arranged] representedObject]];
+        if (at != NSNotFound)
+            return at;
+    }
+    return [model count];
+}
+
+- (void)insertObjects:(NSArray *)objects atArrangedObjectIndexPaths:(NSArray<NSIndexPath *> *)indexPaths
+{
+    if (![objects count] || [objects count] != [indexPaths count] || !_childrenKeyPath)
+        return;
+    [self _finchWillChange:TC_ARRANGED]; /* (not content: Apple's doesn't post it) */
+    NSMutableArray *inserted = [NSMutableArray array];
+    for (NSUInteger i = 0; i < [objects count]; i++) {
+        NSIndexPath *path = indexPaths[i];
+        NSIndexPath *parentPath = [path length] > 1 ? [path indexPathByRemovingLastIndex] : nil;
+        NSTreeControllerTreeNode *parent = parentPath ? [self _finchNodeAtPath:parentPath] : [self _finchRoot];
+        if (!parent)
+            continue;
+        [parent _finchBuild];
+        NSUInteger at = [path indexAtPosition:[path length] - 1];
+        id object = objects[i];
+        BOOL sorted = [_treeSortDescriptors count] > 0;
+        [self _finchMutateChildrenOf:parent
+                                with:^(NSMutableArray *model) {
+                                    [model insertObject:object atIndex:model_index(model, parent, at, sorted)];
+                                }];
+        NSTreeControllerTreeNode *node = [[NSTreeControllerTreeNode alloc] initWithRepresentedObject:object];
+        node->_controller = self;
+        at = MIN(at, [[parent _finchChildStorage] count]);
+        [parent _finchInsertChild:node atIndex:at];
+        [node release];
+        [inserted addObject:path_by_adding(parentPath, at)];
+    }
+    if (_tc.selectsInserted && [inserted count])
+        [_selectionPaths setArray:inserted];
+    [self _finchDidChange];
+    [self _finchSelectionChangedByController];
+}
+
+- (void)insertObject:(id)object atArrangedObjectIndexPath:(NSIndexPath *)indexPath
+{
+    if (object && indexPath)
+        [self insertObjects:@[ object ] atArrangedObjectIndexPaths:@[ indexPath ]];
+}
+
+/* (deepest and last first, so the paths left stay good) */
+static NSArray *
+paths_last_first(NSArray *paths)
+{
+    return [paths sortedArrayUsingComparator:^NSComparisonResult(NSIndexPath *a, NSIndexPath *b) {
+        return [b compare:a];
+    }];
+}
+
+- (void)_finchRemoveNode:(NSTreeControllerTreeNode *)node
+{
+    NSTreeControllerTreeNode *parent = (NSTreeControllerTreeNode *)[node parentNode];
+    if (!parent)
+        return;
+    id object = [node representedObject];
+    [self _finchMutateChildrenOf:parent
+                            with:^(NSMutableArray *model) {
+                                NSUInteger at = [model indexOfObjectIdenticalTo:object];
+                                if (at != NSNotFound)
+                                    [model removeObjectAtIndex:at];
+                            }];
+    NSUInteger at = [[parent _finchChildStorage] indexOfObjectIdenticalTo:node];
+    if (at != NSNotFound) {
+        [node _finchDetach];
+        [parent _finchRemoveChildAtIndex:at];
+    }
+}
+
+/* As Apple's, the selection's paths stay as they were. */
+- (void)removeObjectsAtArrangedObjectIndexPaths:(NSArray<NSIndexPath *> *)indexPaths
+{
+    if (![indexPaths count] || !_childrenKeyPath)
+        return;
+    [self _finchWillChange:TC_ARRANGED]; /* (not content: Apple's doesn't post it) */
+    NSMutableArray *nodes = [NSMutableArray array];
+    for (NSIndexPath *p in paths_last_first(indexPaths)) {
+        NSTreeControllerTreeNode *n = [self _finchNodeAtPath:p];
+        if (n)
+            [nodes addObject:n];
+    }
+    for (NSTreeControllerTreeNode *n in nodes)
+        [self _finchRemoveNode:n];
+    [self _finchDidChange];
+}
+
+- (void)removeObjectAtArrangedObjectIndexPath:(NSIndexPath *)indexPath
+{
+    if (indexPath)
+        [self removeObjectsAtArrangedObjectIndexPaths:@[ indexPath ]];
+}
+
+/* The nodes leave their parents and go, in order, to the index path's parent from its
+   last index on. */
+- (void)moveNodes:(NSArray<NSTreeNode *> *)nodes toIndexPath:(NSIndexPath *)startingIndexPath
+{
+    if (![nodes count] || !startingIndexPath || !_childrenKeyPath)
+        return;
+    NSIndexPath *parentPath = [startingIndexPath length] > 1 ? [startingIndexPath indexPathByRemovingLastIndex] : nil;
+    NSTreeControllerTreeNode *target = parentPath ? [self _finchNodeAtPath:parentPath] : [self _finchRoot];
+    if (!target)
+        return;
+    [self _finchWillChange:TC_ARRANGED]; /* (not content: Apple's doesn't post it) */
+    [target _finchBuild];
+    NSUInteger at = [startingIndexPath indexAtPosition:[startingIndexPath length] - 1];
+    for (NSTreeControllerTreeNode *node in nodes) {
+        if (![node isKindOfClass:[NSTreeControllerTreeNode class]] || node->_controller != self)
+            continue;
+        [node retain];
+        id object = [node representedObject];
+        NSTreeControllerTreeNode *from = (NSTreeControllerTreeNode *)[node parentNode];
+        if (from) {
+            NSUInteger was = [[from _finchChildStorage] indexOfObjectIdenticalTo:node];
+            [self _finchMutateChildrenOf:from
+                                    with:^(NSMutableArray *model) {
+                                        NSUInteger i = [model indexOfObjectIdenticalTo:object];
+                                        if (i != NSNotFound)
+                                            [model removeObjectAtIndex:i];
+                                    }];
+            if (from == target && was != NSNotFound && was < at)
+                at--;
+        }
+        BOOL sorted = [_treeSortDescriptors count] > 0;
+        NSUInteger index = at;
+        [self _finchMutateChildrenOf:target
+                                with:^(NSMutableArray *model) {
+                                    [model insertObject:object atIndex:model_index(model, target, index, sorted)];
+                                }];
+        [target _finchInsertChild:node atIndex:at];
+        [node release];
+        at++;
+    }
+    [self _finchDidChange];
+}
+
+- (void)moveNode:(NSTreeNode *)node toIndexPath:(NSIndexPath *)indexPath
+{
+    if (node)
+        [self moveNodes:@[ node ] toIndexPath:indexPath];
+}
+
+#pragma mark Selection
+
+- (NSArray<NSIndexPath *> *)selectionIndexPaths { return [[_selectionPaths copy] autorelease]; }
+- (NSIndexPath *)selectionIndexPath { return [_selectionPaths firstObject]; }
+
+- (NSArray<NSTreeNode *> *)selectedNodes
+{
+    NSMutableArray *nodes = [NSMutableArray array];
+    for (NSIndexPath *p in _selectionPaths) {
+        NSTreeNode *n = [self _finchNodeAtPath:p];
+        if (n)
+            [nodes addObject:n];
+    }
+    return nodes;
+}
+
+- (NSArray *)selectedObjects { return _childrenKeyPath ? [self _finchSelectedObjectsNow] : @[]; }
+
+- (void)_finchSelectionChangedByController
+{
+    _FinchBinding *b = FinchBindingFor(self, NSSelectionIndexPathsBinding);
+    if (b && !b->_pushing)
+        [b push:[self selectionIndexPaths]];
+}
+
+/* (kept as given, in order and without duplicates; always answers YES, as Apple's) */
+- (BOOL)_finchSelectPaths:(NSArray *)paths
+{
+    [self _finchWillChange:TC_SELECTION];
+    NSMutableArray *unique = [NSMutableArray array];
+    for (NSIndexPath *p in paths)
+        if ([p isKindOfClass:[NSIndexPath class]] && ![unique containsObject:p])
+            [unique addObject:p];
+    [_selectionPaths setArray:unique];
+    [self _finchDidChange];
+    return YES;
+}
+
+- (BOOL)setSelectionIndexPaths:(NSArray<NSIndexPath *> *)indexPaths
+{
+    if (![self commitEditing])
+        return NO;
+    BOOL r = [self _finchSelectPaths:indexPaths ?: @[]];
+    [self _finchSelectionChangedByController];
+    return r;
+}
+
+- (BOOL)setSelectionIndexPath:(NSIndexPath *)indexPath
+{
+    return [self setSelectionIndexPaths:indexPath ? @[ indexPath ] : @[]];
+}
+
+- (BOOL)addSelectionIndexPaths:(NSArray<NSIndexPath *> *)indexPaths
+{
+    return [self setSelectionIndexPaths:[_selectionPaths arrayByAddingObjectsFromArray:indexPaths ?: @[]]];
+}
+
+- (BOOL)removeSelectionIndexPaths:(NSArray<NSIndexPath *> *)indexPaths
+{
+    NSMutableArray *left = [[_selectionPaths mutableCopy] autorelease];
+    [left removeObjectsInArray:indexPaths ?: @[]];
+    return [self setSelectionIndexPaths:left];
+}
+
+#pragma mark Adding and removing
+
+- (BOOL)canAdd { return [self isEditable]; }
+- (BOOL)canInsert { return [self isEditable]; }
+- (BOOL)canRemove { return [self isEditable] && [_selectionPaths count] > 0; }
+
+/* (a child can go under the selection when nothing is selected, at the top, or when the
+   first selected node isn't a leaf) */
+- (BOOL)canAddChild
+{
+    if (![self isEditable])
+        return NO;
+    if (![_selectionPaths count])
+        return YES;
+    NSTreeNode *n = [self _finchNodeAtPath:_selectionPaths[0]];
+    return n && ![n isLeaf];
+}
+
+- (BOOL)canInsertChild { return [self canAddChild]; }
+
+- (void)_finchDeferredAdd
+{
+    id o = [self newObject];
+    NSIndexPath *sel = [_selectionPaths firstObject];
+    NSIndexPath *parentPath = [sel length] > 1 ? [sel indexPathByRemovingLastIndex] : nil;
+    NSTreeNode *parent = parentPath ? [self _finchNodeAtPath:parentPath] : [self _finchRoot];
+    [self insertObject:o atArrangedObjectIndexPath:path_by_adding(parentPath, [[parent childNodes] count])];
+    [o release];
+}
+
+- (void)_finchDeferredInsert
+{
+    id o = [self newObject];
+    [self insertObject:o atArrangedObjectIndexPath:[_selectionPaths firstObject] ?: [NSIndexPath indexPathWithIndex:0]];
+    [o release];
+}
+
+- (void)_finchDeferredAddChild
+{
+    id o = [self newObject];
+    NSIndexPath *sel = [_selectionPaths firstObject];
+    NSTreeNode *parent = sel ? [self _finchNodeAtPath:sel] : [self _finchRoot];
+    [self insertObject:o atArrangedObjectIndexPath:path_by_adding(sel, [[parent childNodes] count])];
+    [o release];
+}
+
+- (void)_finchDeferredInsertChild
+{
+    id o = [self newObject];
+    [self insertObject:o atArrangedObjectIndexPath:path_by_adding([_selectionPaths firstObject], 0)];
+    [o release];
+}
+
+- (void)_finchDeferredRemove
+{
+    [self removeObjectsAtArrangedObjectIndexPaths:[self selectionIndexPaths]];
+}
+
+- (IBAction)add:(id)sender
+{
+    if ([self commitEditing])
+        [self performSelector:@selector(_finchDeferredAdd) withObject:nil afterDelay:0];
+}
+
+- (IBAction)insert:(id)sender
+{
+    if ([self commitEditing])
+        [self performSelector:@selector(_finchDeferredInsert) withObject:nil afterDelay:0];
+}
+
+- (IBAction)addChild:(id)sender
+{
+    if ([self commitEditing])
+        [self performSelector:@selector(_finchDeferredAddChild) withObject:nil afterDelay:0];
+}
+
+- (IBAction)insertChild:(id)sender
+{
+    if ([self commitEditing])
+        [self performSelector:@selector(_finchDeferredInsertChild) withObject:nil afterDelay:0];
+}
+
+- (IBAction)remove:(id)sender
+{
+    if ([self commitEditing])
+        [self _finchDeferredRemove];
+}
+
+- (void)addObject:(id)object
+{
+    [self insertObject:object atArrangedObjectIndexPath:[NSIndexPath indexPathWithIndex:[[[self _finchRoot] childNodes] count]]];
+}
+
+- (void)removeObject:(id)object
+{
+    NSIndexPath *p = [self _finchPathOfObject:object under:[self _finchRoot]];
+    if (p)
+        [self removeObjectAtArrangedObjectIndexPath:p];
+}
+
+- (BOOL)validateUserInterfaceItem:(id<NSValidatedUserInterfaceItem>)item
+{
+    SEL a = [item action];
+    if (a == @selector(insert:))
+        return [self canInsert];
+    if (a == @selector(addChild:))
+        return [self canAddChild];
+    if (a == @selector(insertChild:))
+        return [self canInsertChild];
+    if (a == @selector(add:))
+        return [self canAdd];
+    return [super validateUserInterfaceItem:item];
+}
+
+#pragma mark Bindings
+
+- (BOOL)_finchHandlesBinding:(NSString *)binding
+{
+    return [binding isEqualToString:NSContentArrayBinding] || [binding isEqualToString:NSSelectionIndexPathsBinding] ||
+           [binding isEqualToString:NSSortDescriptorsBinding] || [super _finchHandlesBinding:binding];
+}
+
+- (Class)_finchValueClassForBinding:(NSString *)binding
+{
+    if ([binding isEqualToString:NSSelectionIndexPathsBinding] || [binding isEqualToString:NSSortDescriptorsBinding])
+        return [NSArray class];
+    return [super _finchValueClassForBinding:binding];
+}
+
+- (void)_finchBindingChanged:(_FinchBinding *)b
+{
+    NSString *name = b->_name;
+    int kind;
+    id v = [b valueWithKind:&kind];
+    if (NSIsControllerMarker(v))
+        v = nil;
+    if ([name isEqualToString:NSContentArrayBinding] || [name isEqualToString:NSContentObjectBinding]) {
+        [self _finchSetContent:v];
+        return;
+    }
+    if ([name isEqualToString:NSSelectionIndexPathsBinding]) {
+        [self _finchSelectPaths:[v isKindOfClass:[NSArray class]] ? v : @[]];
+        return;
+    }
+    if ([name isEqualToString:NSSortDescriptorsBinding]) {
+        b->_pushing = YES;
+        [self setSortDescriptors:[v isKindOfClass:[NSArray class]] ? v : @[]];
         b->_pushing = NO;
         return;
     }

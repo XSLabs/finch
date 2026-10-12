@@ -57,7 +57,7 @@ mkdir -p "${FW}/Versions/C"
 "${CC}" -arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -dynamiclib \
     -install_name /System/Library/Frameworks/Foundation.framework/Versions/C/Foundation \
     -current_version 4424.1.255 -compatibility_version 300 \
-    "${OBJ}"/*.o "${SWIFTOBJ}/Foundation-swift.o" "${SWIFTOBJ}"/cshims/*.o -o "${FW}/Versions/C/Foundation" -licucore -lxml2 -Wl,-no_warn_inits \
+    "${OBJ}"/*.o "${SWIFTOBJ}/Foundation-swift.o" "${SWIFTOBJ}"/cshims/*.o -o "${FW}/Versions/C/Foundation" -licucore -lxml2 -lcompression -Wl,-no_warn_inits \
     -L"${OPENSSL}" -Wl,-hidden-lssl -Wl,-hidden-lcrypto \
     -L"${SWIFTOBJ}/coll" -Wl,-hidden-lCollectionsInternal -L"${SDKROOT}/usr/lib/swift" \
     -F"${ROOT}/System/Library/Frameworks" -Wl,-reexport_framework,CoreFoundation -Wl,-reexport-lobjc -lSystem -framework Combine \
