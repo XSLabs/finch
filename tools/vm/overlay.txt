@@ -244,3 +244,4 @@ build/userland/finch-utilities-test /usr/local/bin/finch-utilities-test
 build/userland/finch-foundation-audit-test /usr/local/bin/finch-foundation-audit-test
 build/userland/finch-tree-test /usr/local/bin/finch-tree-test
 build/userland/finch-xml-test /usr/local/bin/finch-xml-test
+build/userland/finch-document-more-test /usr/local/bin/finch-document-more-test

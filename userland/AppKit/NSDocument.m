@@ -398,6 +398,14 @@ type_names(NSDictionary *t)
 
 #pragma mark - NSDocument
 
+/* Does the document's class override one of NSDocument's methods (an older one the
+   current methods call when an app implements it, as Apple's do)? */
+static BOOL
+overrides(id doc, SEL sel)
+{
+    return [doc methodForSelector:sel] != [NSDocument instanceMethodForSelector:sel];
+}
+
 @implementation NSDocument {
     NSURL *_fileURL;
     NSString *_fileType;
@@ -496,7 +504,12 @@ type_names(NSDictionary *t)
 - (void)setFileType:(NSString *)type { [_fileType autorelease]; _fileType = [type copy]; }
 - (NSDate *)fileModificationDate { return _modificationDate; }
 - (void)setFileModificationDate:(NSDate *)date { [_modificationDate autorelease]; _modificationDate = [date copy]; }
-- (BOOL)isLocked { return NO; }
+/* (locked: the file's user-immutable flag, as Apple's sets it) */
+- (BOOL)isLocked
+{
+    NSNumber *immutable = nil;
+    return _fileURL && [_fileURL getResourceValue:&immutable forKey:NSURLIsUserImmutableKey error:NULL] && [immutable boolValue];
+}
 - (BOOL)isInViewingMode { return NO; }
 - (BOOL)isBrowsingVersions { return NO; }
 - (BOOL)hasUnautosavedChanges { return _changeCount != 0; }
@@ -699,6 +712,10 @@ type_names(NSDictionary *t)
 
 - (BOOL)readFromURL:(NSURL *)url ofType:(NSString *)typeName error:(NSError **)outError
 {
+    if (overrides(self, @selector(readFromFile:ofType:)))
+        return [self readFromFile:[url path] ofType:typeName];
+    if (overrides(self, @selector(readFromURL:ofType:)))
+        return [self readFromURL:url ofType:typeName];
     BOOL dir = NO;
     [[NSFileManager defaultManager] fileExistsAtPath:[url path] isDirectory:&dir];
     if (dir) {
@@ -711,12 +728,16 @@ type_names(NSDictionary *t)
 
 - (BOOL)readFromFileWrapper:(NSFileWrapper *)wrapper ofType:(NSString *)typeName error:(NSError **)outError
 {
+    if (overrides(self, @selector(loadFileWrapperRepresentation:ofType:)))
+        return [self loadFileWrapperRepresentation:wrapper ofType:typeName];
     NSData *d = [wrapper regularFileContents];
     return d && [self readFromData:d ofType:typeName error:outError];
 }
 
 - (BOOL)readFromData:(NSData *)data ofType:(NSString *)typeName error:(NSError **)outError
 {
+    if (overrides(self, @selector(loadDataRepresentation:ofType:)))
+        return [self loadDataRepresentation:data ofType:typeName];
     [NSException raise:NSInternalInconsistencyException
                 format:@"%@ must implement readFromData:ofType:error: or another reading method", [self class]];
     return NO;
@@ -733,6 +754,8 @@ type_names(NSDictionary *t)
 
 - (NSData *)dataOfType:(NSString *)typeName error:(NSError **)outError
 {
+    if (overrides(self, @selector(dataRepresentationOfType:)))
+        return [self dataRepresentationOfType:typeName];
     [NSException raise:NSInternalInconsistencyException
                 format:@"%@ must implement dataOfType:error: or another writing method", [self class]];
     return nil;
@@ -740,12 +763,18 @@ type_names(NSDictionary *t)
 
 - (NSFileWrapper *)fileWrapperOfType:(NSString *)typeName error:(NSError **)outError
 {
+    if (overrides(self, @selector(fileWrapperRepresentationOfType:)))
+        return [self fileWrapperRepresentationOfType:typeName];
     NSData *d = [self dataOfType:typeName error:outError];
     return d ? [[[NSFileWrapper alloc] initRegularFileWithContents:d] autorelease] : nil;
 }
 
 - (BOOL)writeToURL:(NSURL *)url ofType:(NSString *)typeName error:(NSError **)outError
 {
+    if (overrides(self, @selector(writeToFile:ofType:)))
+        return [self writeToFile:[url path] ofType:typeName];
+    if (overrides(self, @selector(writeToURL:ofType:)))
+        return [self writeToURL:url ofType:typeName];
     NSFileWrapper *w = [self fileWrapperOfType:typeName error:outError];
     return w && [w writeToURL:url options:NSFileWrapperWritingAtomic originalContentsURL:nil error:outError];
 }
@@ -753,6 +782,8 @@ type_names(NSDictionary *t)
 - (BOOL)writeToURL:(NSURL *)url ofType:(NSString *)typeName forSaveOperation:(NSSaveOperationType)op
     originalContentsURL:(NSURL *)absoluteOriginalContentsURL error:(NSError **)outError
 {
+    if (overrides(self, @selector(writeToFile:ofType:originalFile:saveOperation:)))
+        return [self writeToFile:[url path] ofType:typeName originalFile:[absoluteOriginalContentsURL path] saveOperation:op];
     return [self writeToURL:url ofType:typeName error:outError];
 }
 
@@ -886,8 +917,6 @@ type_names(NSDictionary *t)
         [self release];
     });
 }
-- (IBAction)runPageLayout:(id)sender {}
-- (IBAction)printDocument:(id)sender {}
 /* As Apple's: a copy of the shared print info until the document is given its own. */
 - (NSPrintInfo *)printInfo
 {
@@ -991,7 +1020,6 @@ type_names(NSDictionary *t)
     return copy != nil;
 }
 
-- (IBAction)browseDocumentVersions:(id)sender {}
 
 - (NSPrintOperation *)printOperationWithSettings:(NSDictionary<NSPrintInfoAttributeKey, id> *)settings
                                            error:(NSError **)outError
