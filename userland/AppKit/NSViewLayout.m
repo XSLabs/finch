@@ -1064,6 +1064,8 @@ layout_pass(NSView *view)
     lay_out_tree(view, root, 0);
 }
 
+NSViewController *FinchViewControllerOf(NSView *view);
+
 static void
 lay_out_tree(NSView *view, NSView *root, int depth)
 {
@@ -1072,8 +1074,12 @@ lay_out_tree(NSView *view, NSView *root, int depth)
         return;
     }
     for (int guard = 0; guard < 8 && [view needsLayout]; guard++) {
+        /* a view controller's view: the controller hears before and after, as Apple's does */
+        NSViewController *vc = FinchViewControllerOf(view);
+        [vc viewWillLayout];
         [view layout];
         [view setNeedsLayout:NO];
+        [vc viewDidLayout];
         /* -layout may have changed constraints */
         FinchViewLayout *rs = state(root);
         if (rs->dirty) {

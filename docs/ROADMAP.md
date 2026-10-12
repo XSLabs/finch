@@ -427,6 +427,12 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           no city database, no radios), PerformanceAnalysis, ConfigurationProfiles,
           UIKitMacHelper, ChronoServices and UserManagement; `smallprivate-test` matches
           Apple's.
+    - [x] OnBoardingKit's AppKit side (2026-10-12): the welcome template view, its container
+          controller (button tray, spinner, status), the bullet list and the privacy
+          screens, in Fieldwork's style; Finch has no Apple privacy bundles, so the
+          privacy screens give Finch's own statement. App Store, Freeform, Migration
+          Assistant, Music, Photos, Shortcuts and TV use it. AppKit now tells a view
+          controller before and after its view lays out (`viewWillLayout`, `viewDidLayout`).
     - [ ] Every class and method the public headers declare, as Apple's answers them:
           `tools/api-audit.sh` lists what Finch lacks. 2026-10-12: Foundation 61 classes
           and 140 methods (from 67 and 225), AppKit 48 classes and 115 methods (from 50 and 562).

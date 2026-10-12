@@ -120,6 +120,8 @@ steps=(
     "IconServices|userland/IconServices/build.sh"
     # small private frameworks apps link for a few symbols (SoftLinking, AppSupport, ...)
     "SmallPrivate|userland/SmallPrivate/build.sh"
+    # OnBoardingKit (private): welcome and privacy screens, the AppKit side
+    "OnBoardingKit|userland/OnBoardingKit/build.sh"
     # AppKit and the frameworks around it (docs/design/APPKIT.md)
     "ApplicationServices|userland/ApplicationServices/build.sh"
     "UIFoundation|userland/UIFoundation/build.sh"
