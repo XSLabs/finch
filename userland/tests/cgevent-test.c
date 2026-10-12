@@ -15,8 +15,9 @@ show(const char *label, CGEventRef e)
     UniChar u[8] = {0};
     UniCharCount n = 0;
     CGEventKeyboardGetUnicodeString(e, 8, &n, u);
+    /* (kCGEventFlagMaskNonCoalesced left out: Apple's sets it by the host's input state) */
     printf("%s: type %u flags 0x%llx keycode %lld text %lu", label, (unsigned)CGEventGetType(e),
-           (unsigned long long)CGEventGetFlags(e), (long long)CGEventGetIntegerValueField(e, kCGKeyboardEventKeycode),
+           (unsigned long long)(CGEventGetFlags(e) & ~(CGEventFlags)kCGEventFlagMaskNonCoalesced), (long long)CGEventGetIntegerValueField(e, kCGKeyboardEventKeycode),
            (unsigned long)n);
     for (UniCharCount i = 0; i < n; i++)
         printf(" %04x", u[i]);
@@ -91,7 +92,8 @@ main(void)
     CGEventRef back = CGEventCreateFromData(NULL, d);
     show("from data", back);
     CGEventRef plain = CGEventCreate(NULL);
-    printf("plain type %u flags 0x%llx\n", (unsigned)CGEventGetType(plain), (unsigned long long)CGEventGetFlags(plain));
+    printf("plain type %u flags 0x%llx\n", (unsigned)CGEventGetType(plain),
+        (unsigned long long)(CGEventGetFlags(plain) & ~(CGEventFlags)kCGEventFlagMaskNonCoalesced));
     CGEventSetType(plain, kCGEventKeyDown);
     printf("set type %u\n", (unsigned)CGEventGetType(plain));
     CGEventSetTimestamp(plain, 12345);

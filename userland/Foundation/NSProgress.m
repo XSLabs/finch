@@ -336,12 +336,12 @@ INFO_PROPERTY(NSNumber *, fileCompletedCount, setFileCompletedCount, NSProgressF
 }
 
 static NSString *
-trimmed_number(double v, int decimals)
+trimmed_number(double v, int decimals, BOOL pad)
 {
     NSNumberFormatter *f = [[[NSNumberFormatter alloc] init] autorelease];
     f.numberStyle = NSNumberFormatterDecimalStyle;
     f.locale = [NSLocale currentLocale];
-    f.minimumFractionDigits = 0;
+    f.minimumFractionDigits = pad ? (NSUInteger)decimals : 0;
     f.maximumFractionDigits = (NSUInteger)decimals;
     f.roundingMode = NSNumberFormatterRoundHalfEven;
     return [f stringFromNumber:@(v)];
@@ -353,7 +353,9 @@ trimmed_number(double v, int decimals)
     double unit = binary ? 1024.0 : 1000.0;
     static NSString *names[] = { @"bytes", @"KB", @"MB", @"GB", @"TB", @"PB", @"EB", @"ZB", @"YB" };
     NSByteCountFormatterUnits allowed = _fUnits ? _fUnits : NSByteCountFormatterUseAll;
-    if (byteCount == 0 && _fNonnumeric && allowed == NSByteCountFormatterUseAll) return _fUnit ? @"Zero KB" : @"0";
+    /* (zero in words: "Zero bytes" when only bytes are allowed, else "Zero KB", as Apple's) */
+    if (byteCount == 0 && _fNonnumeric)
+        return !_fUnit ? @"0" : allowed == NSByteCountFormatterUseBytes ? @"Zero bytes" : @"Zero KB";
     double v = fabs((double)byteCount);
     int level = 0;
     /* The largest allowed unit the count reaches (or the smallest allowed). */
@@ -366,11 +368,15 @@ trimmed_number(double v, int decimals)
     double scaled = v / pow(unit, level);
     if (byteCount < 0) scaled = -scaled;
     int decimals = level <= 1 ? 0 : level == 2 ? 1 : 2;
-    NSString *num = level == 0 ? trimmed_number(scaled, 0) : trimmed_number(scaled, decimals);
+    NSString *num = level == 0 ? trimmed_number(scaled, 0, NO) : trimmed_number(scaled, decimals, _fZeroPads);
     if (!_fUnit) return num;
     if (!_fCount) return level == 0 ? (byteCount == 1 ? @"byte" : @"bytes") : names[level];
     if (level == 0) return [NSString stringWithFormat:@"%@ %@", num, llabs(byteCount) == 1 ? @"byte" : @"bytes"];
-    return [NSString stringWithFormat:@"%@ %@", num, names[level]];
+    NSString *s = [NSString stringWithFormat:@"%@ %@", num, names[level]];
+    /* (with the count in bytes after it, when asked for) */
+    if (_fActual)
+        s = [NSString stringWithFormat:@"%@ (%@ %@)", s, trimmed_number((double)byteCount, 0, NO), llabs(byteCount) == 1 ? @"byte" : @"bytes"];
+    return s;
 }
 
 - (NSString *)stringForObjectValue:(id)obj

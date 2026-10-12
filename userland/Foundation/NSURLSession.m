@@ -10,8 +10,9 @@
  *     verifying the server against /etc/ssl/cert.pem), following redirects, with
  *     chunked and length-delimited bodies.
  * Tasks run on a private queue; completion handlers and delegate calls go to the
- * session's delegate queue. Caching, cookies, authentication challenges, HTTP/2 and
- * background sessions aren't there yet.
+ * session's delegate queue. Responses are cached and custom protocols answer requests
+ * through NSURLCache.m. Cookies, authentication challenges, HTTP/2 and background
+ * sessions aren't there yet.
  */
 #import <Foundation/Foundation.h>
 #include "../certificates/ca-bundle.h"
@@ -44,6 +45,7 @@ NSString *const NSURLSessionUploadTaskResumeData = @"NSURLSessionUploadTaskResum
     NSData *_body;
     NSInputStream *_bodyStream;
     NSURLRequestAttribution _attribution;
+    NSMutableDictionary *_properties; /* (NSURLProtocol's, carried by copies) */
 }
 
 + (BOOL)supportsSecureCoding { return YES; }
@@ -77,7 +79,31 @@ NSString *const NSURLSessionUploadTaskResumeData = @"NSURLSessionUploadTaskResum
     [_headers release];
     [_body release];
     [_bodyStream release];
+    [_properties release];
     [super dealloc];
+}
+
+- (id)_finchPropertyForKey:(NSString *)key
+{
+    @synchronized(self) {
+        return [[[_properties objectForKey:key] retain] autorelease];
+    }
+}
+
+- (void)_finchSetProperty:(id)value forKey:(NSString *)key
+{
+    @synchronized(self) {
+        if (!_properties)
+            _properties = [NSMutableDictionary new];
+        [_properties setObject:value forKey:key];
+    }
+}
+
+- (void)_finchRemovePropertyForKey:(NSString *)key
+{
+    @synchronized(self) {
+        [_properties removeObjectForKey:key];
+    }
 }
 
 - (void)_finchCopyTo:(NSURLRequest *)r
@@ -94,6 +120,7 @@ NSString *const NSURLSessionUploadTaskResumeData = @"NSURLSessionUploadTaskResum
     r->_body = [_body copy];
     r->_bodyStream = [_bodyStream retain];
     r->_attribution = _attribution;
+    r->_properties = [_properties mutableCopy];
 }
 
 - (id)copyWithZone:(NSZone *)zone
@@ -774,8 +801,20 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
     NSString *_identifier;
 }
 
-+ (NSURLSessionConfiguration *)defaultSessionConfiguration { return [[[self alloc] init] autorelease]; }
-+ (NSURLSessionConfiguration *)ephemeralSessionConfiguration { return [[[self alloc] init] autorelease]; }
++ (NSURLSessionConfiguration *)defaultSessionConfiguration
+{
+    NSURLSessionConfiguration *c = [[[self alloc] init] autorelease];
+    c.URLCache = [NSURLCache sharedURLCache];
+    return c;
+}
+
+/* (its own cache, in memory only) */
++ (NSURLSessionConfiguration *)ephemeralSessionConfiguration
+{
+    NSURLSessionConfiguration *c = [[[self alloc] init] autorelease];
+    c.URLCache = [[[NSURLCache alloc] initWithMemoryCapacity:4 << 20 diskCapacity:0 directoryURL:nil] autorelease];
+    return c;
+}
 + (NSURLSessionConfiguration *)backgroundSessionConfigurationWithIdentifier:(NSString *)identifier
 {
     NSURLSessionConfiguration *c = [[[self alloc] init] autorelease];
@@ -813,12 +852,19 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
     c.HTTPAdditionalHeaders = self.HTTPAdditionalHeaders;
     c.requestCachePolicy = self.requestCachePolicy;
     c.allowsCellularAccess = self.allowsCellularAccess;
+    c.URLCache = self.URLCache;
+    c.protocolClasses = self.protocolClasses;
+    c.HTTPShouldSetCookies = self.HTTPShouldSetCookies;
+    c.HTTPMaximumConnectionsPerHost = self.HTTPMaximumConnectionsPerHost;
     return c;
 }
 
 @end
 
 #pragma mark - Tasks
+
+NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask *task, NSURLRequest *request,
+    NSURLResponse **outResponse, NSError **outError, NSData *(*plain)(NSURLRequest *, NSURLResponse **, NSError **));
 
 @interface NSURLSessionTask ()
 - (instancetype)_finchInitWithSession:(NSURLSession *)session request:(NSURLRequest *)request identifier:(NSUInteger)ident
@@ -897,10 +943,12 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
     [self retain];
     NSURLRequest *request = _original;
     BOOL download = _download;
+    NSURLSessionConfiguration *configuration = [[_session.configuration retain] autorelease];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
       NSURLResponse *response = nil;
       NSError *error = nil;
-      NSData *data = load(request, &response, &error);
+      /* (through the cache and any protocol classes, NSURLCache.m) */
+      NSData *data = _FinchURLLoad(configuration, self, request, &response, &error, load);
       id result = data;
       if (data && download) {
           NSString *tmp = [NSTemporaryDirectory() stringByAppendingPathComponent:

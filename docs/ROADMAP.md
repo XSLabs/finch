@@ -401,6 +401,12 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         AVFoundation). The next frameworks are picked from it.
   - [ ] Close the symbol gaps in Finch's own frameworks that block the most apps
         (AppKit, Foundation, CoreGraphics, QuartzCore, CoreFoundation).
+    - [x] Foundation: NSItemProvider (with NSString's and NSURL's item-provider
+          conformance, and UniformTypeIdentifiers' UTType methods), NSListFormatter,
+          NSRelativeDateTimeFormatter, NSPersonNameComponentsFormatter,
+          NSLocalizedFileSizeDescription, NSURLCache and NSURLProtocol; byte counts
+          zero-pad and add the actual count as Apple's. Their comparison tests match
+          Apple's (2026-10-11).
     - [x] libswiftDispatch: DispatchQueue's conformance to Combine's Scheduler, from
           Apple's overlay source, weak-linking Finch's Combine (2026-10-11); 19 apps
           imported it.
@@ -528,8 +534,11 @@ and AppKit come in Phase 2).
         Swift's URLRequest and async methods (2026-10-09)
   - [x] Pinned Mozilla CA bundle in the image; HTTPS trust checks pass on the host
         and in QEMU (2026-10-11).
-  - [ ] Caching, cookies, authentication, HTTP/2, streaming delegate data,
-        WebSocket and stream tasks
+  - [x] NSURLCache (memory and disk, by URL, with the request cache policies) and
+        NSURLProtocol (per configuration and registered, redirects followed);
+        `urlcache-test` matches Apple's (2026-10-11)
+  - [ ] Cookies, authentication, HTTP/2, streaming delegate data, WebSocket and
+        stream tasks
 - [ ] AVFoundation / CoreAudio / CoreMedia ([media plan](design/MEDIA.md))
   - [x] CoreMedia and CoreVideo's buffer, time and format operations (2026-10-10).
   - [x] AudioToolbox format properties and PCM audio files (2026-10-10).

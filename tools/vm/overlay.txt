@@ -231,3 +231,6 @@ build/userland/finch-avaudio-unit-test /usr/local/bin/finch-avaudio-unit-test
 build/userland/finch-audiounit-effects-test /usr/local/bin/finch-audiounit-effects-test
 build/userland/finch-avaudio-player-test /usr/local/bin/finch-avaudio-player-test
 build/userland/finch-avaudio-services-test /usr/local/bin/finch-avaudio-services-test
+build/userland/finch-itemprovider-test /usr/local/bin/finch-itemprovider-test
+build/userland/finch-formatters2-test /usr/local/bin/finch-formatters2-test
+build/userland/finch-urlcache-test /usr/local/bin/finch-urlcache-test

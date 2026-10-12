@@ -27,7 +27,7 @@ CFLAGS=(-arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -Os -g
 
 log "compiling"
 rm -rf "${OBJ}" && mkdir -p "${OBJ}"
-for f in UTType UTCoreTypes UTAdditions; do
+for f in UTType UTCoreTypes UTAdditions NSItemProvider+UTType; do
     "${CC}" "${CFLAGS[@]}" -c "${HERE}/${f}.m" -o "${OBJ}/${f}.o"
 done
 

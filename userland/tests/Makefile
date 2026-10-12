@@ -709,6 +709,7 @@ $(OUT)/finch-mdnsd-test: mdnsd-test.c
 all: $(OUT)/finch-extaudiofile-test $(OUT)/finch-audiounit-test $(OUT)/finch-avaudio-buffer-test $(OUT)/finch-audioqueue-test
 all: $(OUT)/finch-avaudio-file-test $(OUT)/finch-avaudio-converter-test $(OUT)/finch-avaudio-engine-test $(OUT)/finch-avaudio-player-test $(OUT)/finch-avaudio-services-test
 all: $(OUT)/finch-audiounit-effects-test $(OUT)/finch-avaudio-unit-test
+all: $(OUT)/finch-itemprovider-test $(OUT)/finch-formatters2-test $(OUT)/finch-urlcache-test
 all: $(OUT)/finch-configd-service-test $(OUT)/finch-diskarbitration-session-test
 all: $(OUT)/finch-configd-daemon-test
 all: $(OUT)/finch-configd-contained-service
@@ -745,6 +746,15 @@ $(OUT)/finch-avaudio-converter-test: avaudio-converter-test.m
 $(OUT)/finch-avaudio-engine-test: avaudio-engine-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fno-objc-arc -fblocks -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation
+$(OUT)/finch-urlcache-test: urlcache-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -o $@ $< -framework Foundation
+$(OUT)/finch-formatters2-test: formatters2-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -o $@ $< -framework Foundation
+$(OUT)/finch-itemprovider-test: itemprovider-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -fblocks -o $@ $< -framework Foundation -framework UniformTypeIdentifiers
 $(OUT)/finch-avaudio-unit-test: avaudio-unit-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -fblocks -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation
