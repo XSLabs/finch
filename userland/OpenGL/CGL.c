@@ -524,7 +524,12 @@ CGLGetParameter(CGLContextObj ctx, CGLContextParameter pname, GLint *params)
         return kCGLBadAddress;
     switch (pname) {
     case kCGLCPSwapInterval: params[0] = ctx->swapInterval; break;
-    case kCGLCPSurfaceOpacity: params[0] = ctx->surfaceOpacity; break;
+    case kCGLCPSurfaceOpacity:
+        /* (a surface's: there's none before a drawable, as Apple's says) */
+        if (!ctx->flush)
+            return kCGLBadDrawable;
+        params[0] = ctx->surfaceOpacity;
+        break;
     case kCGLCPSurfaceOrder: params[0] = ctx->surfaceOrder; break;
     case kCGLCPSurfaceBackingSize: params[0] = ctx->backingSize[0], params[1] = ctx->backingSize[1]; break;
     case kCGLCPCurrentRendererID: params[0] = SOFTWARE_RENDERER; break;

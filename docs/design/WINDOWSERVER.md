@@ -29,7 +29,10 @@ A Unix-domain stream socket (`/tmp/finch-windowserver`, or
 serial) and a body; requests that need an answer get a reply with the same
 serial. Window backing stores are shared memory: the server creates each
 one and passes its file descriptor to the client (`SCM_RIGHTS`), which maps
-it and draws into it with a CGBitmapContext. The same transport works on
+it. The client draws into a private back buffer of the same size with a
+CGBitmapContext, and a flush copies that to the shared surface before telling
+the server, so the server, which composites whenever anything changes on screen,
+never shows a half-drawn frame. The same transport works on
 the host, in the Tier 1 and Tier 2 VMs, and on bare metal, and needs no
 launchd registration while Finch is developed on macOS.
 

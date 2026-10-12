@@ -4,4 +4,5 @@ context 1, view is it 1, current is it 1, format is it 1
 screen: left red, right green, corner blue
 resized: reshape 400x160, draw
 timer redraw: right now blue, calls start with draw
+covered by a subview: left red
 cleared current: 0x0

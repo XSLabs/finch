@@ -20,8 +20,13 @@ A context attached to a view (`-setView:`) renders into an OSMesa buffer the siz
 view's backing. `-flushBuffer` reads the pixels (`FinchCGLGetPixels`, SPI between the
 two frameworks) into a CGImage that the view keeps; the view draws that image after
 `-drawRect:`, inside its normal display pass, so the window server composites GL content
-like any other drawing. A flush outside a display pass (a timer, an animation) marks the
-view for display. `-prepareOpenGL`, `-reshape` and `-drawRect:` come in Apple's order.
+like any other drawing, but after the rest of the window's views: as on macOS, a GL
+surface shows above the window's ordinary drawing (including the GL view's own subviews)
+unless its context's surface order is -1, which puts it under its view's siblings. A
+view that isn't opaque, or a surface opacity of 0, composites the frame with its alpha.
+A flush outside a display pass (a timer, an animation) marks the view for display.
+`-prepareOpenGL`, `-reshape` and `-drawRect:` come in Apple's order. `FINCH_DEBUG_GL=1`
+traces drawables and flushes and saves the last frame to `/tmp/finch-gl-last.png`.
 
 ## Limits
 

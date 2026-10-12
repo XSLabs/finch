@@ -487,11 +487,44 @@ take_matching(NSEventMask mask, BOOL dequeue)
 - (BOOL)isRunning { return _a.running; }
 - (BOOL)isActive { return _a.active; }
 
+/* FINCH_DUMP_VIEWS=SECONDS prints every window's views once, that long after launch (to see
+   why an app's window looks wrong) */
+static void
+dump_view(NSView *v, int depth)
+{
+    NSRect f = [v frame], b = [v bounds];
+    NSRect inWindow = [v convertRect:b toView:nil];
+    fprintf(stderr, "%*s%s frame %s bounds %s in window %s%s%s%s%s\n", depth * 2, "", object_getClassName(v),
+            NSStringFromRect(f).UTF8String, NSStringFromRect(b).UTF8String, NSStringFromRect(inWindow).UTF8String,
+            [v isHidden] ? " hidden" : "", [v isOpaque] ? " opaque" : "", [v isFlipped] ? " flipped" : "",
+            [v wantsLayer] ? " layer" : "");
+    for (NSView *sub in [v subviews])
+        dump_view(sub, depth + 1);
+}
+
+static void
+schedule_view_dump(void)
+{
+    const char *env = getenv("FINCH_DUMP_VIEWS");
+    if (!env)
+        return;
+    [NSTimer scheduledTimerWithTimeInterval:atof(env) repeats:NO block:^(NSTimer *t) {
+        for (NSWindow *w in [NSApp windows]) {
+            fprintf(stderr, "window \"%s\" %s%s\n", [[w title] UTF8String], NSStringFromRect([w frame]).UTF8String,
+                    [w isVisible] ? "" : " (not visible)");
+            NSView *top = [[w contentView] superview] ?: [w contentView];
+            if (top)
+                dump_view(top, 1);
+        }
+    }];
+}
+
 - (void)finishLaunching
 {
     if (_a.launched)
         return;
     _a.launched = YES;
+    schedule_view_dump();
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     [nc postNotificationName:NSApplicationWillFinishLaunchingNotification object:self];
     if (_policy == NSApplicationActivationPolicyRegular)

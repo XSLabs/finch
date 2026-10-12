@@ -769,47 +769,48 @@ convert_size(NSSize size, CGAffineTransform t)
     return NSRectFromCGRect(CGRectApplyAffineTransform(NSRectToCGRect(rect), between(self, view)));
 }
 
-/* Backing coordinates: window coordinates times the backing scale. */
-- (NSPoint)convertPointToBacking:(NSPoint)p
+/* Backing coordinates, as Apple's: the view's own coordinates scaled to the backing's
+   pixels (its bounds' scale and the backing scale, y running up even in a flipped
+   view), with no translation; sizes come out positive. */
+static CGAffineTransform
+to_backing(NSView *self)
 {
     CGFloat s = FinchViewBackingScale(self);
-    p = _window ? [self convertPoint:p toView:nil] : p;
-    return NSMakePoint(p.x * s, p.y * s);
+    CGAffineTransform t = self.window ? between(self, nil) : CGAffineTransformIdentity;
+    t.tx = t.ty = 0;
+    return CGAffineTransformConcat(t, CGAffineTransformMakeScale(s, s));
+}
+
+- (NSPoint)convertPointToBacking:(NSPoint)p
+{
+    return NSPointFromCGPoint(CGPointApplyAffineTransform(NSPointToCGPoint(p), to_backing(self)));
 }
 
 - (NSPoint)convertPointFromBacking:(NSPoint)p
 {
-    CGFloat s = FinchViewBackingScale(self);
-    p = NSMakePoint(p.x / s, p.y / s);
-    return _window ? [self convertPoint:p fromView:nil] : p;
+    return NSPointFromCGPoint(CGPointApplyAffineTransform(NSPointToCGPoint(p), CGAffineTransformInvert(to_backing(self))));
 }
 
 - (NSSize)convertSizeToBacking:(NSSize)size
 {
-    CGFloat s = FinchViewBackingScale(self);
-    size = _window ? [self convertSize:size toView:nil] : size;
-    return NSMakeSize(size.width * s, size.height * s);
+    CGSize z = CGSizeApplyAffineTransform(NSSizeToCGSize(size), to_backing(self));
+    return NSMakeSize(fabs(z.width), fabs(z.height));
 }
 
 - (NSSize)convertSizeFromBacking:(NSSize)size
 {
-    CGFloat s = FinchViewBackingScale(self);
-    size = NSMakeSize(size.width / s, size.height / s);
-    return _window ? [self convertSize:size fromView:nil] : size;
+    CGSize z = CGSizeApplyAffineTransform(NSSizeToCGSize(size), CGAffineTransformInvert(to_backing(self)));
+    return NSMakeSize(fabs(z.width), fabs(z.height));
 }
 
 - (NSRect)convertRectToBacking:(NSRect)r
 {
-    CGFloat s = FinchViewBackingScale(self);
-    r = _window ? [self convertRect:r toView:nil] : r;
-    return NSMakeRect(r.origin.x * s, r.origin.y * s, r.size.width * s, r.size.height * s);
+    return NSRectFromCGRect(CGRectApplyAffineTransform(NSRectToCGRect(r), to_backing(self)));
 }
 
 - (NSRect)convertRectFromBacking:(NSRect)r
 {
-    CGFloat s = FinchViewBackingScale(self);
-    r = NSMakeRect(r.origin.x / s, r.origin.y / s, r.size.width / s, r.size.height / s);
-    return _window ? [self convertRect:r fromView:nil] : r;
+    return NSRectFromCGRect(CGRectApplyAffineTransform(NSRectToCGRect(r), CGAffineTransformInvert(to_backing(self))));
 }
 
 - (NSPoint)convertPointToLayer:(NSPoint)p { return p; }
@@ -818,12 +819,49 @@ convert_size(NSSize size, CGAffineTransform t)
 - (NSSize)convertSizeFromLayer:(NSSize)s { return s; }
 - (NSRect)convertRectToLayer:(NSRect)r { return r; }
 - (NSRect)convertRectFromLayer:(NSRect)r { return r; }
-- (NSPoint)convertPointToBase:(NSPoint)p { return [self convertPointToBacking:p]; }
-- (NSPoint)convertPointFromBase:(NSPoint)p { return [self convertPointFromBacking:p]; }
-- (NSSize)convertSizeToBase:(NSSize)s { return [self convertSizeToBacking:s]; }
-- (NSSize)convertSizeFromBase:(NSSize)s { return [self convertSizeFromBacking:s]; }
-- (NSRect)convertRectToBase:(NSRect)r { return [self convertRectToBacking:r]; }
-- (NSRect)convertRectFromBase:(NSRect)r { return [self convertRectFromBacking:r]; }
+/* The old "base" coordinates: window coordinates times the backing scale. */
+- (NSPoint)convertPointToBase:(NSPoint)p
+{
+    CGFloat s = FinchViewBackingScale(self);
+    p = _window ? [self convertPoint:p toView:nil] : p;
+    return NSMakePoint(p.x * s, p.y * s);
+}
+
+- (NSPoint)convertPointFromBase:(NSPoint)p
+{
+    CGFloat s = FinchViewBackingScale(self);
+    p = NSMakePoint(p.x / s, p.y / s);
+    return _window ? [self convertPoint:p fromView:nil] : p;
+}
+
+- (NSSize)convertSizeToBase:(NSSize)size
+{
+    CGFloat s = FinchViewBackingScale(self);
+    size = _window ? [self convertSize:size toView:nil] : size;
+    return NSMakeSize(fabs(size.width * s), fabs(size.height * s));
+}
+
+- (NSSize)convertSizeFromBase:(NSSize)size
+{
+    CGFloat s = FinchViewBackingScale(self);
+    size = NSMakeSize(size.width / s, size.height / s);
+    size = _window ? [self convertSize:size fromView:nil] : size;
+    return NSMakeSize(fabs(size.width), fabs(size.height));
+}
+
+- (NSRect)convertRectToBase:(NSRect)r
+{
+    CGFloat s = FinchViewBackingScale(self);
+    r = _window ? [self convertRect:r toView:nil] : r;
+    return NSMakeRect(r.origin.x * s, r.origin.y * s, r.size.width * s, r.size.height * s);
+}
+
+- (NSRect)convertRectFromBase:(NSRect)r
+{
+    CGFloat s = FinchViewBackingScale(self);
+    r = NSMakeRect(r.origin.x / s, r.origin.y / s, r.size.width / s, r.size.height / s);
+    return _window ? [self convertRect:r fromView:nil] : r;
+}
 
 - (NSRect)backingAlignedRect:(NSRect)rect options:(NSAlignmentOptions)options
 {
@@ -1380,6 +1418,50 @@ FinchViewSetOpenGLImage(NSView *view, CGImageRef image)
     objc_setAssociatedObject(view, &gl_image_key, (id)image, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
+/* Whether the context's surface is ordered below the window's drawing (its surface order
+   -1); otherwise, as on macOS, it shows above everything else in the window. */
+static char gl_below_key;
+
+void
+FinchViewSetOpenGLBelow(NSView *view, BOOL below)
+{
+    objc_setAssociatedObject(view, &gl_below_key, below ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+/* A view's GL frame where it shows (in the view's coordinates, clipped to what's visible
+   of it), drawn once the rest of the tree is. */
+typedef struct {
+    NSView *view;
+    CGAffineTransform base;
+    NSRect visible;
+} GLSurface;
+
+static NSMutableData *gl_pending;  /* GLSurface, for the tree being drawn */
+
+static void
+draw_gl_image(NSView *view, CGContextRef cg, CGAffineTransform base, NSRect visible, BOOL inline_)
+{
+    CGImageRef gl = FinchViewOpenGLImage(view);
+    if (!gl)
+        return;
+    NSRect bounds = [view bounds];
+    CGContextSaveGState(cg);
+    if (!inline_) {
+        CGContextConcatCTM(cg, base);
+        CGContextClipToRect(cg, NSRectToCGRect(visible));
+    }
+    if ([view isFlipped]) {
+        CGContextTranslateCTM(cg, 0, NSMinY(bounds) + NSMaxY(bounds));
+        CGContextScaleCTM(cg, 1, -1);
+    }
+    /* an opaque frame replaces what's under it; one with alpha shows it through */
+    CGImageAlphaInfo a = CGImageGetAlphaInfo(gl);
+    BOOL opaque = a == kCGImageAlphaNone || a == kCGImageAlphaNoneSkipFirst || a == kCGImageAlphaNoneSkipLast;
+    CGContextSetBlendMode(cg, opaque ? kCGBlendModeCopy : kCGBlendModeNormal);
+    CGContextDrawImage(cg, NSRectToCGRect(bounds), gl);
+    CGContextRestoreGState(cg);
+}
+
 static void
 draw_view(NSView *view, CGContextRef cg, NSRect rect, CGAffineTransform base)
 {
@@ -1429,17 +1511,16 @@ draw_view(NSView *view, CGContextRef cg, NSRect rect, CGAffineTransform base)
             [view updateLayer];
         else
             [view drawRect:r];
-        /* what an OpenGL context last flushed for the view, over its drawing */
-        CGImageRef gl = FinchViewOpenGLImage(view);
-        if (gl) {
-            CGContextSaveGState(cg);
-            if ([view isFlipped]) {
-                CGContextTranslateCTM(cg, 0, NSMinY(bounds) + NSMaxY(bounds));
-                CGContextScaleCTM(cg, 1, -1);
+        /* what an OpenGL context last flushed for the view: over the whole window's drawing
+           (after the tree), or over just its own when ordered below */
+        if (FinchViewOpenGLImage(view)) {
+            if (objc_getAssociatedObject(view, &gl_below_key) || !gl_pending) {
+                draw_gl_image(view, cg, base, r, YES);
+            } else {
+                GLSurface g = {view, base, r};
+                [view retain];
+                [gl_pending appendBytes:&g length:sizeof g];
             }
-            CGContextSetBlendMode(cg, kCGBlendModeCopy);
-            CGContextDrawImage(cg, NSRectToCGRect(bounds), gl);
-            CGContextRestoreGState(cg);
         }
     } @finally {
         [appearanceClass setCurrentAppearance:savedAppearance];
@@ -1489,7 +1570,20 @@ FinchViewDrawTree(NSView *view, CGContextRef cg, NSRect rect, BOOL inViewSpace)
     if (!cg)
         return;
     CGAffineTransform base = inViewSpace ? CGAffineTransformIdentity : FinchViewToBase(view);
-    draw_view(view, cg, rect, base);
+    NSMutableData *outer = gl_pending;
+    gl_pending = [[NSMutableData alloc] init];
+    @try {
+        draw_view(view, cg, rect, base);
+        const GLSurface *g = gl_pending.bytes;
+        for (NSUInteger i = 0; i < gl_pending.length / sizeof *g; i++)
+            draw_gl_image(g[i].view, cg, g[i].base, g[i].visible, NO);
+    } @finally {
+        const GLSurface *g = gl_pending.bytes;
+        for (NSUInteger i = 0; i < gl_pending.length / sizeof *g; i++)
+            [g[i].view release];
+        [gl_pending release];
+        gl_pending = outer;
+    }
 }
 
 const CGFloat NSViewNoIntrinsicMetric = -1;

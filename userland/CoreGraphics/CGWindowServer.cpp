@@ -24,10 +24,14 @@
 #define FWS_EXPORT extern "C" __attribute__((visibility("default")))
 
 namespace {
+/* A window's pixels: the shared surface the server composites, and the back buffer the
+   app draws into, copied to the surface when the window is flushed (so the server never
+   shows a half-drawn frame). */
 struct Mapping {
     void *ptr;
     size_t length;
     uint32_t pw, ph, bpr;
+    void *back;
 };
 }  // namespace
 
@@ -292,14 +296,19 @@ map_buffer(const FWSBuffer &b, int fd)
     auto it = buffers->find(b.window);
     if (it != buffers->end()) {
         munmap(it->second.ptr, it->second.length);
+        free(it->second.back);
         buffers->erase(it);
     }
     if (fd < 0)
         return;
     void *p = mmap(NULL, (size_t)b.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     close(fd);
-    if (p != MAP_FAILED)
-        (*buffers)[b.window] = {p, (size_t)b.length, b.pixel_width, b.pixel_height, b.bytes_per_row};
+    if (p == MAP_FAILED)
+        return;
+    void *back = malloc((size_t)b.length);
+    if (back)
+        memcpy(back, p, (size_t)b.length);
+    (*buffers)[b.window] = {p, (size_t)b.length, b.pixel_width, b.pixel_height, b.bytes_per_row, back};
 }
 
 FWS_EXPORT uint32_t
@@ -326,7 +335,8 @@ FWSCreateWindow(FWSRect frame, int32_t level, uint32_t flags)
     return id;
 }
 
-/* The window's buffer: BGRA premultiplied, little-endian 32-bit ((uint32_t)kCGImageAlphaPremultipliedFirst | (uint32_t)kCGBitmapByteOrder32Little). */
+/* The window's buffer to draw into (its back buffer; FWSFlushWindow shows it): BGRA
+   premultiplied, little-endian 32-bit ((uint32_t)kCGImageAlphaPremultipliedFirst | (uint32_t)kCGBitmapByteOrder32Little). */
 FWS_EXPORT void *
 FWSWindowBuffer(uint32_t window, uint32_t *pixel_width, uint32_t *pixel_height, uint32_t *bytes_per_row)
 {
@@ -335,7 +345,7 @@ FWSWindowBuffer(uint32_t window, uint32_t *pixel_width, uint32_t *pixel_height, 
     if (buffers) {
         auto it = buffers->find(window);
         if (it != buffers->end()) {
-            p = it->second.ptr;
+            p = it->second.back ? it->second.back : it->second.ptr;
             if (pixel_width)
                 *pixel_width = it->second.pw;
             if (pixel_height)
@@ -401,6 +411,7 @@ FWS_EXPORT void FWSDestroyWindow(uint32_t w)
         auto it = buffers->find(w);
         if (it != buffers->end()) {
             munmap(it->second.ptr, it->second.length);
+            free(it->second.back);
             buffers->erase(it);
         }
     }
@@ -412,7 +423,20 @@ FWS_EXPORT void FWSSetWindowLevel(uint32_t w, int32_t level) { FWSInt v = {level
 FWS_EXPORT void FWSSetWindowAlpha(uint32_t w, double alpha) { FWSDouble v = {alpha}; simple(FWS_SET_ALPHA, w, &v, sizeof v); }
 FWS_EXPORT void FWSSetWindowFlags(uint32_t w, uint32_t flags) { FWSInt v = {(int32_t)flags}; simple(FWS_SET_FLAGS, w, &v, sizeof v); }
 FWS_EXPORT void FWSSetWindowTitle(uint32_t w, const char *t) { simple(FWS_SET_TITLE, w, t, t ? strlen(t) : 0); }
-FWS_EXPORT void FWSFlushWindow(uint32_t w, FWSRect r) { FWSFlush f = {r}; simple(FWS_FLUSH, w, &f, sizeof f); }
+/* Show what's been drawn: the back buffer to the shared surface, then the server told. */
+FWS_EXPORT void
+FWSFlushWindow(uint32_t w, FWSRect r)
+{
+    pthread_mutex_lock(&lock);
+    if (buffers) {
+        auto it = buffers->find(w);
+        if (it != buffers->end() && it->second.back)
+            memcpy(it->second.ptr, it->second.back, it->second.length);
+    }
+    pthread_mutex_unlock(&lock);
+    FWSFlush f = {r};
+    simple(FWS_FLUSH, w, &f, sizeof f);
+}
 FWS_EXPORT void FWSMakeKeyWindow(uint32_t w) { simple(FWS_MAKE_KEY, w, NULL, 0); }
 FWS_EXPORT void FWSWarpCursor(double x, double y) { FWSPoint p = {x, y}; simple(FWS_WARP_CURSOR, 0, &p, sizeof p); }
 FWS_EXPORT void FWSSetCursorVisible(bool v) { FWSInt i = {v}; simple(FWS_SET_CURSOR_VISIBLE, 0, &i, sizeof i); }

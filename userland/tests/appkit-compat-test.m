@@ -7,7 +7,8 @@
  * following its value under Auto Layout, and SPI apps call (a cell's vertical centring
  * flag as archived, its highlight drawing, a font's glyph for a character), and an image
  * view keeping its own target (its cell can't), and old images' flipped flag (it flips
- * only drawing into the image) and compositing in flipped contexts. Compared with
+ * only drawing into the image) and compositing in flipped contexts, and backing and
+ * "base" coordinate conversions (scaled, untranslated; window-relative). Compared with
  * Apple's.
  */
 #import <AppKit/AppKit.h>
@@ -87,6 +88,46 @@ flipped_images(void)
     }
 }
 
+@interface FlippedView : NSView
+@end
+@implementation FlippedView
+- (BOOL)isFlipped { return YES; }
+@end
+
+static void
+backing_conversions(void)
+{
+    NSWindow *w = [[NSWindow alloc] initWithContentRect:NSMakeRect(100, 100, 600, 400) styleMask:NSWindowStyleMaskTitled
+                                                backing:NSBackingStoreBuffered defer:YES];
+    w.releasedWhenClosed = NO;
+    NSView *outer = [[NSView alloc] initWithFrame:NSMakeRect(50, 40, 400, 300)];
+    NSView *plain = [[NSView alloc] initWithFrame:NSMakeRect(30, 20, 200, 100)];
+    FlippedView *flipped = [[FlippedView alloc] initWithFrame:NSMakeRect(30, 150, 200, 100)];
+    NSView *scaled = [[NSView alloc] initWithFrame:NSMakeRect(250, 20, 100, 100)];
+    scaled.bounds = NSMakeRect(-10, 5, 50, 50);
+    for (NSView *v in @[plain, flipped, scaled])
+        [outer addSubview:v];
+    [w.contentView addSubview:outer];
+    CGFloat k = w.backingScaleFactor;
+    for (NSView *v in @[plain, flipped, scaled]) {
+        const char *n = v == plain ? "plain" : v == flipped ? "flipped" : "scaled bounds";
+        NSRect r = [v convertRectToBacking:NSMakeRect(1.5, 2, 10, 5)];
+        NSPoint p = [v convertPointToBacking:NSMakePoint(3, 4)];
+        NSSize z = [v convertSizeToBacking:NSMakeSize(3, -4)];
+        NSRect back = [v convertRectFromBacking:r];
+        printf("%s, to backing per point: rect %s point %s size %s, back %s\n", n,
+               NSStringFromRect(NSMakeRect(r.origin.x / k, r.origin.y / k, r.size.width / k, r.size.height / k)).UTF8String,
+               NSStringFromPoint(NSMakePoint(p.x / k, p.y / k)).UTF8String, NSStringFromSize(NSMakeSize(z.width / k, z.height / k)).UTF8String,
+               NSStringFromRect(back).UTF8String);
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        NSPoint b = [v convertPointToBase:NSMakePoint(3, 4)];
+        NSPoint bb = [v convertPointFromBase:b];
+#pragma clang diagnostic pop
+        printf("   to base per point %s, back %s\n", NSStringFromPoint(NSMakePoint(b.x / k, b.y / k)).UTF8String, NSStringFromPoint(bb).UTF8String);
+    }
+}
+
 int
 main(void)
 {
@@ -153,6 +194,7 @@ main(void)
         printf("label under Auto Layout: grows with its string %d, with a number %d\n", set > empty + 20,
             l.frame.size.width > set);
         flipped_images();
+        backing_conversions();
 
         NSTextFieldCell *vc = [[NSTextFieldCell alloc] initTextCell:@"x"];
         ((void (*)(id, SEL, BOOL))objc_msgSend)(vc, sel_registerName("_setVerticallyCentered:"), YES);

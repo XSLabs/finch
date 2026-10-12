@@ -58,7 +58,7 @@ times, block buffers, format descriptions (including those from H.264 and HEVC
 parameter sets), sample buffers, clocks, timebases, queues, memory pools, metadata
 identifiers and tags match Apple's in their comparison tests. OpenGL is Mesa's software
 renderer (softpipe through OSMesa, built by Finch) under Finch's own CGL and GLU, and
-AppKit's NSOpenGL views draw with it; AppKit's named system images are Finch's own artwork; typedstream archives (NSArchiver) of AppKit's
+AppKit's NSOpenGL views draw with it; AppKit's named system images are Finch's own artwork; windows draw into a back buffer that each flush copies to the window server; typedstream archives (NSArchiver) of AppKit's
 colours, fonts, images, paragraph styles, shadows, paths and print info match Apple's. The desktop's frame is the Instrument Bar (each app's menu bar) and the Rail, a
 Finch app down the left edge that replaces the Dock.
 

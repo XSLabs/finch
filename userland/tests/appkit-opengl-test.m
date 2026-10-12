@@ -5,7 +5,8 @@
  * red quad on its left half and, with GLU, a lit green sphere on its right; then checks
  * the order of -prepareOpenGL, -reshape and -drawRect:, the context and pixel format,
  * the screen's colours, a resize (reshaped, redrawn at the new size) and a redraw from a
- * timer through flushBuffer. Finch-only (Apple's OpenGL surfaces are composited apart):
+ * timer through flushBuffer, and an opaque subview staying under the GL surface, as on
+ * macOS. Finch-only (Apple's OpenGL surfaces are composited apart):
  * compare with appkit-opengl-test.expected.
  *
  *   finch-appkit-opengl-test [path to finch-windowserver]
@@ -26,6 +27,17 @@ static NSMutableArray *calls;
 static BOOL greenRight = YES;
 
 @interface GLTestView : NSOpenGLView
+@end
+
+@interface WhiteView : NSView
+@end
+@implementation WhiteView
+- (BOOL)isOpaque { return YES; }
+- (void)drawRect:(NSRect)r
+{
+    [[NSColor whiteColor] set];
+    NSRectFill(self.bounds);
+}
 @end
 
 @implementation GLTestView
@@ -184,6 +196,12 @@ main(int argc, char **argv)
         c = [w contentRectForFrameRect:w.frame];
         right = CGPointMake(NSMinX(c) + c.size.width * (0.5 + 0.8 / (2 * tan(20 * M_PI / 180) * 4 * c.size.width / c.size.height)), 600 - NSMidY(c));
         printf("timer redraw: right now %s, calls start with %s\n", screen_colour(right).UTF8String, [calls.firstObject UTF8String]);
+        /* an opaque subview over the left half: the GL surface still shows above it */
+        WhiteView *cover = [[WhiteView alloc] initWithFrame:NSMakeRect(0, 0, c.size.width / 2, c.size.height)];
+        [v addSubview:cover];
+        pump(0.4);
+        left = CGPointMake(NSMinX(c) + c.size.width / 4, 600 - NSMidY(c));
+        printf("covered by a subview: left %s\n", screen_colour(left).UTF8String);
         [NSOpenGLContext clearCurrentContext];
         printf("cleared current: %p\n", [NSOpenGLContext currentContext]);
         kill(pid, SIGTERM);

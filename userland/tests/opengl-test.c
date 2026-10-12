@@ -44,6 +44,10 @@ main(void)
     CGLContextObj ctx = NULL;
     e = CGLCreateContext(pix, NULL, &ctx);
     printf("context: error %d retain %u format same %d\n", e, CGLGetContextRetainCount(ctx), CGLGetPixelFormat(ctx) == pix);
+    GLint order = 9, opacity = 9;
+    CGLError oe = CGLGetParameter(ctx, kCGLCPSurfaceOrder, &order);
+    CGLError pe = CGLGetParameter(ctx, kCGLCPSurfaceOpacity, &opacity);
+    printf("surface order %d (error %d), opacity %d (error %d)\n", order, oe, opacity, pe);
     printf("current before %p\n", (void *)CGLGetCurrentContext());
     CGLSetCurrentContext(ctx);
     printf("current is it %d\n", CGLGetCurrentContext() == ctx);

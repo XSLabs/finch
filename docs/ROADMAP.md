@@ -667,7 +667,14 @@ and AppKit come in Phase 2).
         AppKit and Foundation: NSArray and NSMutableDictionary conveniences, NSNumberFormatter's
         combined `format`, attribute subsets, the window's undo actions and cancel key, the
         zoom cursors). `data-test` and `appkit-compat-test` match Apple's.
-  - [ ] Grapher's 3D graphs (its NSOpenGLView).
+  - [x] Grapher's 3D graphs draw in the VM: a typed surface, lit and checkered, with its
+        axes (2026-10-12). They needed backing-coordinate conversions as Apple's (scaled
+        view coordinates, no translation; the old "base" ones stay window-relative), GL
+        surfaces shown above the window's other views as macOS orders them (surface order
+        -1 puts one below), non-opaque GL views composited with alpha, and windows drawn
+        into a back buffer that a flush copies to the window server, so it never shows a
+        half-drawn frame. `appkit-compat-test`, `opengl-test` and `appkit-opengl-test`
+        cover them.
   - [ ] Core-profile contexts (Apple's 3.2 and 4.1) and hardware rendering (with a device)
 - [x] Combine: OpenCombine (MIT) adapted to Apple's ABI, with Finch's Merge, CombineLatest
       and collecting by time; every Combine symbol the system apps import (2026-10-09)

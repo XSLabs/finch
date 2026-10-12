@@ -11,10 +11,28 @@
 #import "AppKit_Finch.h"
 #import <OpenGL/OpenGL.h>
 #import <dlfcn.h>
+#import <ImageIO/ImageIO.h>
 #import <objc/runtime.h>
+
+/* FINCH_DEBUG_GL=1 traces the contexts' drawables and calls (for apps whose GL views come
+   out wrong) */
+static BOOL
+gl_trace(void)
+{
+    static int on = -1;
+    if (on < 0)
+        on = getenv("FINCH_DEBUG_GL") != NULL;
+    return on;
+}
+#define GLTRACE(...)                                     \
+    do {                                                 \
+        if (gl_trace())                                  \
+            fprintf(stderr, "finch-gl: " __VA_ARGS__);   \
+    } while (0)
 
 CGImageRef FinchViewOpenGLImage(NSView *view);
 void FinchViewSetOpenGLImage(NSView *view, CGImageRef image);
+void FinchViewSetOpenGLBelow(NSView *view, BOOL below);
 BOOL FinchViewIsBeingDrawn(NSView *view);
 
 #pragma mark - CGL, when it's needed
@@ -86,6 +104,12 @@ load_cgl(void)
 {
     if (!(self = [super init]))
         return nil;
+    if (gl_trace() && attribs) {
+        fprintf(stderr, "finch-gl: pixel format");
+        for (const NSOpenGLPixelFormatAttribute *a = attribs; *a && a - attribs < 64; a++)
+            fprintf(stderr, " %u", (unsigned)*a);
+        fprintf(stderr, "\n");
+    }
     if (!load_cgl()) {
         [self release];
         return nil;
@@ -227,6 +251,8 @@ static char current_key;
     NSRect b = [v bounds];
     if ([v wantsBestResolutionOpenGLSurface])
         b = [v convertRectToBacking:b];
+    GLTRACE("drawable %ldx%ld for %s %s (best resolution %d)\n", lround(NSWidth(b)), lround(NSHeight(b)), object_getClassName(v),
+            NSStringFromRect([v bounds]).UTF8String, [v wantsBestResolutionOpenGLSurface]);
     cgl.setDrawable(_context, (GLsizei)lround(NSWidth(b)), (GLsizei)lround(NSHeight(b)), context_flushed, self);
 }
 
@@ -254,6 +280,7 @@ static char current_key;
 
 - (void)makeCurrentContext
 {
+    GLTRACE("make current (view %s)\n", _view ? object_getClassName(_view) : "none");
     cgl.setCurrent(_context);
     [[[NSThread currentThread] threadDictionary] setObject:self forKey:[NSValue valueWithPointer:&current_key]];
 }
@@ -289,6 +316,7 @@ static char current_key;
     GLsizei w = 0, h = 0;
     GLint rowBytes = 0;
     const void *pixels = cgl.getPixels(_context, &w, &h, &rowBytes);
+    GLTRACE("flush %dx%d into %s %s\n", (int)w, (int)h, object_getClassName(v), NSStringFromRect([v bounds]).UTF8String);
     if (!pixels || w <= 0 || h <= 0)
         return;
     CFDataRef data = CFDataCreate(NULL, pixels, (CFIndex)rowBytes * h);
@@ -297,6 +325,10 @@ static char current_key;
     GLint opacity = 1;
     if (cgl.getParameter)
         cgl.getParameter(_context, kCGLCPSurfaceOpacity, &opacity);
+    /* a view that says it isn't opaque shows what's behind where GL left alpha, as its
+       layer does on macOS */
+    if (![v isOpaque])
+        opacity = 0;
     CGImageRef im = CGImageCreate((size_t)w, (size_t)h, 8, 32, (size_t)rowBytes, cs,
                                   (opacity ? (uint32_t)kCGImageAlphaNoneSkipFirst : (uint32_t)kCGImageAlphaFirst) |
                                       (uint32_t)kCGBitmapByteOrder32Little,
@@ -304,7 +336,23 @@ static char current_key;
     CGColorSpaceRelease(cs);
     CGDataProviderRelease(p);
     CFRelease(data);
+    GLint order = 1;
+    if (cgl.getParameter)
+        cgl.getParameter(_context, kCGLCPSurfaceOrder, &order);
+    FinchViewSetOpenGLBelow(v, order < 0);
     FinchViewSetOpenGLImage(v, im);
+    if (gl_trace()) {
+        /* the frame as GL drew it, to look at */
+        CFURLRef url = CFURLCreateWithFileSystemPath(NULL, CFSTR("/tmp/finch-gl-last.png"), kCFURLPOSIXPathStyle, false);
+        CGImageDestinationRef d = CGImageDestinationCreateWithURL(url, CFSTR("public.png"), 1, NULL);
+        if (d) {
+            CGImageDestinationAddImage(d, im, NULL);
+            CGImageDestinationFinalize(d);
+            CFRelease(d);
+        }
+        CFRelease(url);
+        GLTRACE("frame opacity %d saved\n", (int)opacity);
+    }
     CGImageRelease(im);
     if (!FinchViewIsBeingDrawn(v))
         [v setNeedsDisplay:YES];
@@ -312,6 +360,7 @@ static char current_key;
 
 - (void)setValues:(const GLint *)vals forParameter:(NSOpenGLContextParameter)param
 {
+    GLTRACE("set parameter %d to %d\n", (int)param, vals ? (int)vals[0] : 0);
     if (_context && cgl.setParameter)
         cgl.setParameter(_context, (CGLContextParameter)param, vals);
 }
