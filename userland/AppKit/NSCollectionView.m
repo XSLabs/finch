@@ -936,6 +936,8 @@ show_selection(NSCollectionView *self)
 
 - (void)mouseDown:(NSEvent *)event
 {
+    extern void FinchCollectionViewNoteMouseDown(NSCollectionView *, NSEvent *);
+    FinchCollectionViewNoteMouseDown(self, event);
     if (!_selectable)
         return;
     NSWindow *w = [self window];
@@ -1087,13 +1089,7 @@ show_selection(NSCollectionView *self)
     return [self itemAtIndexPath:[NSIndexPath indexPathForItem:index inSection:0]];
 }
 
-#pragma mark Dragging (not yet)
-
-- (void)setDraggingSourceOperationMask:(NSDragOperation)mask forLocal:(BOOL)isLocal {}
-- (NSImage *)draggingImageForItemsAtIndexPaths:(NSSet *)paths withEvent:(NSEvent *)event offset:(NSPointPointer)offset
-{
-    return nil;
-}
+/* (dragging: NSCollectionViewDragging.m) */
 
 @end
 

@@ -183,6 +183,139 @@ op_name(NSDragOperation op)
 - (void)draggingEnded:(id<NSDraggingInfo>)info { [calls addObject:@"dest: ended"]; }
 @end
 
+/* A table whose rows reorder by dragging. */
+@interface Rows : NSObject <NSTableViewDataSource>
+@property NSMutableArray *rows;
+@end
+@implementation Rows
+- (NSInteger)numberOfRowsInTableView:(NSTableView *)t { return (NSInteger)self.rows.count; }
+- (id)tableView:(NSTableView *)t objectValueForTableColumn:(NSTableColumn *)c row:(NSInteger)r { return self.rows[(NSUInteger)r]; }
+- (id<NSPasteboardWriting>)tableView:(NSTableView *)t pasteboardWriterForRow:(NSInteger)r
+{
+    NSPasteboardItem *item = [[NSPasteboardItem alloc] init];
+    [item setString:[NSString stringWithFormat:@"%ld", (long)r] forType:@"org.finch.test.row"];
+    return item;
+}
+- (void)tableView:(NSTableView *)t draggingSession:(NSDraggingSession *)s willBeginAtPoint:(NSPoint)p forRowIndexes:(NSIndexSet *)rows
+{
+    [calls addObject:[NSString stringWithFormat:@"rows: drag begins with %lu", (unsigned long)rows.count]];
+}
+- (NSDragOperation)tableView:(NSTableView *)t validateDrop:(id<NSDraggingInfo>)info proposedRow:(NSInteger)row
+       proposedDropOperation:(NSTableViewDropOperation)op
+{
+    if (op == NSTableViewDropOn)
+        [t setDropRow:row dropOperation:NSTableViewDropAbove];
+    return NSDragOperationMove;
+}
+- (BOOL)tableView:(NSTableView *)t acceptDrop:(id<NSDraggingInfo>)info row:(NSInteger)row dropOperation:(NSTableViewDropOperation)op
+{
+    NSInteger from = [[info.draggingPasteboard stringForType:@"org.finch.test.row"] integerValue];
+    [calls addObject:[NSString stringWithFormat:@"rows: drop row %ld at %ld (%s)", (long)from, (long)row, op == NSTableViewDropAbove ? "above" : "on"]];
+    id moved = self.rows[(NSUInteger)from];
+    [self.rows removeObjectAtIndex:(NSUInteger)from];
+    [self.rows insertObject:moved atIndex:(NSUInteger)(row > from ? row - 1 : row)];
+    [t reloadData];
+    return YES;
+}
+- (void)tableView:(NSTableView *)t draggingSession:(NSDraggingSession *)s endedAtPoint:(NSPoint)p operation:(NSDragOperation)op
+{
+    [calls addObject:[@"rows: drag ended " stringByAppendingString:op_name(op)]];
+}
+@end
+
+/* An outline of two groups; items drop onto a group. */
+@interface Groups : NSObject <NSOutlineViewDataSource>
+@property NSMutableDictionary *groups; /* name -> items */
+@end
+@implementation Groups
+- (NSArray *)names { return @[ @"fruit", @"veg" ]; }
+- (NSInteger)outlineView:(NSOutlineView *)o numberOfChildrenOfItem:(id)item
+{
+    return item ? (NSInteger)[self.groups[item] count] : 2;
+}
+- (id)outlineView:(NSOutlineView *)o child:(NSInteger)i ofItem:(id)item
+{
+    return item ? self.groups[item][(NSUInteger)i] : self.names[(NSUInteger)i];
+}
+- (BOOL)outlineView:(NSOutlineView *)o isItemExpandable:(id)item { return self.groups[item] != nil; }
+- (id)outlineView:(NSOutlineView *)o objectValueForTableColumn:(NSTableColumn *)c byItem:(id)item { return item; }
+- (id<NSPasteboardWriting>)outlineView:(NSOutlineView *)o pasteboardWriterForItem:(id)item
+{
+    if (self.groups[item])
+        return nil;
+    NSPasteboardItem *pi = [[NSPasteboardItem alloc] init];
+    [pi setString:item forType:@"org.finch.test.item"];
+    return pi;
+}
+- (NSDragOperation)outlineView:(NSOutlineView *)o validateDrop:(id<NSDraggingInfo>)info proposedItem:(id)item proposedChildIndex:(NSInteger)index
+{
+    [calls addObject:[NSString stringWithFormat:@"groups: proposed %@ %ld", item ?: @"root", (long)index]];
+    if (!self.groups[item])
+        return NSDragOperationNone;
+    return NSDragOperationMove;
+}
+- (BOOL)outlineView:(NSOutlineView *)o acceptDrop:(id<NSDraggingInfo>)info item:(id)item childIndex:(NSInteger)index
+{
+    NSString *thing = [info.draggingPasteboard stringForType:@"org.finch.test.item"];
+    for (NSString *g in self.names)
+        [self.groups[g] removeObject:thing];
+    [self.groups[item] addObject:thing];
+    [calls addObject:[NSString stringWithFormat:@"groups: %@ into %@ at %ld", thing, item, (long)index]];
+    [o reloadData];
+    [o expandItem:nil expandChildren:YES];
+    return YES;
+}
+@end
+
+/* A collection whose items reorder by dragging. */
+@interface Tiles : NSObject <NSCollectionViewDataSource, NSCollectionViewDelegate>
+@property NSMutableArray *tiles;
+@end
+@implementation Tiles
+- (NSInteger)collectionView:(NSCollectionView *)cv numberOfItemsInSection:(NSInteger)s { return (NSInteger)self.tiles.count; }
+- (NSCollectionViewItem *)collectionView:(NSCollectionView *)cv itemForRepresentedObjectAtIndexPath:(NSIndexPath *)ip
+{
+    NSCollectionViewItem *item = [cv makeItemWithIdentifier:@"tile" forIndexPath:ip];
+    item.representedObject = self.tiles[(NSUInteger)ip.item];
+    return item;
+}
+- (BOOL)collectionView:(NSCollectionView *)cv canDragItemsAtIndexPaths:(NSSet<NSIndexPath *> *)paths withEvent:(NSEvent *)e { return YES; }
+- (id<NSPasteboardWriting>)collectionView:(NSCollectionView *)cv pasteboardWriterForItemAtIndexPath:(NSIndexPath *)ip
+{
+    NSPasteboardItem *pi = [[NSPasteboardItem alloc] init];
+    [pi setString:[NSString stringWithFormat:@"%ld", (long)ip.item] forType:@"org.finch.test.tile"];
+    return pi;
+}
+- (NSDragOperation)collectionView:(NSCollectionView *)cv validateDrop:(id<NSDraggingInfo>)info
+                proposedIndexPath:(NSIndexPath **)path dropOperation:(NSCollectionViewDropOperation *)op
+{
+    if (*op == NSCollectionViewDropOn)
+        *op = NSCollectionViewDropBefore;
+    return NSDragOperationMove;
+}
+- (BOOL)collectionView:(NSCollectionView *)cv acceptDrop:(id<NSDraggingInfo>)info indexPath:(NSIndexPath *)path
+         dropOperation:(NSCollectionViewDropOperation)op
+{
+    NSInteger from = [[info.draggingPasteboard stringForType:@"org.finch.test.tile"] integerValue], to = path.item;
+    [calls addObject:[NSString stringWithFormat:@"tiles: drop %ld before %ld", (long)from, (long)to]];
+    id moved = self.tiles[(NSUInteger)from];
+    [self.tiles removeObjectAtIndex:(NSUInteger)from];
+    [self.tiles insertObject:moved atIndex:(NSUInteger)(to > from ? to - 1 : to)];
+    [cv reloadData];
+    return YES;
+}
+- (void)collectionView:(NSCollectionView *)cv draggingSession:(NSDraggingSession *)s endedAtPoint:(NSPoint)p dragOperation:(NSDragOperation)op
+{
+    [calls addObject:[@"tiles: drag ended " stringByAppendingString:op_name(op)]];
+}
+@end
+
+@interface Tile : NSCollectionViewItem
+@end
+@implementation Tile
+- (void)loadView { self.view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 40, 40)]; }
+@end
+
 static void
 report(const char *label)
 {
@@ -270,6 +403,77 @@ main(int argc, char **argv)
         drag(center_of(src), center_of(dest), NO);
         report("the older dragImage:");
         printf("destination got: %s\n", dest.got.UTF8String);
+
+        /* tables: drag row 0 below row 2 */
+        NSWindow *c = [[NSWindow alloc] initWithContentRect:NSMakeRect(40, 40, 220, 220) styleMask:NSWindowStyleMaskTitled
+                                                    backing:NSBackingStoreBuffered
+                                                      defer:NO];
+        c.releasedWhenClosed = NO;
+        Rows *rows = [Rows new];
+        rows.rows = [@[ @"a", @"b", @"c", @"d" ] mutableCopy];
+        NSTableView *table = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, 200, 200)];
+        NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:@"c"];
+        col.width = 180;
+        [table addTableColumn:col];
+        table.headerView = nil;
+        table.dataSource = rows;
+        [table registerForDraggedTypes:@[ @"org.finch.test.row" ]];
+        table.frame = NSMakeRect(10, 10, 200, 200);
+        [c.contentView addSubview:table];
+        [c makeKeyAndOrderFront:nil];
+        [table reloadData];
+        pump(0.4);
+        NSRect r0 = [table rectOfRow:0], r2 = [table rectOfRow:2];
+        drag(screen_point(table, NSMakePoint(NSMidX(r0), NSMidY(r0))),
+             screen_point(table, NSMakePoint(NSMidX(r2), table.isFlipped ? NSMaxY(r2) - 2 : NSMinY(r2) + 2)), NO);
+        report("reordering a table");
+        printf("rows: %s\n", [rows.rows componentsJoinedByString:@" "].UTF8String);
+
+        /* outlines: drag "apple" onto the veg group */
+        Groups *groups = [Groups new];
+        groups.groups = [@{@"fruit" : [@[ @"apple", @"pear" ] mutableCopy], @"veg" : [@[ @"leek" ] mutableCopy]} mutableCopy];
+        NSOutlineView *outline = [[NSOutlineView alloc] initWithFrame:NSMakeRect(10, 10, 200, 200)];
+        NSTableColumn *oc = [[NSTableColumn alloc] initWithIdentifier:@"o"];
+        oc.width = 180;
+        [outline addTableColumn:oc];
+        outline.outlineTableColumn = oc;
+        outline.headerView = nil;
+        outline.dataSource = groups;
+        [outline registerForDraggedTypes:@[ @"org.finch.test.item" ]];
+        [table removeFromSuperview];
+        [c.contentView addSubview:outline];
+        [outline reloadData];
+        [outline expandItem:nil expandChildren:YES];
+        pump(0.4);
+        NSInteger appleRow = [outline rowForItem:@"apple"], vegRow = [outline rowForItem:@"veg"];
+        NSRect ra = [outline rectOfRow:appleRow], rv = [outline rectOfRow:vegRow];
+        drag(screen_point(outline, NSMakePoint(NSMidX(ra), NSMidY(ra))), screen_point(outline, NSMakePoint(NSMidX(rv), NSMidY(rv))), NO);
+        report("onto an outline group");
+        printf("fruit: %s; veg: %s\n", [groups.groups[@"fruit"] componentsJoinedByString:@" "].UTF8String,
+            [groups.groups[@"veg"] componentsJoinedByString:@" "].UTF8String);
+
+        /* collections: drag tile 0 to before tile 3 */
+        Tiles *tiles = [Tiles new];
+        tiles.tiles = [@[ @"w", @"x", @"y", @"z" ] mutableCopy];
+        NSCollectionViewFlowLayout *flow = [[NSCollectionViewFlowLayout alloc] init];
+        flow.itemSize = NSMakeSize(40, 40);
+        flow.minimumInteritemSpacing = 4;
+        NSCollectionView *cv = [[NSCollectionView alloc] initWithFrame:NSMakeRect(10, 10, 200, 60)];
+        cv.collectionViewLayout = flow;
+        [cv registerClass:[Tile class] forItemWithIdentifier:@"tile"];
+        cv.dataSource = tiles;
+        cv.delegate = tiles;
+        cv.selectable = YES;
+        [cv registerForDraggedTypes:@[ @"org.finch.test.tile" ]];
+        [outline removeFromSuperview];
+        [c.contentView addSubview:cv];
+        [cv reloadData];
+        [cv layoutSubtreeIfNeeded];
+        pump(0.4);
+        NSRect t0 = [cv frameForItemAtIndex:0], t3 = [cv frameForItemAtIndex:3];
+        drag(screen_point(cv, NSMakePoint(NSMidX(t0), NSMidY(t0))), screen_point(cv, NSMakePoint(NSMinX(t3) + 3, NSMidY(t3))), NO);
+        report("reordering a collection");
+        printf("tiles: %s\n", [tiles.tiles componentsJoinedByString:@" "].UTF8String);
 
         kill(pid, SIGTERM);
     }

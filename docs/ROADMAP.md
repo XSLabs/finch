@@ -455,8 +455,11 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           strings, attributed strings and URLs write and read themselves on pasteboards
           as Apple's do. `appkit-drag-window-test` checks it on the window server
           (2026-10-12).
-    - [ ] Table, outline and collection views as drag sources and destinations (their
-          data sources' and delegates' drag methods).
+    - [x] Table, outline and collection views as drag sources and destinations: their
+          data sources' and delegates' pasteboard writers (and the older write-to-
+          pasteboard forms), proposed rows, items and index paths validated and
+          retargeted, drops accepted, and a line or outline showing where; the drag test
+          reorders a table and a collection and moves an outline item (2026-10-12).
     - [ ] Between apps, through the window server and the pasteboard server.
     - [x] Foundation: NSItemProvider (with NSString's and NSURL's item-provider
           conformance, and UniformTypeIdentifiers' UTType methods), NSListFormatter,

@@ -843,7 +843,6 @@ row_level(NSOutlineView *self, NSInteger row)
         [self selectRowIndexes:[NSIndexSet indexSetWithIndex:[self rowForItem:parent]] byExtendingSelection:NO];
 }
 
-- (void)setDropItem:(id)item dropChildIndex:(NSInteger)index {}
 - (BOOL)shouldCollapseAutoExpandedItemsForDeposited:(BOOL)deposited { return YES; }
 - (NSButton *)_finchDisclosureButton { return nil; }
 

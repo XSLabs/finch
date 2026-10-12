@@ -60,6 +60,10 @@ typedef struct {
     CGFloat x, w, lead;
 } ColumnBox;
 
+@interface NSTableView (FinchDraggingStart)
+- (BOOL)_finchMaybeBeginDragWithEvent:(NSEvent *)event pressedRow:(NSInteger)row start:(NSPoint)start;
+@end
+
 @implementation NSTableView {
     NSMutableArray<NSTableColumn *> *_columns;
     NSTableHeaderView *_headerView;
@@ -1429,9 +1433,6 @@ shift_for_remove(NSIndexSet *set, NSIndexSet *removed)
 - (NSInteger)focusedColumn { return _focusedColumn; }
 - (void)setFocusedColumn:(NSInteger)column { _focusedColumn = column; }
 - (BOOL)shouldFocusCell:(NSCell *)cell atColumn:(NSInteger)column row:(NSInteger)row { return [cell isEditable]; }
-- (void)setDraggingSourceOperationMask:(NSDragOperation)mask forLocal:(BOOL)isLocal {}
-- (void)setDropRow:(NSInteger)row dropOperation:(NSTableViewDropOperation)op {}
-- (BOOL)canDragRowsWithIndexes:(NSIndexSet *)rows atPoint:(NSPoint)point { return YES; }
 
 - (NSImage *)indicatorImageInTableColumn:(NSTableColumn *)column { return [_indicators objectForKey:column]; }
 
@@ -2279,6 +2280,9 @@ shift_for_remove(NSIndexSet *set, NSIndexSet *removed)
         NSEvent *e = [w nextEventMatchingMask:NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged];
         if (!e || [e type] == NSEventTypeLeftMouseUp)
             break;
+        /* a drag of the rows, when they can be dragged (NSTableViewDragging.m) */
+        if ([self _finchMaybeBeginDragWithEvent:e pressedRow:row start:p])
+            return;
         NSPoint q = [self convertPoint:[e locationInWindow] fromView:nil];
         [self autoscroll:e];
         NSInteger r = [self rowAtPoint:q];

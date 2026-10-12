@@ -37,3 +37,16 @@ the older dragImage::
   legacy source: ended copy
   legacy drag returned
 destination got: legacy text
+reordering a table:
+  rows: drag begins with 1
+  rows: drop row 0 at 3 (above)
+  rows: drag ended move
+rows: b c a d
+onto an outline group:
+  groups: proposed veg -1
+  groups: apple into veg at -1
+fruit: pear; veg: leek apple
+reordering a collection:
+  tiles: drop 0 before 3
+  tiles: drag ended move
+tiles: x y w z
