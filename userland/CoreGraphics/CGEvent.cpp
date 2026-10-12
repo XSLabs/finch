@@ -18,12 +18,14 @@
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
+#include <vector>
 
 extern "C" {
 void FWSPostEvent(const FWSEvent *e);
 bool FWSGetInputState(FWSInputState *out);
 bool FWSGetDisplayInfo(FWSDisplayInfo *out);
 CGImageRef FWSCopyScreenImage(void);
+CGImageRef FWSCaptureImage(FWSRect rect, uint32_t options, const uint32_t *windows, uint32_t count);
 }
 
 enum { kFields = 256 };
@@ -666,51 +668,65 @@ CGDisplayCreateImageForRect(CGDirectDisplayID display, CGRect rect)
     return screen_image(rect);
 }
 
-/* A window's frame from the window list (CGWindowListCopyWindowInfo's bounds). */
-static bool
-window_frame(CGWindowID window, CGRect *frame)
+/* The windows' IDs and the union of their frames. */
+static std::vector<uint32_t>
+window_ids(CFArrayRef list, CGRect *bounds)
 {
-    CFArrayRef list = CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, window);
-    bool found = false;
-    if (list && CFArrayGetCount(list)) {
-        CFDictionaryRef info = (CFDictionaryRef)CFArrayGetValueAtIndex(list, 0);
-        CFDictionaryRef bounds = (CFDictionaryRef)CFDictionaryGetValue(info, kCGWindowBounds);
-        found = bounds && CGRectMakeWithDictionaryRepresentation(bounds, frame);
+    std::vector<uint32_t> ids;
+    *bounds = CGRectNull;
+    for (CFIndex i = 0; list && i < CFArrayGetCount(list); i++) {
+        CFDictionaryRef info = (CFDictionaryRef)CFArrayGetValueAtIndex(list, i);
+        CFNumberRef num = (CFNumberRef)CFDictionaryGetValue(info, kCGWindowNumber);
+        uint32_t id = 0;
+        if (!num || !CFNumberGetValue(num, kCFNumberSInt32Type, &id))
+            continue;
+        ids.push_back(id);
+        CFDictionaryRef b = (CFDictionaryRef)CFDictionaryGetValue(info, kCGWindowBounds);
+        CGRect f;
+        if (b && CGRectMakeWithDictionaryRepresentation(b, &f))
+            *bounds = CGRectUnion(*bounds, f);
     }
-    if (list)
-        CFRelease(list);
-    return found;
+    return ids;
 }
 
-/* The screen as composited (other windows included, Finch doesn't composite one window
-   alone yet), over the rectangle, or the window's frame for CGRectNull. */
+/* The listed windows composited afresh over the rect (CGRectNull: their frames); the
+   desktop is a window too, drawn when listed. As Apple's, framing (shadows) is kept
+   unless kCGWindowImageBoundsIgnoreFraming. */
+static CGImageRef
+windows_image(CGRect rect, CFArrayRef list, CGWindowImageOption imageOption)
+{
+    CGRect bounds;
+    std::vector<uint32_t> ids = window_ids(list, &bounds);
+    CGRect r = CGRectIsNull(rect) ? bounds : rect;
+    if (CGRectIsNull(r) || CGRectIsEmpty(r))
+        return NULL;
+    uint32_t options = FWS_CAPTURE_INCLUDE;
+    if (!(imageOption & kCGWindowImageBoundsIgnoreFraming))
+        options |= FWS_CAPTURE_SHADOWS;
+    FWSRect fr = {0, 0, 0, 0};
+    if (!CGRectIsInfinite(r))
+        fr = (FWSRect){r.origin.x, r.origin.y, r.size.width, r.size.height};
+    return FWSCaptureImage(fr, options, ids.data(), (uint32_t)ids.size());
+}
+
 extern "C" CGImageRef
 CGWindowListCreateImage(CGRect screenBounds, CGWindowListOption listOption, CGWindowID windowID, CGWindowImageOption imageOption)
 {
-    CGRect r = screenBounds;
-    if (CGRectIsNull(r)) {
-        if (windowID == kCGNullWindowID || !window_frame(windowID, &r))
-            r = CGRectInfinite;
-    }
-    return screen_image(r);
+    CFArrayRef list = CGWindowListCopyWindowInfo(listOption, windowID);
+    CGImageRef im = windows_image(screenBounds, list, imageOption);
+    if (list)
+        CFRelease(list);
+    return im;
 }
 
 extern "C" CGImageRef
 CGWindowListCreateImageFromArray(CGRect screenBounds, CFArrayRef windowArray, CGWindowImageOption imageOption)
 {
-    CGRect r = screenBounds;
-    if (CGRectIsNull(r)) {
-        r = CGRectNull;
-        for (CFIndex i = 0; windowArray && i < CFArrayGetCount(windowArray); i++) {
-            CGWindowID w = (CGWindowID)(uintptr_t)CFArrayGetValueAtIndex(windowArray, i);
-            CGRect f;
-            if (window_frame(w, &f))
-                r = CGRectUnion(r, f);
-        }
-        if (CGRectIsNull(r))
-            r = CGRectInfinite;
-    }
-    return screen_image(r);
+    CFArrayRef list = CGWindowListCreateDescriptionFromArray(windowArray);
+    CGImageRef im = windows_image(screenBounds, list, imageOption);
+    if (list)
+        CFRelease(list);
+    return im;
 }
 
 /* --- the session: the user at the console --- */

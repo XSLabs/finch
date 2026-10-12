@@ -37,6 +37,7 @@ enum {
     FWS_REGISTER_HOTKEY,   /* FWSHotKey: the key goes to this client, whichever window is key */
     FWS_UNREGISTER_HOTKEY, /* FWSHotKey (its id) */
     FWS_DRAG,              /* an FWSEvent: a drag message to a window's owner, or a reply (below) */
+    FWS_CAPTURE,           /* an FWSCapture and its windows: replies an FWSBuffer and its fd */
     /* server -> client */
     FWS_REPLY = 100,
     FWS_EVENT,
@@ -78,6 +79,7 @@ enum {
     FWS_WINDOW_IGNORES_MOUSE = 1 << 2,
     FWS_WINDOW_SHARED = 1 << 3,    /* listed for other apps */
     FWS_WINDOW_TITLED = 1 << 4,    /* a document window: Fieldwork's window silhouette */
+    FWS_WINDOW_DESKTOP = 1 << 5,   /* the server's desktop, listed as a window (FWS_DESKTOP_WINDOW) */
 };
 
 /* FWS_CREATE_WINDOW, FWS_SET_FRAME */
@@ -94,6 +96,27 @@ typedef struct {
     uint32_t bytes_per_row;
     uint64_t length;
 } FWSBuffer;
+
+/* FWS_CAPTURE (ScreenCaptureKit, CGWindowListCreateImage): part of the screen composited
+   afresh from some of the windows, `count` window IDs following. The reply's pixels are
+   the rect at the display's scale, premultiplied BGRA. */
+enum {
+    FWS_CAPTURE_DESKTOP = 1 << 0,   /* the desktop under the windows, whether listed or not */
+    FWS_CAPTURE_CURSOR = 1 << 1,
+    FWS_CAPTURE_SHADOWS = 1 << 2,
+    FWS_CAPTURE_INCLUDE = 1 << 3,   /* only the windows listed (else all but them) */
+};
+typedef struct {
+    FWSRect rect;      /* global display coordinates, points; empty: the whole display */
+    uint32_t options;
+    uint32_t count;
+} FWSCapture;
+
+/* The desktop the server draws under every window is listed as a window, as macOS's
+   wallpaper window is: at the desktop level, the whole display, owned by the server. A
+   capture draws it when the windows it asks for include it. */
+enum { FWS_DESKTOP_WINDOW = 1 };
+#define FWS_DESKTOP_LEVEL (-2147483623) /* kCGDesktopWindowLevel */
 
 enum { FWS_ORDER_OUT = 0, FWS_ORDER_ABOVE = 1, FWS_ORDER_BELOW = -1 };
 

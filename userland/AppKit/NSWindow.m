@@ -418,6 +418,7 @@ fill_circle(CGContextRef cg, NSRect r, CGFloat red, CGFloat green, CGFloat blue,
     NSToolbar *_toolbar;
     struct {
         unsigned visible : 1;
+        unsigned occlusionVisible : 1; /* the occlusion state last posted */
         unsigned key : 1;
         unsigned main : 1;
         unsigned released : 1;
@@ -1144,7 +1145,19 @@ server_flags(NSWindow *w)
 + (NSWindowUserTabbingPreference)userTabbingPreference { return NSWindowUserTabbingPreferenceManual; }
 - (NSWindowSharingType)sharingType { return _sharingType; }
 - (void)setSharingType:(NSWindowSharingType)type { _sharingType = type; }
-- (NSWindowOcclusionState)occlusionState { return _w.visible ? NSWindowOcclusionStateVisible : 0; }
+- (NSWindowOcclusionState)occlusionState { return _w.occlusionVisible ? NSWindowOcclusionStateVisible : 0; }
+
+/* As Apple's window server does, the occlusion state follows ordering a moment later,
+   with a notification when it changes. */
+- (void)_finchOcclusionMayHaveChanged
+{
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (_w.occlusionVisible == _w.visible)
+            return;
+        _w.occlusionVisible = _w.visible;
+        [[NSNotificationCenter defaultCenter] postNotificationName:NSWindowDidChangeOcclusionStateNotification object:self];
+    });
+}
 - (NSAppearance *)appearance { return _appearance; }
 - (void)setAppearance:(NSAppearance *)appearance { [_appearance autorelease]; _appearance = [appearance retain]; }
 - (NSAppearance *)effectiveAppearance { return _appearance ?: [NSApp effectiveAppearance]; }
@@ -1484,10 +1497,12 @@ server_flags(NSWindow *w)
             [self resignMainWindow];
         FinchApplicationWindowOrderedOut(self);
         [[NSNotificationCenter defaultCenter] postNotificationName:NSWindowDidOrderOffScreenNotification object:self];
+        [self _finchOcclusionMayHaveChanged];
         return;
     }
     if (![self _finchServerWindow]) {
         _w.visible = YES;  /* no window server: keep the state, for tests */
+        [self _finchOcclusionMayHaveChanged];
         return;
     }
     BOOL appearing = !_w.visible;
@@ -1508,8 +1523,10 @@ server_flags(NSWindow *w)
     FWSOrderWindow(_server, place == NSWindowBelow ? FWS_ORDER_BELOW : FWS_ORDER_ABOVE, (uint32_t)MAX(other, 0));
     for (NSWindow *child in _children)
         [child orderWindow:NSWindowAbove relativeTo:_number];
-    if (appearing)
+    if (appearing) {
         [[NSNotificationCenter defaultCenter] postNotificationName:NSWindowDidOrderOnScreenNotification object:self];
+        [self _finchOcclusionMayHaveChanged];
+    }
 }
 
 - (void)orderFront:(id)sender { [self orderWindow:NSWindowAbove relativeTo:0]; }

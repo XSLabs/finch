@@ -402,7 +402,15 @@ did_move_to_window(NSView *view, NSWindow *window)
     }
     [self setNeedsDisplay:YES];
 }
-- (BOOL)wantsUpdateLayer { return NO; }
+/* As Apple's: a view updates its layer unless its class draws (overrides -drawRect:).
+   (Apple's own controls update their layers; Finch's draw, so they answer NO.) */
+- (BOOL)wantsUpdateLayer
+{
+    static IMP base;
+    if (!base)
+        base = [NSView instanceMethodForSelector:@selector(drawRect:)];
+    return [[self class] instanceMethodForSelector:@selector(drawRect:)] == base;
+}
 - (CALayer *)makeBackingLayer { return [FINCH_CLASS(CALayer) layer]; }
 - (NSViewLayerContentsRedrawPolicy)layerContentsRedrawPolicy { return NSViewLayerContentsRedrawDuringViewResize; }
 - (void)setLayerContentsRedrawPolicy:(NSViewLayerContentsRedrawPolicy)policy {}

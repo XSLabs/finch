@@ -527,31 +527,60 @@ nib_class(FinchNibDecoder *self, NSUInteger clsIndex)
     NSString *_className;
 }
 
+/* A constraint with one view swapped for another. */
+static NSLayoutConstraint *
+retarget(NSLayoutConstraint *c, id from, id to)
+{
+    id first = [c firstItem] == from ? to : [c firstItem];
+    id second = [c secondItem] == from ? to : [c secondItem];
+    NSLayoutConstraint *n = [NSLayoutConstraint constraintWithItem:first attribute:[c firstAttribute] relatedBy:[c relation]
+                                                            toItem:second attribute:[c secondAttribute]
+                                                        multiplier:[c multiplier] constant:[c constant]];
+    [n setPriority:[c priority]];
+    [n setIdentifier:[c identifier]];
+    [n setShouldBeArchived:[c shouldBeArchived]];
+    return n;
+}
+
 - (instancetype)initWithCoder:(NSCoder *)coder
 {
     NSString *name = [coder decodeObjectForKey:@"NSClassName"];
     Class c = NSClassFromString(name);
-    if (c && c != [NSCustomView class] && [c isSubclassOfClass:[NSView class]]) {
-        [self release];
-        /* As Apple's: the app's class is made with initWithFrame:, then given the archived subviews. */
-        NSView *v = [[c alloc] initWithFrame:[coder decodeRectForKey:@"NSFrame"]];
-        NSRect frame = [coder containsValueForKey:@"NSFrame"]
-                           ? [coder decodeRectForKey:@"NSFrame"]
-                           : NSMakeRect(0, 0, [coder decodeSizeForKey:@"NSFrameSize"].width,
-                                        [coder decodeSizeForKey:@"NSFrameSize"].height);
-        [v setFrame:frame];
-        int flags = [coder decodeIntForKey:@"NSvFlags"];
-        [v setAutoresizingMask:flags & 0x3f];
-        if ([coder containsValueForKey:@"NSvFlags"])
-            [v setAutoresizesSubviews:(flags & 0x100) != 0];
-        [v setHidden:(flags & 0x80000000) != 0];
-        for (NSView *sub in [coder decodeObjectForKey:@"NSSubviews"])
-            [v addSubview:sub];
-        return (id)v;
-    }
     if (name && !c)
         NSLog(@"Unknown class '%@', using 'NSView' instead. Encountered in Interface Builder file.", name);
-    return [super initWithCoder:coder];
+    /* decoded in full as a view: frame, flags, subviews, constraints and the rest */
+    NSView *proto = [super initWithCoder:coder];
+    if (!c || c == [NSCustomView class] || ![c isSubclassOfClass:[NSView class]])
+        return (id)proto;
+    /* As Apple's: the app's class is made with initWithFrame:, then given what was archived. */
+    NSView *v = [[c alloc] initWithFrame:[proto frame]];
+    [v setFrame:[proto frame]];
+    [v setAutoresizingMask:[proto autoresizingMask]];
+    [v setAutoresizesSubviews:[proto autoresizesSubviews]];
+    [v setHidden:[proto isHidden]];
+    [v setTranslatesAutoresizingMaskIntoConstraints:[proto translatesAutoresizingMaskIntoConstraints]];
+    if ([proto identifier])
+        [v setIdentifier:[proto identifier]];
+    if ([proto toolTip])
+        [v setToolTip:[proto toolTip]];
+    if ([proto wantsLayer])
+        [v setWantsLayer:YES];
+    for (NSInteger o = 0; o < 2; o++) {
+        [v setContentHuggingPriority:[proto contentHuggingPriorityForOrientation:o] forOrientation:o];
+        [v setContentCompressionResistancePriority:[proto contentCompressionResistancePriorityForOrientation:o] forOrientation:o];
+    }
+    NSArray *constraints = [[[proto constraints] copy] autorelease];
+    [proto removeConstraints:constraints];
+    for (NSView *sub in [[[proto subviews] copy] autorelease]) {
+        [sub retain];
+        [sub removeFromSuperview];
+        [v addSubview:sub];
+        [sub release];
+    }
+    for (NSLayoutConstraint *k in constraints)
+        [v addConstraint:retarget(k, proto, v)];
+    [proto release];
+    return (id)v;
 }
 
 @end

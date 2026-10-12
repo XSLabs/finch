@@ -103,7 +103,7 @@ block-beta
         columns 4
         t7["Apps and desktop"]
         apps["Unmodified Mac apps on Finch's<br/>frameworks: Terminal, Stickies,<br/>TextEdit, Apps (in the VM),<br/>Image Capture (on the host;<br/>no devices yet); docs/APPS.md"]
-        desktop["finch-windowserver<br/>windows over shared memory,<br/>Skia compositor, cursor,<br/>input routing (headless, viewer)"]
+        desktop["finch-windowserver<br/>windows over shared memory,<br/>Skia compositor, cursor,<br/>input routing (headless, viewer),<br/>captures of chosen windows;<br/>the desktop listed as a window"]
         shell["Fieldwork shell: the Rail<br/>(pinned and running apps,<br/>workbench switcher, app launcher;<br/>hears the Dock's requests);<br/>file manager to come"]
     end
     block:L6
@@ -122,7 +122,7 @@ block-beta
         coreservices["CoreServices<br/>app lookup and launch,<br/>local Apple events, files"]
         later["Metal (no GPU driven yet:<br/>no devices, descriptors<br/>as values)"]
         coreui["CoreUI<br/>compiled asset catalogs,<br/>named images and colors"]
-        appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds,<br/>AudioFormat properties, audio files,<br/>PCM/G.711 conversion,<br/>ExtAudioFile, software audio units:<br/>effects, EQ, reverbs, time-pitch,<br/>varispeed, sampler; offline<br/>PCM queues); AVFAudio<br/>(formats, layouts, PCM buffers,<br/>PCM/G.711 files and conversion,<br/>times, the engine graph:<br/>players, mixer, effect and<br/>instrument units, offline render;<br/>AVAudioPlayer, constants,<br/>session, silent speech),<br/>Carbon/HIToolbox (events, keys),<br/>CoreAnalytics, libScreenReader;<br/>FeatureFlags, libMobileGestalt<br/>(the device's answers),<br/>libDiagnosticMessagesClient<br/>(messages sent nowhere);<br/>SkyLight's SLS calls (window<br/>capture, display queries);<br/>ColorSync (profiles, transforms);<br/>HIServices (AX client, Process Manager),<br/>DataDetectorsCore (links in text);<br/>Text Input Sources, UCKeyTranslate,<br/>Carbon event handlers, hot keys;<br/>IOSurface (shared pixel buffers);<br/>CoreVideo pixel buffers and pools;<br/>CoreMedia (times, block, format<br/>and sample buffers, clocks,<br/>timebases, queues, metadata, tags)"]
+        appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds,<br/>AudioFormat properties, audio files,<br/>PCM/G.711 conversion,<br/>ExtAudioFile, software audio units:<br/>effects, EQ, reverbs, time-pitch,<br/>varispeed, sampler; offline<br/>PCM queues); AVFAudio<br/>(formats, layouts, PCM buffers,<br/>PCM/G.711 files and conversion,<br/>times, the engine graph:<br/>players, mixer, effect and<br/>instrument units, offline render;<br/>AVAudioPlayer, constants,<br/>session, silent speech),<br/>Carbon/HIToolbox (events, keys),<br/>CoreAnalytics, libScreenReader;<br/>FeatureFlags, libMobileGestalt<br/>(the device's answers),<br/>libDiagnosticMessagesClient<br/>(messages sent nowhere);<br/>SkyLight's SLS calls (window<br/>capture, display queries);<br/>ScreenCaptureKit (shareable content,<br/>filters, screenshots, streams);<br/>ColorSync (profiles, transforms);<br/>HIServices (AX client, Process Manager),<br/>DataDetectorsCore (links in text);<br/>Text Input Sources, UCKeyTranslate,<br/>Carbon event handlers, hot keys;<br/>IOSurface (shared pixel buffers);<br/>CoreVideo pixel buffers and pools;<br/>CoreMedia (times, block, format<br/>and sample buffers, clocks,<br/>timebases, queues, metadata, tags)"]
         swiftui["SwiftUI, SwiftUICore<br/>(OpenSwiftUI on Compute's<br/>attribute graph; first app draws)"]
     end
     block:L5
@@ -267,6 +267,7 @@ flowchart LR
     skylight["SkyLight"]:::finch
     secfound["SecurityFoundation"]:::finch
     btui["IOBluetoothUI"]:::finch
+    sck["ScreenCaptureKit"]:::finch
     colorsync["ColorSync"]:::finch
     hiservices["HIServices"]:::finch
     coreui["CoreUI"]:::finch
@@ -340,6 +341,10 @@ flowchart LR
     secfound --> security
     secfound --> ffound
     btui --> appkit
+    sck --> appkit
+    sck --> coremediafw
+    sck --> cgfw
+    sck --> imageio
     btui --> servicesfw
     audiotoolbox --> cf
     coreimagefw --> ffound

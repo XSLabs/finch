@@ -406,7 +406,7 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         (`tools/check-imports.py`).
   - [x] Drop-in check: `tools/app-sweep.py` runs the import check over every app and the
         frameworks it carries, and ranks what's missing by apps blocked. Apple's apps are
-        recorded in [`docs/APPS.md`](APPS.md) (2026-10-12: 10 of 65 have every import;
+        recorded in [`docs/APPS.md`](APPS.md) (2026-10-12: 11 of 65 have every import;
         gaps in AppKit, Foundation and CoreGraphics block the most, then AppIntents and
         AVFoundation). The next frameworks are picked from it.
   - [ ] Close the symbol gaps in Finch's own frameworks that block the most apps
@@ -618,6 +618,21 @@ and AppKit come in Phase 2).
   - [x] Metal.framework without a device: descriptors as values with Apple's defaults,
         no devices (as on a Mac without a Metal GPU); CAMetalLayer hands out no drawables
         (2026-10-10). Apps that need a GPU (wgpu: PhotoCraft) stop with "no adapter".
+  - [x] Apple's unmodified Digital Color Meter runs in the Finch VM: its magnifier follows
+        the pointer and it reads out the pixel's values (2026-10-12). What it needed:
+        ScreenCaptureKit, Finch's own (shareable content from the window list, content
+        filters, screenshots, streams of sample buffers in BGRA or 4:2:0, the sharing
+        picker), over a new window-server capture of chosen windows; the desktop listed
+        as a window, as macOS's wallpaper window is, so captures and filters include or
+        leave it out; window occlusion notifications; views that update their layers
+        (`wantsUpdateLayer` as Apple's); immortal standard colours; CFGetTypeID of any
+        object; text fields' intrinsic widths and sizes following their values; border and
+        bezel flags as Apple's; custom-class views from nibs keeping their constraints.
+        `screencapturekit-test` and `appkit-compat-test` match Apple's;
+        `appkit-screencapture-test` captures on the window server; all three pass in the VM.
+  - [ ] ScreenCaptureKit's remaining parts: audio and microphone samples, HDR captures
+        (an HDR screenshot is the SDR pixels today), recording to a file (needs a video
+        encoder), idle frames.
   - [ ] A device: software rendering, or a GPU driver (the M4's on metal)
 - [x] Combine: OpenCombine (MIT) adapted to Apple's ABI, with Finch's Merge, CombineLatest
       and collecting by time; every Combine symbol the system apps import (2026-10-09)

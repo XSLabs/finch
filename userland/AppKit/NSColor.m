@@ -111,6 +111,7 @@ typedef enum { KIND_SPACE, KIND_DEVICE_RGB, KIND_CAL_RGB, KIND_DEVICE_WHITE, KIN
     CGFloat _c[6];         /* components, then alpha */
     NSInteger _n;          /* components with alpha */
     BOOL _tagged;
+    BOOL _immortal; /* a standard colour, kept for the life of the process */
     CGColorRef _cg;
 }
 @end
@@ -283,6 +284,17 @@ convert_to_space(NSColor *color, NSColorSpace *space, Kind kind)
 }
 
 @implementation NSComponentColor
+
+/* (the standard colours outlive any over-release, as Apple's do: apps keep them unretained
+   and release them later) */
+- (instancetype)retain { return _immortal ? self : [super retain]; }
+- (oneway void)release
+{
+    if (!_immortal)
+        [super release];
+}
+- (instancetype)autorelease { return _immortal ? self : [super autorelease]; }
+- (NSUInteger)retainCount { return _immortal ? NSUIntegerMax : [super retainCount]; }
 
 - (void)dealloc
 {
@@ -994,21 +1006,34 @@ NSColor *FinchCatalogColorWithCatalogName(NSColorListName catalog, NSColorName n
 
 /* MARK: Standard colours */
 
-+ (NSColor *)blackColor { return gray_in([NSColorSpace genericGamma22GrayColorSpace], 0, 1); }
-+ (NSColor *)darkGrayColor { return gray_in([NSColorSpace genericGamma22GrayColorSpace], 1.0 / 3, 1); }
-+ (NSColor *)lightGrayColor { return gray_in([NSColorSpace genericGamma22GrayColorSpace], 2.0 / 3, 1); }
-+ (NSColor *)whiteColor { return gray_in([NSColorSpace genericGamma22GrayColorSpace], 1, 1); }
-+ (NSColor *)grayColor { return gray_in([NSColorSpace genericGamma22GrayColorSpace], 0.5, 1); }
-+ (NSColor *)clearColor { return gray_in([NSColorSpace genericGamma22GrayColorSpace], 0, 0); }
-+ (NSColor *)redColor { return rgb_in([NSColorSpace sRGBColorSpace], 1, 0, 0, 1); }
-+ (NSColor *)greenColor { return rgb_in([NSColorSpace sRGBColorSpace], 0, 1, 0, 1); }
-+ (NSColor *)blueColor { return rgb_in([NSColorSpace sRGBColorSpace], 0, 0, 1, 1); }
-+ (NSColor *)cyanColor { return rgb_in([NSColorSpace sRGBColorSpace], 0, 1, 1, 1); }
-+ (NSColor *)yellowColor { return rgb_in([NSColorSpace sRGBColorSpace], 1, 1, 0, 1); }
-+ (NSColor *)magentaColor { return rgb_in([NSColorSpace sRGBColorSpace], 1, 0, 1, 1); }
-+ (NSColor *)orangeColor { return rgb_in([NSColorSpace sRGBColorSpace], 1, 0.5, 0, 1); }
-+ (NSColor *)purpleColor { return rgb_in([NSColorSpace sRGBColorSpace], 0.5, 0, 0.5, 1); }
-+ (NSColor *)brownColor { return rgb_in([NSColorSpace sRGBColorSpace], 0.6, 0.4, 0.2, 1); }
+/* As Apple's, each is one object for the life of the process (apps keep them without
+   retaining them). */
+#define STANDARD(sel, make) \
+    +(NSColor *)sel \
+    { \
+        static NSColor *c; \
+        static dispatch_once_t once; \
+        dispatch_once(&once, ^{ \
+            c = [make retain]; \
+            ((NSComponentColor *)c)->_immortal = YES; \
+        }); \
+        return c; \
+    }
+STANDARD(blackColor, gray_in([NSColorSpace genericGamma22GrayColorSpace], 0, 1))
+STANDARD(darkGrayColor, gray_in([NSColorSpace genericGamma22GrayColorSpace], 1.0 / 3, 1))
+STANDARD(lightGrayColor, gray_in([NSColorSpace genericGamma22GrayColorSpace], 2.0 / 3, 1))
+STANDARD(whiteColor, gray_in([NSColorSpace genericGamma22GrayColorSpace], 1, 1))
+STANDARD(grayColor, gray_in([NSColorSpace genericGamma22GrayColorSpace], 0.5, 1))
+STANDARD(clearColor, gray_in([NSColorSpace genericGamma22GrayColorSpace], 0, 0))
+STANDARD(redColor, rgb_in([NSColorSpace sRGBColorSpace], 1, 0, 0, 1))
+STANDARD(greenColor, rgb_in([NSColorSpace sRGBColorSpace], 0, 1, 0, 1))
+STANDARD(blueColor, rgb_in([NSColorSpace sRGBColorSpace], 0, 0, 1, 1))
+STANDARD(cyanColor, rgb_in([NSColorSpace sRGBColorSpace], 0, 1, 1, 1))
+STANDARD(yellowColor, rgb_in([NSColorSpace sRGBColorSpace], 1, 1, 0, 1))
+STANDARD(magentaColor, rgb_in([NSColorSpace sRGBColorSpace], 1, 0, 1, 1))
+STANDARD(orangeColor, rgb_in([NSColorSpace sRGBColorSpace], 1, 0.5, 0, 1))
+STANDARD(purpleColor, rgb_in([NSColorSpace sRGBColorSpace], 0.5, 0, 0.5, 1))
+STANDARD(brownColor, rgb_in([NSColorSpace sRGBColorSpace], 0.6, 0.4, 0.2, 1))
 
 #define SYSTEM(sel) \
     +(NSColor *)sel { return system_color(@#sel); }

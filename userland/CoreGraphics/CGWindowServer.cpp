@@ -488,6 +488,36 @@ FWSGetInputState(FWSInputState *out)
     return ok;
 }
 
+/* An image of a buffer the server sent (premultiplied BGRA). */
+static CGImageRef
+image_of_reply(const std::vector<uint8_t> &reply, int fd)
+{
+    if (reply.size() < sizeof(FWSBuffer) || fd < 0) {
+        if (fd >= 0)
+            close(fd);
+        return NULL;
+    }
+    FWSBuffer b;
+    memcpy(&b, reply.data(), sizeof b);
+    if (!b.length) {
+        close(fd);
+        return NULL;
+    }
+    void *p = mmap(NULL, (size_t)b.length, PROT_READ, MAP_SHARED, fd, 0);
+    close(fd);
+    if (p == MAP_FAILED)
+        return NULL;
+    CFDataRef data = CFDataCreate(NULL, (const UInt8 *)p, (CFIndex)b.length);
+    munmap(p, (size_t)b.length);
+    CGDataProviderRef prov = CGDataProviderCreateWithCFData(data);
+    CGColorSpaceRef srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGImageRef im = CGImageCreate(b.pixel_width, b.pixel_height, 8, 32, b.bytes_per_row, srgb,
+                                  (uint32_t)kCGImageAlphaPremultipliedFirst | (uint32_t)kCGBitmapByteOrder32Little, prov, NULL,
+                                  false, kCGRenderingIntentDefault);
+    CFRelease(srgb), CFRelease(prov), CFRelease(data);
+    return im;
+}
+
 /* The composited screen (tests): an image of the display, in pixels. */
 FWS_EXPORT CGImageRef
 FWSCopyScreenImage(void)
@@ -496,24 +526,33 @@ FWSCopyScreenImage(void)
     CGImageRef im = NULL;
     if (connect_locked()) {
         std::vector<uint8_t> reply;
-        int fd;
+        int fd = -1;
         uint32_t s = send_request(FWS_SNAPSHOT, 0, NULL, 0, true);
-        if (wait_reply(s, &reply, &fd) && reply.size() >= sizeof(FWSBuffer) && fd >= 0) {
-            FWSBuffer b;
-            memcpy(&b, reply.data(), sizeof b);
-            void *p = mmap(NULL, (size_t)b.length, PROT_READ, MAP_SHARED, fd, 0);
-            close(fd);
-            if (p != MAP_FAILED) {
-                CFDataRef data = CFDataCreate(NULL, (const UInt8 *)p, (CFIndex)b.length);
-                munmap(p, (size_t)b.length);
-                CGDataProviderRef prov = CGDataProviderCreateWithCFData(data);
-                CGColorSpaceRef srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-                im = CGImageCreate(b.pixel_width, b.pixel_height, 8, 32, b.bytes_per_row, srgb,
-                                   (uint32_t)kCGImageAlphaPremultipliedFirst | (uint32_t)kCGBitmapByteOrder32Little, prov, NULL, false,
-                                   kCGRenderingIntentDefault);
-                CFRelease(srgb), CFRelease(prov), CFRelease(data);
-            }
-        }
+        if (wait_reply(s, &reply, &fd))
+            im = image_of_reply(reply, fd);
+    }
+    pthread_mutex_unlock(&lock);
+    return im;
+}
+
+/* Part of the screen composited afresh from some windows (FWSCapture's options): an
+   image in pixels, or NULL. */
+FWS_EXPORT CGImageRef
+FWSCaptureImage(FWSRect rect, uint32_t options, const uint32_t *windows, uint32_t count)
+{
+    std::vector<uint8_t> body(sizeof(FWSCapture) + count * sizeof(uint32_t));
+    FWSCapture cap = {rect, options, count};
+    memcpy(body.data(), &cap, sizeof cap);
+    if (count)
+        memcpy(body.data() + sizeof cap, windows, count * sizeof(uint32_t));
+    pthread_mutex_lock(&lock);
+    CGImageRef im = NULL;
+    if (connect_locked()) {
+        std::vector<uint8_t> reply;
+        int fd = -1;
+        uint32_t s = send_request(FWS_CAPTURE, 0, body.data(), body.size(), true);
+        if (wait_reply(s, &reply, &fd))
+            im = image_of_reply(reply, fd);
     }
     pthread_mutex_unlock(&lock);
     return im;
@@ -856,6 +895,9 @@ CGWindowListCopyWindowInfo(CGWindowListOption option, CGWindowID relativeToWindo
         FWSWindowInfo &w = list[i];
         if ((option & kCGWindowListOptionOnScreenOnly) && !w.on_screen)
             continue;
+        /* (the desktop picture and its icons) */
+        if ((option & kCGWindowListExcludeDesktopElements) && w.level <= CGWindowLevelForKey(kCGDesktopIconWindowLevelKey))
+            continue;
         if (option & kCGWindowListOptionIncludingWindow) {
             if (w.window != relativeToWindow)
                 continue;
@@ -944,4 +986,36 @@ KEY(kCGWindowOwnerName)
 KEY(kCGWindowName)
 KEY(kCGWindowIsOnscreen)
 KEY(kCGWindowBackingLocationVideoMemory)
+}
+
+/* The window levels, by key: Apple's values (macOS 26.4). */
+extern "C" CGWindowLevel
+CGWindowLevelForKey(CGWindowLevelKey key)
+{
+    static const int32_t levels[] = {
+        INT32_MIN,         /* base */
+        -2147483643,       /* minimum */
+        -2147483623,       /* desktop */
+        -20,               /* backstop menu */
+        0,                 /* normal */
+        3,                 /* floating */
+        3,                 /* torn-off menu */
+        20,                /* dock */
+        24,                /* main menu */
+        25,                /* status */
+        8,                 /* modal panel */
+        101,               /* pop-up menu */
+        500,               /* dragging */
+        1000,              /* screen saver */
+        2147483631,        /* maximum */
+        102,               /* overlay */
+        200,               /* help */
+        19,                /* utility */
+        -2147483603,       /* desktop icon */
+        2147483630,        /* cursor */
+        1500,              /* assistive tech high */
+    };
+    if ((int)key < 0 || (size_t)key >= sizeof levels / sizeof levels[0])
+        return 999;
+    return levels[key];
 }

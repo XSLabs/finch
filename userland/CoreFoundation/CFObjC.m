@@ -53,6 +53,9 @@ CF_EXPORT Boolean __CFStringIsMutable(CFStringRef str);
 - (BOOL)isNSDate__ { return NO; }
 - (BOOL)isNSTimeZone__ { return NO; }
 - (BOOL)isNSURL__ { return NO; }
+/* CFGetTypeID of an object that isn't one of CF's: CFType's ID (1), as Apple's answers
+   (Core Animation asks it of a layer's contents, an NSImage, for one). */
+- (CFTypeID)_cfTypeID { return 1; }
 @end
 
 @interface __NSCFType : NSObject

@@ -751,3 +751,16 @@ draws (`userland/tests/app-test.c`).
   and diacritics, a new search starts after the selected row and wraps, and the delegate
   can refuse a key, give the strings or do the search. `finch-outline-bindings-test` and
   `finch-typeselect-test` match Apple's on the host and in the VM.
+- 2026-10-12: what Apple's Digital Color Meter needed of AppKit. Windows post
+  `NSWindowDidChangeOcclusionStateNotification` a moment after they come on or go off
+  screen, and `occlusionState` follows it (the app samples only while visible). As
+  Apple's, a view updates its layer instead of drawing unless its class overrides
+  `drawRect:` (Finch's own controls draw, so they answer NO), and `layer.contents` may
+  be an NSImage. The standard colours (`blackColor` and the rest) are one immortal
+  object each, as apps keep them unretained and release them later. Setting a control's
+  value invalidates its intrinsic size; a text field has no intrinsic width only when
+  editable (a scrolling label keeps its own); `setBordered:` and `setBezeled:` clear
+  each other on cells, but not on button cells. A custom-class view from a nib is
+  decoded in full first, then the app's class takes its subviews, constraints and
+  settings (its internal constraints were lost). `finch-appkit-compat-test` matches
+  Apple's on the host and in the VM.

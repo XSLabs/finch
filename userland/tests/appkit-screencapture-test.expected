@@ -1,0 +1,37 @@
+red occlusion before ordering 0
+red occluded visible 1, notifications 1
+content: error 0, on main thread 0
+displays 1: 800x600 frame {{0, 0}, {800, 600}}
+red window: found 1, frame matches 1, ours 1, on screen 1, layer 0
+blue window: found 1, id matches 1
+app listed 1
+desktop window: last 1, level is desktop's 1, full screen 1, left out by ExcludeDesktopElements 1
+  in shareable content without desktop windows 1
+current process: windows 2, apps 1
+window filter: style 1 scale 2 rect {{0, 0}, {200, 182}}, included windows 1 displays 0
+  info: style 1 scale 2 rect {{0, 0}, {200, 182}}
+  image 400x300, centre red
+display without red: style 2 rect {{0, 0}, {800, 600}}
+  image 1600x1200, red's place other, blue's blue
+only blue: style 1, red's place clear, blue's blue
+our app but blue: style 3 apps 1, red's place red, blue's clear
+all but our app, blue kept: red's place other, blue's blue
+display into 400x400: 400x400, blue's place blue, top band clear
+image in red's rect: 400x364, centre red
+screenshot of blue: error 0, sdr 80x40 blue, hdr 1, file 1
+  file: 80x40 pixels
+red screenshot at 100x50: 100x50, centre red
+CGWindowListCreateImage red: 400x364, centre red
+  below red, at red's centre: other
+stream: add output 1, clock 1
+  started: error 0
+  started again: error -3807
+  frames while nothing changes: first 1, then none 1
+  stopped: error 0
+  stopped again: error -3808
+  a frame after the change 1
+  first frame: 400x300 format BGRA valid 1
+  info: status 0 scale 2 content scale 0.25 content rect {{0, 0}, {200, 150}}
+  last frame at blue's place: B 0 G 1 R 0
+4:2:0 stream of red: frames 1, format 420v, planes 2, centre Y 63 Cb 102 Cr 240
+recording output added 0

@@ -147,7 +147,7 @@ static double screen_w = 1280, screen_h = 800, scale = 2, refresh = 60;
 static uint32_t pixel_w, pixel_h;
 static std::map<uint32_t, Window *> windows;
 static std::vector<Client *> clients;
-static uint32_t next_window = 1, next_client = 1;
+static uint32_t next_window = FWS_DESKTOP_WINDOW + 1, next_client = 1;
 static uint64_t order_counter = 1;
 static Shm screen;  /* the composited frame, BGRA premultiplied */
 static sk_sp<SkSurface> surface;
@@ -314,6 +314,75 @@ send_deflated_frame(SkIRect rect)
     write_all(viewer_fd, packed.data(), size);
 }
 
+/* The desktop's colour. */
+static void
+draw_desktop(SkCanvas *c)
+{
+    SkPaint bg;
+    bg.setColor(!fieldwork() ? SkColorSetRGB(0x2b, 0x3a, 0x4a)
+                : night() ? SkColorSetRGB(0x18, 0x1d, 0x1c) : SkColorSetRGB(0xf0, 0xef, 0xe9));
+    c->drawPaint(bg);
+}
+
+/* A window at its place on the screen (pixels), with its shadow unless asked not to;
+   only if it reaches the region (pixels) that's being drawn. */
+static void
+draw_window(SkCanvas *c, Window *w, SkIRect region, bool shadow = true)
+{
+    if (!w->buffer.ptr)
+        return;
+    SkRect dst = SkRect::MakeXYWH((float)(w->frame.x * scale), (float)(w->frame.y * scale), (float)w->pw,
+                                  (float)w->ph);
+    if (!SkRect::Make(region).intersects(dst.makeOutset(40, 40)))
+        return;
+    bool shaped = fieldwork() && (w->flags & FWS_WINDOW_SHADOW);
+    if (shaped && shadow) {
+        /* a close contact shadow and a soft ambient one */
+        SkRRect shape = window_shape(dst, w->flags);
+        SkPaint ambient;
+        ambient.setColor(SkColorSetARGB((U8CPU)(34 * w->alpha), 0x24, 0x29, 0x25));
+        ambient.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, 8 * (float)scale));
+        SkRRect a = shape;
+        a.offset(0, 3 * (float)scale);
+        c->drawRRect(a, ambient);
+        SkPaint contact;
+        contact.setColor(SkColorSetARGB((U8CPU)(46 * w->alpha), 0x24, 0x29, 0x25));
+        contact.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, 1.5f * (float)scale));
+        SkRRect k = shape;
+        k.offset(0, 1 * (float)scale);
+        c->drawRRect(k, contact);
+    } else if ((w->flags & FWS_WINDOW_SHADOW) && shadow) {
+        SkPaint sp;
+        sp.setColor(SkColorSetARGB((U8CPU)(90 * w->alpha), 0, 0, 0));
+        sp.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, 9 * (float)scale));
+        c->drawRRect(SkRRect::MakeRectXY(dst.makeOffset(0, 6 * (float)scale), 10 * (float)scale, 10 * (float)scale), sp);
+    }
+    SkImageInfo info = SkImageInfo::Make((int)w->pw, (int)w->ph, kBGRA_8888_SkColorType,
+                                         (w->flags & FWS_WINDOW_OPAQUE) ? kOpaque_SkAlphaType : kPremul_SkAlphaType);
+    sk_sp<SkImage> img = SkImages::RasterFromPixmap(SkPixmap(info, w->buffer.ptr, w->bpr), nullptr, nullptr);
+    SkPaint wp;
+    wp.setAlphaf((float)w->alpha);
+    if (shaped) {
+        SkRRect shape = window_shape(dst, w->flags);
+        c->save();
+        c->clipRRect(shape, true);
+        c->drawImage(img, dst.x(), dst.y(), SkSamplingOptions(), &wp);
+        c->restore();
+        /* the structural outline: one device pixel, just inside the edge */
+        SkPaint outline;
+        outline.setAntiAlias(true);
+        outline.setStyle(SkPaint::kStroke_Style);
+        outline.setStrokeWidth(1);
+        outline.setColor(night() ? SkColorSetARGB((U8CPU)(0xa0 * w->alpha), 0, 0, 0)
+                                 : SkColorSetARGB((U8CPU)(0x40 * w->alpha), 0x24, 0x29, 0x25));
+        SkRRect in = shape;
+        in.inset(0.5f, 0.5f);
+        c->drawRRect(in, outline);
+    } else {
+        c->drawImage(img, dst.x(), dst.y(), SkSamplingOptions(), &wp);
+    }
+}
+
 static void
 composite(void)
 {
@@ -322,65 +391,9 @@ composite(void)
     SkCanvas *c = surface->getCanvas();
     c->save();
     c->clipRect(SkRect::Make(damage));
-    /* the desktop */
-    SkPaint bg;
-    bg.setColor(!fieldwork() ? SkColorSetRGB(0x2b, 0x3a, 0x4a)
-                : night() ? SkColorSetRGB(0x18, 0x1d, 0x1c) : SkColorSetRGB(0xf0, 0xef, 0xe9));
-    c->drawPaint(bg);
-    for (Window *w : stacking()) {
-        if (!w->buffer.ptr)
-            continue;
-        SkRect dst = SkRect::MakeXYWH((float)(w->frame.x * scale), (float)(w->frame.y * scale), (float)w->pw,
-                                      (float)w->ph);
-        if (!SkRect::Make(damage).intersects(dst.makeOutset(40, 40)))
-            continue;
-        bool shaped = fieldwork() && (w->flags & FWS_WINDOW_SHADOW);
-        if (shaped) {
-            /* a close contact shadow and a soft ambient one */
-            SkRRect shape = window_shape(dst, w->flags);
-            SkPaint ambient;
-            ambient.setColor(SkColorSetARGB((U8CPU)(34 * w->alpha), 0x24, 0x29, 0x25));
-            ambient.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, 8 * (float)scale));
-            SkRRect a = shape;
-            a.offset(0, 3 * (float)scale);
-            c->drawRRect(a, ambient);
-            SkPaint contact;
-            contact.setColor(SkColorSetARGB((U8CPU)(46 * w->alpha), 0x24, 0x29, 0x25));
-            contact.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, 1.5f * (float)scale));
-            SkRRect k = shape;
-            k.offset(0, 1 * (float)scale);
-            c->drawRRect(k, contact);
-        } else if (w->flags & FWS_WINDOW_SHADOW) {
-            SkPaint sp;
-            sp.setColor(SkColorSetARGB((U8CPU)(90 * w->alpha), 0, 0, 0));
-            sp.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, 9 * (float)scale));
-            c->drawRRect(SkRRect::MakeRectXY(dst.makeOffset(0, 6 * (float)scale), 10 * (float)scale, 10 * (float)scale), sp);
-        }
-        SkImageInfo info = SkImageInfo::Make((int)w->pw, (int)w->ph, kBGRA_8888_SkColorType,
-                                             (w->flags & FWS_WINDOW_OPAQUE) ? kOpaque_SkAlphaType : kPremul_SkAlphaType);
-        sk_sp<SkImage> img = SkImages::RasterFromPixmap(SkPixmap(info, w->buffer.ptr, w->bpr), nullptr, nullptr);
-        SkPaint wp;
-        wp.setAlphaf((float)w->alpha);
-        if (shaped) {
-            SkRRect shape = window_shape(dst, w->flags);
-            c->save();
-            c->clipRRect(shape, true);
-            c->drawImage(img, dst.x(), dst.y(), SkSamplingOptions(), &wp);
-            c->restore();
-            /* the structural outline: one device pixel, just inside the edge */
-            SkPaint outline;
-            outline.setAntiAlias(true);
-            outline.setStyle(SkPaint::kStroke_Style);
-            outline.setStrokeWidth(1);
-            outline.setColor(night() ? SkColorSetARGB((U8CPU)(0xa0 * w->alpha), 0, 0, 0)
-                                     : SkColorSetARGB((U8CPU)(0x40 * w->alpha), 0x24, 0x29, 0x25));
-            SkRRect in = shape;
-            in.inset(0.5f, 0.5f);
-            c->drawRRect(in, outline);
-        } else {
-            c->drawImage(img, dst.x(), dst.y(), SkSamplingOptions(), &wp);
-        }
-    }
+    draw_desktop(c);
+    for (Window *w : stacking())
+        draw_window(c, w, damage);
     draw_cursor(c);
     c->restore();
     /* to the viewer */
@@ -843,6 +856,16 @@ handle(Client *c, const FWSHeader &h, const uint8_t *body)
             snprintf(i.title, sizeof i.title, "%s", w->title.c_str());
             list.push_back(i);
         }
+        {
+            /* the desktop, below every window */
+            FWSWindowInfo i = {};
+            i.window = FWS_DESKTOP_WINDOW, i.pid = getpid(), i.level = FWS_DESKTOP_LEVEL;
+            i.flags = FWS_WINDOW_DESKTOP | FWS_WINDOW_OPAQUE | FWS_WINDOW_SHARED, i.on_screen = 1, i.alpha = 1;
+            i.frame = {0, 0, screen_w, screen_h};
+            snprintf(i.owner, sizeof i.owner, "WindowServer");
+            snprintf(i.title, sizeof i.title, "Desktop");
+            list.push_back(i);
+        }
         for (auto &kv : windows)
             if (!kv.second->ordered) {
                 Window *w = kv.second;
@@ -895,6 +918,51 @@ handle(Client *c, const FWSHeader &h, const uint8_t *body)
         st.last_event = last_input;
         memcpy(st.counts, input_counts, sizeof st.counts);
         send_message(c, FWS_REPLY, h.serial, 0, &st, sizeof st, -1);
+        break;
+    }
+    case FWS_CAPTURE: {
+        FWSCapture cap = {};
+        if (h.size < sizeof cap) {
+            FWSBuffer none = {};
+            send_message(c, FWS_REPLY, h.serial, 0, &none, sizeof none, -1);
+            break;
+        }
+        memcpy(&cap, body, sizeof cap);
+        size_t n = std::min<size_t>(cap.count, (h.size - sizeof cap) / sizeof(uint32_t));
+        std::vector<uint32_t> listed(n);
+        if (n)
+            memcpy(listed.data(), body + sizeof cap, n * sizeof(uint32_t));
+        SkIRect all = SkIRect::MakeWH((int)pixel_w, (int)pixel_h), area = all;
+        if (cap.rect.width > 0 && cap.rect.height > 0)
+            area = SkRect::MakeXYWH((float)(cap.rect.x * scale), (float)(cap.rect.y * scale), (float)(cap.rect.width * scale),
+                                    (float)(cap.rect.height * scale))
+                       .round();
+        if (area.isEmpty()) {
+            FWSBuffer none = {};
+            send_message(c, FWS_REPLY, h.serial, 0, &none, sizeof none, -1);
+            break;
+        }
+        size_t bpr = (size_t)area.width() * 4, len = bpr * (size_t)area.height();
+        Shm out = shm_create(len);
+        if (out.ptr) {
+            memset(out.ptr, 0, len);
+            SkImageInfo info = SkImageInfo::Make(area.width(), area.height(), kBGRA_8888_SkColorType, kPremul_SkAlphaType);
+            std::unique_ptr<SkCanvas> canvas = SkCanvas::MakeRasterDirect(info, out.ptr, bpr);
+            canvas->translate((float)-area.x(), (float)-area.y());
+            bool desktop_listed = std::find(listed.begin(), listed.end(), (uint32_t)FWS_DESKTOP_WINDOW) != listed.end();
+            if ((cap.options & FWS_CAPTURE_DESKTOP) || desktop_listed == !!(cap.options & FWS_CAPTURE_INCLUDE))
+                draw_desktop(canvas.get());
+            for (Window *w : stacking()) {
+                bool in = std::find(listed.begin(), listed.end(), w->id) != listed.end();
+                if (in == !!(cap.options & FWS_CAPTURE_INCLUDE))
+                    draw_window(canvas.get(), w, area, cap.options & FWS_CAPTURE_SHADOWS);
+            }
+            if (cap.options & FWS_CAPTURE_CURSOR)
+                draw_cursor(canvas.get());
+        }
+        FWSBuffer b = {0, (uint32_t)area.width(), (uint32_t)area.height(), (uint32_t)bpr, out.ptr ? len : 0};
+        send_message(c, FWS_REPLY, h.serial, 0, &b, sizeof b, out.fd);
+        shm_free(out);
         break;
     }
     case FWS_SNAPSHOT: {

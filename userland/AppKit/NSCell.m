@@ -720,19 +720,26 @@ cell_defaults(NSCell *self)
 
 - (void)setBordered:(BOOL)flag
 {
+    /* (as Apple's, either way the bezel goes) */
     _c.bordered = flag;
-    if (flag)
-        _c.bezeled = NO;
+    _c.bezeled = NO;
     [self _finchChanged];
 }
 
 - (BOOL)isBezeled { return _c.bezeled; }
 
+- (void)_finchSetBordered:(BOOL)bordered bezeled:(BOOL)bezeled
+{
+    _c.bordered = bordered;
+    _c.bezeled = bezeled;
+    [self _finchChanged];
+}
+
 - (void)setBezeled:(BOOL)flag
 {
+    /* (as Apple's, either way the border goes) */
     _c.bezeled = flag;
-    if (flag)
-        _c.bordered = NO;
+    _c.bordered = NO;
     [self _finchChanged];
 }
 
@@ -971,8 +978,12 @@ cell_defaults(NSCell *self)
             _font = [[NSFont systemFontOfSize:0] retain];
     }
     _contents = [value respondsToSelector:@selector(copyWithZone:)] ? [value copy] : [value retain];
+    BOOL same = old == _contents || [old isEqual:_contents];
     [old release];
     [self _finchChanged];
+    /* as Apple's, a new value may change the control's size (Auto Layout asks again) */
+    if (!same && [_controlView isKindOfClass:[NSControl class]])
+        [(NSControl *)_controlView invalidateIntrinsicContentSizeForCell:self];
 }
 
 - (void)setObjectValue:(id)value

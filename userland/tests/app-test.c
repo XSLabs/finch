@@ -16,6 +16,7 @@
  *   window:TITLE      wait for a window titled TITLE and make it the current one
  *                     (TITLE* for a title starting with TITLE)
  *   click:X,Y         click at X,Y in the current window
+ *   move:X,Y          move the pointer to X,Y in the current window
  *   rclick:X,Y        right-click at X,Y in the current window
  *   drag:X1,Y1,X2,Y2  press at X1,Y1, drag in ten steps to X2,Y2 and let go (current window)
  *   hold:X,Y,MS       press at X,Y, hold for MS milliseconds and let go (current window)
@@ -215,6 +216,8 @@ main(int argc, char **argv)
             printf("window \"%s\": %s", s + 7, found ? "shown" : "not found\n");
             if (found)
                 printf(" %gx%g\n", current.width, current.height);
+        } else if (sscanf(s, "move:%lf,%lf", &x, &y) == 2) {
+            post(FWS_EVENT_MOUSE_MOVED, current.x + x, current.y + y, 0, 0, 0);
         } else if (sscanf(s, "click:%lf,%lf", &x, &y) == 2) {
             double sx = current.x + x, sy = current.y + y;
             post(FWS_EVENT_MOUSE_MOVED, sx, sy, 0, 0, 0);
@@ -334,7 +337,7 @@ main(int argc, char **argv)
             uint32_t count = 0;
             FWSWindowInfo *list = FWSCopyWindowList(&count);
             for (uint32_t k = 0; k < count; k++)
-                if (list[k].on_screen)
+                if (list[k].on_screen && !(list[k].flags & FWS_WINDOW_DESKTOP))
                     printf("  window \"%s\" %gx%g level %d\n", list[k].title, list[k].frame.width,
                            list[k].frame.height, list[k].level);
             free(list);
@@ -343,7 +346,7 @@ main(int argc, char **argv)
             uint32_t count = 0;
             FWSWindowInfo *list = FWSCopyWindowList(&count);
             for (uint32_t k = 0; k < count; k++)
-                if (list[k].on_screen)
+                if (list[k].on_screen && !(list[k].flags & FWS_WINDOW_DESKTOP))
                     printf("  window \"%s\" at %g,%g %gx%g level %d\n", list[k].title, list[k].frame.x, list[k].frame.y,
                            list[k].frame.width, list[k].frame.height, list[k].level);
             free(list);

@@ -252,3 +252,6 @@ build/userland/finch-appkit-drag-apps-test /usr/local/bin/finch-appkit-drag-apps
 userland/tests/appkit-drag-apps-test.expected /usr/local/share/finch/tests/appkit-drag-apps-test.expected
 build/userland/finch-outline-bindings-test /usr/local/bin/finch-outline-bindings-test
 build/userland/finch-typeselect-test /usr/local/bin/finch-typeselect-test
+build/userland/finch-screencapturekit-test /usr/local/bin/finch-screencapturekit-test
+build/userland/finch-appkit-screencapture-test /usr/local/bin/finch-appkit-screencapture-test
+build/userland/finch-appkit-compat-test /usr/local/bin/finch-appkit-compat-test

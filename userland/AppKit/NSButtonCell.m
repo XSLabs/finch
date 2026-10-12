@@ -101,6 +101,10 @@ enum {
     } _b;
 }
 
+/* (as Apple's, a button cell's border and bezel are set apart: neither clears the other) */
+- (void)setBordered:(BOOL)flag { [self _finchSetBordered:flag bezeled:[self isBezeled]]; }
+- (void)setBezeled:(BOOL)flag { [self _finchSetBordered:[self isBordered] bezeled:flag]; }
+
 static void
 button_defaults(NSButtonCell *self)
 {

@@ -140,6 +140,7 @@ steps=(
     "CoreWLAN|userland/CoreWLAN/build.sh"
     "IOBluetooth|userland/IOBluetooth/build.sh"
     "IOBluetoothUI|userland/IOBluetoothUI/build.sh"
+    "ScreenCaptureKit|userland/ScreenCaptureKit/build.sh"
     "StoreKit|userland/StoreKit/build.sh"
     "Contacts|userland/Contacts/build.sh"
     "Accounts|userland/Accounts/build.sh"

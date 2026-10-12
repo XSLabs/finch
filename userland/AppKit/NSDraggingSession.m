@@ -219,7 +219,8 @@ set_drag_cursor(NSDragOperation op)
 static uint32_t
 window_at(NSPoint screen, NSArray<NSNumber *> *skip, pid_t *ownerOut)
 {
-    CFArrayRef list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
+    /* (the desktop takes no drops) */
+    CFArrayRef list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
     CGFloat height = NSMaxY([[[NSScreen screens] firstObject] frame]);
     uint32_t found = 0;
     for (NSDictionary *info in (NSArray *)list) {

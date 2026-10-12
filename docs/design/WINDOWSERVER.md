@@ -42,6 +42,13 @@ The messages are in `userland/WindowServer/FinchWSProtocol.h`:
   rect, after drawing), destroy; a resize sends a new buffer;
 - the cursor: set (standard shape or an image), warp, hide and show;
 - queries: the window list (for `CGWindowListCopyWindowInfo`), the display;
+- captures: part of the screen composited afresh from chosen windows (those
+  listed, or all but those listed), with or without shadows and the cursor,
+  returned as a shared buffer; ScreenCaptureKit, `CGWindowListCreateImage` and
+  SkyLight's window captures use it. The desktop is listed as a window (ID 1,
+  at the desktop level, the whole display, owned by the server), as macOS's
+  wallpaper window is, so a capture of "every window but mine" includes it and
+  `kCGWindowListExcludeDesktopElements` leaves it out;
 - events, server to client: mouse (moved, dragged, down, up, for each
   button), scroll, key (down, up, flags changed), with the window and the
   location in it, the screen location, modifiers, key code (macOS virtual

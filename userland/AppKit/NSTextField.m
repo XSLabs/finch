@@ -227,7 +227,8 @@ tcell(NSTextField *t)
     NSCell *c = [self cell];
     if (!c)
         return [super intrinsicContentSize];
-    if ([c isEditable] || [c isScrollable])
+    /* as Apple's: an editable field has no width of its own; a scrolling label still does */
+    if ([c isEditable])
         return NSMakeSize(NSViewNoIntrinsicMetric, [c cellSize].height);
     if ([c wraps] && _preferredMaxLayoutWidth > 0)
         return [c cellSizeForBounds:NSMakeRect(0, 0, _preferredMaxLayoutWidth, 1e7)];

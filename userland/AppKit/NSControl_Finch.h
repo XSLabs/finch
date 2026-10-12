@@ -71,6 +71,8 @@ FINCH_PRIVATE unsigned FinchAlignmentToArchive(NSTextAlignment a);
 - (BOOL)_finchDrawsEnabled;
 /* Send the cell's action from its control (or from the cell, without one). */
 - (BOOL)_finchSendAction;
+/* The border and bezel flags as they are, neither clearing the other (button cells). */
+- (void)_finchSetBordered:(BOOL)bordered bezeled:(BOOL)bezeled;
 @end
 
 @interface NSControl (FinchControls)
