@@ -102,7 +102,7 @@ block-beta
     block:L7
         columns 4
         t7["Apps and desktop"]
-        apps["Image Capture (unmodified)<br/>launches with Finch frameworks<br/>on the host; no devices yet"]
+        apps["Unmodified Mac apps on Finch's<br/>frameworks: Terminal, Stickies,<br/>TextEdit (in the VM), Image Capture<br/>(on the host; no devices yet)"]
         desktop["finch-windowserver<br/>windows over shared memory,<br/>Skia compositor, cursor,<br/>input routing (headless, viewer)"]
         shell["Fieldwork shell: the Rail<br/>(pinned and running apps,<br/>workbench switcher);<br/>file manager to come"]
     end
@@ -118,9 +118,9 @@ block-beta
         ctio["CoreText<br/>fonts, shaping, lines, frames<br/>(HarfBuzz, FreeType, ICU)"]
         quartzcore["QuartzCore<br/>layers drawn through CoreGraphics,<br/>animation objects, transactions;<br/>animation playback still to come"]
         imagecap["ImageCaptureCore (device<br/>browser, finds no devices yet),<br/>ICADevices; Quartz umbrella<br/>with ImageKit's device views"]
-        space6b[" "]
+        avplanned["AVFoundation, VideoToolbox,<br/>AVKit (planned:<br/>docs/design/MEDIA.md)"]
         coreservices["CoreServices<br/>app lookup and launch,<br/>local Apple events, files"]
-        later["Metal (no GPU driven yet:<br/>no devices, descriptors<br/>as values); video playback to come"]
+        later["Metal (no GPU driven yet:<br/>no devices, descriptors<br/>as values)"]
         coreui["CoreUI<br/>compiled asset catalogs,<br/>named images and colors"]
         appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds,<br/>AudioFormat properties, audio files,<br/>PCM/G.711 conversion,<br/>ExtAudioFile, software audio units:<br/>effects, EQ, reverbs, time-pitch,<br/>varispeed, sampler; offline<br/>PCM queues); AVFAudio<br/>(formats, layouts, PCM buffers,<br/>PCM/G.711 files and conversion,<br/>times, the engine graph:<br/>players, mixer, effect and<br/>instrument units, offline render;<br/>AVAudioPlayer, constants,<br/>session, silent speech),<br/>Carbon/HIToolbox (events, keys),<br/>CoreAnalytics, libScreenReader;<br/>ColorSync (profiles, transforms);<br/>HIServices (AX client, Process Manager),<br/>DataDetectorsCore (links in text);<br/>Text Input Sources, UCKeyTranslate,<br/>Carbon event handlers, hot keys;<br/>IOSurface (shared pixel buffers);<br/>CoreVideo pixel buffers and pools;<br/>CoreMedia (times, block, format<br/>and sample buffers, clocks,<br/>timebases, queues, metadata, tags)"]
         swiftui["SwiftUI, SwiftUICore<br/>(OpenSwiftUI on Compute's<br/>attribute graph; first app draws)"]
@@ -207,13 +207,13 @@ block-beta
     classDef testapp fill:#ede9fe,stroke:#7c3aed,color:#4c1d95
     classDef blank fill:none,stroke:none
     class t7,t6,t5,t4,t3,t2,t1,t0 layer
-    class later,kexts,metal planned
+    class avplanned,kexts,metal planned
     class apps testapp
-    class appsupport,shell,uti,appkit,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd finch
+    class later,coreimage,services,contacts,cfnetwork,appsupport,shell,uti,appkit,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
     class swift,codecs,cxx,qemu,tz,skia,fonts,swiftui upstream
     class vz firmware
-    class space6b,space6c,space5,space4,space4b,space3,space3b,space3c,space3d,space2,space2b,space2c,space1 blank
+    class space4,space4b,space3,space3b,space3c,space3d,space2,space2b,space2c,space1 blank
 ```
 
 | Colour | Meaning |
@@ -221,7 +221,7 @@ block-beta
 | Blue | Apple's open source, built by Finch (pinned tags, `userland/projects.txt`) |
 | Yellow | Written by Finch |
 | Green | Third-party upstream, built by Finch |
-| Red | Apple firmware or boot chain, used as shipped (never redistributed) |
+| Red | Apple firmware, boot chain or host software (the VZ hypervisor), used as shipped (never redistributed) |
 | Purple | Unmodified Mac app, supplied from macOS for testing |
 | Grey, dashed | Planned |
 

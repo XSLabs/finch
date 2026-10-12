@@ -7,6 +7,11 @@ closed is borrowed above the kernel: each closed library or framework is built f
 Apple's open source or written by Finch when something needs it. Apple's kexts (and, in
 the Tier 2 VM, its kernel) stay borrowed until Phase 3 replaces them.
 
+**How this list is kept:** an item is checked when the scope it states is done and
+tested. Follow-on work gets its own unchecked item rather than a "Next:" appended to a
+finished one, and each commit that finishes or adds work updates this file and
+`docs/STACK.md` together.
+
 ## Progress saved on 2026-10-11
 
 This batch adds working software audio conversion and file handling, more system
@@ -239,7 +244,8 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         host and in the VM (2026-10-09). App-bundled `.xpc` services still need a job
         plist (finch-init doesn't look in apps' `Contents/XPCServices` yet).
   - [ ] The rest, by what apps use (`tools/check-framework-api.py` lists it):
-        the URL loading system, a system-wide distributed notification center.
+        the URL loading system (Phase 4), a system-wide distributed notification
+        center, NSFileVersion.
   - [x] Swift Foundation and AppKit overlays, the Darwin overlay libraries, and Swift's
         runtime built from pinned open source (2026-10-09). The combined host build
         matches Apple's 78-line overlay check and 12-line runtime check, including
@@ -256,7 +262,7 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
 - [ ] CoreGraphics, CoreText, ImageIO over open renderers (`docs/design/COREGRAPHICS.md`)
   - [x] Skia (chrome/m155) builds for arm64e with FreeType and the open codecs, and
         without Apple's graphics frameworks (`userland/skia`, 2026-10-08)
-  - [ ] CoreGraphics' drawing half: geometry, paths, colour spaces, bitmap contexts,
+  - [x] CoreGraphics' drawing half: geometry, paths, colour spaces, bitmap contexts,
         images, gradients, then shadings, patterns, layers and PDF writing. Geometry,
         affine transforms, paths, colour spaces, colours, data providers, images,
         bitmap contexts and drawing (fills, strokes, dashes, clips, masks, images,
@@ -270,23 +276,28 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         CGPDFDocument, CGPDFScanner and CGContextDrawPDFPage run on Finch's own
         parser and interpreter (fonts through FreeType); `finch-cgpdf-test` is
         identical to Apple's on the host, and each CG reads the other's PDFs as
-        its own (2026-10-08). Next: tagged PDF, the VM run.
-  - [ ] ImageIO over Skia's codecs. Image sources (PNG, JPEG, GIF, BMP, ICO,
+        its own (2026-10-08).
+  - [ ] CoreGraphics PDF: tagged PDF (structure for accessibility), and the PDF
+        comparison run in the VM.
+  - [x] ImageIO over Skia's codecs. Image sources (PNG, JPEG, GIF, BMP, ICO,
         WebP; properties, images, thumbnails, incremental loading), PNG and JPEG
         destinations, and all 750 public property keys are done: `finch-imageio-test`
         is identical to Apple's on the host and in the VM (2026-10-08). TIFF reading
         and writing, the writer byte for byte Apple's (`finch-tiff-test`, 2026-10-10).
-        Next: HEIF, metadata (XMP), GIF writing.
-  - [ ] CoreText over HarfBuzz and FreeType, with open fonts in place of Apple's.
+  - [ ] ImageIO: HEIF reading, XMP metadata, GIF writing.
+  - [x] CoreText over HarfBuzz and FreeType, with open fonts in place of Apple's.
         Fonts, lines, runs, typesetting and frames are done: `finch-ct-test` is
         identical to Apple's on the host and in the VM (2026-10-08). The open
         fonts (`userland/fonts`: Inter, Open Runde, Fragment Mono,
         XCharter, Pagella, Inter, Liberation, DejaVu Sans Mono, Noto; about 67 MB)
         ship with Apple's font names aliased onto them, the UI fonts, the
         default font and a fallback cascade for other scripts and emoji
-        (`finch-ctfonts-test`, Finch-only, 2026-10-08). Next: justification as
-        Apple's, colour glyphs (emoji) when drawing, font stylistic classes.
-  - [ ] The window-server half of CoreGraphics (windows, events, displays)
+        (`finch-ctfonts-test`, Finch-only, 2026-10-08).
+  - [ ] CoreText: justification as Apple's, colour glyphs (emoji) when drawing, font
+        stylistic classes.
+  - [x] The window-server half of CoreGraphics: the window server's client, displays,
+        the window list, and Quartz events (posting, event sources, taps), with
+        `finch-ws-test` and `finch-cgevent-test` (2026-10-10)
 - [ ] Finch window server and compositor (software rendering), on the Tier 2 display
   - Display and input paths in Tier 2: [`docs/design/WINDOWSERVER-DISPLAY.md`](design/WINDOWSERVER-DISPLAY.md)
   - [x] `finch-windowserver` (`docs/design/WINDOWSERVER.md`): windows over shared
@@ -301,7 +312,8 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         window server on the guest's tunnel UART and shows it in `finch-viewer` on the host,
         input going back the same way (2026-10-10). A click sent from the viewer
         (`--test-input X,Y --test-after N`) unchecks the gallery's toggle in the VM.
-  - [ ] CGEvent, and the server on the Tier 2 display
+  - [x] CGEvent (Quartz Event Services; `finch-cgevent-test`, 2026-10-10)
+  - [ ] The server on the Tier 2 (VZ) display, with its input
 - [ ] AppKit ([`docs/design/APPKIT.md`](design/APPKIT.md))
   - [x] Framework skeletons as Apple splits them: AppKit re-exporting a private
         UIFoundation, ApplicationServices and Foundation; the Cocoa umbrella
@@ -322,7 +334,7 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
   - [x] Title bars and toolbars over full-size content windows, including toolbars loaded
         from nibs. Image Capture now shows both. Copying a custom image rep keeps its drawing
         handler; `NSFontEffectsBox` loads as a plain box for nibs such as Stickies' (2026-10-09).
-  - [ ] Controls and cells, menus, nib loading. Nibs load (ibtool's NIBArchive format and keyed
+  - [x] Controls and cells, menus, nib loading. Nibs load (ibtool's NIBArchive format and keyed
         archives; custom objects and views, outlets, actions, windows): `finch-nib-test` matches
         Apple's (2026-10-08); controls and cells (buttons, text fields, sliders, steppers, progress
         and level indicators, segmented controls, colour wells, image views, boxes) load from nibs
@@ -341,12 +353,13 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         `finch-appkit-panels-test` matches Apple's on the host and in the VM;
         `finch-appkit-panels-window-test` answers alerts, browses, chooses, saves and launches an
         app through the server (2026-10-09); Apple events, column views and sheet animation to come
-  - [ ] Bindings and controllers: Cocoa bindings (`NSKeyValueBinding`: bind/unbind/info, markers
+  - [x] Bindings and controllers: Cocoa bindings (`NSKeyValueBinding`: bind/unbind/info, markers
         and placeholders, transformers, `NSEditor` commits) for text fields, checkboxes, sliders,
         pop-up buttons, text views and views; `NSObjectController`, `NSArrayController`,
         `NSUserDefaultsController`; nib binding connectors; `NSFontManager` and a Finch-look
         `NSFontPanel`. `finch-appkit-bindings-test` matches Apple's on the host and in the VM (2026-10-09);
-        `NSTreeController`, outline view bindings, Core Data controllers to come (table bindings: below)
+        (table bindings: below)
+  - [ ] `NSTreeController`, outline view bindings and Core Data's controllers
   - [x] Auto Layout and storyboards: `NSLayoutConstraint`, the visual format language, anchors and
         guides in a private CoreAutoLayout that Foundation re-exports, solved by Finch's own Cassowary
         simplex; views' constraint API, autoresizing masks as constraints, intrinsic sizes, fitting
@@ -372,7 +385,18 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         visual-effect views and context-help storage (2026-10-09). Animators still jump
         to final values, visual effects have no blur, and Touch Bar hardware and Help
         Viewer remain unfinished; 26 small-feature comparison lines match Apple.
-- [ ] Unmodified Mac apps: first launch reached; TextEdit or Calculator usable next
+- [ ] Unmodified Mac apps: launched and working on Finch's frameworks. Remaining: the
+      two sub-items below marked open (TextEdit's whole scope, Calculator) and a check
+      that an arbitrary app dropped in launches or reports exactly what it lacks.
+  - [ ] TextEdit, its whole scope checked in the VM: new, type, format, save, close,
+        reopen, revert, find, rulers, tables, print to PDF, autosave and versions
+        (NSFileVersion is missing).
+  - [ ] Calculator: needs Finch's own Calculate, CalculateUI, SwiftData, TipKit,
+        AppIntents, Network and FeatureFlags, and 101 more SwiftUI symbols
+        (`tools/check-imports.py`).
+  - [ ] Drop-in check: `tools/check-imports.py` over every app in /System/Applications
+        and /Applications, recorded with what each lacks, so the next frameworks are
+        picked by how many apps they unblock.
   - [x] A Cocoa app bundle built the usual way (`userland/tests/apps/Hello`: NSApplicationMain,
         a MainMenu nib from ibtool, outlets and actions) launches on Finch's frameworks and window
         server, shows its menu bar and window, and responds to clicks and typing
