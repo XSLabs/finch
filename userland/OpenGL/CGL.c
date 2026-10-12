@@ -37,6 +37,7 @@ extern void OSMesaDestroyContext(OSMesaContext ctx);
 extern GLboolean OSMesaMakeCurrent(OSMesaContext ctx, void *buffer, GLenum type, GLsizei width, GLsizei height);
 extern void OSMesaPixelStore(GLint pname, GLint value);
 
+#include <dlfcn.h>
 #define FINCH_EXPORT __attribute__((visibility("default")))
 
 /* Apple's software renderer's ID, as its CGL reports it */
@@ -458,11 +459,49 @@ CGLFlushDrawable(CGLContextObj ctx)
 {
     if (!ctx)
         return kCGLBadContext;
-    if (CGLGetCurrentContext() == ctx)
-        glFinish();
+    if (CGLGetCurrentContext() == ctx) {
+        static void (*mesa_finish)(void);
+        if (!mesa_finish)
+            mesa_finish = (void (*)(void))dlsym(RTLD_NEXT, "glFinish");
+        if (mesa_finish)
+            mesa_finish();
+    }
     if (ctx->flush)
         ctx->flush(ctx, ctx->flushInfo);
     return kCGLNoError;
+}
+
+/* As Apple's: glFlush and glFinish on a single-buffered context with a drawable put what
+   was drawn on screen (apps that draw single-buffered never call flushBuffer). Mesa's own
+   are found past this library: this one re-exports it. */
+static void
+present_single_buffered(void)
+{
+    CGLContextObj ctx = CGLGetCurrentContext();
+    if (ctx && ctx->flush && !(ctx->pixelFormat && ctx->pixelFormat->doubleBuffer))
+        ctx->flush(ctx, ctx->flushInfo);
+}
+
+FINCH_EXPORT void
+glFlush(void)
+{
+    static void (*mesa)(void);
+    if (!mesa)
+        mesa = (void (*)(void))dlsym(RTLD_NEXT, "glFlush");
+    if (mesa)
+        mesa();
+    present_single_buffered();
+}
+
+FINCH_EXPORT void
+glFinish(void)
+{
+    static void (*mesa)(void);
+    if (!mesa)
+        mesa = (void (*)(void))dlsym(RTLD_NEXT, "glFinish");
+    if (mesa)
+        mesa();
+    present_single_buffered();
 }
 
 FINCH_EXPORT CGLError CGLUpdateContext(CGLContextObj ctx) { return ctx ? kCGLNoError : kCGLBadContext; }

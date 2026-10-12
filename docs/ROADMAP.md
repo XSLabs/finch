@@ -725,7 +725,12 @@ and AppKit come in Phase 2).
         pane needed nib constraints to keep their symbolic NSSpace when a custom view is
         swapped in, a separator box's intrinsic size and alignment insets, labels'
         alignment insets and the help button's size.
-  - [ ] The selected profile's 3D Lab plot (OpenGL).
+  - [ ] The selected profile's 3D Lab plot (OpenGL). It draws (2026-10-12: `glFlush` and
+        `glFinish` now show a single-buffered context's frame, as Apple's do, and
+        ColorSync does gamut checks, the 1-bit destination with
+        `kColorSyncTransformGamutCheck`), but the solid comes out far too close: the
+        viewport and projection match Apple's, so the vertices the app builds from the
+        profile's tags differ; to trace.
 - [x] Combine: OpenCombine (MIT) adapted to Apple's ABI, with Finch's Merge, CombineLatest
       and collecting by time; every Combine symbol the system apps import (2026-10-09)
 - [ ] SwiftUI: OpenSwiftUI (MIT) built as SwiftUI and SwiftUICore (`docs/design/SWIFTUI.md`)

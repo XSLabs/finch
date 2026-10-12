@@ -272,6 +272,7 @@ struct ColorSyncTransform {
     CFMutableDictionaryRef properties;
     cs_model src, dst;
     uint32_t src_space, dst_space;
+    bool gamut_check; /* the last profile is tagged kColorSyncTransformGamutCheck */
 };
 
 static CFTypeID transform_type;
@@ -341,6 +342,11 @@ ColorSyncTransformCreate(CFArrayRef profileSequence, CFDictionaryRef options)
     if (!t)
         return NULL;
     t->sequence = CFArrayCreateCopy(NULL, profileSequence);
+    CFTypeRef lastEntry = CFArrayGetValueAtIndex(profileSequence, count - 1);
+    if (count > 1 && CFGetTypeID(lastEntry) == CFDictionaryGetTypeID()) {
+        CFTypeRef tag = CFDictionaryGetValue(lastEntry, kColorSyncTransformTag);
+        t->gamut_check = tag && CFEqual(tag, kColorSyncTransformGamutCheck);
+    }
     t->properties = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     if (options)
         CFDictionaryApplyFunction(options, (CFDictionaryApplierFunction)CFDictionarySetValue, t->properties);
@@ -557,6 +563,59 @@ write_component(const pixel_layout *l, uint8_t *p, float x)
         p[l->little ? i : bytes - 1 - i] = (uint8_t)(v >> (8 * i));
 }
 
+/* A gamut check (a 1-bit destination, for a transform whose last profile is tagged for
+   it): one bit a pixel, most significant first, set where the colour falls outside the
+   last profile's gamut: its device values, unclamped, leave 0 to 1 by more than a
+   rounding step (for a gray profile, the colour has chroma). */
+static bool
+gamut_check(ColorSyncTransformRef transform, size_t width, size_t height, void *dst, size_t dstBytesPerRow,
+            const void *src, ColorSyncDataDepth srcDepth, ColorSyncDataLayout srcLayout, size_t srcBytesPerRow)
+{
+    pixel_layout in;
+    if (!transform || !dst || !src || !transform->gamut_check ||
+        !layout_init(&in, srcDepth, srcLayout, transform->src.channels))
+        return false;
+    const float eps = 1.0f / 512;
+    size_t in_pixel = (size_t)(in.components * in.size);
+    int channels = transform->dst.channels;
+    float *dev = malloc(width * 4 * sizeof(float)), *xyz = malloc(width * 3 * sizeof(float));
+    float *res = malloc(width * 4 * sizeof(float));
+    for (size_t y = 0; y < height; y++) {
+        const uint8_t *row = (const uint8_t *)src + y * srcBytesPerRow;
+        uint8_t *orow = (uint8_t *)dst + y * dstBytesPerRow;
+        memset(orow, 0, (width + 7) / 8);
+        for (size_t x = 0; x < width; x++)
+            for (int c = 0; c < in.channels; c++)
+                dev[x * (size_t)in.channels + c] = read_component(&in, row + x * in_pixel + slot_offset(&in, channel_slot(&in, c)));
+        to_xyz(&transform->src, dev, xyz, width);
+        from_xyz(&transform->dst, xyz, res, width);
+        for (size_t x = 0; x < width; x++) {
+            bool out = false;
+            if (channels == 1) {
+                /* a gray device shows no colour: out where the colour has chroma (CIELAB, D50) */
+                const float w[3] = {0.9642f, 1.0f, 0.8249f};
+                float f[3];
+                for (int c = 0; c < 3; c++) {
+                    float t = fmaxf(xyz[x * 3 + c] / w[c], 0);
+                    f[c] = t > 0.008856f ? cbrtf(t) : 7.787f * t + 16.0f / 116;
+                }
+                float a = 500 * (f[0] - f[1]), b = 200 * (f[1] - f[2]);
+                out = sqrtf(a * a + b * b) > 1;
+            }
+            for (int c = 0; c < channels && !out; c++) {
+                float v = res[x * (size_t)channels + c];
+                out = !(v >= -eps && v <= 1 + eps);
+            }
+            if (out)
+                orow[x / 8] |= (uint8_t)(0x80 >> (x % 8));
+        }
+    }
+    free(dev);
+    free(xyz);
+    free(res);
+    return true;
+}
+
 bool
 ColorSyncTransformConvert(ColorSyncTransformRef transform, size_t width, size_t height, void *dst,
                           ColorSyncDataDepth dstDepth, ColorSyncDataLayout dstLayout, size_t dstBytesPerRow,
@@ -564,6 +623,8 @@ ColorSyncTransformConvert(ColorSyncTransformRef transform, size_t width, size_t 
                           size_t srcBytesPerRow, CFDictionaryRef options)
 {
     pixel_layout in, out;
+    if (dstDepth == kColorSync1BitGamut)
+        return gamut_check(transform, width, height, dst, dstBytesPerRow, src, srcDepth, srcLayout, srcBytesPerRow);
     if (!transform || !dst || !src || !layout_init(&in, srcDepth, srcLayout, transform->src.channels) ||
         !layout_init(&out, dstDepth, dstLayout, transform->dst.channels))
         return false;

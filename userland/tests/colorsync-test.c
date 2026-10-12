@@ -124,6 +124,52 @@ gray_profile_bytes(void)
     return CFDataCreate(NULL, b, off);
 }
 
+/* Gamut checks (a 1-bit destination): Lab points tested against a profile, as ColorSync
+   Utility's Lab plot does. Apple's boundary is its own approximation, so what's compared
+   is what both must agree on: the call's result, mid grey inside, a saturated colour
+   outside, and wider gamuts leaving fewer points out. */
+static size_t
+gamut_out(CFStringRef name, bool tagged, bool *ok, int *grey, int *red)
+{
+    ColorSyncProfileRef lab = ColorSyncProfileCreateWithName(kColorSyncGenericLabProfile);
+    ColorSyncProfileRef p = ColorSyncProfileCreateWithName(name);
+    const void *k[] = {kColorSyncProfile, kColorSyncRenderingIntent, kColorSyncTransformTag};
+    const void *v1[] = {lab, kColorSyncRenderingIntentPerceptual, kColorSyncTransformDeviceToPCS};
+    const void *v2[] = {p, kColorSyncRenderingIntentPerceptual,
+                        tagged ? kColorSyncTransformGamutCheck : kColorSyncTransformPCSToDevice};
+    CFDictionaryRef a = CFDictionaryCreate(NULL, k, v1, 3, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFDictionaryRef b = CFDictionaryCreate(NULL, k, v2, 3, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    const void *seq[] = {a, b};
+    CFArrayRef s = CFArrayCreate(NULL, seq, 2, &kCFTypeArrayCallBacks);
+    ColorSyncTransformRef t = ColorSyncTransformCreate(s, NULL);
+    enum { N = 17 };
+    static uint16_t src[N * N * N * 3];
+    size_t i = 0;
+    for (int L = 0; L < N; L++)
+        for (int A = 0; A < N; A++)
+            for (int B = 0; B < N; B++, i++) {
+                src[i * 3] = (uint16_t)(L * 65535 / (N - 1));
+                src[i * 3 + 1] = (uint16_t)(A * 65535 / (N - 1));
+                src[i * 3 + 2] = (uint16_t)(B * 65535 / (N - 1));
+            }
+    size_t n = i, rb = (n + 7) / 8;
+    static uint8_t dst[(N * N * N + 7) / 8];
+    *ok = t && ColorSyncTransformConvert(t, n, 1, dst, kColorSync1BitGamut, 0, rb, src, kColorSync16BitInteger, 0, n * 6, NULL);
+    size_t out = 0;
+    for (size_t j = 0; j < rb && *ok; j++)
+        out += (size_t)__builtin_popcount(dst[j]);
+    size_t g = (size_t)(N / 2) * N * N + (N / 2) * N + N / 2;           /* L 50, a 0, b 0 */
+    size_t r = (size_t)(N / 2) * N * N + (N - 1) * N + (N - 1);         /* L 50, a 127, b 127 */
+    *grey = *ok ? (dst[g / 8] >> (7 - g % 8)) & 1 : -1;
+    *red = *ok ? (dst[r / 8] >> (7 - r % 8)) & 1 : -1;
+    if (t)
+        CFRelease(t);
+    CFRelease(s);
+    CFRelease(a);
+    CFRelease(b);
+    return out;
+}
+
 int
 main(void)
 {
@@ -298,5 +344,17 @@ main(void)
     }
     CFUUIDRef u = CFUUIDCreateFromString(NULL, CFSTR("12345678-9ABC-DEF0-1234-56789ABCDEF0"));
     printf("uuid number %08x, none %08x\n", uuid_number(u), uuid_number(NULL));
+    {
+        bool ok;
+        int grey, red;
+        gamut_out(kColorSyncSRGBProfile, false, &ok, &grey, &red);
+        printf("gamut check without the tag: %d\n", ok);
+        size_t srgb = gamut_out(kColorSyncSRGBProfile, true, &ok, &grey, &red);
+        printf("gamut check sRGB: %d, grey out %d, saturated red out %d\n", ok, grey, red);
+        size_t p3 = gamut_out(kColorSyncDisplayP3Profile, true, &ok, &grey, &red);
+        size_t bt2020 = gamut_out(kColorSyncITUR2020Profile, true, &ok, &grey, &red);
+        printf("wider gamuts leave fewer out: %d %d, most of the Lab box is outside sRGB: %d\n", p3 < srgb, bt2020 < p3,
+               srgb > 17 * 17 * 17 * 3 / 4);
+    }
     return 0;
 }

@@ -317,6 +317,18 @@ static char current_key;
     GLint rowBytes = 0;
     const void *pixels = cgl.getPixels(_context, &w, &h, &rowBytes);
     GLTRACE("flush %dx%d into %s %s\n", (int)w, (int)h, object_getClassName(v), NSStringFromRect([v bounds]).UTF8String);
+    if (gl_trace()) {
+        /* the viewport and projection the app left, to compare with the drawable */
+        void (*getIntegerv)(GLenum, GLint *) = dlsym(RTLD_DEFAULT, "glGetIntegerv");
+        void (*getFloatv)(GLenum, GLfloat *) = dlsym(RTLD_DEFAULT, "glGetFloatv");
+        GLint vp[4] = {0};
+        GLfloat pm[16] = {0};
+        if (getIntegerv)
+            getIntegerv(0x0BA2 /* GL_VIEWPORT */, vp);
+        if (getFloatv)
+            getFloatv(0x0BA7 /* GL_PROJECTION_MATRIX */, pm);
+        GLTRACE("viewport %d %d %d %d projection %g %g %g %g\n", vp[0], vp[1], vp[2], vp[3], pm[0], pm[5], pm[10], pm[14]);
+    }
     if (!pixels || w <= 0 || h <= 0)
         return;
     CFDataRef data = CFDataCreate(NULL, pixels, (CFIndex)rowBytes * h);

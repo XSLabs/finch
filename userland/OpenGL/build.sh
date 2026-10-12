@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # OpenGL.framework: Finch's CGL (CGL.c) over Mesa's software OpenGL (mesa.sh, in
 # Libraries/libGL.dylib) and Finch's own GLU (GLU.c, Libraries/libGLU.dylib); the OpenGL
-# binary re-exports both, as Apple's re-exports its libraries.
+# binary re-exports both, as Apple's re-exports its libraries. glFlush and glFinish are
+# CGL.c's (Mesa's, then a single-buffered context's frame shown).
 #   userland/OpenGL/build.sh -> build/root/System/Library/Frameworks/OpenGL.framework
 set -euo pipefail
 FINCH_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
