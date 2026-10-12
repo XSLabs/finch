@@ -57,6 +57,8 @@ typedef NS_ENUM(NSInteger, FinchLayoutSymbolicConstant) {
 - (FinchLayoutSymbolicConstant)_finchSymbolicConstant;
 - (void)_finchSetSymbolicConstant:(FinchLayoutSymbolicConstant)kind;
 - (NSString *)_finchSymbolicName;  /* from a nib: "NSSpace" */
+/* A copy with one item put in another's place, constant (symbolic or not) and all. */
+- (instancetype)_finchCopyReplacingItem:(id)from withItem:(id)to;
 /* An anchor constraint's first or second item may be an expression (an anchor offset). */
 - (NSLayoutAnchor *)_finchFirstAnchorRaw;
 - (NSLayoutAnchor *)_finchSecondAnchorRaw;

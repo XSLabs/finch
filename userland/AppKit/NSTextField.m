@@ -235,6 +235,14 @@ tcell(NSTextField *t)
     return [c cellSize];
 }
 
+/* As Apple's: a label (no bezel or border) is aligned by its text, two points in from each side. */
+- (NSEdgeInsets)alignmentRectInsets
+{
+    if (![self isBezeled] && ![self isBordered])
+        return NSEdgeInsetsMake(0, 2, 0, 2);
+    return [super alignmentRectInsets];
+}
+
 #pragma mark Editing
 
 - (BOOL)acceptsFirstResponder { return [[self cell] acceptsFirstResponder]; }

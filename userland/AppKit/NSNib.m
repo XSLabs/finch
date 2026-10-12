@@ -519,6 +519,10 @@ nib_class(FinchNibDecoder *self, NSUInteger clsIndex)
 
 @end
 
+@interface NSLayoutConstraint (FinchCopy)
+- (instancetype)_finchCopyReplacingItem:(id)from withItem:(id)to;
+@end
+
 /* A view of a class Interface Builder didn't know: decoded as NSView, then made as the app's class. */
 @interface NSCustomView : NSView
 @end
@@ -531,6 +535,10 @@ nib_class(FinchNibDecoder *self, NSUInteger clsIndex)
 static NSLayoutConstraint *
 retarget(NSLayoutConstraint *c, id from, id to)
 {
+    /* CoreAutoLayout's copy keeps a nib's symbolic NSSpace unresolved: read now, it would
+       be resolved before the views are in place */
+    if ([c respondsToSelector:@selector(_finchCopyReplacingItem:withItem:)])
+        return [c _finchCopyReplacingItem:from withItem:to];
     id first = [c firstItem] == from ? to : [c firstItem];
     id second = [c secondItem] == from ? to : [c secondItem];
     NSLayoutConstraint *n = [NSLayoutConstraint constraintWithItem:first attribute:[c firstAttribute] relatedBy:[c relation]

@@ -600,14 +600,6 @@ ColorSyncProfileCreateWithDisplayID(uint32_t displayID)
     return ColorSyncProfileCreateWithName(kColorSyncSRGBProfile);
 }
 
-ColorSyncProfileRef
-ColorSyncProfileCreateDeviceProfile(CFStringRef deviceClass, CFUUIDRef deviceID, CFTypeRef profileID)
-{
-    if (deviceClass && CFEqual(deviceClass, kColorSyncDisplayDeviceClass))
-        return ColorSyncProfileCreateWithName(kColorSyncSRGBProfile);
-    return NULL;
-}
-
 ColorSyncMutableProfileRef
 ColorSyncProfileCreateMutable(void)
 {

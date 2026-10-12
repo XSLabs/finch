@@ -710,8 +710,14 @@ and AppKit come in Phase 2).
         kept in archived order, `NSColorWell` taking nil as black, and field editors that
         lay out centred and right-aligned text within the field (a focused number field
         showed nothing) and highlight only the selected text.
-  - [ ] The selected profile's 3D Lab plot (OpenGL), and the display under Devices
-        (ColorSync's device registry).
+  - [x] Devices lists the display with its factory and current profiles (2026-10-12):
+        Finch's ColorSync keeps a device registry (registration, custom profiles, device
+        profiles, iteration as Apple's; `colorsync-devices-test`), the main display
+        always in it with sRGB; `CGSDisplayStatusQuery` answers as Apple's. Its details
+        pane needed nib constraints to keep their symbolic NSSpace when a custom view is
+        swapped in, a separator box's intrinsic size and alignment insets, labels'
+        alignment insets and the help button's size.
+  - [ ] The selected profile's 3D Lab plot (OpenGL), and the help button's "?".
 - [x] Combine: OpenCombine (MIT) adapted to Apple's ABI, with Finch's Merge, CombineLatest
       and collecting by time; every Combine symbol the system apps import (2026-10-09)
 - [ ] SwiftUI: OpenSwiftUI (MIT) built as SwiftUI and SwiftUICore (`docs/design/SWIFTUI.md`)

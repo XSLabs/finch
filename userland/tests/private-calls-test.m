@@ -18,6 +18,7 @@ extern CGError CGSOffsetRegion(CGSRegionRef, float, float, CGSRegionRef *);  // 
 extern CGError CGSGetRegionBounds(CGSRegionRef, CGRect *);
 extern CGError CGSReleaseRegion(CGSRegionRef);
 extern CGDirectDisplayID CGSMainDisplayID(void);
+extern int CGSDisplayStatusQuery(CGDirectDisplayID, int);
 extern bool CGFloatIsValid(CGFloat);
 extern CGColorSpaceRef CGColorSpaceCreateWithID(int);
 extern int CGColorSpaceGetType(CGColorSpaceRef);
@@ -114,6 +115,11 @@ main(void)
         printf(", offset %s\n", NSStringFromRect(bounds).UTF8String);
         CGSReleaseRegion(ra), CGSReleaseRegion(rb), CGSReleaseRegion(ru), CGSReleaseRegion(ro);
         printf("main display matches: %d\n", CGSMainDisplayID() == CGMainDisplayID());
+        /* status queries that don't depend on which display is main */
+        printf("display status: online %d active %d main %d query 29 %d past the last %d no display %d\n",
+               CGSDisplayStatusQuery(CGMainDisplayID(), 0), CGSDisplayStatusQuery(CGMainDisplayID(), 2),
+               CGSDisplayStatusQuery(CGMainDisplayID(), 3), CGSDisplayStatusQuery(CGMainDisplayID(), 29),
+               CGSDisplayStatusQuery(CGMainDisplayID(), 31), CGSDisplayStatusQuery(12345, 0x1d));
 
         /* colour spaces and bitmaps */
         printf("valid: %d %d %d\n", CGFloatIsValid(1), CGFloatIsValid(NAN), CGFloatIsValid(INFINITY));

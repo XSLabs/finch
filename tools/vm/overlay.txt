@@ -182,6 +182,7 @@ build/userland/apps/SwiftUITable.app/Contents/Info.plist /Applications/SwiftUITa
 build/userland/apps/SwiftUITable.app/Contents/PkgInfo /Applications/SwiftUITable.app/Contents/PkgInfo
 build/userland/finch-cfnetwork-test /usr/local/bin/finch-cfnetwork-test
 build/userland/finch-colorsync-test /usr/local/bin/finch-colorsync-test
+build/userland/finch-colorsync-devices-test /usr/local/bin/finch-colorsync-devices-test
 build/userland/finch-hiservices-test /usr/local/bin/finch-hiservices-test
 build/userland/finch-scripting-test /usr/local/bin/finch-scripting-test
 build/userland/finch-coreimage-test /usr/local/bin/finch-coreimage-test

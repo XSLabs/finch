@@ -195,6 +195,26 @@ box_defaults(NSBox *self)
     return NSMakeRect(NSMinX(b) + 7, y, w, h);
 }
 
+/* A separator is a line one point thick along its longer side, as Apple's. */
+- (NSSize)intrinsicContentSize
+{
+    if (_boxType == NSBoxSeparator) {
+        NSSize s = [self frame].size;
+        return s.width >= s.height ? NSMakeSize(NSViewNoIntrinsicMetric, 1) : NSMakeSize(1, NSViewNoIntrinsicMetric);
+    }
+    return [super intrinsicContentSize];
+}
+
+/* (a separator's line has two points of room on each side across it) */
+- (NSEdgeInsets)alignmentRectInsets
+{
+    if (_boxType == NSBoxSeparator) {
+        NSSize s = [self frame].size;
+        return s.width >= s.height ? NSEdgeInsetsMake(2, 0, 2, 0) : NSEdgeInsetsMake(0, 2, 0, 2);
+    }
+    return [super alignmentRectInsets];
+}
+
 - (NSRect)_finchContentRect
 {
     if (_boxType == NSBoxSeparator)

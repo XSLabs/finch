@@ -241,6 +241,21 @@ validate(id first, NSLayoutAttribute a1, NSLayoutRelation r, id second, NSLayout
 - (FinchLayoutSymbolicConstant)_finchSymbolicConstant { return _symbolic; }
 - (void)_finchSetSymbolicConstant:(FinchLayoutSymbolicConstant)kind { _symbolic = kind; }
 - (NSString *)_finchSymbolicName { return _symbolicName; }
+
+- (instancetype)_finchCopyReplacingItem:(id)from withItem:(id)to
+{
+    id first = _firstItem == from ? to : _firstItem, second = _secondItem == from ? to : _secondItem;
+    NSLayoutConstraint *k = [[self class] _finchConstraintWithItem:first attribute:_firstAttribute relatedBy:_relation
+                                                            toItem:second attribute:_secondAttribute
+                                                        multiplier:_multiplier constant:_constant];
+    k->_priority = _priority;
+    k->_shouldBeArchived = _shouldBeArchived;
+    k->_identifier = [_identifier copy];
+    k->_symbolic = _symbolic;
+    k->_symbolicName = [_symbolicName copy];
+    k->_constantResolved = _constantResolved;  /* an NSSpace still to be resolved stays so */
+    return k;
+}
 - (NSLayoutAnchor *)_finchFirstAnchorRaw { return _firstAnchorRaw; }
 - (NSLayoutAnchor *)_finchSecondAnchorRaw { return _secondAnchorRaw; }
 
@@ -501,7 +516,9 @@ anchor_term(NSLayoutAnchor *raw, id item, NSLayoutAttribute attr)
         term = YES;
     }
     CGFloat c = [self constant];
-    if (!term)
+    if (term && _symbolic == FinchLayoutConstantStandardSpace)
+        [s appendFormat:@" NSSpace(%@)", num(c)];  /* as Apple's: no sign before a symbolic space */
+    else if (!term)
         [s appendString:c < 0 ? [NSString stringWithFormat:@"- %@", num(-c)] : num(c)];
     else if (c > 0)
         [s appendFormat:@" + %@", num(c)];

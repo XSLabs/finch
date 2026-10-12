@@ -55,7 +55,7 @@ CGError CGSRegisterConnectionNotifyProc(CGSConnectionID cid, CGSConnectionNotify
 CGError CGSGetOnlineDisplayList(uint32_t max, CGDirectDisplayID *displays, uint32_t *count);
 CGDirectDisplayID CGSMainDisplayID(void);
 CGError CGSGetCurrentDisplayMode(CGDirectDisplayID display, int *mode);
-CGError CGSDisplayStatusQuery(CGDirectDisplayID display, int *status);
+int CGSDisplayStatusQuery(CGDirectDisplayID display, int query);
 CGError CGSSetWindowAlpha(CGSConnectionID cid, CGSWindowID wid, float alpha);
 CGError CGSSetWindowTransform(CGSConnectionID cid, CGSWindowID wid, CGAffineTransform t);
 CGError CGSSetWindowTransformAtPlacement(CGSConnectionID cid, CGSWindowID wid, CGAffineTransform t, CGPoint placement);
@@ -197,12 +197,35 @@ CGSGetCurrentDisplayMode(CGDirectDisplayID display, int *mode)
     return kCGErrorSuccess;
 }
 
-CGError
-CGSDisplayStatusQuery(CGDirectDisplayID display, int *status)
+/* A display's answer to a status query (numbers as Apple's: 0 online, 2 active, 3 main,
+   4 and 5 built in, 16 to 18 and 30 always 1, 24 its dots per inch at 72 a point); -1
+   for a display that isn't there or a query past the last. */
+int
+CGSDisplayStatusQuery(CGDirectDisplayID display, int query)
 {
-    if (status)
-        *status = display == CGMainDisplayID() ? 1 : 0;
-    return kCGErrorSuccess;
+    if (display != CGMainDisplayID() || query < 0 || query > 30)
+        return -1;
+    switch (query) {
+    case 0:
+    case 2:
+    case 3:
+    case 4:
+    case 5:
+    case 16:
+    case 17:
+    case 18:
+    case 22:
+    case 30:
+        return 1;
+    case 24: {
+        size_t points = CGDisplayPixelsWide(display);
+        CGDisplayModeRef mode = CGDisplayCopyDisplayMode(display);
+        size_t pixels = mode ? CGDisplayModeGetPixelWidth(mode) : points;
+        CGDisplayModeRelease(mode);
+        return points ? (int)(72 * pixels / points) : 72;
+    }
+    }
+    return 0;
 }
 
 void *CGDirectDisplayCopyCurrentMetalDevice(CGDirectDisplayID display) { return NULL; }

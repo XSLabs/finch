@@ -663,37 +663,6 @@ ColorSyncCreateCodeFragment(CFArrayRef profileSequence, CFDictionaryRef options)
     return CFArrayCreate(NULL, NULL, 0, &kCFTypeArrayCallBacks);
 }
 
-/* --- devices --- */
-
-bool
-ColorSyncRegisterDevice(CFStringRef deviceClass, CFUUIDRef deviceID, CFDictionaryRef deviceInfo)
-{
-    return true;
-}
-
-bool
-ColorSyncUnregisterDevice(CFStringRef deviceClass, CFUUIDRef deviceID)
-{
-    return true;
-}
-
-bool
-ColorSyncDeviceSetCustomProfiles(CFStringRef deviceClass, CFUUIDRef deviceID, CFDictionaryRef profileInfo)
-{
-    return false;
-}
-
-CFDictionaryRef
-ColorSyncDeviceCopyDeviceInfo(CFStringRef deviceClass, CFUUIDRef devID)
-{
-    return NULL;
-}
-
-void
-ColorSyncIterateDeviceProfiles(ColorSyncDeviceProfileIterateCallback callBack, void *userInfo)
-{
-}
-
 /* A display's UUID: a fixed namespace with the display ID in its last four bytes. */
 static const uint8_t kDisplayUUIDPrefix[12] = {0x46, 0x49, 0x4e, 0x43, 0x48, 0x2d, 0x44, 0x49, 0x80, 0x53, 0x50, 0x4c};
 

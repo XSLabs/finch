@@ -704,6 +704,8 @@ position_to_flags(NSCellImagePosition p)
     NSCellImagePosition p = [self _finchEffectivePosition];
     NSSize is = p == NSNoImage ? NSZeroSize : [self _finchImageSize];
     NSSize s;
+    if (_bezelStyle == NSBezelStyleHelpButton && [self isBordered])
+        return NSMakeSize(24, 24);  /* a round button of its own size, as Apple's */
     if ([self _finchIsSwitch]) {
         s = NSMakeSize(is.width + ([t length] ? 4 + ts.width : 0), MAX(16, ts.height));
         return s;
