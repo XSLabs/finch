@@ -58,7 +58,7 @@ times, block buffers, format descriptions (including those from H.264 and HEVC
 parameter sets), sample buffers, clocks, timebases, queues, memory pools, metadata
 identifiers and tags match Apple's in their comparison tests. OpenGL is Mesa's software
 renderer (softpipe through OSMesa, built by Finch) under Finch's own CGL and GLU, and
-AppKit's NSOpenGL views draw with it; typedstream archives (NSArchiver) of AppKit's
+AppKit's NSOpenGL views draw with it; AppKit's named system images are Finch's own artwork; typedstream archives (NSArchiver) of AppKit's
 colours, fonts, images, paragraph styles, shadows, paths and print info match Apple's. The desktop's frame is the Instrument Bar (each app's menu bar) and the Rail, a
 Finch app down the left edge that replaces the Dock.
 
@@ -112,7 +112,7 @@ block-beta
     block:L6
         columns 4
         t6["App frameworks"]
-        appkit["AppKit<br/>apps, windows, views, events,<br/>title bars, nib-loaded toolbars,<br/>drawing, nibs, storyboards,<br/>Auto Layout, stack views, text views and<br/>scrolling, tables, outlines and<br/>collection views (flow, grid and<br/>compositional layouts), menus and a menu bar,<br/>alerts, sheets, open and save panels,<br/>NSWorkspace (on the window server);<br/>Cocoa bindings and controllers,<br/>font and color panels, search/token/date controls,<br/>grids, popovers, drawers and rule editors;<br/>rulers, the find bar, text tables;<br/>animation groups and Touch Bar state;<br/>toolbar items, titlebar accessories,<br/>row actions, scrubbers, NSPreferences,<br/>file promises, glass views (slate);<br/>drag and drop (between apps<br/>through the window server);<br/>Fieldwork theme (Classic for Aqua compatibility);<br/>UIFoundation: fonts, string drawing,<br/>TextKit 1 and 2; Cocoa and<br/>ApplicationServices umbrellas"]
+        appkit["AppKit<br/>apps, windows, views, events,<br/>title bars, nib-loaded toolbars,<br/>drawing, nibs, storyboards,<br/>Auto Layout, stack views, text views and<br/>scrolling, tables, outlines and<br/>collection views (flow, grid and<br/>compositional layouts), menus and a menu bar,<br/>alerts, sheets, open and save panels,<br/>NSWorkspace (on the window server);<br/>Cocoa bindings and controllers,<br/>font and color panels, search/token/date controls,<br/>grids, popovers, drawers and rule editors;<br/>rulers, the find bar, text tables;<br/>animation groups and Touch Bar state;<br/>toolbar items, titlebar accessories,<br/>row actions, scrubbers, NSPreferences,<br/>file promises, glass views (slate);<br/>drag and drop (between apps<br/>through the window server);<br/>system images (Finch's own art);<br/>Fieldwork theme (Classic for Aqua compatibility);<br/>UIFoundation: fonts, string drawing,<br/>TextKit 1 and 2; Cocoa and<br/>ApplicationServices umbrellas"]
         cg["CoreGraphics<br/>bitmap contexts, paths, images,<br/>gradients, patterns, fonts, text,<br/>shadows (over Skia, skcms);<br/>PDF writing (SkPDF), PDF reading<br/>and drawing (own parser);<br/>window server client, displays,<br/>Quartz events (posting, sources)"]
         imageio["ImageIO<br/>image sources, thumbnails,<br/>destinations, property keys<br/>(libpng, libjpeg-turbo, libwebp,<br/>wuffs, via Skia); TIFF (own codec)"]
         coreimage["CoreImage<br/>images as recipes, CPU rendering<br/>in linear light, ~70 filters"]

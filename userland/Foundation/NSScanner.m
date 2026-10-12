@@ -43,15 +43,16 @@
     return s;
 }
 
-- (instancetype)initWithString:(NSString *)string { FinchAbstract(self, _cmd); }
+/* (subclasses supply the string and location; the rest have defaults, as Apple's) */
+- (instancetype)initWithString:(NSString *)string { return [super init]; }
 - (NSString *)string { FinchAbstract(self, _cmd); }
 - (NSUInteger)scanLocation { FinchAbstract(self, _cmd); }
 - (void)setScanLocation:(NSUInteger)location { FinchAbstract(self, _cmd); }
-- (NSCharacterSet *)charactersToBeSkipped { FinchAbstract(self, _cmd); }
+- (NSCharacterSet *)charactersToBeSkipped { return [NSCharacterSet whitespaceAndNewlineCharacterSet]; }
 - (void)setCharactersToBeSkipped:(NSCharacterSet *)set { FinchAbstract(self, _cmd); }
-- (BOOL)caseSensitive { FinchAbstract(self, _cmd); }
+- (BOOL)caseSensitive { return NO; }
 - (void)setCaseSensitive:(BOOL)flag { FinchAbstract(self, _cmd); }
-- (id)locale { FinchAbstract(self, _cmd); }
+- (id)locale { return nil; }
 - (void)setLocale:(id)locale { FinchAbstract(self, _cmd); }
 
 - (id)copyWithZone:(NSZone *)zone

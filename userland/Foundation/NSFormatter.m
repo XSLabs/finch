@@ -389,6 +389,28 @@ PROPERTY(gregorianStartDate, GregorianStartDate, kCFDateFormatterGregorianStartD
 }
 - (void)setNegativeFormat:(NSString *)f { NSString *o = _negativeFormat; _negativeFormat = [f copy]; [o release]; [self _finchInvalidate]; }
 
+/* The old combined format: positive;zero;negative (the zero part as zero formats; the
+   negative part as written, or as the pattern's own when none was) */
+- (NSString *)format
+{
+    NSString *neg = _negativeFormat;
+    if (!neg) {
+        NSString *f = (NSString *)CFNumberFormatterGetFormat([self _finchFormatter]);
+        NSRange semi = [f rangeOfString:@";"];
+        neg = semi.location == NSNotFound ? [self positiveFormat] : [f substringFromIndex:semi.location + 1];
+    }
+    NSString *zero = [self stringFromNumber:@0] ?: @"0";
+    return [NSString stringWithFormat:@"%@;%@;%@", [self positiveFormat], zero, neg];
+}
+
+- (void)setFormat:(NSString *)format
+{
+    NSArray *parts = [format componentsSeparatedByString:@";"];
+    NSString *pos = parts.firstObject ?: @"";
+    [self setPositiveFormat:pos];
+    [self setNegativeFormat:parts.count > 1 ? parts.lastObject : [@"-" stringByAppendingString:pos]];
+}
+
 static id
 get(NSNumberFormatter *self, CFStringRef key)
 {

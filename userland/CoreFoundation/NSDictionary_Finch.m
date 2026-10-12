@@ -361,6 +361,8 @@ ABSTRACT(- (void)removeObjectForKey:(id)key, "removeObjectForKey:")
 
 /* What CF sends to mutable dictionaries it didn't make. */
 - (void)__addObject:(id)object forKey:(id)key { if (![self objectForKey:key]) [self setObject:object forKey:key]; }
+/* (the same, by its other name: set only if the key has no value) */
+- (void)addObject:(id)object forKey:(id)key { [self __addObject:object forKey:key]; }
 - (void)__setObject:(id)object forKey:(id)key { [self setObject:object forKey:key]; }
 - (void)replaceObject:(id)object forKey:(id)key { if ([self objectForKey:key]) [self setObject:object forKey:key]; }
 

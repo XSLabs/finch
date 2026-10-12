@@ -528,9 +528,14 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           SecurityFoundation, SkyLight (its SLS calls, over CoreGraphics), IOBluetoothUI
           and libDiagnosticMessagesClient. `utilities-test` matches Apple's
           (2026-10-12); Bluetooth File Exchange has every import (10 of 65 apps).
-  - [ ] AppKit's system images (NSAddTemplate, NSPauseTemplate, the toolbar and status
-        images): Finch draws its own set in the Fieldwork style; `+imageNamed:` finds
-        none of them yet.
+  - [x] AppKit's system images (NSAddTemplate, NSPauseTemplate, the toolbar and status
+        images): Finch draws its own set in the Fieldwork style (`NSSystemImages.m`: ink
+        line glyphs for the templates, small illustrated icons for the 32-point ones), and
+        `+imageNamed:` finds all 140 names, including the private disclosure triangles,
+        at Apple's sizes and with Apple's template flags; `system-images-test` matches
+        Apple's (2026-10-12).
+  - [ ] Symbol images (`+imageWithSystemSymbolName:`, SF Symbols' names): Finch's own
+        glyphs for the names apps use most; today they return nil.
   - [x] A Cocoa app bundle built the usual way (`userland/tests/apps/Hello`: NSApplicationMain,
         a MainMenu nib from ibtool, outlets and actions) launches on Finch's frameworks and window
         server, shows its menu bar and window, and responds to clicks and typing
@@ -654,8 +659,15 @@ and AppKit come in Phase 2).
         colours chosen by the control view; image views keeping their own target and
         action; the cell and font SPI it calls. `appkit-typedstream-test`,
         `typedstream-test` and `appkit-compat-test` match Apple's.
-  - [ ] Grapher's remaining parts: 3D graphs, entering and plotting equations, the
-        disclosure images it asks AppKit for (`NSDisclosable`, `NSDisclosed`).
+  - [x] Grapher plots equations typed into a 2D graph, in the VM (2026-10-12). It needed
+        Finch's system images (below), NSScanner subclasses that supply only their string
+        and location, `-[NSImage initWithImageRep:]`, images' old `flipped` flag (it flips
+        only drawing into the image) and compositing right side up in flipped views, and
+        smaller methods its selectors reference (found by diffing them against Apple's
+        AppKit and Foundation: NSArray and NSMutableDictionary conveniences, NSNumberFormatter's
+        combined `format`, attribute subsets, the window's undo actions and cancel key, the
+        zoom cursors). `data-test` and `appkit-compat-test` match Apple's.
+  - [ ] Grapher's 3D graphs (its NSOpenGLView).
   - [ ] Core-profile contexts (Apple's 3.2 and 4.1) and hardware rendering (with a device)
 - [x] Combine: OpenCombine (MIT) adapted to Apple's ABI, with Finch's Merge, CombineLatest
       and collecting by time; every Combine symbol the system apps import (2026-10-09)

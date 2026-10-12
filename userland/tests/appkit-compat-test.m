@@ -6,7 +6,8 @@
  * scrolling or wrapping), borders and bezels clearing each other, and a label's size
  * following its value under Auto Layout, and SPI apps call (a cell's vertical centring
  * flag as archived, its highlight drawing, a font's glyph for a character), and an image
- * view keeping its own target (its cell can't). Compared with
+ * view keeping its own target (its cell can't), and old images' flipped flag (it flips
+ * only drawing into the image) and compositing in flipped contexts. Compared with
  * Apple's.
  */
 #import <AppKit/AppKit.h>
@@ -32,6 +33,59 @@
 @end
 @implementation DrawsToo
 @end
+
+/* Where red lands in a 20x20 bitmap: an image whose top half was filled red through
+   its own lockFocus, drawn three ways. */
+static const char *
+red_at(NSBitmapImageRep *rep)
+{
+    NSColor *top = [rep colorAtX:10 y:2], *bot = [rep colorAtX:10 y:17];
+    BOOL t = top.redComponent > 0.5 && top.greenComponent < 0.3, b = bot.redComponent > 0.5 && bot.greenComponent < 0.3;
+    return t && !b ? "top" : b && !t ? "bottom" : t && b ? "both" : "none";
+}
+
+static void
+flipped_images(void)
+{
+    for (int imgFlipped = 0; imgFlipped < 2; imgFlipped++) {
+        NSImage *im = [[NSImage alloc] initWithSize:NSMakeSize(20, 20)];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        im.flipped = imgFlipped;
+#pragma clang diagnostic pop
+        [im lockFocus];
+        [[NSColor whiteColor] set];
+        NSRectFill(NSMakeRect(0, 0, 20, 20));
+        [[NSColor redColor] set];
+        NSRectFill(NSMakeRect(0, 10, 20, 10));
+        [im unlockFocus];
+        for (int ctxFlipped = 0; ctxFlipped < 2; ctxFlipped++)
+            for (int how = 0; how < 3; how++) {
+                NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:20 pixelsHigh:20 bitsPerSample:8
+                    samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bytesPerRow:0 bitsPerPixel:32];
+                CGContextRef cg = [NSGraphicsContext graphicsContextWithBitmapImageRep:rep].CGContext;
+                if (ctxFlipped) {
+                    CGContextTranslateCTM(cg, 0, 20);
+                    CGContextScaleCTM(cg, 1, -1);
+                }
+                [NSGraphicsContext saveGraphicsState];
+                NSGraphicsContext.currentContext = [NSGraphicsContext graphicsContextWithCGContext:cg flipped:ctxFlipped];
+                NSRect r = NSMakeRect(0, 0, 20, 20);
+                if (how == 0)
+                    [im drawInRect:r fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1];
+                else if (how == 1)
+                    [im drawInRect:r fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1 respectFlipped:YES hints:nil];
+                else
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+                    [im compositeToPoint:NSMakePoint(0, ctxFlipped ? 20 : 0) operation:NSCompositingOperationSourceOver];
+#pragma clang diagnostic pop
+                [NSGraphicsContext restoreGraphicsState];
+                printf("image flipped %d in a %s context, %s: red at %s\n", imgFlipped, ctxFlipped ? "flipped" : "plain",
+                       how == 0 ? "drawn" : how == 1 ? "drawn respecting flipped" : "composited", red_at(rep));
+            }
+    }
+}
 
 int
 main(void)
@@ -98,6 +152,7 @@ main(void)
         [root layoutSubtreeIfNeeded];
         printf("label under Auto Layout: grows with its string %d, with a number %d\n", set > empty + 20,
             l.frame.size.width > set);
+        flipped_images();
 
         NSTextFieldCell *vc = [[NSTextFieldCell alloc] initTextCell:@"x"];
         ((void (*)(id, SEL, BOOL))objc_msgSend)(vc, sel_registerName("_setVerticallyCentered:"), YES);
@@ -128,6 +183,41 @@ main(void)
         } @catch (NSException *e) {
             printf("plain cell's target: %s %s\n", e.name.UTF8String, e.reason.UTF8String);
         }
+        NSBitmapImageRep *one = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:40 pixelsHigh:20 bitsPerSample:8
+            samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bytesPerRow:0 bitsPerPixel:32];
+        one.size = NSMakeSize(20, 10);
+        NSImage *ofRep = ((id (*)(id, SEL, id))objc_msgSend)([NSImage alloc], sel_registerName("initWithImageRep:"), one);
+        printf("image of one rep: %s, reps %lu, same rep %d\n", NSStringFromSize(ofRep.size).UTF8String, (unsigned long)ofRep.representations.count,
+               ofRep.representations.firstObject == one);
+        NSArray *mixed = @[@"a", @1, @"b", @2.5];
+        NSArray *nums = ((id (*)(id, SEL, Class))objc_msgSend)(mixed, sel_registerName("subarrayWithObjectsOfKind:"), [NSNumber class]);
+        NSMutableArray *ins = [@[@1, @2] mutableCopy];
+        ((void (*)(id, SEL, id, NSUInteger))objc_msgSend)(ins, sel_registerName("insertObjectsFromArray:atIndex:"), @[@8, @9], 1);
+        printf("array additions: %s / %s\n", [nums componentsJoinedByString:@","].UTF8String, [ins componentsJoinedByString:@","].UTF8String);
+        NSAttributedString *rich = [[NSAttributedString alloc] initWithString:@"hello" attributes:@{NSFontAttributeName : [NSFont systemFontOfSize:12],
+            NSForegroundColorAttributeName : [NSColor redColor], NSLinkAttributeName : @"x", NSKernAttributeName : @2,
+            NSParagraphStyleAttributeName : [NSParagraphStyle defaultParagraphStyle], NSUnderlineStyleAttributeName : @1,
+            NSToolTipAttributeName : @"t", NSBackgroundColorAttributeName : [NSColor blueColor], @"Custom" : @1,
+            NSSuperscriptAttributeName : @1, NSShadowAttributeName : [NSShadow new], NSObliquenessAttributeName : @0.1,
+            NSLigatureAttributeName : @0, NSBaselineOffsetAttributeName : @1, NSStrokeWidthAttributeName : @1}];
+        printf("font attributes: %s\n", [[[[rich fontAttributesInRange:NSMakeRange(0, 3)] allKeys] sortedArrayUsingSelector:@selector(compare:)]
+                                             componentsJoinedByString:@","].UTF8String);
+        printf("ruler attributes: %s\n", [[[[rich rulerAttributesInRange:NSMakeRange(0, 3)] allKeys] sortedArrayUsingSelector:@selector(compare:)]
+                                              componentsJoinedByString:@","].UTF8String);
+        printf("preferred fonts: %s\n", [[((id (*)(id, SEL))objc_msgSend)([NSFont class], sel_registerName("preferredFontNames"))
+                                              componentsJoinedByString:@","] UTF8String]);
+        NSWindow *uw = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 10, 10) styleMask:NSWindowStyleMaskTitled
+                                                     backing:NSBackingStoreBuffered defer:YES];
+        uw.releasedWhenClosed = NO;
+        __block int undone = 0;
+        [uw.undoManager registerUndoWithTarget:uw handler:^(id t) { undone = 1; }];
+        ((void (*)(id, SEL, id))objc_msgSend)(uw, sel_registerName("undo:"), nil);
+        printf("window undo: %d\n", undone);
+        NSCursor *zin = ((id (*)(id, SEL))objc_msgSend)([NSCursor class], sel_registerName("_zoomInCursor"));
+        NSCursor *zout = ((id (*)(id, SEL))objc_msgSend)([NSCursor class], sel_registerName("_zoomOutCursor"));
+        printf("zoom cursors: %s hot %s, out differs %d, same twice %d\n", NSStringFromSize(zin.image.size).UTF8String,
+               NSStringFromPoint(zin.hotSpot).UTF8String, zin != zout,
+               zin == ((id (*)(id, SEL))objc_msgSend)([NSCursor class], sel_registerName("_zoomInCursor")));
         NSFont *sys = [NSFont systemFontOfSize:12];
         unichar chars[] = {'A', ' ', 0x4e00, 0xd83d};
         for (int i = 0; i < 4; i++) {

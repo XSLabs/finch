@@ -204,6 +204,8 @@ check_object(id self, SEL _cmd, id object)
     return NSNotFound;
 }
 
+- (BOOL)containsObjectIdenticalTo:(id)object { return [self indexOfObjectIdenticalTo:object] != NSNotFound; }
+
 - (BOOL)containsObject:(id)object { return [self indexOfObject:object] != NSNotFound; }
 
 - (BOOL)isEqualToArray:(NSArray *)other

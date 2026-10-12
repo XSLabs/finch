@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
 /*
- * finch-data-test: NSDecimalNumber and the NSDecimal functions, NSScanner,
+ * finch-data-test: NSDecimalNumber and the NSDecimal functions, NSScanner (and a
+ * subclass that supplies only its string and location, as apps' scanners do), old
+ * conveniences apps still call (identical containment, add-if-absent, contents of a
+ * file, the combined number format),
  * NSJSONSerialization, NSUUID and NSSortDescriptor, one result per line so
  * runs against Apple's Foundation and Finch's can be diffed. Addresses are
  * masked; private class names are not printed.
@@ -230,12 +233,88 @@ sorting(void)
     printf("equal: %d %d\n", [byAge isEqual:[NSSortDescriptor sortDescriptorWithKey:@"age" ascending:NO]], [byAge isEqual:byName]);
 }
 
+@interface MinimalScanner : NSScanner {
+    NSString *_s;
+    NSUInteger _loc;
+}
+@end
+@implementation MinimalScanner
+- (instancetype)initWithString:(NSString *)s
+{
+    if ((self = [super initWithString:s]))
+        _s = [s copy];
+    return self;
+}
+- (NSString *)string { return _s; }
+- (NSUInteger)scanLocation { return _loc; }
+- (void)setScanLocation:(NSUInteger)l { _loc = l; }
+@end
+
+static void
+scanner_subclass(void)
+{
+    MinimalScanner *s = [[MinimalScanner alloc] initWithString:@" 3.5e2 x 42\nabc"];
+    double d = 0;
+    int i = 0;
+    NSString *w = nil;
+    printf("subclass: locale %p skips newlines %d case %d\n", (__bridge void *)[s locale],
+           [[s charactersToBeSkipped] characterIsMember:'\n'], [s caseSensitive]);
+    BOOL a = [s scanDouble:&d];
+    BOOL b = [s scanString:@"X" intoString:&w];
+    BOOL c = [s scanInt:&i];
+    BOOL e = [s scanCharactersFromSet:[NSCharacterSet letterCharacterSet] intoString:&w];
+    printf("subclass scans: %d %g, %d, %d %d, %d %s, at end %d\n", a, d, b, c, i, e, w.UTF8String, [s isAtEnd]);
+    @try {
+        [s setLocale:nil];
+        printf("subclass setLocale: ok\n");
+    } @catch (NSException *x) {
+        printf("subclass setLocale: %s\n", x.name.UTF8String);
+    }
+}
+
+@interface NSArray (DataTestSPI)
+- (BOOL)containsObjectIdenticalTo:(id)o;
+@end
+@interface NSMutableDictionary (DataTestSPI)
+- (void)addObject:(id)o forKey:(id)k;
+@end
+
+static void
+conveniences(void)
+{
+    NSString *a = [NSMutableString stringWithString:@"a"], *a2 = [NSMutableString stringWithString:@"a"];
+    NSArray *arr = @[a, @1];
+    printf("identical: %d %d\n", [arr containsObjectIdenticalTo:a], [arr containsObjectIdenticalTo:a2]);
+    NSMutableDictionary *d = [NSMutableDictionary dictionary];
+    [d addObject:@1 forKey:@"k"];
+    [d addObject:@2 forKey:@"k"];
+    printf("add if absent: %s\n", [d[@"k"] description].UTF8String);
+    NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:@"finch-data-test.txt"];
+    [@"file text" writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    printf("contents: %s / %d\n", [[NSString stringWithContentsOfFile:path] UTF8String], [NSString stringWithContentsOfFile:@"/nonexistent"] == nil);
+#pragma clang diagnostic pop
+    [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
+    NSNumberFormatter *f = [NSNumberFormatter new];
+    f.locale = [NSLocale localeWithLocaleIdentifier:@"en_US"];
+    f.numberStyle = NSNumberFormatterDecimalStyle;
+    printf("format: %s\n", f.format.UTF8String);
+    f.format = @"#,##0.00;(#,##0.00)";
+    printf("set format: %s, %s %s -> %s %s\n", f.format.UTF8String, f.positiveFormat.UTF8String, f.negativeFormat.UTF8String,
+           [f stringFromNumber:@1234.5].UTF8String, [f stringFromNumber:@-3].UTF8String);
+    f.format = @"0.0";
+    printf("one part: %s, %s -> %s\n", f.format.UTF8String, f.negativeFormat.UTF8String, [f stringFromNumber:@-3.25].UTF8String);
+}
+
 int
 main(int argc, char **argv)
 {
     @autoreleasepool {
         decimals();
         scanner();
+        scanner_subclass();
+        conveniences();
         jsons();
         uuids();
         sorting();

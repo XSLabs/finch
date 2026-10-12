@@ -4,8 +4,8 @@
  * -lockFocus draws into a bitmap rep at the image's size (Finch's screens are
  * 1x for now). +imageNamed: finds images named with -setName:, then the main
  * bundle's asset catalog (NSAssetCatalog.m), then image files in the main
- * bundle; Apple's system images (NSImageNameCaution, ...) are Apple's artwork
- * and aren't included.
+ * bundle, then AppKit's system images (NSImageNameCaution, ...), which are
+ * Finch's own artwork (NSSystemImages.m).
  */
 #import "AppKitDrawing.h"
 #import <ImageIO/ImageIO.h>
@@ -203,6 +203,14 @@ names(void)
     return self;
 }
 
+/* SPI: an image of one rep, at the rep's size. */
+- (instancetype)initWithImageRep:(NSImageRep *)rep
+{
+    if ((self = [self initWithSize:rep ? [rep size] : NSZeroSize]) && rep)
+        [self addRepresentation:rep];
+    return self;
+}
+
 - (instancetype)initWithSize:(NSSize)size
 {
     if ((self = [self init])) {
@@ -305,6 +313,7 @@ names(void)
 }
 
 NSImage *FinchCatalogImageNamed(NSString *name, NSBundle *bundle);
+NSImage *FinchSystemImageNamed(NSString *name);
 
 + (NSImage *)imageNamed:(NSImageName)name
 {
@@ -331,7 +340,7 @@ NSImage *FinchCatalogImageNamed(NSString *name, NSBundle *bundle);
     NSImage *i = path ? [[[NSImage alloc] initWithContentsOfFile:path] autorelease] : nil;
     if (i)
         [i setName:name];
-    return i;
+    return i ?: FinchSystemImageNamed(name);  /* AppKit's own (NSSystemImages.m) */
 }
 
 + (instancetype)imageWithSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)description { return nil; }
@@ -583,34 +592,45 @@ rep_rect(NSImage *image, NSImageRep *rep, NSRect r)
     return [imageRep drawInRect:rect];
 }
 
+/* The old compositing calls: the image (or part) unscaled, right side up, with the point
+   at its bottom left even in a flipped context. */
+static void
+composite(NSImage *self, NSPoint point, NSRect from, NSCompositingOperation op, CGFloat fraction)
+{
+    NSSize sz = NSIsEmptyRect(from) ? [self size] : from.size;
+    BOOL flipped = [[NSGraphicsContext currentContext] isFlipped];
+    NSRect dst = NSMakeRect(point.x, flipped ? point.y - sz.height : point.y, sz.width, sz.height);
+    [self drawInRect:dst fromRect:from operation:op fraction:fraction respectFlipped:YES hints:nil];
+}
+
 - (void)compositeToPoint:(NSPoint)point operation:(NSCompositingOperation)operation
 {
-    [self drawAtPoint:point fromRect:NSZeroRect operation:operation fraction:1];
+    composite(self, point, NSZeroRect, operation, 1);
 }
 
 - (void)compositeToPoint:(NSPoint)point fromRect:(NSRect)rect operation:(NSCompositingOperation)operation
 {
-    [self drawAtPoint:point fromRect:rect operation:operation fraction:1];
+    composite(self, point, rect, operation, 1);
 }
 
 - (void)compositeToPoint:(NSPoint)point operation:(NSCompositingOperation)operation fraction:(CGFloat)fraction
 {
-    [self drawAtPoint:point fromRect:NSZeroRect operation:operation fraction:fraction];
+    composite(self, point, NSZeroRect, operation, fraction);
 }
 
 - (void)compositeToPoint:(NSPoint)point fromRect:(NSRect)rect operation:(NSCompositingOperation)operation fraction:(CGFloat)fraction
 {
-    [self drawAtPoint:point fromRect:rect operation:operation fraction:fraction];
+    composite(self, point, rect, operation, fraction);
 }
 
 - (void)dissolveToPoint:(NSPoint)point fraction:(CGFloat)fraction
 {
-    [self drawAtPoint:point fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:fraction];
+    composite(self, point, NSZeroRect, NSCompositingOperationSourceOver, fraction);
 }
 
 - (void)dissolveToPoint:(NSPoint)point fromRect:(NSRect)rect fraction:(CGFloat)fraction
 {
-    [self drawAtPoint:point fromRect:rect operation:NSCompositingOperationSourceOver fraction:fraction];
+    composite(self, point, rect, NSCompositingOperationSourceOver, fraction);
 }
 
 /* MARK: lockFocus */
@@ -664,7 +684,8 @@ rep_rect(NSImage *image, NSImageRep *rep, NSRect r)
     }
 }
 
-- (void)lockFocus { [self lockFocusFlipped:NO]; }
+/* (an image set flipped draws into itself with its origin at the top left) */
+- (void)lockFocus { [self lockFocusFlipped:_flipped]; }
 
 - (void)lockFocusOnRepresentation:(NSImageRep *)imageRepresentation { [self lockFocus]; }
 

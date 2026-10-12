@@ -191,6 +191,11 @@ cf_copy_of(NSString *s)
     va_end(ap);
     return s;
 }
+/* (deprecated: the encoding found as -initWithContentsOfFile:usedEncoding:error: finds it) */
++ (instancetype)stringWithContentsOfFile:(NSString *)path
+{
+    return [[[self alloc] initWithContentsOfFile:path usedEncoding:NULL error:NULL] autorelease];
+}
 + (instancetype)stringWithContentsOfFile:(NSString *)path encoding:(NSStringEncoding)enc error:(NSError **)error
 {
     return [[[self alloc] initWithContentsOfFile:path encoding:enc error:error] autorelease];
