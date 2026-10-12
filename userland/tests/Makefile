@@ -707,7 +707,7 @@ $(OUT)/finch-mdnsd-test: mdnsd-test.c
 
 # PCM files, format conversion and software audio units.
 all: $(OUT)/finch-extaudiofile-test $(OUT)/finch-audiounit-test $(OUT)/finch-avaudio-buffer-test $(OUT)/finch-audioqueue-test
-all: $(OUT)/finch-avaudio-file-test $(OUT)/finch-avaudio-converter-test $(OUT)/finch-avaudio-engine-test
+all: $(OUT)/finch-avaudio-file-test $(OUT)/finch-avaudio-converter-test $(OUT)/finch-avaudio-engine-test $(OUT)/finch-avaudio-player-test
 all: $(OUT)/finch-configd-service-test $(OUT)/finch-diskarbitration-session-test
 all: $(OUT)/finch-configd-daemon-test
 all: $(OUT)/finch-configd-contained-service
@@ -742,6 +742,9 @@ $(OUT)/finch-avaudio-converter-test: avaudio-converter-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fno-objc-arc -fblocks -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation
 $(OUT)/finch-avaudio-engine-test: avaudio-engine-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fno-objc-arc -fblocks -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation
+$(OUT)/finch-avaudio-player-test: avaudio-player-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fno-objc-arc -fblocks -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation
 $(OUT)/finch-avaudio-buffer-test: avaudio-buffer-test.m

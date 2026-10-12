@@ -116,7 +116,9 @@ for name, decl in data:
         v = {'inf': 'INFINITY', '-inf': '-INFINITY'}.get(v, v)
         lines.append(f'const double {name} = {v};')
     elif r.startswith('FLOAT '):
-        lines.append(f'const float {name} = {r[6:]}f;')
+        v = r[6:]
+        v = v if any(c in v for c in '.eEn') else v + '.0'  # (a float literal needs a point: 1.0f, not 1f)
+        lines.append(f'const float {name} = {v}f;')
     elif r.startswith('INT64 '):
         lines.append(f'const int64_t {name} = {r[6:]}LL;')
     elif r.startswith('INT '):
