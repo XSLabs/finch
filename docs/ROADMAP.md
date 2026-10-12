@@ -431,6 +431,12 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           buttons, storyboard creators and the AppKit attribute scope's plain keys;
           `appkit-swift2-test` matches Apple's (2026-10-12). Symbol effects (they need a
           Symbols framework) and `NSImage(resource:)` are still to come.
+    - [x] Private CoreGraphics, Core Animation and CoreFoundation calls Apple's apps use:
+          window-server regions, connections, displays and session; shadow styles;
+          colour spaces by ID; Core Animation's private constants, portal layers,
+          packages, states and contexts; CF's version number, container preferences,
+          XML entities and bidi levels; `private-calls-test` matches Apple's
+          (2026-10-12).
     - [x] libswiftDispatch: DispatchQueue's conformance to Combine's Scheduler, from
           Apple's overlay source, weak-linking Finch's Combine (2026-10-11); 19 apps
           imported it.

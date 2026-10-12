@@ -25,7 +25,9 @@ CFLAGS=(-arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -Os -g -fn
 log "compiling"
 rm -rf "${OBJ}" && mkdir -p "${OBJ}"
 for f in "${HERE}"/*.m; do
-    "${CC}" "${CFLAGS[@]}" -c "$f" -o "${OBJ}/$(basename "${f%.m}").o"
+    arc=()
+    [[ "$(basename "$f")" == CAPrivate2.m ]] && arc=(-fobjc-arc)   # (written for ARC)
+    "${CC}" "${CFLAGS[@]}" "${arc[@]+"${arc[@]}"}" -c "$f" -o "${OBJ}/$(basename "${f%.m}").o"
 done
 
 log "linking"
