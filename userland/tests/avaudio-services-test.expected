@@ -1,0 +1,22 @@
+session 1 category AVAudioSessionCategorySoloAmbient mode AVAudioSessionModeDefault
+route inputs 0 outputs 0 input available 0
+set category 1 now AVAudioSessionCategoryPlayback
+set nonsense 0 error -50
+activate 1 rate 44100
+application muted 0 permission 1970168948
+mute without a handler 0 error -50
+mute with a handler 1 now 1
+arbitration changed 0 error 0
+voices 0, for en-US none
+utterance rate 0.5 pitch 1 volume 1
+clamped rate 1 pitch 2 volume 0
+ssml: Fast & clear, not ssml nil
+copy Hello there, world rate 1
+speaking 1 paused 0
+events: start Hello there, world | word Hello | word there | word world | finish Hello there, world | start Two words | word Two | word words | finish Two words
+after: speaking 0
+pause 1 paused 1
+continue 1
+stop 1
+stop again 0 continue 0
+events: start one two three four | word one | pause | continue | word two | cancel one two three four
