@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // pthread.xcconfig derives DYLIB_CURRENT_VERSION from RC_ProjectSourceVersion,
-// which only Apple's build system sets; pass the version to the linker directly.
+// which only Apple's build system sets; pass the version to the linker directly,
+// and to TAPI, whose verification (Xcode 26.4.1) wants the two to agree.
+DYLIB_CURRENT_VERSION = 539.100.4
 FINCH_PROJECT_LDFLAGS = -Wl,-current_version,539.100.4 -lCrashReporterClient   // crash annotations, as Apple links them
 
 // Apple's library has no generated version symbols (__<product>Version*).

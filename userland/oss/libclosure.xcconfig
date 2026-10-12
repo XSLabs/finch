@@ -1,3 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // DYLIB_CURRENT_VERSION comes from RC_ProjectSourceVersion in Apple's build.
 FINCH_PROJECT_LDFLAGS = -Wl,-current_version,96
+// (and to TAPI, whose verification wants the linker's version)
+DYLIB_CURRENT_VERSION = 96

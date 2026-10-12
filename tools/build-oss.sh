@@ -36,6 +36,22 @@ echo "build-oss: refused osascript (no GUI prompts in builds): $*" >&2
 exit 1
 EOT
 chmod +x "${nogui}/osascript"
+# Builds run unprivileged: a stand-in install drops -o/-g (owners and groups), which
+# some projects' install scripts pass and only root may set. The release image sets
+# owners itself (docs/design/RELEASE.md).
+cat > "${nogui}/install" <<'EOT'
+#!/bin/bash
+args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+    -o | -g) shift 2 ;;
+    -o* | -g*) shift ;;
+    *) args+=("$1"); shift ;;
+    esac
+done
+exec /usr/bin/install "${args[@]}"
+EOT
+chmod +x "${nogui}/install"
 export PATH="${nogui}:${PATH}"
 
 if [[ $# -gt 0 ]]; then
@@ -148,6 +164,9 @@ finch_xcconfig="${obj}/finch.xcconfig"
     # headers and install files in the source and staging trees).
     echo "ENABLE_USER_SCRIPT_SANDBOXING = NO"
     echo "FINCH_DEAD_STRIP_mh_execute = -Wl,-dead_strip_dylibs"
+    # Unprivileged builds: files install as the builder (the release image sets owners).
+    echo "INSTALL_OWNER = \$(USER)"
+    echo "INSTALL_GROUP = staff"
     echo "OTHER_LDFLAGS = \$(inherited) \$(FINCH_PROJECT_LDFLAGS) \$(FINCH_DEAD_STRIP_\$(MACH_O_TYPE))"
     # Finch's own headers (userland/sdk/include, in ${SDK}/override) come first
     # for private-first projects, and after everything else for the rest, so
@@ -158,7 +177,7 @@ finch_xcconfig="${obj}/finch.xcconfig"
     # such as <sys/resource_private.h> that need them.)
     overlay_after="-idirafter ${SDK}/override -idirafter ${SDK}/availability"
     [[ -n "${is_private_first}" ]] && overlay_after=""
-    echo "OTHER_CFLAGS = \$(inherited) -Wno-error ${cflags_private} -idirafter ${SDK}/include ${overlay_after} -F${SDK}/Frameworks"
+    echo "OTHER_CFLAGS = \$(inherited) \$(FINCH_PROJECT_CFLAGS) -Wno-error ${cflags_private} -idirafter ${SDK}/include ${overlay_after} -F${SDK}/Frameworks"
     # mig preprocesses .defs files, which import private .defs and headers too.
     echo "OTHER_MIGFLAGS = \$(inherited) -I${SDK}/override -I${SDK}/include"
     # TAPI re-parses the installed headers to build .tbd files; it needs the
@@ -209,8 +228,18 @@ fi
 
 # Source directories (≈ targets) with errors; errors in SDK headers they include
 # count against the project directory that included them.
-failed=$(grep -E '^\S+: (fatal )?error:' "${LOG}" | grep "/build/src/${project}/" \
+# Apple's test targets (darwintest, Apple-internal) aren't shipped; their failures don't count.
+failed=$(grep -E '^\S+: (fatal )?error:' "${LOG}" | grep "/build/src/${project}/" | grep -v '/tests\?/' \
     | sed -E 's|^.*/build/src/'"${project}"'/([^/:]+)[/:].*|\1|' | sort -u | tr '\n' ' ')
+# (and the targets Xcode lists as failed, for errors it reports in headers outside the
+# project; a target is named for its directory in Apple's command projects)
+failed=$( { tr ' ' '\n' <<<"${failed}"; sed -n '/^The following build commands failed:/,/^([0-9]* failure/p' "${LOG}" \
+    | grep -o "(in target '[^']*'" | sed "s/(in target '//; s/'//" | grep -v '^test_\|_tests\?$'; } | sed '/^$/d' | sort -u | tr '\n' ' ')
 echo "${project}: ${installed} Mach-O installed into build/root (build exit ${status})"
 [[ -n "${failed}" ]] && echo "  failed in: ${failed}  (see ${LOG#"${FINCH_ROOT}/"})"
+if [[ "${status}" -ne 0 && -z "${failed// /}" ]] && grep -q "(in target 'test_\|/tests\?/" "${LOG}" \
+    && ! sed -n '/^The following build commands failed:/,/^([0-9]* failure/p' "${LOG}" | grep "(in target" \
+        | grep -vq "(in target 'test_"; then
+    echo "  failed only in test targets (not shipped)"
+fi
 exit 0

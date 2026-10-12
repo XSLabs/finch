@@ -13,6 +13,10 @@ VARIANT_DARWINEXTSN_CANCELABLE_MACROS = -DVARIANT_CANCELABLE -DVARIANT_DARWINEXT
 FINCH_VERSION_LDFLAGS_c = -Wl,-current_version,1752.100.10
 FINCH_VERSION_LDFLAGS_collections = -Wl,-current_version,1752.100.10
 FINCH_PROJECT_LDFLAGS = $(FINCH_VERSION_LDFLAGS_$(PRODUCT_NAME))
+// TAPI's verification (Xcode 26.4.1) wants the same version as the linker's.
+FINCH_DYLIB_VERSION_c = 1752.100.10
+FINCH_DYLIB_VERSION_collections = 1752.100.10
+DYLIB_CURRENT_VERSION = $(FINCH_DYLIB_VERSION_$(PRODUCT_NAME))
 
 // Build libsystem_c.dylib and libsystem_darwin.dylib in separate build-oss.sh
 // runs: libdarwin's TAPI verification scans $(DSTROOT)/usr/include as its

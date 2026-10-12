@@ -18,10 +18,21 @@ LINK_WITH_STANDARD_LIBRARIES = NO
 CURRENT_PROJECT_VERSION = 1542.100.32
 FINCH_PROJECT_LDFLAGS = -umbrella System -nodefaultlibs -L$(SDKROOT)/usr/lib/system -ldyld -lcompiler_rt -lsystem_kernel -lsystem_platform -lsystem_pthread -lsystem_malloc -lsystem_c -lsystem_blocks -lunwind -Wl,-upward-lsystem_darwin -Wl,-upward-lobjc -Wl,-alias_list,$(SRCROOT)/xcodeconfig/libdispatch.aliases -Wl,-order_file,$(SRCROOT)/xcodeconfig/libdispatch.order -Wl,-interposable_list,$(SRCROOT)/xcodeconfig/libdispatch.interposable -Wl,-current_version,1542.100.32 -Wl,-compatibility_version,1
 
-// Product identity (also stripped from the published config).
-PRODUCT_NAME = dispatch
+// Product identity (also stripped from the published config), for the libdispatch
+// target only: Xcode 26.4.1 builds its dependent targets too (the static variants,
+// libfirehose_server), which keep their own.
+FINCH_IS_libdispatch = YES
+FINCH_ONLY_DISPATCH = $(FINCH_IS_$(TARGET_NAME:c99extidentifier))
+FINCH_PRODUCT_YES = dispatch
+PRODUCT_NAME = $(FINCH_PRODUCT_$(FINCH_ONLY_DISPATCH):default=$(inherited))
 EXECUTABLE_PREFIX = lib
 INSTALL_PATH = /usr/lib/system
-LD_DYLIB_INSTALL_NAME = /usr/lib/system/libdispatch.dylib
+FINCH_INSTALL_NAME_YES = /usr/lib/system/libdispatch.dylib
+LD_DYLIB_INSTALL_NAME = $(FINCH_INSTALL_NAME_$(FINCH_ONLY_DISPATCH):default=$(inherited))
+// TAPI's verification (Xcode 26.4.1) wants the version the linker gets.
+DYLIB_CURRENT_VERSION = 1542.100.32
 // libfirehose_server (for Finch's logd) limits itself to the build host's arch.
 VALID_ARCHS = arm64 arm64e
+// Xcode 26.4.1's clang merges globals into __MergedGlobals, which the project's
+// symbol-ordering check (its dirty/clean symbol lists) rejects.
+FINCH_PROJECT_CFLAGS = -mno-global-merge

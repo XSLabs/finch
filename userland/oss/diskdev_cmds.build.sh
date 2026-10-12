@@ -76,6 +76,11 @@ OTHER_LDFLAGS = -Wl,-dead_strip_dylibs -framework CoreFoundation -framework IOKi
 ENABLE_USER_SCRIPT_SANDBOXING = NO
 EOF
 
+# (an earlier install leaves its tools read-only, which the linker can't overwrite)
+for tool in mount fsck; do
+    [[ -e "${STAGE}/sbin/${tool}" ]] && chmod u+w "${STAGE}/sbin/${tool}"
+done
+
 for scheme in mount fsck; do
     if ! xcodebuild install -project "${SRC}/diskdev_cmds.xcodeproj" -scheme "${scheme}" \
         -configuration Release -sdk macosx -xcconfig "${CONFIG}" \

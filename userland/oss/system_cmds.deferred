@@ -4,3 +4,6 @@ chpass
 passwd
 zlog
 zprint
+# zoneinfo: installs from a private time-zone source Apple doesn't publish; Finch ships
+# tzdata itself (userland/tzdata).
+zoneinfo

@@ -34,7 +34,8 @@ oss_cmds() {   # oss_cmds <project> <targets...>
     echo "${out}"
     [[ "${status}" -eq 0 ]] || return 1
     failed=$(sed -n 's/^  failed in: \(.*\)  (see.*/\1/p' <<<"${out}")
-    if ! grep -q "(build exit 0)" <<<"${out}" && [[ -z "${failed}" ]]; then
+    if ! grep -q "(build exit 0)" <<<"${out}" && [[ -z "${failed}" ]] \
+        && ! grep -q "failed only in test targets" <<<"${out}"; then
         echo "error: $1 failed without a known deferred target; see build/logs/$1.log" >&2
         return 1
     fi
@@ -58,7 +59,8 @@ steps=(
     "libc-dyld|oss Libc libc_dyld"
     "collections|oss Libc libsystem_collections"
     "libclosure|oss libclosure Blocks-dynamic"
-    "libdispatch|oss libdispatch libdispatch"
+    # (Xcode 26.4.1 builds the static variants too, as dependencies; they stay out of the image)
+    "libdispatch|oss libdispatch libdispatch && rm -f build/root/usr/lib/system/liblibdispatch.a build/root/usr/lib/system/liblibdispatch_debug.a build/root/usr/lib/system/liblibfirehose_server.a"
     "Libinfo|oss Libinfo Libinfo"
     "libxpc|make -s -C userland/libxpc"
     "Libnotify|oss Libnotify libnotify notifyd notifyutil"
@@ -183,9 +185,9 @@ steps=(
     "objc4|oss objc4 objc-env objc"
     "dyld|oss dyld dyld libdyld"
     "libsysmon|make -s -C userland/libsysmon"
-    # libdispatch's firehose server for finch-logd. Finch's PRODUCT_NAME override
-    # names the archive libdispatch.a; move it out of the image tree.
-    "firehose|oss libdispatch libfirehose_server && mkdir -p build/userland/lib && mv -f build/root/usr/lib/system/libdispatch.a build/userland/lib/libfirehose_server.a"
+    # libdispatch's firehose server for finch-logd: a static archive (named by Xcode's
+    # lib prefix on its target name), moved out of the image tree.
+    "firehose|oss libdispatch libfirehose_server && mkdir -p build/userland/lib && mv -f build/root/usr/lib/system/liblibfirehose_server.a build/userland/lib/libfirehose_server.a"
     "logd|make -s -C userland/logd"
     "pboard|make -s -C userland/pboard"
     # Commands (userland/INVENTORY.md lists the deferred ones that don't build yet)

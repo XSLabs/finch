@@ -1,0 +1,10 @@
+diff --git a/xcodescripts/install-plists.sh b/xcodescripts/install-plists.sh
+new file mode 100755
+--- /dev/null
++++ b/xcodescripts/install-plists.sh
+@@ -0,0 +1,5 @@
++#!/bin/sh
++# Finch: Apple's published source lacks this script and the plist it installs
++# (src/libdispatch.plist, Apple-internal defaults). Xcode 26.4.1 fails a script
++# phase whose script is missing, so this stands in for it and installs nothing.
++exit 0
