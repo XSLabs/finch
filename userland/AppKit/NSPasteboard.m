@@ -511,9 +511,9 @@ set_item1(NSPasteboard *self, id value, NSString *type)
             for (NSString *t in [o writableTypesForPasteboard:self]) {
                 BOOL promised = [o respondsToSelector:@selector(writingOptionsForType:pasteboard:)] &&
                                 ([o writingOptionsForType:t pasteboard:self] & NSPasteboardWritingPromised);
+                /* (a type with nothing for it now stays listed, asked for when read, as Apple's) */
                 NSData *d = promised ? nil : data_of([o pasteboardPropertyListForType:t]);
-                if (promised || d)
-                    _FinchPasteboardPut(_pb, _seed, item, (CFStringRef)modern_type(t), (CFDataRef)d);
+                _FinchPasteboardPut(_pb, _seed, item, (CFStringRef)modern_type(t), (CFDataRef)d);
             }
         } else {
             return NO;
@@ -590,6 +590,51 @@ set_item1(NSPasteboard *self, id value, NSString *type)
     return plist_of([self dataForType:dataType]);
 }
 
+/* The item a reader is being made from, for readers that need more than one type of
+   it (NSFilePromiseReceiver). */
+static __thread NSPasteboardItem *item_being_read;
+
+NSPasteboardItem *
+FinchPasteboardItemBeingRead(void)
+{
+    return item_being_read;
+}
+
+/* An NSPasteboardReading class's object from an item: the first of its readable types
+   the item has, read as the class asks (data, string, property list or archive). */
+static id
+read_object(NSPasteboard *pb, NSPasteboardItem *item, Class c)
+{
+    if (![c respondsToSelector:@selector(readableTypesForPasteboard:)] ||
+        ![c instancesRespondToSelector:@selector(initWithPasteboardPropertyList:ofType:)])
+        return nil;
+    NSArray *have = [item types];
+    for (NSString *type in [c readableTypesForPasteboard:pb]) {
+        if (![have containsObject:type])
+            continue;
+        NSPasteboardReadingOptions options = [c respondsToSelector:@selector(readingOptionsForType:pasteboard:)]
+                                                 ? [c readingOptionsForType:type pasteboard:pb]
+                                                 : NSPasteboardReadingAsData;
+        NSData *data = [item dataForType:type];
+        id value = data;
+        if (options & NSPasteboardReadingAsString)
+            value = string_of(data);
+        else if (options & NSPasteboardReadingAsPropertyList)
+            value = plist_of(data);
+        else if (options & NSPasteboardReadingAsKeyedArchive)
+            value = data ? [NSKeyedUnarchiver unarchiveObjectWithData:data] : nil;
+        if (!value)
+            continue;
+        NSPasteboardItem *outer = item_being_read;
+        item_being_read = item;
+        id object = [[[c alloc] initWithPasteboardPropertyList:value ofType:type] autorelease];
+        item_being_read = outer;
+        if (object)
+            return object;
+    }
+    return nil;
+}
+
 - (NSArray *)readObjectsForClasses:(NSArray<Class> *)classArray options:(NSDictionary *)options
 {
     NSMutableArray *found = [NSMutableArray array];
@@ -608,6 +653,12 @@ set_item1(NSPasteboard *self, id value, NSString *type)
                                                                            : nil;
                 if (s) {
                     [found addObject:[NSURL URLWithString:s]];
+                    break;
+                }
+            } else {
+                id object = read_object(self, item, c);
+                if (object) {
+                    [found addObject:object];
                     break;
                 }
             }

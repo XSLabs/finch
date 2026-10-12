@@ -418,6 +418,10 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           items, section providers and horizontal scrolling; `compositional-test`
           matches Apple's frames (2026-10-12). Pinned headers, anchored item
           supplementaries and self-sizing (estimated) items are still to do.
+    - [x] File promises (NSFilePromiseProvider, NSFilePromiseReceiver; promises are kept
+          within the process until there's a drag server), and pasteboards read any
+          NSPasteboardReading class, not only strings and URLs; `filepromise-test`
+          matches Apple's (2026-10-12).
     - [x] libswiftDispatch: DispatchQueue's conformance to Combine's Scheduler, from
           Apple's overlay source, weak-linking Finch's Combine (2026-10-11); 19 apps
           imported it.

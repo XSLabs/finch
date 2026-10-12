@@ -70,4 +70,7 @@ FINCH_PRIVATE void FinchWindowServerEvent(const FWSEvent *e);
 - (void)_finchSetAccessoryWindow:(NSWindow *)window;
 @end
 
+/* The pasteboard item an NSPasteboardReading object is being made from (NSPasteboard.m). */
+FINCH_PRIVATE NSPasteboardItem *FinchPasteboardItemBeingRead(void);
+
 #endif

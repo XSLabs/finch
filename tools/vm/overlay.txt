@@ -236,3 +236,4 @@ build/userland/finch-formatters2-test /usr/local/bin/finch-formatters2-test
 build/userland/finch-urlcache-test /usr/local/bin/finch-urlcache-test
 build/userland/finch-appkit-small3-test /usr/local/bin/finch-appkit-small3-test
 build/userland/finch-compositional-test /usr/local/bin/finch-compositional-test
+build/userland/finch-filepromise-test /usr/local/bin/finch-filepromise-test
