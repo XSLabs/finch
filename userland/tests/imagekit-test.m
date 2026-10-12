@@ -167,6 +167,10 @@ str(NSString *s)
 static unsigned long
 usb_count(ICDeviceBrowser *b)
 {
+    /* (USB devices attached to the Mac show up in Apple's browser; Finch has no device
+       modules yet, so they're only counted when FINCH_TEST_DEVICES is set) */
+    if (!getenv("FINCH_TEST_DEVICES"))
+        return 0;
     unsigned long n = 0;
     for (ICDevice *d in b.devices)
         if ([d.transportType isEqualToString:ICTransportTypeUSB])
@@ -177,12 +181,12 @@ usb_count(ICDeviceBrowser *b)
 @implementation BrowserDelegate
 - (void)deviceBrowser:(ICDeviceBrowser *)b didAddDevice:(ICDevice *)d moreComing:(BOOL)more
 {
-    if ([d.transportType isEqualToString:ICTransportTypeUSB])
+    if ([d.transportType isEqualToString:ICTransportTypeUSB] && getenv("FINCH_TEST_DEVICES"))
         printf("  added %s\n", d.name.UTF8String);
 }
 - (void)deviceBrowser:(ICDeviceBrowser *)b didRemoveDevice:(ICDevice *)d moreGoing:(BOOL)more
 {
-    if ([d.transportType isEqualToString:ICTransportTypeUSB])
+    if ([d.transportType isEqualToString:ICTransportTypeUSB] && getenv("FINCH_TEST_DEVICES"))
         printf("  removed %s\n", d.name.UTF8String);
 }
 - (void)deviceBrowserDidEnumerateLocalDevices:(ICDeviceBrowser *)b

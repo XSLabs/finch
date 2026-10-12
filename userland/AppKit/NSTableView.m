@@ -282,9 +282,19 @@ table_init(NSTableView *self)
         [_dataSource tableView:self setObjectValue:value forTableColumn:column row:row];
 }
 
+/* The object that makes rows' views: the delegate, or, when it doesn't, a data source
+   that does (AppKit's diffable data source makes its own views, as Apple's does). */
+- (id)_finchViewMaker:(SEL)selector
+{
+    if ([_delegate respondsToSelector:selector])
+        return _delegate;
+    return [_dataSource respondsToSelector:selector] ? _dataSource : nil;
+}
+
 - (BOOL)_finchIsGroupRow:(NSInteger)row
 {
-    return [_delegate respondsToSelector:@selector(tableView:isGroupRow:)] && [_delegate tableView:self isGroupRow:row];
+    id maker = [self _finchViewMaker:@selector(tableView:isGroupRow:)];
+    return maker && [maker tableView:self isGroupRow:row];
 }
 
 - (BOOL)_finchDelegateHasRowHeights
@@ -299,22 +309,22 @@ table_init(NSTableView *self)
 
 - (BOOL)_finchDelegateMakesViews
 {
-    return [_delegate respondsToSelector:@selector(tableView:viewForTableColumn:row:)];
+    return [self _finchViewMaker:@selector(tableView:viewForTableColumn:row:)] != nil;
 }
 
 - (NSView *)_finchDelegateViewForColumn:(NSTableColumn *)column row:(NSInteger)row
 {
-    if ([self _finchDelegateMakesViews])
-        return [_delegate tableView:self viewForTableColumn:column row:row];
+    id maker = [self _finchViewMaker:@selector(tableView:viewForTableColumn:row:)];
+    if (maker)
+        return [maker tableView:self viewForTableColumn:column row:row];
     /* bindings without the delegate method: the column's prototype */
     return column ? [self makeViewWithIdentifier:[column identifier] owner:_delegate] : nil;
 }
 
 - (NSTableRowView *)_finchDelegateRowViewForRow:(NSInteger)row
 {
-    if ([_delegate respondsToSelector:@selector(tableView:rowViewForRow:)])
-        return [_delegate tableView:self rowViewForRow:row];
-    return nil;
+    id maker = [self _finchViewMaker:@selector(tableView:rowViewForRow:)];
+    return maker ? [maker tableView:self rowViewForRow:row] : nil;
 }
 
 - (void)_finchDidAddRowView:(NSTableRowView *)rowView row:(NSInteger)row
@@ -640,7 +650,7 @@ compute_rows(NSTableView *self)
     self->_rowY = NULL;
     self->_rowYCount = n + 1;
     BOOL heights = [self _finchDelegateHasRowHeights];
-    BOOL groups = [self->_delegate respondsToSelector:@selector(tableView:isGroupRow:)] ||
+    BOOL groups = [self _finchViewMaker:@selector(tableView:isGroupRow:)] != nil ||
                   [self respondsToSelector:@selector(_finchHasGroupItems)];
     CGFloat y = top_inset(self);
     self->_rowTop = y;

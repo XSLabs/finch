@@ -137,7 +137,7 @@ block-beta
         icu["libicucore<br/>ICU-76142.4.7"]
         objc["libobjc (objc4)"]
         autolayout["CoreAutoLayout (private)<br/>constraints, anchors, VFL,<br/>Cassowary solver"]
-        swift["Swift 6.3.1 runtimes<br/>Darwin overlays,<br/>Foundation and AppKit Swift;<br/>Combine (OpenCombine + Finch)"]
+        swift["Swift 6.3.1 runtimes<br/>Darwin overlays,<br/>Foundation and AppKit Swift<br/>(diffable data sources,<br/>suggestions, invalidation);<br/>Combine (OpenCombine + Finch)"]
         iokit["IOKit.framework<br/>(IOKitUser)"]
         gcore["GCoreFramework<br/>(gcore, on Finch Foundation)"]
         sysconfig["SystemConfiguration<br/>preferences and network reads;<br/>shared store via Finch configd;<br/>manual IPv4 and DNS apply"]

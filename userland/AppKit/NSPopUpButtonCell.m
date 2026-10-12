@@ -30,6 +30,7 @@ NSNotificationName NSPopUpButtonWillPopUpNotification = @"NSPopUpButtonWillPopUp
     NSMenu *_menu;
     NSMenuItem *_selected;  /* retained */
     NSMenuItem *_shown;     /* the item the button shows (-menuItem; not retained, it is in the menu) */
+    NSMenuItem *_display;   /* (retained) the item shown instead when it doesn't use the menu's */
     NSRectEdge _edge;
     NSPopUpArrowPosition _arrow;
     struct {
@@ -114,6 +115,7 @@ NSNotificationName NSPopUpButtonWillPopUpNotification = @"NSPopUpButtonWillPopUp
 {
     [_menu release];
     [_selected release];
+    [_display release];
     [super dealloc];
 }
 
@@ -179,14 +181,21 @@ NSNotificationName NSPopUpButtonWillPopUpNotification = @"NSPopUpButtonWillPopUp
 - (NSPopUpArrowPosition)arrowPosition { return _arrow; }
 - (void)setArrowPosition:(NSPopUpArrowPosition)p { _arrow = p; [self _finchChanged]; }
 
-/* The item the button shows: the selected one (pop-up), the first (pull-down). */
+/* The item the button shows: the selected one (pop-up), the first (pull-down); or, when
+   the cell doesn't use the menu's items, one of its own, set here (as Apple's). */
 - (NSMenuItem *)menuItem
 {
-    return _shown;
+    return _p.notUsesItem && _display ? _display : _shown;
 }
 
 - (void)setMenuItem:(NSMenuItem *)item
 {
+    if (_p.notUsesItem) {
+        [_display autorelease];
+        _display = [item retain];
+        [self _finchChanged];
+        return;
+    }
     [self selectItem:item];
 }
 

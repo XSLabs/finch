@@ -425,6 +425,12 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
     - [x] Glass (NSGlassEffectView, the private NSGlassView, NSGlassEffectContainerView):
           slate panels in Fieldwork, a translucent stand-in in Classic; row actions take
           the theme's colours (2026-10-12).
+    - [x] AppKit's Swift overlay, its newer half (`AppKitOverlayModern.swift`): diffable
+          data source snapshots and the collection and table view data sources, text
+          suggestions, @NSView.Invalidating, frame-resize cursors, pull-down pop-up
+          buttons, storyboard creators and the AppKit attribute scope's plain keys;
+          `appkit-swift2-test` matches Apple's (2026-10-12). Symbol effects (they need a
+          Symbols framework) and `NSImage(resource:)` are still to come.
     - [x] libswiftDispatch: DispatchQueue's conformance to Combine's Scheduler, from
           Apple's overlay source, weak-linking Finch's Combine (2026-10-11); 19 apps
           imported it.
