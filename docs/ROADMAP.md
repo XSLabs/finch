@@ -394,9 +394,14 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
   - [ ] Calculator: needs Finch's own Calculate, CalculateUI, SwiftData, TipKit,
         AppIntents, Network and FeatureFlags, and 101 more SwiftUI symbols
         (`tools/check-imports.py`).
-  - [ ] Drop-in check: `tools/check-imports.py` over every app in /System/Applications
-        and /Applications, recorded with what each lacks, so the next frameworks are
-        picked by how many apps they unblock.
+  - [x] Drop-in check: `tools/app-sweep.py` runs the import check over every app and the
+        frameworks it carries, and ranks what's missing by apps blocked. Apple's apps are
+        recorded in [`docs/APPS.md`](APPS.md) (2026-10-11: 6 of 65 have every import;
+        gaps in AppKit, Foundation and CoreGraphics block the most, then AppIntents and
+        AVFoundation). The next frameworks are picked from it.
+  - [ ] Close the symbol gaps in Finch's own frameworks that block the most apps
+        (AppKit, Foundation, CoreGraphics, libswiftDispatch, QuartzCore, CoreFoundation),
+        starting with Apps, Mission Control and Time Machine, which lack nothing else.
   - [x] A Cocoa app bundle built the usual way (`userland/tests/apps/Hello`: NSApplicationMain,
         a MainMenu nib from ibtool, outlets and actions) launches on Finch's frameworks and window
         server, shows its menu bar and window, and responds to clicks and typing

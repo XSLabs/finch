@@ -80,6 +80,46 @@ def exports_of(root, install_name, seen=None):
     return syms
 
 
+def check(binary, root=ROOT):
+    """What a binary imports that Finch's images don't export: (absent, missing_libs, weak),
+    absent mapping each library's short name to (missing (symbol, weak) pairs, import count),
+    missing_libs listing (short name, install name, import count) for libraries with no image."""
+    libs = {}
+    weak = set()
+    for line in run("dyld_info", "-arch", "arm64e", "-linked_dylibs", binary).splitlines():
+        m = re.match(r"\s+((?:weak-link|upward|re-export|reexport)\s+)*([/@].*?)\s*$", line)
+        if m:
+            libs[os.path.basename(m.group(2))] = m.group(2)
+            if m.group(1) and "weak" in m.group(1):
+                weak.add(m.group(2))
+    # (libraries the app carries itself, @rpath/... and the like, aren't Finch's to provide)
+    bundled = {short for short, install in libs.items() if install.startswith("@")}
+    imports = collections.defaultdict(list)
+    for line in run("dyld_info", "-arch", "arm64e", "-imports", binary).splitlines():
+        m = re.match(r"\s+0x[0-9A-Fa-f]+\s+(\S+)\s+(\[weak-import\]\s+)?\(from ([^)]+)\)", line)
+        if m:
+            imports[m.group(3)].append((m.group(1), bool(m.group(2))))
+    missing_libs = []
+    absent = {}
+    for short, syms in sorted(imports.items()):
+        install = next((v for k, v in libs.items() if k == short or k.startswith(short)), None)
+        # (bundled libraries, and weak definitions bound wherever they're found)
+        if install and install.startswith("@") or short in bundled or short.startswith("<"):
+            continue
+        if not install or not image_path(root, install):
+            missing_libs.append((short, install, len(syms)))
+            continue
+        have = exports_of(root, install)
+        gone = [(s, w) for s, w in syms if s not in have]
+        if gone:
+            absent[short] = (gone, len(syms))
+    imported = {install for _, install, _ in missing_libs}
+    for install in libs.values():
+        if install not in imported and not install.startswith("@") and not image_path(root, install) and install not in weak:
+            missing_libs.append((os.path.basename(install), install, 0))
+    return absent, missing_libs, weak
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("binary")
@@ -87,38 +127,14 @@ def main():
     ap.add_argument("--all", action="store_true", help="list every missing symbol, not just counts per library")
     args = ap.parse_args()
 
-    libs = {}
-    weak = set()
-    for line in run("dyld_info", "-arch", "arm64e", "-linked_dylibs", args.binary).splitlines():
-        m = re.match(r"\s+((?:weak-link|upward|re-export|reexport)\s+)*(/\S+)", line)
-        if m:
-            libs[os.path.basename(m.group(2))] = m.group(2)
-            if m.group(1) and "weak" in m.group(1):
-                weak.add(m.group(2))
-    imports = collections.defaultdict(list)
-    for line in run("dyld_info", "-arch", "arm64e", "-imports", args.binary).splitlines():
-        m = re.match(r"\s+0x[0-9A-Fa-f]+\s+(\S+)\s+(\[weak-import\]\s+)?\(from ([^)]+)\)", line)
-        if m:
-            imports[m.group(3)].append((m.group(1), bool(m.group(2))))
-    missing_libs = []
+    absent, missing_libs, weak = check(args.binary, args.root)
     total = 0
-    for short, syms in sorted(imports.items()):
-        install = next((v for k, v in libs.items() if k == short or k.startswith(short)), None)
-        if not install or not image_path(args.root, install):
-            missing_libs.append((short, install, len(syms)))
-            continue
-        have = exports_of(args.root, install)
-        absent = [(s, w) for s, w in syms if s not in have]
-        if absent:
-            total += len(absent)
-            print(f"{short}: {len(absent)} of {len(syms)} missing")
-            if args.all:
-                for s, w in absent:
-                    print(f"    {s}{'  [weak]' if w else ''}")
-    imported = {install for _, install, _ in missing_libs}
-    for install in libs.values():
-        if install not in imported and not image_path(args.root, install) and install not in weak:
-            missing_libs.append((os.path.basename(install), install, 0))
+    for short, (gone, count) in absent.items():
+        total += len(gone)
+        print(f"{short}: {len(gone)} of {count} missing")
+        if args.all:
+            for s, w in gone:
+                print(f"    {s}{'  [weak]' if w else ''}")
     for short, install, n in missing_libs:
         print(f"no image: {install or short} ({n} imports){'  [weak]' if install in weak else ''}")
     print(f"{total} missing symbols, {len(missing_libs)} missing libraries")
