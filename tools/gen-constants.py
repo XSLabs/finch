@@ -97,8 +97,12 @@ OBJ = re.compile(r'(NSString|CFStringRef|Key|Name|Identifier|Option|Domain|Type|
 lines = ['/* SPDX-License-Identifier: MIT OR Apache-2.0 */',
          f"/* {fw}'s exported constants, with the values Apple's have (tools/gen-constants.py). */",
          '#import <Foundation/Foundation.h>', '']
+# (types that are strings by typedef, as AVMetadataFormat: never numbers, whatever their names say)
+STRING_TYPES = set(re.findall(r'typedef\s+NSString\s*\*\s*(?:const\s+)?(\w+)', headers))
 for name, decl in data:
-    if decl in ('double', 'CGFloat', 'NSTimeInterval', 'CFTimeInterval') or (decl and re.search(r'(Accuracy|Distance|Degrees|Direction|Speed|Duration)$', decl or '')):
+    if decl in STRING_TYPES:
+        kind = 'obj'
+    elif decl in ('double', 'CGFloat', 'NSTimeInterval', 'CFTimeInterval') or (decl and re.search(r'(Accuracy|Distance|Degrees|Direction|Speed|Duration)$', decl or '')):
         kind = 'double'
     elif decl in ('float',):
         kind = 'float'

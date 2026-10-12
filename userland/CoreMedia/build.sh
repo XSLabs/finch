@@ -8,13 +8,13 @@
 # H.264 and HEVC parameter sets (CMParameterSets.c), metadata identifiers, data types and
 # format descriptions (CMMetadata.c over CMMetadataTypes.c, Apple's values), tags, tag
 # collections and tagged buffer groups (CMTag.c), QuickTime and ISO image descriptions
-# (CMSampleDescriptions.c); CMConstants.m has Apple's constants.
+# (CMSampleDescriptions.c) and sound descriptions (CMSoundDescriptions.c); CMConstants.m has Apple's constants.
 #   userland/CoreMedia/build.sh -> build/root/System/Library/Frameworks/CoreMedia.framework
 set -euo pipefail
 FINCH_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HERE="${FINCH_ROOT}/userland/CoreMedia"
 SOURCES=()
-for f in CMConstants.m CMTime.c CMBlockBuffer.c CMFormatDescription.c CMSampleBuffer.c CMAttachment.c CMNotificationCenter.c CMSync.c CMQueues.c CMParameterSets.c CMMetadata.c CMMetadataTypes.c CMTag.c CMSampleDescriptions.c; do
+for f in CMConstants.m CMTime.c CMBlockBuffer.c CMFormatDescription.c CMSampleBuffer.c CMAttachment.c CMNotificationCenter.c CMSync.c CMQueues.c CMParameterSets.c CMMetadata.c CMMetadataTypes.c CMTag.c CMSampleDescriptions.c CMSoundDescriptions.c; do
     [ -f "${HERE}/${f}" ] && SOURCES+=("${HERE}/${f}")
 done
 OBJC_ARC=1 CFLAGS="-Wno-deprecated-declarations -fblocks" \

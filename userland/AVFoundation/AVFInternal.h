@@ -1,0 +1,34 @@
+/* SPDX-License-Identifier: MIT OR Apache-2.0 */
+/* AVFoundation's insides, shared between its files. */
+#import <AVFoundation/AVFoundation.h>
+#import "AVFMovie.h"
+
+typedef struct {
+    const char *identifier, *keySpace;
+    const char *stringKey;  /* or NULL, for a four-character code */
+    uint32_t codeKey;
+    const char *commonKey;  /* or NULL */
+} AVFIdentifierInfo;
+
+extern const AVFIdentifierInfo AVFIdentifierTable[];
+extern const size_t AVFIdentifierTableCount;
+
+/* An error in AVFoundation's domain, with Apple's code. */
+NSError *AVFError(NSInteger code, NSError *underlying);
+
+/* The common key a key in a key space has, as Apple's gives it (or nil). */
+NSString *AVFCommonKeyFor(id key, NSString *keySpace);
+
+@interface AVMetadataItem (Finch)
+/* A read-only item made from what a movie's user data or metadata holds. */
++ (instancetype)_finchItemWithEntry:(AVFMetadataEntry *)entry;
+- (void)_finchTakeFrom:(AVMetadataItem *)other;
+@end
+
+/* The common metadata from a list of items: the first item for each common key, in
+   Apple's order of common keys. */
+NSArray<AVMetadataItem *> *AVFCommonMetadata(NSArray<AVMetadataItem *> *items);
+
+/* The types and MIME types AVURLAsset opens (AVFTypes.m). */
+NSArray<NSString *> *AVFAudiovisualTypes(void);
+NSArray<NSString *> *AVFAudiovisualMIMETypes(void);

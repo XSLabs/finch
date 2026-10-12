@@ -690,10 +690,24 @@ and AppKit come in Phase 2).
         delay, distortion, EQ, reverb, time-pitch, varispeed and sampler units over
         Finch's own effect DSP, and unit components. Host comparisons match Apple's
         (2026-10-11).
+  - [x] CoreMedia's sound descriptions: QuickTime version 0, 1 and 2 and ISO audio
+        sample entries to and from audio format descriptions ('wave'/'frma'/'enda',
+        'esds' cookies with AAC's AudioSpecificConfig, 'chan', 'pcmC', 'chnl'), byte
+        for byte as Apple's; `sounddesc-test` matches on the host and in the VM
+        (2026-10-12).
+  - [x] AVFoundation, first stage: the framework (re-exporting AVFAudio, with Apple's
+        constants and metadata identifiers as data), Finch's own QuickTime/ISO reader,
+        AVAsset/AVURLAsset/AVAssetTrack/AVAssetTrackSegment and AVMetadataItem: durations,
+        tracks' times, sizes, rates and format descriptions, user data and common
+        metadata, loading by key and its errors; `avasset-test` (a movie the test writes
+        itself) matches Apple's on the host and in the VM (2026-10-12).
+  - [ ] AVFoundation, next: AVAssetReader and AVAssetWriter (passthrough, then PCM and
+        JPEG through ImageIO), AVAssetImageGenerator, AVPlayer/AVPlayerItem/AVPlayerLayer
+        on CoreMedia timebases, export sessions, compositions; codecs (H.264 and AAC)
+        through VideoToolbox and AudioToolbox.
   - [ ] Compressed conversion, remaining audio properties and queue operations,
         remaining AVFAudio pieces (environment node, sequencer, recorder,
-        AUAudioUnit), VideoToolbox, AVFoundation and AVKit. Real audio output
-        needs Phase 3.
+        AUAudioUnit), VideoToolbox and AVKit. Real audio output needs Phase 3.
 
 **Exit:** a defined app corpus (e.g., top 50 non-App-Store Mac apps) runs with no Apple
 binaries.

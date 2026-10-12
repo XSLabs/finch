@@ -81,6 +81,17 @@ CoreAudio (HAL)                devices: none until Finch has an audio driver
   interface), the environment node (3D mixing), the sequencer and MIDI player,
   the recorder and compressed buffers remain open, parked behind AVFoundation.
 
+- CoreMedia's sound descriptions: audio format descriptions to and from QuickTime
+  version 0, 1 and 2 sound descriptions and ISO audio sample entries, byte for byte as
+  Apple's writes them (`sounddesc-test`), with each description keeping its original to
+  write back verbatim.
+- AVFoundation's first stage: Finch's own QuickTime/ISO reader (`AVFMovie.m`) under
+  AVAsset, AVURLAsset, AVAssetTrack, AVAssetTrackSegment and AVMetadataItem. The test
+  writes its own movie (JPEG frames and PCM audio with user data) so both systems read
+  the same bytes, and the assets, tracks, format descriptions, metadata, loading and
+  errors match Apple's (`avasset-test`, 2026-10-12). Readers, writers, image generation
+  and playback come next, then codecs through VideoToolbox.
+
 The converter, extended-file, software-unit, queue and AVFAudio buffer checks
 pass on the host, in QEMU and in the VZ guest (2026-10-11). These checks exercise
 audio stored in memory and files; hardware playback and recording remain open.
