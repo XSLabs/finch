@@ -754,7 +754,7 @@ $(OUT)/finch-compositional-test: compositional-test.m
 	$(CC) $(CFLAGS) -fobjc-arc -o $@ $< -framework AppKit
 $(OUT)/finch-appkit-small3-test: appkit-small3-test.m
 	@mkdir -p $(OUT)
-	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -o $@ $< -framework AppKit
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework AppKit
 $(OUT)/finch-urlcache-test: urlcache-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -o $@ $< -framework Foundation

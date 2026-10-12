@@ -119,13 +119,29 @@ main(void)
         /* the scrubber (the Touch Bar's) */
         NSScrubber *sc = [[NSScrubber alloc] initWithFrame:NSMakeRect(0, 0, 300, 30)];
         printf("scrubber: items %ld selected %ld highlighted %ld mode %ld continuous %d floats %d wraps %d layout %s\n", (long)sc.numberOfItems,
-            (long)sc.selectedIndex, (long)sc.highlightedIndex, (long)sc.mode, sc.continuous, sc.floatsSelectionViews, sc.itemAlignment,
+            (long)sc.selectedIndex, (long)sc.highlightedIndex, (long)sc.mode, sc.continuous, sc.floatsSelectionViews, (int)sc.itemAlignment,
             NSStringFromClass([sc.scrubberLayout class]).UTF8String);
 
         /* speech */
         NSSpeechSynthesizer *speech = [NSSpeechSynthesizer new];
         printf("speech: speaking %d any %d volume %.2f rate>0 %d\n", speech.isSpeaking, [NSSpeechSynthesizer isAnyApplicationSpeaking],
             speech.volume, speech.rate > 0);
+
+        /* glass */
+        NSGlassEffectView *g = [[NSGlassEffectView alloc] initWithFrame:NSMakeRect(0, 0, 100, 50)];
+        printf("glass: radius %g tint %s style %ld content %s subviews %lu\n", g.cornerRadius, g.tintColor ? "set" : "nil", (long)g.style,
+            g.contentView ? "set" : "nil", (unsigned long)g.subviews.count);
+        NSView *gc = [NSView new];
+        g.contentView = gc;
+        printf("  content: directly inside %d, inside it %d, subviews %lu\n", gc.superview == g, [gc isDescendantOf:g],
+            (unsigned long)g.subviews.count);
+        g.cornerRadius = 12;
+        g.style = NSGlassEffectViewStyleClear;
+        printf("  set: %g %ld\n", g.cornerRadius, (long)g.style);
+        Class gv = NSClassFromString(@"NSGlassView");
+        printf("private glass view: %s subclass %d\n", gv ? "present" : "missing", [gv isSubclassOfClass:[NSGlassEffectView class]]);
+        NSGlassEffectContainerView *gcv = [[NSGlassEffectContainerView alloc] initWithFrame:NSMakeRect(0, 0, 100, 50)];
+        printf("glass container: spacing %g content %s\n", gcv.spacing, gcv.contentView ? "set" : "nil");
 
         /* constants */
         printf("constants: %s | %s | insets %g %g %g %g\n", NSAppearanceNameTouchBar.UTF8String, NSFlowLayoutRowVerticalAlignmentKey.UTF8String,

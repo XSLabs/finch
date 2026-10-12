@@ -8,6 +8,7 @@
  * delegate hears it finished); and the constants and functions they come with.
  */
 #import "AppKit_Finch.h"
+#import "FinchTheme.h"
 #import <objc/runtime.h>
 
 /* (macOS 26.1's scroll-edge styles are kept as objects, whatever the deployment target) */
@@ -246,13 +247,15 @@ const NSDirectionalEdgeInsets NSDirectionalEdgeInsetsZero = {0, 0, 0, 0};
 - (NSImage *)image { return _image; }
 - (void)setImage:(NSImage *)i { [_image autorelease]; _image = [i retain]; }
 
-/* (red for destructive actions, blue for the rest: macOS 26's system red and blue) */
+/* (the theme's red for destructive actions; for the rest, its accent in Fieldwork, which
+   doesn't use Apple's blue, and system blue in Classic, as Apple's) */
 - (NSColor *)backgroundColor
 {
     if (_background)
         return _background;
-    return _style == NSTableViewRowActionStyleDestructive ? [NSColor colorWithSRGBRed:1.0 green:0.220 blue:0.235 alpha:1]
-                                                          : [NSColor colorWithSRGBRed:0.0 green:0.533 blue:1.0 alpha:1];
+    if (_style == NSTableViewRowActionStyleDestructive)
+        return [NSColor systemRedColor];
+    return FinchThemeIsClassic() ? [NSColor systemBlueColor] : [NSColor controlAccentColor];
 }
 
 - (void)setBackgroundColor:(NSColor *)c { [_background autorelease]; _background = [c copy]; }

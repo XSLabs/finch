@@ -28,6 +28,11 @@ and deliberate spacing. It doesn't come from heavy borders, big shadows, or grad
 A window has a one-pixel outline, a faint highlight along its top edge, and a small
 shadow that puts it about two millimetres above the desktop.
 
+macOS 26's glass views (NSGlassEffectView and the private NSGlassView) draw as slate:
+solid, with the outline and top-edge highlight, their corners no rounder than a
+window's, and a tint as a light wash. Only the Classic theme draws a translucent
+stand-in for Apple's glass.
+
 ## Colour
 
 There are two appearances, each designed on its own rather than as an inversion of the

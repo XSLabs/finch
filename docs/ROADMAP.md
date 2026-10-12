@@ -422,6 +422,9 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           within the process until there's a drag server), and pasteboards read any
           NSPasteboardReading class, not only strings and URLs; `filepromise-test`
           matches Apple's (2026-10-12).
+    - [x] Glass (NSGlassEffectView, the private NSGlassView, NSGlassEffectContainerView):
+          slate panels in Fieldwork, a translucent stand-in in Classic; row actions take
+          the theme's colours (2026-10-12).
     - [x] libswiftDispatch: DispatchQueue's conformance to Combine's Scheduler, from
           Apple's overlay source, weak-linking Finch's Combine (2026-10-11); 19 apps
           imported it.
