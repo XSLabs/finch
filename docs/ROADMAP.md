@@ -612,6 +612,14 @@ macOS on the M4 itself (m1n1 hypervisor).
   - The Mac keeps what it can't do without: system firmware and the system recoveryOS.
   - To prove on hardware: the installer runs from the system recoveryOS, so not even
     installing needs macOS.
+  - [ ] Offline install, as far as the hardware allows. The stub's boot firmware must
+    carry an Apple-signed ticket for that Mac (the boot ROM and SEP enforce it), which
+    normally means one request to Apple's signing server. Finch's own kernel and system
+    are authorised by the Mac's local policy, so reinstalls and updates need no network.
+    To find out: whether a Mac that still has its factory macOS can lend its existing,
+    already-personalized firmware to Finch's stub (no network at all), and whether a
+    boot policy for a custom kernel is allowed on an external drive (the Tier 3 test on
+    the external Finch volume will show).
   - Needs Finch drivers for the whole boot path (ANS, SEP, DCP, input, SMC/PMGR), because
     there are no Apple kexts to borrow.
 
