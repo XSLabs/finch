@@ -411,6 +411,17 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         AVFoundation). The next frameworks are picked from it.
   - [ ] Close the symbol gaps in Finch's own frameworks that block the most apps
         (AppKit, Foundation, CoreGraphics, QuartzCore, CoreFoundation).
+    - [x] IconServices (private; 14 apps link it), Finch's own (2026-10-12): icons for
+          apps (their .icns or asset catalog icon), files, folders and types (Finch's
+          generic art), as images at the Mac's icon sizes (16, 32, 128, 256 and 512
+          points, as Apple's snap them), and Apple's named image descriptors;
+          `iconservices-test` matches Apple's.
+    - [x] Small exports for Activity Monitor, Audio MIDI Setup, System Information and
+          Migration Assistant (2026-10-12): CoreGraphics' display modes (Apple's 212-byte
+          descriptions), display info and UUIDs, all sessions' properties, app
+          responsiveness; AppKit's accent-colour calls, width factor, Help book name and
+          `NSSubTextStorage` (Script Editor's text). They still link private frameworks
+          Finch doesn't have (LaunchServicesSupport, caulk, DeviceRegulatoryInfo).
     - [ ] Every class and method the public headers declare, as Apple's answers them:
           `tools/api-audit.sh` lists what Finch lacks. 2026-10-12: Foundation 61 classes
           and 140 methods (from 67 and 225), AppKit 48 classes and 115 methods (from 50 and 562).

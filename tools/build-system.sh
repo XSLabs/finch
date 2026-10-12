@@ -116,6 +116,8 @@ steps=(
     "HIServices|userland/HIServices/build.sh"
     "PrintCore|userland/PrintCore/build.sh"
     "SystemAdministration|userland/SystemAdministration/build.sh"
+    # IconServices (private): icons for apps, files and types
+    "IconServices|userland/IconServices/build.sh"
     # AppKit and the frameworks around it (docs/design/APPKIT.md)
     "ApplicationServices|userland/ApplicationServices/build.sh"
     "UIFoundation|userland/UIFoundation/build.sh"

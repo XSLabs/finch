@@ -11,6 +11,9 @@
 #include "CGContextInternal.h"
 #include "CGColorSpaceInternal.h"
 #include <cmath>
+#include <dlfcn.h>
+#include <dispatch/dispatch.h>
+#include <pwd.h>
 #include <unistd.h>
 #include <vector>
 
@@ -66,6 +69,12 @@ CGError CGSGetOnScreenWindowList(CGSConnectionID cid, CGSConnectionID owner, int
 CGPoint CGSCurrentInputPointerPosition(void);
 CGError CGSSetWindowCaptureExcludeShape(CGSConnectionID cid, CGSWindowID wid, CGSRegionRef region);
 CFDictionaryRef CGSSessionCopyCurrentSessionProperties(void);
+CFArrayRef CGSSessionCopyAllSessionProperties(void);
+bool CGSEventIsAppUnresponsive(CGSConnectionID cid, const void *psn);
+CGError CGSGetNumberOfDisplayModes(CGDirectDisplayID display, int *count);
+CGError CGSGetDisplayModeDescriptionsOfLength(CGDirectDisplayID display, void *modes, int *count, int length);
+CFDictionaryRef CGSCopyDisplayInfoDictionary(CGDirectDisplayID display);
+CGError CGSCopyDisplayUUID(CGDirectDisplayID display, CFUUIDRef *uuid);
 double CGSSecondsSinceLastInputEvent(int type);
 uint32_t CGSInputModifierKeyState(int which);
 int CGSServerOperationState(void);
@@ -321,6 +330,135 @@ CFDictionaryRef
 CGSSessionCopyCurrentSessionProperties(void)
 {
     return CGSessionCopyCurrentDictionary();
+}
+
+extern "C" __attribute__((visibility("default"))) const CFStringRef kCGSSessionUserNameKey = CFSTR("kCGSSessionUserNameKey");
+extern "C" __attribute__((visibility("default"))) const CFStringRef kCGSSessionLongUserNameKey = CFSTR("kCGSessionLongUserNameKey");
+
+/* Every session: Finch has the one at the console, with the user's long name too. */
+CFArrayRef
+CGSSessionCopyAllSessionProperties(void)
+{
+    CFDictionaryRef cur = CGSessionCopyCurrentDictionary();
+    CFMutableDictionaryRef d = CFDictionaryCreateMutableCopy(NULL, 0, cur);
+    CFRelease(cur);
+    struct passwd *pw = getpwuid(getuid());
+    if (pw && pw->pw_name) {
+        CFStringRef name = CFStringCreateWithCString(NULL, pw->pw_name, kCFStringEncodingUTF8);
+        CFDictionarySetValue(d, kCGSSessionUserNameKey, name);
+        CFRelease(name);
+        const char *gecos = pw->pw_gecos && *pw->pw_gecos ? pw->pw_gecos : pw->pw_name;
+        CFStringRef longName = CFStringCreateWithCString(NULL, gecos, kCFStringEncodingUTF8);
+        CFDictionarySetValue(d, kCGSSessionLongUserNameKey, longName);
+        CFRelease(longName);
+    }
+    const void *v[] = {d};
+    CFArrayRef a = CFArrayCreate(NULL, v, 1, &kCFTypeArrayCallBacks);
+    CFRelease(d);
+    return a;
+}
+
+/* (no app is ever flagged as not responding: the window server doesn't watch for it yet) */
+bool
+CGSEventIsAppUnresponsive(CGSConnectionID cid, const void *psn)
+{
+    return false;
+}
+
+/* --- display modes, as Apple's 212-byte descriptions: Finch's display has one mode --- */
+
+extern "C" __attribute__((visibility("default"))) const CFStringRef kCGDisplayProductNameKey = CFSTR("DisplayProductName");
+
+CGError
+CGSGetNumberOfDisplayModes(CGDirectDisplayID display, int *count)
+{
+    if (count)
+        *count = display == CGMainDisplayID() ? 1 : 0;
+    return display == CGMainDisplayID() ? kCGErrorSuccess : kCGErrorIllegalArgument;
+}
+
+CGError
+CGSGetDisplayModeDescriptionsOfLength(CGDirectDisplayID display, void *modes, int *count, int length)
+{
+    if (display != CGMainDisplayID() || !modes || !count || *count < 1 || length < 212)
+        return kCGErrorIllegalArgument;
+    CGDisplayModeRef m = CGDisplayCopyDisplayMode(display);
+    uint8_t *d = (uint8_t *)modes;
+    memset(d, 0, (size_t)length);
+    uint32_t w = m ? (uint32_t)CGDisplayModeGetWidth(m) : 0, h = m ? (uint32_t)CGDisplayModeGetHeight(m) : 0;
+    uint32_t pw = m ? (uint32_t)CGDisplayModeGetPixelWidth(m) : w, ph = m ? (uint32_t)CGDisplayModeGetPixelHeight(m) : h;
+    uint32_t hz = m ? (uint32_t)lround(CGDisplayModeGetRefreshRate(m)) : 60;
+    float scale = w ? (float)pw / (float)w : 1;
+    CGDisplayModeRelease(m);
+    uint32_t f[] = {0, 1, w, h, 8, w * 4, 32, 8, 3, hz ? hz : 60, (uint32_t)lround(72 * scale), (uint32_t)lround(72 * scale)};
+    memcpy(d, f, sizeof f);
+    memcpy(d + 48, "--------RRRRRRRRGGGGGGGGBBBBBBBB", 32);
+    uint32_t tail[] = {1, 212, 0, 3, 0, pw, ph};
+    memcpy(d + 180, tail, sizeof tail);
+    memcpy(d + 208, &scale, sizeof scale);
+    *count = 1;
+    return kCGErrorSuccess;
+}
+
+/* (a display's UUID is ColorSync's, which builds it from the display ID) */
+static CFUUIDRef
+display_uuid(CGDirectDisplayID display)
+{
+    static CFUUIDRef (*make)(uint32_t);
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        void *h = dlopen("/System/Library/Frameworks/ColorSync.framework/ColorSync", RTLD_LAZY | RTLD_LOCAL);
+        make = h ? (CFUUIDRef(*)(uint32_t))dlsym(h, "CGDisplayCreateUUIDFromDisplayID") : NULL;
+    });
+    return make ? make(display) : NULL;
+}
+
+CGError
+CGSCopyDisplayUUID(CGDirectDisplayID display, CFUUIDRef *uuid)
+{
+    if (!uuid)
+        return kCGErrorIllegalArgument;
+    *uuid = display == CGMainDisplayID() ? display_uuid(display) : NULL;
+    return *uuid ? kCGErrorSuccess : kCGErrorIllegalArgument;
+}
+
+/* What the window server knows of a display, under Apple's keys. */
+CFDictionaryRef
+CGSCopyDisplayInfoDictionary(CGDirectDisplayID display)
+{
+    if (display != CGMainDisplayID())
+        return NULL;
+    CFMutableDictionaryRef d = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    auto num = [&](CFStringRef k, int64_t v) {
+        CFNumberRef n = CFNumberCreate(NULL, kCFNumberSInt64Type, &v);
+        CFDictionarySetValue(d, k, n);
+        CFRelease(n);
+    };
+    CGDisplayModeRef m = CGDisplayCopyDisplayMode(display);
+    num(CFSTR("kCGDisplayID"), display);
+    num(CFSTR("kCGDisplayPixelWidth"), m ? (int64_t)CGDisplayModeGetPixelWidth(m) : 0);
+    num(CFSTR("kCGDisplayPixelHeight"), m ? (int64_t)CGDisplayModeGetPixelHeight(m) : 0);
+    CGDisplayModeRelease(m);
+    num(CFSTR("DisplayVendorID"), CGDisplayVendorNumber(display));
+    num(CFSTR("DisplayProductID"), CGDisplayModelNumber(display));
+    num(CFSTR("DisplaySerialNumber"), CGDisplaySerialNumber(display));
+    CGSize mm = CGDisplayScreenSize(display);
+    num(CFSTR("DisplayHorizontalImageSize"), lround(mm.width));
+    num(CFSTR("DisplayVerticalImageSize"), lround(mm.height));
+    const void *nk[] = {CFSTR("en_US")}, *nv[] = {CFSTR("Display")};
+    CFDictionaryRef names = CFDictionaryCreate(NULL, nk, nv, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(d, kCGDisplayProductNameKey, names);
+    CFRelease(names);
+    CFUUIDRef u = display_uuid(display);
+    if (u) {
+        CFStringRef us = CFUUIDCreateString(NULL, u);
+        CFDictionarySetValue(d, CFSTR("kCGDisplayUUID"), us);
+        CFRelease(us);
+        CFRelease(u);
+    }
+    CFDictionarySetValue(d, CFSTR("kCGDisplayIsVirtualDevice"), kCFBooleanFalse);
+    CFDictionarySetValue(d, CFSTR("kCGDisplaySupportsRotation"), kCFBooleanFalse);
+    return d;
 }
 
 double
