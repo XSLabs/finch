@@ -2128,13 +2128,7 @@ static char bottom_corner_key;
     [view resetCursorRects];
 }
 
-/* Finch has no drag and drop between views yet: a drag ends where it began. */
-- (void)dragImage:(NSImage *)image at:(NSPoint)baseLocation offset:(NSSize)initialOffset event:(NSEvent *)event
-       pasteboard:(NSPasteboard *)pboard source:(id)sourceObj slideBack:(BOOL)slideFlag
-{
-    if ([sourceObj respondsToSelector:@selector(draggedImage:endedAt:operation:)])
-        [sourceObj draggedImage:image endedAt:[self convertPointToScreen:baseLocation] operation:NSDragOperationNone];
-}
+/* (dragging: NSDraggingSession.m) */
 
 @end
 

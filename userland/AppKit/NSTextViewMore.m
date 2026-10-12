@@ -787,3 +787,150 @@ FORWARD_ACTION(unscript)
 }
 
 @end
+
+#pragma mark - Dropping and dragging text
+
+extern char FinchTextDropIndexKey; /* (NSTextView.m draws the drop caret) */
+static char drag_range_key;
+
+@implementation NSTextView (FinchDragAndDrop)
+
+/* Within the view, a move (Option makes it a copy); elsewhere in the app, a copy. */
+- (NSDragOperation)draggingSession:(NSDraggingSession *)session sourceOperationMaskForDraggingContext:(NSDraggingContext)context
+{
+    return context == NSDraggingContextWithinApplication ? NSDragOperationCopy | NSDragOperationMove | NSDragOperationGeneric
+                                                         : NSDragOperationCopy | NSDragOperationGeneric;
+}
+
+- (void)draggingSession:(NSDraggingSession *)session willBeginAtPoint:(NSPoint)screenPoint
+{
+    objc_setAssociatedObject(self, &drag_range_key, [NSValue valueWithRange:[self selectedRange]], OBJC_ASSOCIATION_RETAIN);
+}
+
+- (void)draggingSession:(NSDraggingSession *)session endedAtPoint:(NSPoint)screenPoint operation:(NSDragOperation)operation
+{
+    /* moved to another view: the text leaves this one (a move within it is the drop's doing) */
+    NSValue *r = objc_getAssociatedObject(self, &drag_range_key);
+    objc_setAssociatedObject(self, &drag_range_key, nil, OBJC_ASSOCIATION_RETAIN);
+    if (r && (operation & NSDragOperationMove) && [self isEditable] && NSMaxRange([r rangeValue]) <= [[self string] length] &&
+        [self shouldChangeTextInRange:[r rangeValue] replacementString:@""]) {
+        [self replaceCharactersInRange:[r rangeValue] withString:@""];
+        [self didChangeText];
+    }
+}
+
+- (NSDragOperation)_finchDropOperation:(id<NSDraggingInfo>)info
+{
+    if (![self isEditable])
+        return NSDragOperationNone;
+    NSPoint p = [self convertPoint:[info draggingLocation] fromView:nil];
+    NSUInteger i = [self characterIndexForInsertionAtPoint:p];
+    objc_setAssociatedObject(self, &FinchTextDropIndexKey, @(i), OBJC_ASSOCIATION_RETAIN);
+    [self setNeedsDisplay:YES];
+    BOOL fromHere = [info draggingSource] == self;
+    BOOL option = ([NSEvent modifierFlags] & NSEventModifierFlagOption) != 0;
+    NSDragOperation mask = [info draggingSourceOperationMask];
+    if (fromHere && !option && (mask & NSDragOperationMove))
+        return NSDragOperationMove;
+    return (mask & NSDragOperationCopy) ? NSDragOperationCopy : (mask & NSDragOperationGeneric);
+}
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info { return [self _finchDropOperation:info]; }
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)info { return [self _finchDropOperation:info]; }
+
+- (void)_finchClearDropCaret
+{
+    if (objc_getAssociatedObject(self, &FinchTextDropIndexKey)) {
+        objc_setAssociatedObject(self, &FinchTextDropIndexKey, nil, OBJC_ASSOCIATION_RETAIN);
+        [self setNeedsDisplay:YES];
+    }
+}
+
+- (void)draggingExited:(id<NSDraggingInfo>)info { [self _finchClearDropCaret]; }
+- (void)draggingEnded:(id<NSDraggingInfo>)info { [self _finchClearDropCaret]; }
+- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)info { return [self isEditable]; }
+
+/* What the pasteboard holds, as the view takes it: rich text when the view is rich,
+   else plain; files as their paths (or attachments, in a rich view taking graphics). */
+- (NSAttributedString *)_finchDroppedText:(NSPasteboard *)pb
+{
+    if ([self isRichText]) {
+        NSData *d = [pb dataForType:NSPasteboardTypeRTFD];
+        NSAttributedString *a = d ? [[[NSAttributedString alloc] initWithRTFD:d documentAttributes:NULL] autorelease] : nil;
+        if (!a && (d = [pb dataForType:NSPasteboardTypeRTF]))
+            a = [[[NSAttributedString alloc] initWithRTF:d documentAttributes:NULL] autorelease];
+        if (a)
+            return a;
+    }
+    NSArray *urls = [pb readObjectsForClasses:@[ [NSURL class] ] options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
+    if ([urls count]) {
+        NSMutableAttributedString *out = [[[NSMutableAttributedString alloc] init] autorelease];
+        for (NSURL *u in urls) {
+            if ([self isRichText] && [self importsGraphics]) {
+                NSFileWrapper *w = [[[NSFileWrapper alloc] initWithURL:u options:0 error:NULL] autorelease];
+                if (w) {
+                    NSTextAttachment *att = [[[NSTextAttachment alloc] initWithFileWrapper:w] autorelease];
+                    [out appendAttributedString:[NSAttributedString attributedStringWithAttachment:att]];
+                    continue;
+                }
+            }
+            if ([out length])
+                [out appendAttributedString:[[[NSAttributedString alloc] initWithString:@" "] autorelease]];
+            [out appendAttributedString:[[[NSAttributedString alloc] initWithString:[u path] attributes:[self typingAttributes]] autorelease]];
+        }
+        return out;
+    }
+    NSString *s = [pb stringForType:NSPasteboardTypeString];
+    return s ? [[[NSAttributedString alloc] initWithString:s attributes:[self typingAttributes]] autorelease] : nil;
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)info
+{
+    NSNumber *drop = objc_getAssociatedObject(self, &FinchTextDropIndexKey);
+    NSAttributedString *text = [self _finchDroppedText:[info draggingPasteboard]];
+    [self _finchClearDropCaret];
+    if (!drop || !text)
+        return NO;
+    NSUInteger at = [drop unsignedIntegerValue];
+    NSValue *moving = [info draggingSource] == self ? objc_getAssociatedObject(self, &drag_range_key) : nil;
+    BOOL move = moving && [self _finchDropOperation:info] == NSDragOperationMove;
+    if (move) {
+        NSRange from = [moving rangeValue];
+        if (at >= from.location && at <= NSMaxRange(from))
+            return NO; /* (dropped on itself: nothing moves) */
+        /* (smart delete: the word takes a neighbouring space with it, as Apple's) */
+        NSRange gone = [self smartDeleteRangeForProposedRange:from];
+        if (![self shouldChangeTextInRange:gone replacementString:@""])
+            return NO;
+        [[self textStorage] replaceCharactersInRange:gone withString:@""];
+        if (at > gone.location)
+            at -= MIN(at - gone.location, gone.length);
+        /* (the source mustn't delete it again) */
+        objc_setAssociatedObject(self, &drag_range_key, nil, OBJC_ASSOCIATION_RETAIN);
+    }
+    NSRange target = NSMakeRange(MIN(at, [[self string] length]), 0);
+    /* (smart insert: spaces where the words would otherwise run together) */
+    NSMutableAttributedString *inserted = [[text mutableCopy] autorelease];
+    NSUInteger lead = 0;
+    if ([self smartInsertDeleteEnabled]) {
+        NSString *before = nil, *after = nil;
+        [self smartInsertForString:[text string] replacingRange:target beforeString:&before afterString:&after];
+        NSDictionary *attrs = [inserted length] ? [inserted attributesAtIndex:0 effectiveRange:NULL] : [self typingAttributes];
+        if (before) {
+            [inserted insertAttributedString:[[[NSAttributedString alloc] initWithString:before attributes:attrs] autorelease] atIndex:0];
+            lead = [before length];
+        }
+        if (after)
+            [inserted appendAttributedString:[[[NSAttributedString alloc] initWithString:after attributes:attrs] autorelease]];
+    }
+    if (![self shouldChangeTextInRange:target replacementString:[inserted string]])
+        return NO;
+    [[self textStorage] replaceCharactersInRange:target withAttributedString:inserted];
+    [self setSelectedRange:NSMakeRange(target.location + lead, [text length])];
+    [self didChangeText];
+    return YES;
+}
+
+- (void)concludeDragOperation:(id<NSDraggingInfo>)info { [self _finchClearDropCaret]; }
+
+@end

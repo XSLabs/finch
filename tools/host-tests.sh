@@ -45,7 +45,7 @@ COMPARE=(
     "coreservices-test|build/coreservices-test" "security-test|" "rtf-test|" "filecoordinator-test|" "textfinder-test|" "ruler-test|" "textblock-test|" "combine-test|" "cftokenizer-test|" "urlsession-test|" "swift-overlay-test|" "swift-runtime-test|"
 )
 # Finch-only window-server tests and their expected output
-EXPECT=(window controls-window menu-window text-window panels-window tables-window statusbar)
+EXPECT=(window controls-window menu-window text-window panels-window tables-window statusbar drag-window)
 FINCH_ONLY=("keychain-crypto-test|" "security-keychain-storage-test|" "security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "avaudio-services-test|" "configd-daemon-test|")
 
 want() {

@@ -98,6 +98,13 @@ translations(NSString *type)
     return table[type] ?: @[];
 }
 
+/* A type and the old names it also goes by (drags match a view's registered types by these). */
+FINCH_PRIVATE NSArray<NSString *> *
+FinchPasteboardTypeNames(NSString *type)
+{
+    return [@[ type ] arrayByAddingObjectsFromArray:translations(type)];
+}
+
 /* The modern type an old name reads, and its data in the old form. */
 static NSString *
 translated_from(NSString *name, NSArray<NSString *> *available)

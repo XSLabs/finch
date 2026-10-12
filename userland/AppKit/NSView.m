@@ -1452,7 +1452,7 @@ const CGFloat NSViewNoIntrinsicMetric = -1;
 #pragma mark - Drag types
 
 /* The pasteboard types a view (or window) accepts in a drag. Finch has no drag and drop
-   between views yet; the registration is kept for when it does, and for apps that read it. */
+   between apps yet; within an app, NSDraggingSession.m finds destinations by these. */
 static char dragged_types_key;
 
 @implementation NSView (FinchDraggedTypes)
@@ -1494,6 +1494,11 @@ static char dragged_types_key;
     objc_setAssociatedObject(self, &dragged_types_key, nil, OBJC_ASSOCIATION_COPY_NONATOMIC);
 }
 
+- (NSArray<NSPasteboardType> *)_finchRegisteredDraggedTypes
+{
+    return objc_getAssociatedObject(self, &dragged_types_key) ?: @[];
+}
+
 @end
 
 #pragma mark - More of what apps call
@@ -1519,13 +1524,7 @@ static char dragged_types_key;
                                   options:(NSDictionary *)options
                    baselineOriginProvider:(NSPoint (^)(NSRange adjustedRange))originProvider {}
 
-/* Finch has no drag and drop between views yet: a drag ends where it began. */
-- (void)dragImage:(NSImage *)image at:(NSPoint)viewLocation offset:(NSSize)initialOffset event:(NSEvent *)event
-       pasteboard:(NSPasteboard *)pboard source:(id)sourceObj slideBack:(BOOL)slideFlag
-{
-    [[self window] dragImage:image at:[self convertPoint:viewLocation toView:nil] offset:initialOffset event:event
-                  pasteboard:pboard source:sourceObj slideBack:slideFlag];
-}
+/* (dragging: NSDraggingSession.m) */
 
 @end
 

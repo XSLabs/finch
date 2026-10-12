@@ -445,9 +445,19 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           newer cursors, mnemonics, table grids, the object controllers' Core Data
           settings, application search and document order, event touches, split-view
           accessories and tab toolbars; `windowing-more-test` matches Apple's (2026-10-12).
-  - [ ] Drag and drop: within an app (NSDraggingSession runs the drag: destinations
-        registered for the types get the NSDraggingDestination calls), then between apps
-        through the window server and the pasteboard server. Finch has neither yet.
+  - [ ] Drag and drop: within an app, then between apps through the window server and
+        the pasteboard server.
+    - [x] Within an app: NSDraggingSession runs the drag once the event that began it is
+          handled (the drag image follows the pointer; the frontmost view registered for
+          the pasteboard's types, or its window, gets the NSDraggingDestination calls;
+          Escape cancels), the older dragImage: API runs it synchronously, text views
+          drag their selection and take drops (smart insert and delete on moves), and
+          strings, attributed strings and URLs write and read themselves on pasteboards
+          as Apple's do. `appkit-drag-window-test` checks it on the window server
+          (2026-10-12).
+    - [ ] Table, outline and collection views as drag sources and destinations (their
+          data sources' and delegates' drag methods).
+    - [ ] Between apps, through the window server and the pasteboard server.
     - [x] Foundation: NSItemProvider (with NSString's and NSURL's item-provider
           conformance, and UniformTypeIdentifiers' UTType methods), NSListFormatter,
           NSRelativeDateTimeFormatter, NSPersonNameComponentsFormatter,

@@ -288,6 +288,7 @@ tv_defaults(NSTextView *self)
     self->_t.spellingCorrection = pref(@"NSAutomaticSpellingCorrectionEnabled");
     self->_t.grammar = pref(@"NSGrammarCheckingEnabled");
     self->_t.replacement = YES;
+    [self updateDragTypeRegistration];
     self->_goalX = 0;
     self->_mark = NSNotFound;
     self->_marked = NSMakeRange(NSNotFound, 0);
@@ -593,6 +594,7 @@ FLAG(smartCopyPasteEnabled, setSmartCopyPasteEnabled, smartCopyPaste)
     _t.editable = flag;
     if (flag)
         _t.selectable = YES;
+    [self updateDragTypeRegistration];
     [self setNeedsDisplay:YES];
 }
 - (BOOL)isSelectable { return _t.selectable; }
@@ -2539,6 +2541,9 @@ is_active(NSTextView *self)
     return w && [w firstResponder] == self && [w isKeyWindow];
 }
 
+char FinchTextDropIndexKey;
+static char pending_drag_key;
+
 - (void)drawRect:(NSRect)rect
 {
     [self drawViewBackgroundInRect:rect];
@@ -2581,6 +2586,13 @@ is_active(NSTextView *self)
     }
     if (!_sel.length && [self shouldDrawInsertionPoint] && is_active(self) && _t.caretOn) {
         NSRect c = caret_rect(self, _sel.location, _affinity == NSSelectionAffinityUpstream);
+        if (NSIntersectsRect(c, rect))
+            [self drawInsertionPointInRect:c color:[self insertionPointColor] turnedOn:YES];
+    }
+    /* where a drag over the view would drop (NSTextViewMore.m sets it) */
+    NSNumber *drop = objc_getAssociatedObject(self, &FinchTextDropIndexKey);
+    if (drop) {
+        NSRect c = caret_rect(self, [drop unsignedIntegerValue], NO);
         if (NSIntersectsRect(c, rect))
             [self drawInsertionPointInRect:c color:[self insertionPointColor] turnedOn:YES];
     }
@@ -2667,6 +2679,11 @@ start_blinking(NSTextView *self)
     NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
     NSUInteger i = [self characterIndexForInsertionAtPoint:p];
     NSInteger clicks = [event clickCount];
+    /* a press inside the selection may be a drag of it: decided when the mouse moves */
+    if (clicks == 1 && _sel.length && !([event modifierFlags] & NSEventModifierFlagShift) && i > _sel.location && i < NSMaxRange(_sel)) {
+        objc_setAssociatedObject(self, &pending_drag_key, @[ [NSValue valueWithPoint:p], @(i) ], OBJC_ASSOCIATION_RETAIN);
+        return;
+    }
     _granularity = clicks >= 3 ? NSSelectByParagraph : clicks == 2 ? NSSelectByWord : NSSelectByCharacter;
     NSRange unit = [self selectionRangeForProposedRange:NSMakeRange(i, 0) granularity:_granularity];
     if (([event modifierFlags] & NSEventModifierFlagShift) && clicks == 1) {
@@ -2687,6 +2704,15 @@ start_blinking(NSTextView *self)
 
 - (void)mouseDragged:(NSEvent *)event
 {
+    NSArray *pending = objc_getAssociatedObject(self, &pending_drag_key);
+    if (pending) {
+        NSPoint start = [pending[0] pointValue], p = [self convertPoint:[event locationInWindow] fromView:nil];
+        if (hypot(p.x - start.x, p.y - start.y) >= 3) {
+            objc_setAssociatedObject(self, &pending_drag_key, nil, OBJC_ASSOCIATION_RETAIN);
+            [self dragSelectionWithEvent:event offset:NSZeroSize slideBack:YES];
+        }
+        return;
+    }
     if (!_t.dragging)
         return;
     [self autoscroll:event];
@@ -2705,6 +2731,13 @@ start_blinking(NSTextView *self)
 
 - (void)mouseUp:(NSEvent *)event
 {
+    NSArray *pending = objc_getAssociatedObject(self, &pending_drag_key);
+    if (pending) {
+        /* (pressed and released without a drag: a click there) */
+        objc_setAssociatedObject(self, &pending_drag_key, nil, OBJC_ASSOCIATION_RETAIN);
+        [self setSelectedRange:NSMakeRange([pending[1] unsignedIntegerValue], 0)];
+        return;
+    }
     if (!_t.dragging)
         return;
     _t.dragging = NO;

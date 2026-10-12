@@ -1,0 +1,39 @@
+text view registered for strings: 1
+to the destination:
+  began (session made)
+  source: will begin
+  dest: entered (mask 5, window mine)
+  dest: prepare
+  dest: perform [dragged text] inside 1
+  dest: conclude
+  dest: ended
+  source: ended copy
+destination got: dragged text
+into the text view:
+  began (session made)
+  source: will begin
+  source: ended copy
+text: [Hello world dragged text] selected {12, 12}
+to a view taking nothing:
+  began (session made)
+  source: will begin
+  source: ended none
+cancelled:
+  began (session made)
+  source: will begin
+  dest: entered (mask 5, window mine)
+  dest: exited
+  dest: ended
+  source: ended none
+moved within the text view: [world Hello] selected {6, 5}
+the older dragImage::
+  legacy drag starts
+  legacy source: began
+  dest: entered (mask copy, window mine)
+  dest: prepare
+  dest: perform [legacy text] inside 1
+  dest: conclude
+  dest: ended
+  legacy source: ended copy
+  legacy drag returned
+destination got: legacy text

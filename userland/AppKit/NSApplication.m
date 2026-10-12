@@ -430,7 +430,16 @@ take_matching(NSEventMask mask, BOOL dequeue)
     CFRunLoopWakeUp(CFRunLoopGetMain());
 }
 
+/* A drag begun while an event was handled runs as soon as that event is done, before
+   any later event is read (NSDraggingSession.m), as Apple's takes over the mouse. */
 - (void)sendEvent:(NSEvent *)event
+{
+    extern void FinchRunPendingDrag(void);
+    [self _finchDispatchEvent:event];
+    FinchRunPendingDrag();
+}
+
+- (void)_finchDispatchEvent:(NSEvent *)event
 {
     NSEventType type = [event type];
     switch (type) {
