@@ -122,6 +122,8 @@ steps=(
     "SmallPrivate|userland/SmallPrivate/build.sh"
     # OnBoardingKit (private): welcome and privacy screens, the AppKit side
     "OnBoardingKit|userland/OnBoardingKit/build.sh"
+    # Quick Look: thumbnails, the thumbnail generator, the preview panel and view
+    "QuickLook|userland/QuickLook/build.sh"
     # AppKit and the frameworks around it (docs/design/APPKIT.md)
     "ApplicationServices|userland/ApplicationServices/build.sh"
     "UIFoundation|userland/UIFoundation/build.sh"

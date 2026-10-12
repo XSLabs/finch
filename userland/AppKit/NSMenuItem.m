@@ -722,8 +722,8 @@ static char item_accessibility_title_key;
 
 @implementation NSMenuItem (FinchMoreCalls)
 
-/* The standard item for previewing the selection (Apple's is Quick Look's "Preview";
-   Finch has no Quick Look yet, so the item sends quickLookPreviewItems: up the chain). */
+/* The standard item for previewing the selection: it sends quickLookPreviewItems: up the
+   chain, which QuickLookUI answers by showing its panel. */
 + (NSMenuItem *)standardQuickLookMenuItem
 {
     NSMenuItem *item = [[[NSMenuItem alloc] initWithTitle:@"Preview" action:@selector(quickLookPreviewItems:)
