@@ -16,6 +16,7 @@ userland/LaunchDaemons/com.apple.notifyd.plist /System/Library/Finch/LaunchDaemo
 userland/LaunchDaemons/com.apple.syslogd.plist /System/Library/Finch/LaunchDaemons/com.apple.syslogd.plist
 userland/LaunchDaemons/com.apple.logd.plist /System/Library/Finch/LaunchDaemons/com.apple.logd.plist
 userland/pboard/com.apple.pboard.plist /System/Library/Finch/LaunchDaemons/com.apple.pboard.plist
+userland/screencapture/com.apple.screencapture.plist /System/Library/Finch/LaunchDaemons/com.apple.screencapture.plist
 userland/LaunchDaemons/com.apple.aslmanager.plist /System/Library/Finch/LaunchDaemons/com.apple.aslmanager.plist
 userland/LaunchDaemons/com.apple.newsyslog.plist /System/Library/Finch/LaunchDaemons/com.apple.newsyslog.plist
 userland/LaunchDaemons/com.apple.dynamic_pager.plist /System/Library/Finch/LaunchDaemons/com.apple.dynamic_pager.plist

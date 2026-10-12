@@ -520,10 +520,16 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           shows Apple's own "Bluetooth isn't available" alert (2026-10-12). Siri.app is
           a launcher for the assistant in CoreServices, which Finch doesn't have: it
           runs and exits, as Apps does without Launchpad.
-    - [ ] Screenshot: the app runs `screencapture` through the
-          `com.apple.screencapture.connection` service, whose capture toolbar and
-          selection UI are macOS's own (screencaptureui). Finch needs its own
-          `screencapture` tool and that service over ScreenCaptureKit.
+    - [x] Screenshot runs in the VM (2026-10-12): it asks the
+          `com.apple.screencapture.connection` service to run `screencapture -uUpi`.
+          Both are Finch's own (`userland/screencapture`): the service runs the tool as
+          the caller, with the caller's window server; the tool takes Apple's options
+          (screen, display, rectangle, window, format, delay, clipboard, the
+          `com.apple.screencapture` location and type) and, interactively, shows the
+          frozen screen dimmed with a selection, window picking (space) and a mode bar
+          (`-U`). A drag saves `Screenshot <date> at <time>.png` to the Desktop.
+      - [ ] Screen recording (`-v`, and the service's start/stop messages), and the
+            thumbnail and markup after a capture (`-u`).
     - [x] FeatureFlags (private; `isFeatureEnabled` over libsystem's feature table) and
           libMobileGestalt: a Mac's answers (device class, product, versions, serial,
           device ID from the chip IDs, architecture, screen scale, disk usage);
