@@ -409,7 +409,7 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
   - [ ] Close the symbol gaps in Finch's own frameworks that block the most apps
         (AppKit, Foundation, CoreGraphics, QuartzCore, CoreFoundation).
     - [ ] Every class and method the public headers declare, as Apple's answers them:
-          `tools/api-audit.sh` lists what Finch lacks. 2026-10-12: Foundation 66 classes
+          `tools/api-audit.sh` lists what Finch lacks. 2026-10-12: Foundation 61 classes
           and 140 methods (from 67 and 225), AppKit 50 classes and 562 methods.
     - [x] Foundation, first audit batch: collection searches, tests with options,
           sorted keys and removals; KVC's set and ordered-set proxies (changes now reach
@@ -419,6 +419,11 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           data compression and search; calendar-format dates and NSCalendarDate;
           formats honour their locale (separators, grouping, numbers' descriptions);
           `foundation-audit-test` matches Apple's (2026-10-12).
+    - [x] NSXMLDocument, NSXMLElement, NSXMLNode, NSXMLDTD and NSXMLDTDNode: read by
+          libxml2 (its error codes, as Apple's), written to Apple's rules (declarations,
+          empty elements, quoting, pretty printing, HTML and XHTML output, canonical
+          form), XPath on a libxml2 mirror, DTD declarations and validation;
+          `xml-test` matches Apple's (2026-10-12). XSLT waits for libxslt.
     - [x] Foundation: NSItemProvider (with NSString's and NSURL's item-provider
           conformance, and UniformTypeIdentifiers' UTType methods), NSListFormatter,
           NSRelativeDateTimeFormatter, NSPersonNameComponentsFormatter,

@@ -8,8 +8,8 @@ These diagrams are updated in every commit that changes the stack, and
 **As of 2026-10-12:** nothing Finch builds links a closed library
 (`tools/check-closed.py`). Finch's own Foundation covers about 130 of Apple's
 classes, on a CoreFoundation that dispatches to Objective-C objects as Apple's
-does (`docs/design/FOUNDATION.md`); its NSXMLParser runs on Apple's libxml2,
-built by Finch. Finch's CoreGraphics has begun, over Skia
+does (`docs/design/FOUNDATION.md`); its NSXMLParser and NSXMLDocument read
+with Apple's libxml2, built by Finch. Finch's CoreGraphics has begun, over Skia
 (`docs/design/COREGRAPHICS.md`): bitmap contexts draw paths, images,
 clips, shadows and transparency layers as Apple's do, PDF contexts write
 through Skia's PDF backend, and Finch's own parser reads and draws PDF. Finch's ImageIO reads
