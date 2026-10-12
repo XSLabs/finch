@@ -255,3 +255,4 @@ build/userland/finch-typeselect-test /usr/local/bin/finch-typeselect-test
 build/userland/finch-screencapturekit-test /usr/local/bin/finch-screencapturekit-test
 build/userland/finch-appkit-screencapture-test /usr/local/bin/finch-appkit-screencapture-test
 build/userland/finch-appkit-compat-test /usr/local/bin/finch-appkit-compat-test
+build/userland/finch-pdf-image-rep-test /usr/local/bin/finch-pdf-image-rep-test

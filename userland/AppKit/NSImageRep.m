@@ -17,7 +17,7 @@ static void
 ensure_registry(void)
 {
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ registered = [[NSMutableArray alloc] initWithObjects:[NSBitmapImageRep class], nil]; });
+    dispatch_once(&once, ^{ registered = [[NSMutableArray alloc] initWithObjects:[NSBitmapImageRep class], [NSPDFImageRep class], nil]; });
 }
 
 /* The context's CTM flipped within dst (for respectFlipped: in a flipped context). */
@@ -270,9 +270,11 @@ FinchDrawCGImage(CGImageRef image, NSSize repSize, NSRect dst, NSRect src, NSCom
 
 + (Class)imageRepClassForPasteboardType:(NSPasteboardType)type { return [self imageRepClassForType:type]; }
 
+/* (as Apple's, the classes registered last are asked first: PDF data is a PDF rep, though
+   ImageIO could read it as a bitmap) */
 + (Class)imageRepClassForData:(NSData *)data
 {
-    for (Class c in [self registeredImageRepClasses])
+    for (Class c in [[self registeredImageRepClasses] reverseObjectEnumerator])
         if ([c canInitWithData:data])
             return c;
     return Nil;

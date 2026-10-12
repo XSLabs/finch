@@ -214,7 +214,7 @@ names(void)
 
 - (instancetype)initWithData:(NSData *)data
 {
-    NSArray *reps = data ? [NSBitmapImageRep imageRepsWithData:data] : nil;
+    NSArray *reps = data ? [NSImageRep imageRepsWithData:data] : nil;
     if (!reps.count) {
         [self release];
         return nil;

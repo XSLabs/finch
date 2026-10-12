@@ -413,7 +413,7 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         (AppKit, Foundation, CoreGraphics, QuartzCore, CoreFoundation).
     - [ ] Every class and method the public headers declare, as Apple's answers them:
           `tools/api-audit.sh` lists what Finch lacks. 2026-10-12: Foundation 61 classes
-          and 140 methods (from 67 and 225), AppKit 49 classes and 119 methods (from 50 and 562).
+          and 140 methods (from 67 and 225), AppKit 48 classes and 115 methods (from 50 and 562).
     - [x] Foundation, first audit batch: collection searches, tests with options,
           sorted keys and removals; KVC's set and ordered-set proxies (changes now reach
           the object; set mutations report the objects changed, as Apple's) and its
@@ -422,6 +422,10 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           data compression and search; calendar-format dates and NSCalendarDate;
           formats honour their locale (separators, grouping, numbers' descriptions);
           `foundation-audit-test` matches Apple's (2026-10-12).
+    - [x] NSPDFImageRep: PDF data as an image, a page at a time (bounds, current page,
+          drawing through Finch's PDF reader), registered so NSImage takes PDF data and
+          files as Apple's does; `pdf-image-rep-test` matches Apple's on the host and in
+          the VM (2026-10-12). ImageIO reading PDF as a bitmap (Apple's can) is to come.
     - [x] NSXMLDocument, NSXMLElement, NSXMLNode, NSXMLDTD and NSXMLDTDNode: read by
           libxml2 (its error codes, as Apple's), written to Apple's rules (declarations,
           empty elements, quoting, pretty printing, HTML and XHTML output, canonical
