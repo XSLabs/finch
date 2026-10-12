@@ -439,6 +439,13 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           panel (the responder chain's controller, arrow keys between items) and preview
           view (images, PDFs, text, else icon, name, kind and size); `quicklook-test`
           matches Apple's.
+    - [x] AppKit's and Foundation's missing constants (84, with Apple's values) and small
+          functions (`NSStringFromBOOL`, `_NSFullMethodName`, `NSRequestConcreteImplementation`,
+          the autorelease-pool calls, `_NSCenteredRectForImage`, UIKit's rounding helpers,
+          accessibility entry points) apps import (2026-10-12); `exports-test` matches
+          Apple's. Still short: HTTP cookies, ubiquitous key-value storage, diffable data
+          sources and the Swift overlays' async notification sequences, among others
+          ([`APPS.md`](APPS.md)).
     - [ ] Every class and method the public headers declare, as Apple's answers them:
           `tools/api-audit.sh` lists what Finch lacks. 2026-10-12: Foundation 61 classes
           and 140 methods (from 67 and 225), AppKit 48 classes and 115 methods (from 50 and 562).
