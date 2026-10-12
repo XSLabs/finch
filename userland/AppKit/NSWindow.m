@@ -389,6 +389,7 @@ fill_circle(CGContextRef cg, NSRect r, CGFloat red, CGFloat green, CGFloat blue,
     NSBackingStoreType _backing;
     NSThemeFrame *_frameView;
     FinchTitlebarView *_titlebarView;  /* full-size content windows only */
+    NSMutableArray<NSTitlebarAccessoryViewController *> *_accessories;
     NSView *_contentView;  /* retained by the frame view */
     NSString *_title, *_representedFilename;
     NSURL *_representedURL;
@@ -554,6 +555,9 @@ fill_circle(CGContextRef cg, NSRect r, CGFloat red, CGFloat green, CGFloat blue,
 
 - (void)dealloc
 {
+    for (NSTitlebarAccessoryViewController *c in _accessories)
+        [c _finchSetAccessoryWindow:nil];
+    [_accessories release];
     CFIndex i = CFArrayGetFirstIndexOfValue(all_windows, CFRangeMake(0, CFArrayGetCount(all_windows)), self);
     if (i != kCFNotFound)
         CFArrayRemoveValueAtIndex(all_windows, i);
@@ -1227,7 +1231,47 @@ server_flags(NSWindow *w)
 - (void)setToolbarStyle:(NSWindowToolbarStyle)style {}
 - (NSTitlebarSeparatorStyle)titlebarSeparatorStyle { return NSTitlebarSeparatorStyleAutomatic; }
 - (void)setTitlebarSeparatorStyle:(NSTitlebarSeparatorStyle)style {}
-- (void)addTitlebarAccessoryViewController:(NSTitlebarAccessoryViewController *)c {}
+/* Titlebar accessories: kept in order, each knowing its window (NSAccessoryClasses.m).
+   Their views aren't placed in the title bar yet. */
+- (NSArray<NSTitlebarAccessoryViewController *> *)titlebarAccessoryViewControllers
+{
+    return _accessories ? [[_accessories copy] autorelease] : @[];
+}
+
+- (void)setTitlebarAccessoryViewControllers:(NSArray<NSTitlebarAccessoryViewController *> *)controllers
+{
+    while (_accessories.count)
+        [self removeTitlebarAccessoryViewControllerAtIndex:(NSInteger)_accessories.count - 1];
+    for (NSTitlebarAccessoryViewController *c in controllers)
+        [self addTitlebarAccessoryViewController:c];
+}
+
+- (void)insertTitlebarAccessoryViewController:(NSTitlebarAccessoryViewController *)c atIndex:(NSInteger)index
+{
+    if (!c)
+        return;
+    if (!_accessories)
+        _accessories = [NSMutableArray new];
+    [c removeFromParentViewController];
+    if (index < 0 || (NSUInteger)index > _accessories.count)
+        index = (NSInteger)_accessories.count;
+    [_accessories insertObject:c atIndex:(NSUInteger)index];
+    [c _finchSetAccessoryWindow:self];
+}
+
+- (void)addTitlebarAccessoryViewController:(NSTitlebarAccessoryViewController *)c
+{
+    [self insertTitlebarAccessoryViewController:c atIndex:(NSInteger)_accessories.count];
+}
+
+- (void)removeTitlebarAccessoryViewControllerAtIndex:(NSInteger)index
+{
+    if (index < 0 || (NSUInteger)index >= _accessories.count)
+        return;
+    NSTitlebarAccessoryViewController *c = [[_accessories[(NSUInteger)index] retain] autorelease];
+    [_accessories removeObjectAtIndex:(NSUInteger)index];
+    [c _finchSetAccessoryWindow:nil];
+}
 - (NSButton *)standardWindowButton:(NSWindowButton)b { return nil; }
 + (NSButton *)standardWindowButton:(NSWindowButton)b forStyleMask:(NSWindowStyleMask)styleMask { return nil; }
 - (NSWindow *)parentWindow { return _parent; }

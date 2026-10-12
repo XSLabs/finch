@@ -407,6 +407,12 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           NSLocalizedFileSizeDescription, NSURLCache and NSURLProtocol; byte counts
           zero-pad and add the actual count as Apple's. Their comparison tests match
           Apple's (2026-10-11).
+    - [x] AppKit's smaller classes: the menu, separator and tracking-separator toolbar
+          items, titlebar accessories (kept by the window; not yet drawn in the title
+          bar) and split-view item accessories, row actions, attachment cells and view
+          providers, preview activity items, the scrubber family, the speech
+          synthesizer (silent), NSPreferences, and OpenGL's classes (no OpenGL yet);
+          `appkit-small3-test` matches Apple's (2026-10-11).
     - [x] libswiftDispatch: DispatchQueue's conformance to Combine's Scheduler, from
           Apple's overlay source, weak-linking Finch's Combine (2026-10-11); 19 apps
           imported it.
