@@ -108,8 +108,8 @@ native_type(size_t bpc, size_t bpp, CGColorSpaceRef space, CGBitmapInfo info, Sk
         return fl ? kRGBA_F16_SkColorType : kR16G16B16A16_unorm_SkColorType;
     if (model == kCGColorSpaceModelRGB && bpc == 32 && fl && order == kCGBitmapByteOrder32Little)
         return kRGBA_F32_SkColorType;
-    if (model == kCGColorSpaceModelMonochrome && bpc == 8 && bpp == 8)
-        return kGray_8_SkColorType;
+    /* (8-bit gray draws through the work buffer too: Skia's own gray mixes the encoded
+       components, where Apple's takes luminance in linear light, as gray_of does) */
     return kUnknown_SkColorType;
 }
 

@@ -267,3 +267,5 @@ build/userland/finch-opengl-test /usr/local/bin/finch-opengl-test
 build/userland/finch-appkit-opengl-test /usr/local/bin/finch-appkit-opengl-test
 build/userland/finch-appkit-typedstream-test /usr/local/bin/finch-appkit-typedstream-test
 build/userland/finch-system-images-test /usr/local/bin/finch-system-images-test
+build/userland/finch-quartzfilters-test /usr/local/bin/finch-quartzfilters-test
+build/userland/finch-printcore-test /usr/local/bin/finch-printcore-test

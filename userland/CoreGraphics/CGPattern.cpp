@@ -271,6 +271,7 @@ CGLayerCreateWithContext(CGContextRef context, CGSize size, CFDictionaryRef auxi
     CFRelease(space);
     if (!lc)
         return NULL;
+    ((struct CGContext *)lc)->for_layer = true;
     struct CGLayer *l = (struct CGLayer *)CGTypeCreateInstance(CGLayerGetTypeID(), sizeof(struct CGLayer));
     l->context = lc;
     l->size = size;

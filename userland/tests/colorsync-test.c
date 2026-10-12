@@ -4,7 +4,8 @@
  * against Apple's ColorSync and Finch's can be diffed. It prints the named profiles'
  * descriptions and kinds, conversions between them (floats to two places, 8-bit
  * values exactly, with each alpha layout), and what a profile made from ICC bytes
- * reports: its header, tags, MD5 and edits.
+ * reports: its header, tags, MD5 and edits. Then signatures as strings, and localized
+ * strings written as an 'mluc' tag and read back (private calls ColorSync Utility makes).
  */
 #include <ColorSync/ColorSync.h>
 #include <dlfcn.h>
@@ -260,5 +261,24 @@ main(void)
     print_string("mutable description", ColorSyncProfileCopyDescriptionString(m));
     printf("garbage profile: %p\n", (void *)ColorSyncProfileCreate(CFDataCreate(NULL, (const UInt8 *)"nope", 4), NULL));
     printf("type ids distinct %d\n", ColorSyncProfileGetTypeID() != ColorSyncTransformGetTypeID());
+
+    CFStringRef (*sig)(uint32_t) = (CFStringRef(*)(uint32_t))dlsym(RTLD_DEFAULT, "ColorSyncCreateSignatureFromFourCharCode");
+    uint32_t (*code)(CFStringRef) = (uint32_t(*)(CFStringRef))dlsym(RTLD_DEFAULT, "ColorSyncGetFourCharCodeFromSignature");
+    CFDictionaryRef (*copy_strings)(ColorSyncProfileRef, CFStringRef) =
+        (CFDictionaryRef(*)(ColorSyncProfileRef, CFStringRef))dlsym(RTLD_DEFAULT, "ColorSyncProfileCopyLocalizedStringDictionary");
+    bool (*set_strings)(ColorSyncMutableProfileRef, CFStringRef, CFDictionaryRef) =
+        (bool (*)(ColorSyncMutableProfileRef, CFStringRef, CFDictionaryRef))dlsym(RTLD_DEFAULT, "ColorSyncProfileSetLocalizedStringDictionary");
+    print_string("signature of 'desc'", sig('desc'));
+    print_string("signature of 'ABC\\0'", sig(0x41424300));
+    printf("code of desc %08x, of nothing %08x\n", code(CFSTR("desc")), code(NULL));
+    const void *lk[] = {CFSTR("en_US"), CFSTR("fr_FR")}, *lv[] = {CFSTR("Hello"), CFSTR("Bonjour")};
+    CFDictionaryRef strings = CFDictionaryCreate(NULL, lk, lv, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    printf("set strings %d\n", set_strings(m, CFSTR("desc"), strings));
+    CFDictionaryRef got = copy_strings(m, CFSTR("desc"));
+    printf("strings back: %ld, English %d, French %d\n", got ? (long)CFDictionaryGetCount(got) : -1L,
+           got && CFEqual(CFDictionaryGetValue(got, CFSTR("en_US")), CFSTR("Hello")),
+           got && CFEqual(CFDictionaryGetValue(got, CFSTR("fr_FR")), CFSTR("Bonjour")));
+    print_string("description now", ColorSyncProfileCopyDescriptionString(m));
+    printf("no such tag: %p\n", (void *)copy_strings(m, CFSTR("zzzz")));
     return 0;
 }

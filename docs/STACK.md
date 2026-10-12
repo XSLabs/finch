@@ -58,7 +58,7 @@ times, block buffers, format descriptions (including those from H.264 and HEVC
 parameter sets), sample buffers, clocks, timebases, queues, memory pools, metadata
 identifiers and tags match Apple's in their comparison tests. OpenGL is Mesa's software
 renderer (softpipe through OSMesa, built by Finch) under Finch's own CGL and GLU, and
-AppKit's NSOpenGL views draw with it; AppKit's named system images are Finch's own artwork; windows draw into a back buffer that each flush copies to the window server; typedstream archives (NSArchiver) of AppKit's
+AppKit's NSOpenGL views draw with it; AppKit's named system images are Finch's own artwork; PrintCore is Finch's own (sessions, settings, page formats and papers, printing to PDF; no printers until there's a printing system), as are Quartz filters, which change a context's colours through CoreGraphics; windows draw into a back buffer that each flush copies to the window server; typedstream archives (NSArchiver) of AppKit's
 colours, fonts, images, paragraph styles, shadows, paths and print info match Apple's. The desktop's frame is the Instrument Bar (each app's menu bar) and the Rail, a
 Finch app down the left edge that replaces the Dock.
 
@@ -120,13 +120,13 @@ block-beta
         contacts["Contacts<br/>the user's contacts in Finch's<br/>own store, groups, change history;<br/>name and address formatters, vCard"]
         ctio["CoreText<br/>fonts, shaping, lines, frames<br/>(HarfBuzz, FreeType, ICU)"]
         quartzcore["QuartzCore<br/>layers drawn through CoreGraphics,<br/>animation objects, transactions;<br/>animation playback still to come"]
-        imagecap["ImageCaptureCore (device<br/>browser, finds no devices yet),<br/>ICADevices; Quartz umbrella<br/>with ImageKit's device views"]
+        imagecap["ImageCaptureCore (device<br/>browser, finds no devices yet),<br/>ICADevices; Quartz umbrella<br/>with ImageKit's device views<br/>and save options, QuartzFilters<br/>(Finch's own filters)"]
         avplanned["VideoToolbox, AVKit,<br/>AVFoundation codecs (planned:<br/>docs/design/MEDIA.md)"]
         opengl["OpenGL<br/>CGL contexts and GLU (Finch's),<br/>NSOpenGL views; software<br/>rendering by Mesa"]
         coreservices["CoreServices<br/>app lookup and launch,<br/>local Apple events, files"]
         later["Metal (no GPU driven yet:<br/>no devices, descriptors<br/>as values)"]
         coreui["CoreUI<br/>compiled asset catalogs,<br/>named images and colors"]
-        appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds,<br/>AudioFormat properties, audio files,<br/>PCM/G.711 conversion,<br/>ExtAudioFile, software audio units:<br/>effects, EQ, reverbs, time-pitch,<br/>varispeed, sampler; offline<br/>PCM queues); AVFAudio<br/>(formats, layouts, PCM buffers,<br/>PCM/G.711 files and conversion,<br/>times, the engine graph:<br/>players, mixer, effect and<br/>instrument units, offline render;<br/>AVAudioPlayer, constants,<br/>session, silent speech),<br/>Carbon/HIToolbox (events, keys),<br/>CoreAnalytics, libScreenReader;<br/>FeatureFlags, libMobileGestalt<br/>(the device's answers),<br/>libDiagnosticMessagesClient<br/>(messages sent nowhere);<br/>SkyLight's SLS calls (window<br/>capture, display queries);<br/>ScreenCaptureKit (shareable content,<br/>filters, screenshots, streams);<br/>ColorSync (profiles, transforms);<br/>HIServices (AX client, Process Manager),<br/>DataDetectorsCore (links in text);<br/>Text Input Sources, UCKeyTranslate,<br/>Carbon event handlers, hot keys;<br/>IOSurface (shared pixel buffers);<br/>CoreVideo pixel buffers and pools;<br/>CoreMedia (times, block, format<br/>and sample buffers, clocks,<br/>timebases, queues, metadata, tags,<br/>image and sound descriptions);<br/>AVFoundation (assets, tracks,<br/>metadata, readers, writers, image<br/>generation, playback and player<br/>layers over Finch's QuickTime/<br/>ISO reader and muxer; JPEG, PCM)"]
+        appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds,<br/>AudioFormat properties, audio files,<br/>PCM/G.711 conversion,<br/>ExtAudioFile, software audio units:<br/>effects, EQ, reverbs, time-pitch,<br/>varispeed, sampler; offline<br/>PCM queues); AVFAudio<br/>(formats, layouts, PCM buffers,<br/>PCM/G.711 files and conversion,<br/>times, the engine graph:<br/>players, mixer, effect and<br/>instrument units, offline render;<br/>AVAudioPlayer, constants,<br/>session, silent speech),<br/>Carbon/HIToolbox (events, keys),<br/>CoreAnalytics, libScreenReader;<br/>FeatureFlags, libMobileGestalt<br/>(the device's answers),<br/>libDiagnosticMessagesClient<br/>(messages sent nowhere);<br/>SkyLight's SLS calls (window<br/>capture, display queries);<br/>ScreenCaptureKit (shareable content,<br/>filters, screenshots, streams);<br/>ColorSync (profiles, transforms);<br/>HIServices (AX client, Process Manager),<br/>PrintCore (sessions, settings, page<br/>formats, papers; print to PDF; no<br/>printers yet), SystemAdministration (empty);<br/>DataDetectorsCore (links in text);<br/>Text Input Sources, UCKeyTranslate,<br/>Carbon event handlers, hot keys;<br/>IOSurface (shared pixel buffers);<br/>CoreVideo pixel buffers and pools;<br/>CoreMedia (times, block, format<br/>and sample buffers, clocks,<br/>timebases, queues, metadata, tags,<br/>image and sound descriptions);<br/>AVFoundation (assets, tracks,<br/>metadata, readers, writers, image<br/>generation, playback and player<br/>layers over Finch's QuickTime/<br/>ISO reader and muxer; JPEG, PCM)"]
         swiftui["SwiftUI, SwiftUICore<br/>(OpenSwiftUI on Compute's<br/>attribute graph; first app draws)"]
     end
     block:L5
@@ -277,6 +277,8 @@ flowchart LR
     sck["ScreenCaptureKit"]:::finch
     colorsync["ColorSync"]:::finch
     hiservices["HIServices"]:::finch
+    printcore["PrintCore"]:::finch
+    quartzfilters["QuartzFilters"]:::finch
     coreui["CoreUI"]:::finch
     coreservices["CoreServices"]:::finch
     uti["UniformTypeIdentifiers"]:::finch
@@ -380,11 +382,16 @@ flowchart LR
     appservices -->|"re-exports"| imageio
     appservices -->|"re-exports"| colorsync
     appservices -->|"re-exports"| hiservices
+    appservices -->|"re-exports"| printcore
+    printcore --> cgfw
     hiservices --> cf
     colorsync --> cf
     colorsync --> skialib
     quartz -->|"re-exports"| qc
     quartz -->|"re-exports"| imagekit
+    quartz -->|"re-exports"| quartzfilters
+    quartzfilters --> appkit
+    quartzfilters --> cgfw
     qc --> ffound
     qc --> cgfw
     qc --> ctfw

@@ -1222,3 +1222,106 @@ ColorSyncProfileWriteToFile(ColorSyncProfileRef prof, CFURLRef url, CFErrorRef *
     fclose(f);
     return ok;
 }
+
+/* --- signatures and localized strings (private calls ColorSync Utility makes) --- */
+
+/* A four-character code as a string, its trailing NULs left off. */
+CFStringRef
+ColorSyncCreateSignatureFromFourCharCode(uint32_t code)
+{
+    char s[5] = {(char)(code >> 24), (char)(code >> 16), (char)(code >> 8), (char)code, 0};
+    return CFStringCreateWithCString(NULL, s, kCFStringEncodingMacRoman);
+}
+
+uint32_t
+ColorSyncGetFourCharCodeFromSignature(CFStringRef signature)
+{
+    char s[8] = {0};
+    if (!signature || !CFStringGetCString(signature, s, sizeof s, kCFStringEncodingMacRoman))
+        return 0;
+    return (uint32_t)(uint8_t)s[0] << 24 | (uint32_t)(uint8_t)s[1] << 16 | (uint32_t)(uint8_t)s[2] << 8 | (uint8_t)s[3];
+}
+
+/* An 'mluc' tag's strings by locale ("en_US" -> "..."); NULL for any other kind of tag. */
+CFDictionaryRef
+ColorSyncProfileCopyLocalizedStringDictionary(ColorSyncProfileRef prof, CFStringRef signature)
+{
+    uint32_t sig = ColorSyncGetFourCharCodeFromSignature(signature), len;
+    const uint8_t *t = prof && sig ? find_tag(prof, sig, &len) : NULL;
+    if (!t || len < 16 || cs_be32(t) != 'mluc')
+        return NULL;
+    uint32_t count = cs_be32(t + 8), size = cs_be32(t + 12);
+    if (size < 12 || 16 + (uint64_t)count * size > len)
+        return NULL;
+    CFMutableDictionaryRef d = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    for (uint32_t i = 0; i < count; i++) {
+        const uint8_t *r = t + 16 + i * size;
+        uint32_t n = cs_be32(r + 4), off = cs_be32(r + 8);
+        if (off > len || n > len - off)
+            continue;
+        while (n >= 2 && t[off + n - 1] == 0 && t[off + n - 2] == 0)
+            n -= 2;
+        CFStringRef key = CFStringCreateWithFormat(NULL, NULL, CFSTR("%c%c_%c%c"), r[0], r[1], r[2], r[3]);
+        CFStringRef value = CFStringCreateWithBytes(NULL, t + off, n, kCFStringEncodingUTF16BE, false);
+        if (key && value)
+            CFDictionarySetValue(d, key, value);
+        if (key)
+            CFRelease(key);
+        if (value)
+            CFRelease(value);
+    }
+    return d;
+}
+
+/* Writes the strings as an 'mluc' tag. (Apple's answers false even when it has written
+   them, and so does this.) */
+bool
+ColorSyncProfileSetLocalizedStringDictionary(ColorSyncMutableProfileRef prof, CFStringRef signature, CFDictionaryRef strings)
+{
+    if (!prof || !signature || !strings)
+        return false;
+    CFIndex count = CFDictionaryGetCount(strings);
+    const void **keys = malloc(sizeof(void *) * (size_t)(count ? count : 1)), **values = malloc(sizeof(void *) * (size_t)(count ? count : 1));
+    CFDictionaryGetKeysAndValues(strings, keys, values);
+    CFMutableDataRef d = CFDataCreateMutable(NULL, 0);
+    uint8_t head[16] = {'m', 'l', 'u', 'c', 0, 0, 0, 0};
+    uint32_t n = (uint32_t)count;
+    head[8] = (uint8_t)(n >> 24), head[9] = (uint8_t)(n >> 16), head[10] = (uint8_t)(n >> 8), head[11] = (uint8_t)n;
+    head[15] = 12;
+    CFDataAppendBytes(d, head, 16);
+    CFMutableDataRef text = CFDataCreateMutable(NULL, 0);
+    uint32_t base = 16 + 12 * n;
+    for (CFIndex i = 0; i < count; i++) {
+        char loc[16] = "";
+        CFStringGetCString(keys[i], loc, sizeof loc, kCFStringEncodingASCII);
+        CFDataRef utf16 = CFStringCreateExternalRepresentation(NULL, values[i], kCFStringEncodingUTF16BE, '?');
+        uint32_t len = utf16 ? (uint32_t)CFDataGetLength(utf16) : 0, off = base + (uint32_t)CFDataGetLength(text);
+        uint8_t rec[12] = {(uint8_t)loc[0], (uint8_t)loc[1], (uint8_t)(loc[2] == '_' ? loc[3] : 0), (uint8_t)(loc[2] == '_' ? loc[4] : 0),
+                           (uint8_t)(len >> 24), (uint8_t)(len >> 16), (uint8_t)(len >> 8), (uint8_t)len,
+                           (uint8_t)(off >> 24), (uint8_t)(off >> 16), (uint8_t)(off >> 8), (uint8_t)off};
+        CFDataAppendBytes(d, rec, 12);
+        if (utf16) {
+            CFDataAppendBytes(text, CFDataGetBytePtr(utf16), len);
+            CFRelease(utf16);
+        }
+    }
+    CFDataAppendBytes(d, CFDataGetBytePtr(text), CFDataGetLength(text));
+    CFRelease(text);
+    free(keys), free(values);
+    ColorSyncProfileSetTag(prof, signature, d);
+    CFRelease(d);
+    return false;
+}
+
+/* (Apple's flexible gamut tables, which Finch doesn't build) */
+CFTypeRef
+ColorSyncProfileCopyFlexGTCInfo(ColorSyncProfileRef prof)
+{
+    return NULL;
+}
+
+CFDataRef
+ColorSyncProfileCreateFlexGTCLookupData(ColorSyncProfileRef prof, CFTypeRef info)
+{
+    return NULL;
+}

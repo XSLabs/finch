@@ -5,9 +5,11 @@
 #
 # Apple's Quartz re-exports QuartzCore, PDFKit, QuickLookUI and its three
 # subframeworks (ImageKit, QuartzComposer, QuartzFilters). Finch's re-exports
-# what Finch has, QuartzCore and ImageKit, and gains the rest as they are
-# written (PDFKit is a later task; QuartzComposer and QuartzFilters are
-# deprecated). Loading needs only the libraries Quartz lists, so apps that
+# what Finch has, QuartzCore, ImageKit and QuartzFilters, and gains the rest as
+# they are written (PDFKit is a later task; QuartzComposer is deprecated).
+#
+# QuartzFilters (QuartzFilters/): Quartz filters and their manager, with
+# Finch's own filters in /System/Library/Filters (QuartzFilter.m explains them). Loading needs only the libraries Quartz lists, so apps that
 # link Quartz load; those that bind PDFKit or Quick Look symbols through it
 # wait for those frameworks.
 #
@@ -53,16 +55,38 @@ mkdir -p "${IK}/Versions/A"
     -install_name /System/Library/Frameworks/Quartz.framework/Versions/A/Frameworks/ImageKit.framework/Versions/A/ImageKit \
     -current_version 1 -compatibility_version 1 "${OBJ}"/*.o -o "${IK}/Versions/A/ImageKit" \
     -framework AppKit -framework Foundation -framework CoreFoundation -framework CoreGraphics \
-    -framework ImageCaptureCore -lobjc
+    -framework ImageCaptureCore -framework ImageIO -framework UniformTypeIdentifiers -lobjc
 ln -sfn A "${IK}/Versions/Current"
 ln -sfn Versions/Current/ImageKit "${IK}/ImageKit"
 "${FINCH_ROOT}/tools/mkframeworkplist.sh" "${IK}" A ImageKit com.apple.imageKit ImageKit 3.0 1233 English
 codesign -f -s - -i com.apple.imageKit "${IK}/Versions/A/ImageKit" 2>/dev/null
 
+log "compiling QuartzFilters"
+QF="${FW}/Versions/A/Frameworks/QuartzFilters.framework"
+mkdir -p "${OBJ}/qf" "${QF}/Versions/A/Resources"
+for f in "${HERE}"/QuartzFilters/*.m; do
+    "${CC}" "${CFLAGS[@]}" -F"${SDKROOT}/System/Library/Frameworks/Quartz.framework/Frameworks" -I"${HERE}/QuartzFilters" \
+        -c "$f" -o "${OBJ}/qf/$(basename "${f%.m}").o"
+done
+"${CC}" "${LDFLAGS[@]}" \
+    -install_name /System/Library/Frameworks/Quartz.framework/Versions/A/Frameworks/QuartzFilters.framework/Versions/A/QuartzFilters \
+    -current_version 1 -compatibility_version 1 "${OBJ}"/qf/*.o -o "${QF}/Versions/A/QuartzFilters" \
+    -framework AppKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -lobjc
+ln -sfn A "${QF}/Versions/Current"
+ln -sfn Versions/Current/QuartzFilters "${QF}/QuartzFilters"
+ln -sfn Versions/Current/Resources "${QF}/Resources"
+"${FINCH_ROOT}/tools/mkframeworkplist.sh" "${QF}" A QuartzFilters com.apple.QuartzFilters QuartzFilters 1.0 1 English
+codesign -f -s - -i com.apple.QuartzFilters "${QF}/Versions/A/QuartzFilters" 2>/dev/null
+# Finch's own filters (Apple's are its own data)
+mkdir -p "${ROOT}/System/Library/Filters"
+rm -f "${ROOT}/System/Library/Filters/"*.qfilter
+cp "${HERE}"/QuartzFilters/Filters/*.qfilter "${ROOT}/System/Library/Filters/"
+
 log "linking Quartz"
 REEXPORTS=(
     "${FWS}/QuartzCore.framework/QuartzCore"
     "${IK}/ImageKit"
+    "${QF}/QuartzFilters"
 )
 # Apple's exports nothing of its own either.
 echo 'static int quartz_unused __attribute__((unused));' > "${OBJ}/empty.c"

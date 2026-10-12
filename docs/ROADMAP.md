@@ -676,6 +676,19 @@ and AppKit come in Phase 2).
         half-drawn frame. `appkit-compat-test`, `opengl-test` and `appkit-opengl-test`
         cover them.
   - [ ] Core-profile contexts (Apple's 3.2 and 4.1) and hardware rendering (with a device)
+- [ ] Apple's unmodified ColorSync Utility in the VM
+  - [x] Every import it makes (2026-10-12): Finch's PrintCore (sessions, print settings,
+        page formats and papers, the generic printer, printing to PDF through a session,
+        the colour-matching calls), QuartzFilters (filters, the manager and its view,
+        Finch's own filter files whose colour effects apply through a CoreGraphics colour
+        filter), ImageKit's save options, CoreGraphics' colour transforms and the private
+        calls it makes (context types, interpolation ranges, process models, intents),
+        ColorSync's signatures and localized strings, and an empty SystemAdministration.
+        Gray bitmap contexts now convert images and text as Apple's do (luminance in linear
+        light; text reached work-buffer contexts only through a fill copied too early).
+        `printcore-test`, `quartzfilters-test`, `colorsync-test` and `private-calls-test`
+        match Apple's, and pass in the VM.
+  - [ ] Its window: it needs symbol images (below), then whatever comes next.
 - [x] Combine: OpenCombine (MIT) adapted to Apple's ABI, with Finch's Merge, CombineLatest
       and collecting by time; every Combine symbol the system apps import (2026-10-09)
 - [ ] SwiftUI: OpenSwiftUI (MIT) built as SwiftUI and SwiftUICore (`docs/design/SWIFTUI.md`)

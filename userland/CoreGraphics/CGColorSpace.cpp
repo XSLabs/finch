@@ -803,10 +803,12 @@ CGColorSpaceCreateWithPlatformColorSpace(const void *ref)
     return NULL;  /* ColorSync profiles: not on Finch */
 }
 
+CG_PRIVATE CGColorSpaceRef CGColorSpaceCreateFromColorSyncProfile(CFTypeRef profile); /* CGColorTransform.cpp */
+
 CGColorSpaceRef
 CGColorSpaceCreateWithColorSyncProfile(ColorSyncProfileRef profile, CFDictionaryRef options)
 {
-    return NULL;
+    return CGColorSpaceCreateFromColorSyncProfile(profile);
 }
 
 #pragma mark - ICC parsing

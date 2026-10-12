@@ -114,6 +114,8 @@ steps=(
     # ColorSync (over skcms) and HIServices, which ApplicationServices re-exports
     "ColorSync|userland/ColorSync/build.sh"
     "HIServices|userland/HIServices/build.sh"
+    "PrintCore|userland/PrintCore/build.sh"
+    "SystemAdministration|userland/SystemAdministration/build.sh"
     # AppKit and the frameworks around it (docs/design/APPKIT.md)
     "ApplicationServices|userland/ApplicationServices/build.sh"
     "UIFoundation|userland/UIFoundation/build.sh"

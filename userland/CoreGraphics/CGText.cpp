@@ -75,6 +75,7 @@ paint_outlines(CGContextRef c, CGPathRef path, CGPathRef clip_path)
 {
     CGTextDrawingMode mode = CGContextState(c).text_mode;
     bool layer = false;
+    SkIRect synced = SkIRect::MakeEmpty();
     if ((mode == kCGTextFill || mode == kCGTextFillClip) && c->canvas && c->type != CG_CONTEXT_PDF &&
         CGContextState(c).smooth_fonts &&
         CGContextState(c).allows_smoothing && !CGPathIsEmpty(path)) {
@@ -95,6 +96,7 @@ paint_outlines(CGContextRef c, CGPathRef path, CGPathRef clip_path)
         bool shadow = CGContextState(c).shadow_color && CGColorGetAlpha(CGContextState(c).shadow_color) > 0;
         c->canvas->saveLayer(CGRectIsNull(box) || shadow ? nullptr : &bounds, &lp);
         layer = true;
+        synced = CGRectIsNull(box) || shadow ? SkIRect::MakeWH((int)c->width, (int)c->height) : bounds.roundOut();
     }
     switch (mode) {
     case kCGTextFill:
@@ -109,6 +111,10 @@ paint_outlines(CGContextRef c, CGPathRef path, CGPathRef clip_path)
     if (layer) {
         c->canvas->restore();
         c->canvas->restore();
+        /* (a context drawn through a work buffer gets the glyphs once the layer is down:
+           the fill's own copy came before it) */
+        if (c->work && synced.intersect(SkIRect::MakeWH((int)c->width, (int)c->height)))
+            CGContextSyncToClient(c, synced);
     }
     /* after the smoothing layer, which would take the clip with it */
     if (clips(mode))

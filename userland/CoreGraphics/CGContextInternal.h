@@ -8,6 +8,7 @@
 #include "CGSkia.h"
 #include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
+#include "include/core/SkColorFilter.h"
 #include "include/core/SkFont.h"
 #include "include/core/SkSurface.h"
 #include <vector>
@@ -65,8 +66,13 @@ struct CGContext {
     CGMutablePathRef path;        /* in default user space */
     CGAffineTransform text_matrix;
     void *pdf;                    /* PDF context state */
+    sk_sp<SkColorFilter> *filter; /* every drawing's colours pass through it (Quartz filters), or NULL */
+    int interpolation_min, interpolation_max; /* CGContextSetInterpolationQualityRange's (kept) */
+    bool for_layer;               /* a CGLayer's (a bitmap context underneath) */
 };
 
+/* A work buffer's pixels to the client's memory (CGBitmapContext.cpp). */
+CG_PRIVATE void CGContextSyncToClient(CGContextRef c, const SkIRect &r);
 /* Fill the clip with a shader given in user space, with the state's alpha, blend mode and shadow. */
 CG_PRIVATE void CGContextPaintShader(CGContextRef c, sk_sp<SkShader> shader);
 /* A colour's components converted to the context's drawing space, as Skia takes them. */

@@ -2,8 +2,10 @@
 /*
  * Private CoreGraphics, Core Animation and CoreFoundation calls and constants Apple's
  * apps use: the ones whose results are defined (regions, colour spaces by ID, row
- * alignment, dash and transform state, interpolation, XML entities, bidi levels, keys);
- * compared with Apple's.
+ * alignment, dash and transform state, interpolation, XML entities, bidi levels, keys),
+ * and the colour ones ColorSync Utility makes (colour transforms converting images,
+ * process models, space equality, context types, interpolation ranges, intents, the PDF/X
+ * keys); compared with Apple's.
  */
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
@@ -32,6 +34,68 @@ extern CFStringRef CFXMLCreateStringByEscapingEntities(CFAllocatorRef, CFStringR
 extern CFStringRef CFXMLCreateStringByUnescapingEntities(CFAllocatorRef, CFStringRef, CFDictionaryRef);
 extern Boolean _NSIsNSArray(id), _NSIsNSDictionary(id), _NSIsNSNumber(id);
 extern const CFStringRef _kCFURLFinderInfoKey, kCFNumberFormatterMinGroupingDigits;
+
+extern int CGContextGetType(CGContextRef);
+extern void CGContextGetInterpolationQualityRange(CGContextRef, int *, int *);
+extern void CGContextSetInterpolationQualityRange(CGContextRef, int, int);
+extern bool CGImageHasAlpha(CGImageRef);
+extern bool CGColorSpaceEqualToColorSpace(CGColorSpaceRef, CGColorSpaceRef);
+extern int CGColorSpaceGetProcessColorModel(CGColorSpaceRef);
+extern CFStringRef kCGColorTransformBlackPointCompensation, kCGPDFXTrapped, kCGPDFXVersion;
+typedef struct CGColorTransform *CGColorTransformRef;
+extern CGColorTransformRef CGColorTransformCreate(CGColorSpaceRef, CFDictionaryRef);
+extern CGColorSpaceRef CGColorTransformGetColorSpace(CGColorTransformRef);
+extern CGImageRef CGColorTransformConvertImage(CGColorTransformRef, CGImageRef, int, CFDictionaryRef);
+extern void CGColorTransformRelease(CGColorTransformRef);
+extern CGImageRef CGImageCreateCopyWithRenderingIntent(CGImageRef, CGColorRenderingIntent);
+extern CGImageRef CGImageGetMask(CGImageRef);
+
+static void
+colour_calls(void)
+{
+    printf("keys: %s %s %s\n", [(__bridge NSString *)kCGColorTransformBlackPointCompensation UTF8String],
+           [(__bridge NSString *)kCGPDFXTrapped UTF8String], [(__bridge NSString *)kCGPDFXVersion UTF8String]);
+    CGColorSpaceRef srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB), gray = CGColorSpaceCreateWithName(kCGColorSpaceGenericGrayGamma2_2);
+    CGContextRef bm = CGBitmapContextCreate(NULL, 4, 4, 8, 16, srgb, (CGBitmapInfo)kCGImageAlphaPremultipliedLast);
+    NSMutableData *d = [NSMutableData data];
+    CGDataConsumerRef cons = CGDataConsumerCreateWithCFData((__bridge CFMutableDataRef)d);
+    CGContextRef pdf = CGPDFContextCreate(cons, NULL, NULL);
+    CGLayerRef layer = CGLayerCreateWithContext(bm, CGSizeMake(2, 2), NULL);
+    printf("context types: bitmap %d pdf %d layer %d none %d\n", CGContextGetType(bm), CGContextGetType(pdf), CGContextGetType(CGLayerGetContext(layer)),
+           CGContextGetType(NULL));
+    int mn = -1, mx = -1;
+    CGContextGetInterpolationQualityRange(bm, &mn, &mx);
+    printf("interpolation range %d %d", mn, mx);
+    CGContextSetInterpolationQualityRange(bm, 1, 3);
+    CGContextGetInterpolationQualityRange(bm, &mn, &mx);
+    printf(", set %d %d, quality %d\n", mn, mx, CGContextGetInterpolationQuality(bm));
+    CGContextSetRGBFillColor(bm, 1, 0, 0, 1);
+    CGContextFillRect(bm, CGRectMake(0, 0, 4, 4));
+    CGImageRef im = CGBitmapContextCreateImage(bm);
+    CGContextRef opaque = CGBitmapContextCreate(NULL, 4, 4, 8, 16, srgb, (CGBitmapInfo)kCGImageAlphaNoneSkipLast);
+    CGImageRef im2 = CGBitmapContextCreateImage(opaque);
+    printf("has alpha %d %d, mask %d\n", CGImageHasAlpha(im), CGImageHasAlpha(im2), CGImageGetMask(im) != NULL);
+    printf("equal spaces %d %d %d\n", CGColorSpaceEqualToColorSpace(srgb, srgb),
+           CGColorSpaceEqualToColorSpace(srgb, CGColorSpaceCreateWithName(kCGColorSpaceSRGB)), CGColorSpaceEqualToColorSpace(srgb, gray));
+    const CFStringRef names[] = {kCGColorSpaceSRGB, kCGColorSpaceGenericGrayGamma2_2, kCGColorSpaceGenericCMYK, kCGColorSpaceGenericLab,
+                                 kCGColorSpaceDisplayP3, kCGColorSpaceGenericXYZ};
+    printf("process models:");
+    for (int i = 0; i < 6; i++)
+        printf(" %d", CGColorSpaceGetProcessColorModel(CGColorSpaceCreateWithName(names[i])));
+    const unsigned char table[] = {0, 0, 0, 255, 255, 255};
+    printf(", indexed %d, pattern %d\n", CGColorSpaceGetProcessColorModel(CGColorSpaceCreateIndexed(srgb, 1, table)),
+           CGColorSpaceGetProcessColorModel(CGColorSpaceCreatePattern(NULL)));
+    CGColorTransformRef t = CGColorTransformCreate(gray, NULL);
+    printf("transform %d, its space gray %d\n", t != NULL, t && CFEqual(CGColorTransformGetColorSpace(t), gray));
+    CGImageRef g = CGColorTransformConvertImage(t, im, kCGRenderingIntentDefault, NULL);
+    CFDataRef px = g ? CGDataProviderCopyData(CGImageGetDataProvider(g)) : NULL;
+    printf("converted: model %d bpc %zu bpp %zu alpha %d, red is gray %d\n", g ? CGColorSpaceGetModel(CGImageGetColorSpace(g)) : -1,
+           g ? CGImageGetBitsPerComponent(g) : 0, g ? CGImageGetBitsPerPixel(g) : 0, g ? CGImageGetAlphaInfo(g) : -1,
+           px ? abs(CFDataGetBytePtr(px)[0] - 128) < 12 : 0);
+    CGColorTransformRelease(t);
+    CGImageRef ri = CGImageCreateCopyWithRenderingIntent(im, kCGRenderingIntentPerceptual);
+    printf("intent copy %d intent %d\n", ri != NULL, ri ? CGImageGetRenderingIntent(ri) : -1);
+}
 
 int
 main(void)
@@ -69,7 +133,7 @@ main(void)
         printf("\n");
 
         /* context state */
-        CGContextRef ctx = CGBitmapContextCreate(NULL, 20, 20, 8, 0, srgb, kCGImageAlphaPremultipliedLast);
+        CGContextRef ctx = CGBitmapContextCreate(NULL, 20, 20, 8, 0, srgb, (CGBitmapInfo)kCGImageAlphaPremultipliedLast);
         CGFloat dashes[] = {4, 2, 1};
         CGContextSetLineDash(ctx, 1.5, dashes, 3);
         CGFloat phase = 0, got[3] = {0};
@@ -120,5 +184,6 @@ main(void)
         printf("keys: %s %s\n", [(__bridge NSString *)_kCFURLFinderInfoKey UTF8String],
             [(__bridge NSString *)kCFNumberFormatterMinGroupingDigits UTF8String]);
     }
+    colour_calls();
     return 0;
 }

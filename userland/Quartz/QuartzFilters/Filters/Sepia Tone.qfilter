@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Domains</key>
+	<dict>
+		<key>Applications</key>
+		<true/>
+		<key>Printing</key>
+		<true/>
+	</dict>
+	<key>FilterData</key>
+	<dict>
+		<key>FinchColorEffect</key>
+		<dict>
+			<key>Luminance</key>
+			<true/>
+			<key>Tint</key>
+			<array>
+				<real>1.36</real>
+				<real>0.98</real>
+				<real>0.66</real>
+			</array>
+		</dict>
+	</dict>
+	<key>FilterType</key>
+	<integer>1</integer>
+	<key>Name</key>
+	<string>Sepia Tone</string>
+</dict>
+</plist>

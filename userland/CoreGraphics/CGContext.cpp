@@ -78,6 +78,7 @@ context_finalize(CFTypeRef cf)
     if (c->type == CG_CONTEXT_PDF)
         CGPDFContextFinalize(c);
     delete c->surface;
+    delete c->filter;
     delete c->work;
     delete c->skspace;
     if (c->space)
@@ -292,6 +293,31 @@ void CGContextSetLineCap(CGContextRef c, CGLineCap cap) { if (c) CGContextState(
 void CGContextSetLineJoin(CGContextRef c, CGLineJoin join) { if (c) CGContextState(c).join = join; }
 void CGContextSetMiterLimit(CGContextRef c, CGFloat limit) { if (c) CGContextState(c).miter_limit = limit; }
 void CGContextSetFlatness(CGContextRef c, CGFloat f) { if (c) CGContextState(c).flatness = f; }
+/* SPI (Finch's Quartz filters): pass every later drawing's colours through a colour matrix
+   (Skia's 4x5, row-major, on unpremultiplied components 0-1; in linear light when `linear`)
+   and then per-channel tables (256 entries each for alpha, red, green and blue), either of
+   which may be NULL; with both NULL, the filter is removed. */
+extern "C" __attribute__((visibility("default"))) void
+CGContextSetFinchColorFilter(CGContextRef c, const float *matrix, const uint8_t *tables, bool linear)
+{
+    if (!c)
+        return;
+    delete c->filter;
+    c->filter = NULL;
+    sk_sp<SkColorFilter> f;
+    if (matrix) {
+        f = SkColorFilters::Matrix(matrix);
+        if (linear)
+            f = SkColorFilters::LinearToSRGBGamma()->makeComposed(f->makeComposed(SkColorFilters::SRGBToLinearGamma()));
+    }
+    if (tables) {
+        sk_sp<SkColorFilter> t = SkColorFilters::TableARGB(tables, tables + 256, tables + 512, tables + 768);
+        f = f ? t->makeComposed(f) : t;
+    }
+    if (f)
+        c->filter = new sk_sp<SkColorFilter>(std::move(f));
+}
+
 void CGContextSetAlpha(CGContextRef c, CGFloat a) { if (c) CGContextState(c).alpha = fmin(1, fmax(0, a)); }
 void CGContextSetBlendMode(CGContextRef c, CGBlendMode mode) { if (c) CGContextState(c).blend = mode; }
 void CGContextSetRenderingIntent(CGContextRef c, CGColorRenderingIntent i) { if (c) CGContextState(c).intent = i; }
@@ -778,7 +804,7 @@ namespace {
 struct Op {
     CGContextRef c;
     SkIRect bounds;
-    bool layer = false;
+    bool layer = false, filtered = false;
 
     Op(CGContextRef ctx, SkRect device) : c(ctx)
     {
@@ -796,6 +822,16 @@ struct Op {
             bounds = SkIRect::MakeEmpty();
         if (c->work && !bounds.isEmpty())
             CGContextSyncFromClient(c, bounds);
+        /* a context filter (Quartz filters) takes the whole drawing, shadow and all */
+        if (c->filter && !bounds.isEmpty()) {
+            SkPaint fp;
+            fp.setColorFilter(*c->filter);
+            c->canvas->save();
+            c->canvas->resetMatrix();
+            SkRect lb = SkRect::Make(bounds);
+            c->canvas->saveLayer(&lb, &fp);
+            filtered = true;
+        }
         if (g.shadow_color && CGColorGetAlpha(g.shadow_color) > 0) {
             SkPaint lp;
             SkColor4f sc = CGContextColor(c, g.shadow_color);
@@ -813,6 +849,10 @@ struct Op {
     ~Op()
     {
         if (layer) {
+            c->canvas->restore();
+            c->canvas->restore();
+        }
+        if (filtered) {
             c->canvas->restore();
             c->canvas->restore();
         }

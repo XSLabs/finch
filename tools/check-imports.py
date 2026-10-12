@@ -98,7 +98,8 @@ def check(binary, root=ROOT):
     for line in run("dyld_info", "-arch", "arm64e", "-imports", binary).splitlines():
         m = re.match(r"\s+0x[0-9A-Fa-f]+\s+(\S+)\s+(\[weak-import\]\s+)?\(from ([^)]+)\)", line)
         if m:
-            imports[m.group(3)].append((m.group(1), bool(m.group(2))))
+            # (an import bound with an addend, as a vtable's address point, is "name+0x10")
+            imports[m.group(3)].append((re.sub(r"\+0x[0-9A-Fa-f]+$", "", m.group(1)), bool(m.group(2))))
     missing_libs = []
     absent = {}
     for short, syms in sorted(imports.items()):

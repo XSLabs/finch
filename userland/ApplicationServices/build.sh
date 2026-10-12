@@ -3,9 +3,10 @@
 # ApplicationServices.framework: an umbrella with no code of its own,
 # re-exporting the frameworks under it (docs/design/APPKIT.md). Apple's
 # re-exports CoreGraphics, CoreText, ImageIO, ColorSync, CoreServices and
-# its subframeworks (ATS, HIServices, ...); Finch's re-exports the ones Finch
-# has (HIServices so far among the subframeworks, built first by
-# userland/HIServices), and gains the rest as they are written.
+# its subframeworks (ATS, HIServices, PrintCore, ...); Finch's re-exports the
+# ones Finch has (HIServices and PrintCore so far among the subframeworks, built
+# first by userland/HIServices and userland/PrintCore), and gains the rest as
+# they are written.
 #
 # Linked as Apple ships it: Versions/A, current version 66, compatibility
 # version 1.
@@ -26,7 +27,7 @@ for dep in "${REEXPORTS[@]}"; do
     [[ -f "${ROOT}/System/Library/Frameworks/${dep}.framework/${dep}" ]] || { echo "build ${dep} first" >&2; exit 1; }
 done
 # subframeworks, inside this one (userland/HIServices)
-SUBFRAMEWORKS=(HIServices)
+SUBFRAMEWORKS=(HIServices PrintCore)
 SUBLIBS=()
 for sub in "${SUBFRAMEWORKS[@]}"; do
     lib="${FW}/Versions/A/Frameworks/${sub}.framework/Versions/A/${sub}"
