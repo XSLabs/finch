@@ -118,6 +118,8 @@ steps=(
     "SystemAdministration|userland/SystemAdministration/build.sh"
     # IconServices (private): icons for apps, files and types
     "IconServices|userland/IconServices/build.sh"
+    # small private frameworks apps link for a few symbols (SoftLinking, AppSupport, ...)
+    "SmallPrivate|userland/SmallPrivate/build.sh"
     # AppKit and the frameworks around it (docs/design/APPKIT.md)
     "ApplicationServices|userland/ApplicationServices/build.sh"
     "UIFoundation|userland/UIFoundation/build.sh"

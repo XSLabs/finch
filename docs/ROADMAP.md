@@ -422,6 +422,11 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           responsiveness; AppKit's accent-colour calls, width factor, Help book name and
           `NSSubTextStorage` (Script Editor's text). They still link private frameworks
           Finch doesn't have (LaunchServicesSupport, caulk, DeviceRegulatoryInfo).
+    - [x] Small private frameworks apps link for a few symbols (2026-10-12,
+          `userland/SmallPrivate`): SoftLinking (`_sl_dlopen`), AppSupport (CPBitmap files,
+          no city database, no radios), PerformanceAnalysis, ConfigurationProfiles,
+          UIKitMacHelper, ChronoServices and UserManagement; `smallprivate-test` matches
+          Apple's.
     - [ ] Every class and method the public headers declare, as Apple's answers them:
           `tools/api-audit.sh` lists what Finch lacks. 2026-10-12: Foundation 61 classes
           and 140 methods (from 67 and 225), AppKit 48 classes and 115 methods (from 50 and 562).
