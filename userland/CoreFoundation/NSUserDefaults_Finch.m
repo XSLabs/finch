@@ -328,14 +328,18 @@ numeric(id v)
     return (id)CFDictionaryGetValue(_volatile, name);
 }
 
+/* (a domain set again is replaced, as macOS 26's are; earlier releases raised) */
 - (void)setVolatileDomain:(id)domain forName:(id)name
 {
-    if (CFDictionaryContainsKey(_volatile, name))
-        __CFFinchRaise(NSInvalidArgumentException, "*** -[NSUserDefaults setVolatileDomain:forName:]: A domain named %@ already exists", name);
     CFDictionarySetValue(_volatile, name, domain);
 }
 
-- (void)removeVolatileDomainForName:(id)name { CFDictionaryRemoveValue(_volatile, name); }
+/* (the arguments domain stays, values and all, as Apple's does) */
+- (void)removeVolatileDomainForName:(id)name
+{
+    if (![name isEqual:@"NSArgumentDomain"])
+        CFDictionaryRemoveValue(_volatile, name);
+}
 
 - (id)volatileDomainNames
 {

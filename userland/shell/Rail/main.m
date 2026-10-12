@@ -9,6 +9,7 @@
  * paths) of org.finch.Rail, or those of a starting set that are installed.
  */
 #import <Cocoa/Cocoa.h>
+#include <notify.h>
 
 enum { kWidth = 48, kMark = 44, kSlot = 44, kIcon = 32, kBench = 30 };
 
@@ -246,11 +247,50 @@ window_counts(void)
     [_panel setContentView:_view];
     [self refresh];
     [_panel orderFrontRegardless];
+    /* (the Dock's requests, as CoreDockSendNotification posts them: Apple's Apps app asks
+       for Launchpad, which the Rail answers with its launcher) */
+    int token;
+    notify_register_dispatch("org.finch.dock.com.apple.launchpad.toggle", &token, dispatch_get_main_queue(), ^(int t) {
+      [self showLauncher];
+    });
     NSTimer *t = [NSTimer timerWithTimeInterval:1 target:self selector:@selector(tick:) userInfo:nil repeats:YES];
     [[NSRunLoop currentRunLoop] addTimer:t forMode:NSRunLoopCommonModes];
 }
 
 - (void)tick:(NSTimer *)t { [self refresh]; }
+
+/* The launcher: every app in the usual places, by name, in a menu at the top of the Rail. */
+- (void)showLauncher
+{
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Apps"];
+    NSMutableDictionary<NSString *, NSString *> *apps = [NSMutableDictionary dictionary];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSString *dir in @[ @"/Applications", @"/System/Applications", @"/System/Applications/Utilities" ])
+        for (NSString *entry in [fm contentsOfDirectoryAtPath:dir error:NULL])
+            if ([entry.pathExtension isEqualToString:@"app"]) {
+                NSString *path = [dir stringByAppendingPathComponent:entry];
+                NSString *name = [fm displayNameAtPath:path];
+                if (!apps[name])
+                    apps[name] = path;
+            }
+    for (NSString *name in [apps.allKeys sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)]) {
+        NSMenuItem *item = [menu addItemWithTitle:name action:@selector(launch:) keyEquivalent:@""];
+        item.target = self;
+        item.representedObject = apps[name];
+        NSImage *icon = [[NSWorkspace sharedWorkspace] iconForFile:apps[name]];
+        icon.size = NSMakeSize(16, 16);
+        item.image = icon;
+    }
+    /* (at the top: the Rail's view is flipped) */
+    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(kWidth, 8) inView:_view];
+}
+
+- (void)launch:(NSMenuItem *)item
+{
+    [[NSWorkspace sharedWorkspace] openApplicationAtURL:[NSURL fileURLWithPath:item.representedObject]
+                                          configuration:[NSWorkspaceOpenConfiguration configuration]
+                                      completionHandler:nil];
+}
 
 @end
 

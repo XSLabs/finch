@@ -507,7 +507,22 @@ remove_tree(const char *path)
 
 - (BOOL)changeCurrentDirectoryPath:(NSString *)path { return chdir([path fileSystemRepresentation]) == 0; }
 
-- (NSString *)displayNameAtPath:(NSString *)path { return [path lastPathComponent]; }
+/* As Finder shows the name: the volume's for a volume's root, ':' shown as '/' (the
+   filesystem's ':' is Finder's '/'), and an app's .app hidden unless the user shows
+   every extension (AppleShowAllExtensions), as Apple's does. */
+- (NSString *)displayNameAtPath:(NSString *)path
+{
+    if ([path isEqualToString:@"/"]) {
+        NSString *volume = nil;
+        [[NSURL fileURLWithPath:path] getResourceValue:&volume forKey:NSURLVolumeNameKey error:NULL];
+        return volume.length ? volume : @"Finch";
+    }
+    NSString *name = [[path lastPathComponent] stringByReplacingOccurrencesOfString:@":" withString:@"/"];
+    BOOL showAll = [[NSUserDefaults standardUserDefaults] boolForKey:@"AppleShowAllExtensions"];
+    if (!showAll && [[name pathExtension] caseInsensitiveCompare:@"app"] == NSOrderedSame && name.length > 4)
+        return [name stringByDeletingPathExtension];
+    return name;
+}
 
 - (const char *)fileSystemRepresentationWithPath:(NSString *)path { return [path fileSystemRepresentation]; }
 

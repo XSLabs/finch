@@ -209,8 +209,10 @@ new_event(CGEventSourceRef source, CGEventType type)
     FWSInputState st;
     if (input_state(source ? SRC(source)->state : kCGEventSourceStateHIDSystemState, &st))
         e->location = CGPointMake(st.x, st.y);
+    /* (a new event is marked non-coalesced, as macOS 26.4's are) */
+    e->flags = kCGEventFlagMaskNonCoalesced;
     if (source) {
-        e->flags = CGEventSourceFlagsState(SRC(source)->state);
+        e->flags |= CGEventSourceFlagsState(SRC(source)->state);
         e->fields[kCGEventSourceUserData] = (double)SRC(source)->userData;
         e->fields[kCGEventSourceStateID] = SRC(source)->state;
         e->fields[kCGKeyboardEventKeyboardType] = SRC(source)->keyboardType;

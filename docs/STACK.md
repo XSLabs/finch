@@ -102,9 +102,9 @@ block-beta
     block:L7
         columns 4
         t7["Apps and desktop"]
-        apps["Unmodified Mac apps on Finch's<br/>frameworks: Terminal, Stickies,<br/>TextEdit (in the VM), Image Capture<br/>(on the host; no devices yet)"]
+        apps["Unmodified Mac apps on Finch's<br/>frameworks: Terminal, Stickies,<br/>TextEdit, Apps (in the VM),<br/>Image Capture (on the host;<br/>no devices yet); docs/APPS.md"]
         desktop["finch-windowserver<br/>windows over shared memory,<br/>Skia compositor, cursor,<br/>input routing (headless, viewer)"]
-        shell["Fieldwork shell: the Rail<br/>(pinned and running apps,<br/>workbench switcher);<br/>file manager to come"]
+        shell["Fieldwork shell: the Rail<br/>(pinned and running apps,<br/>workbench switcher, app launcher;<br/>hears the Dock's requests);<br/>file manager to come"]
     end
     block:L6
         columns 4

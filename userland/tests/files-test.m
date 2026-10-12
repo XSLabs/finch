@@ -198,6 +198,22 @@ main(int argc, char **argv)
         printf("main bundle: %d foundation bundle id %s\n", [NSBundle mainBundle] != nil, [NSBundle bundleForClass:[NSString class]].bundleIdentifier.UTF8String);
         printf("not a bundle: %s\n", [NSBundle bundleWithPath:[root stringByAppendingPathComponent:@"nothing"]] ? "bundle" : "nil");
 
+        /* display names: an app's .app is hidden unless the user shows every extension
+           (AppleShowAllExtensions, read from their global preferences); ':' shows as '/' */
+        NSString *app = [root stringByAppendingPathComponent:@"Some.app"];
+        NSString *colon = [root stringByAppendingPathComponent:@"a:b.txt"];
+        [fm createDirectoryAtPath:app withIntermediateDirectories:YES attributes:nil error:NULL];
+        [fm createFileAtPath:colon contents:[NSData data] attributes:nil];
+        BOOL showAll = [[NSUserDefaults standardUserDefaults] boolForKey:@"AppleShowAllExtensions"];
+        printf("display names: app %s | %s | %s\n",
+            [[fm displayNameAtPath:app] isEqualToString:showAll ? @"Some.app" : @"Some"] ? "as the setting says" : [fm displayNameAtPath:app].UTF8String,
+            [fm displayNameAtPath:colon].UTF8String, [fm displayNameAtPath:@"/Applications"].UTF8String);
+        NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
+        [ud setVolatileDomain:@{@"FinchFilesTest" : @1} forName:@"FinchFilesTestDomain"];
+        [ud setVolatileDomain:@{@"FinchFilesTest" : @2} forName:@"FinchFilesTestDomain"];
+        printf("volatile domain set twice: %s\n", [[ud volatileDomainForName:@"FinchFilesTestDomain"][@"FinchFilesTest"] description].UTF8String);
+        [ud removeVolatileDomainForName:@"FinchFilesTestDomain"];
+
         [fm changeCurrentDirectoryPath:@"/"];
         printf("cleanup: %d\n", [fm removeItemAtPath:root error:NULL]);
     }

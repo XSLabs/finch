@@ -11,6 +11,6 @@ HERE="${FINCH_ROOT}/userland/HIServices"
 AS=/System/Library/Frameworks/ApplicationServices.framework
 "${FINCH_ROOT}/tools/build-small-framework.sh" \
     "${AS}/Versions/A/Frameworks/HIServices.framework/Versions/A/HIServices" 817 1 com.apple.HIServices 1.22 \
-    "${HERE}/HIServicesConstants.c" "${HERE}/Accessibility.c" "${HERE}/Processes.c" "${HERE}/Pasteboard.c" \
+    "${HERE}/HIServicesConstants.c" "${HERE}/Accessibility.c" "${HERE}/Processes.c" "${HERE}/Pasteboard.c" "${HERE}/Dock.c" \
     -- -Wl,-umbrella,ApplicationServices -framework CoreFoundation
 ln -sfn Versions/Current/Frameworks "${FINCH_ROOT}/build/root${AS}/Frameworks"

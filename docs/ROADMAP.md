@@ -396,12 +396,15 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         (`tools/check-imports.py`).
   - [x] Drop-in check: `tools/app-sweep.py` runs the import check over every app and the
         frameworks it carries, and ranks what's missing by apps blocked. Apple's apps are
-        recorded in [`docs/APPS.md`](APPS.md) (2026-10-11: 6 of 65 have every import;
+        recorded in [`docs/APPS.md`](APPS.md) (2026-10-11: 9 of 65 have every import;
         gaps in AppKit, Foundation and CoreGraphics block the most, then AppIntents and
         AVFoundation). The next frameworks are picked from it.
   - [ ] Close the symbol gaps in Finch's own frameworks that block the most apps
-        (AppKit, Foundation, CoreGraphics, libswiftDispatch, QuartzCore, CoreFoundation),
-        starting with Apps, Mission Control and Time Machine, which lack nothing else.
+        (AppKit, Foundation, CoreGraphics, libswiftDispatch, QuartzCore, CoreFoundation).
+    - [x] Apps, Mission Control and Time Machine: `CoreDockSendNotification` (HIServices;
+          the Rail hears it, and answers Apps' Launchpad request with its launcher) and
+          Time Machine's backup-server calls (CarbonCore; no backup server yet). Apps
+          opens the launcher in QEMU (2026-10-11).
   - [x] A Cocoa app bundle built the usual way (`userland/tests/apps/Hello`: NSApplicationMain,
         a MainMenu nib from ibtool, outlets and actions) launches on Finch's frameworks and window
         server, shows its menu bar and window, and responds to clicks and typing
@@ -608,7 +611,9 @@ that every app works. These release checks were missing from the Phase 5 list:
         comes with Settings.
   - [ ] The Instrument Bar: app menus on the left, system context on the right.
     - [x] Drawn by each app's menu bar: FINCH, the menus, the workbench and the clock (2026-10-09).
-    - [ ] A system process owning it (network, battery, the launcher behind FINCH).
+    - [ ] A system process owning it (network, battery, the launcher behind FINCH). The
+          launcher itself is the Rail's for now: a menu of every app, opened by Apple's
+          Apps (Launchpad) app (2026-10-11).
   - [ ] The Rail, in place of the Dock.
     - [x] `Rail.app` (`userland/shell/Rail`): the finch mark, pinned and running apps with
           per-window marks, the workbench switcher. Apps' visible frame leaves it out, and
