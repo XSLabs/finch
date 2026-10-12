@@ -299,20 +299,11 @@ all_kind_of(id<NSFastEnumeration> objects, NSSet *classes)
 
 /* MARK: - NSObject's coding hooks */
 
-static CFMutableDictionaryRef versions;
-
 @implementation NSObject (NSCoderMethods)
 
-+ (NSInteger)version
-{
-    return versions ? (NSInteger)(intptr_t)CFDictionaryGetValue(versions, (const void *)self) : 0;
-}
-
-+ (void)setVersion:(NSInteger)aVersion
-{
-    if (!versions) versions = CFDictionaryCreateMutable(NULL, 0, NULL, NULL);
-    CFDictionarySetValue(versions, (const void *)self, (const void *)(intptr_t)aVersion);
-}
+/* The runtime's version, which archivers write */
++ (NSInteger)version { return class_getVersion(self); }
++ (void)setVersion:(NSInteger)aVersion { class_setVersion(self, (int)aVersion); }
 
 - (Class)classForCoder { return [self class]; }
 - (id)replacementObjectForCoder:(NSCoder *)coder { return self; }

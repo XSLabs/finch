@@ -14,6 +14,8 @@
     NSImageSymbolConfiguration *_symbolConfiguration;
     NSColor *_contentTintColor;
     NSImageDynamicRange _preferredRange;
+    id _ivTarget; /* not retained, as a cell's */
+    SEL _ivAction;
     struct {
         unsigned editable : 1;
         unsigned allowsCutCopyPaste : 1;
@@ -26,6 +28,12 @@ static NSImageDynamicRange default_range = NSImageDynamicRangeUnspecified;
 {
     return [super cellClass] ?: [NSImageCell class];
 }
+
+/* The view keeps its own target and action: its cell isn't an action cell. */
+- (id)target { return _ivTarget; }
+- (void)setTarget:(id)target { _ivTarget = target; }
+- (SEL)action { return _ivAction; }
+- (void)setAction:(SEL)action { _ivAction = action; }
 
 + (instancetype)imageViewWithImage:(NSImage *)image
 {

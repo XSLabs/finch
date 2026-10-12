@@ -482,7 +482,8 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           items, titlebar accessories (kept by the window; not yet drawn in the title
           bar) and split-view item accessories, row actions, attachment cells and view
           providers, preview activity items, the scrubber family, the speech
-          synthesizer (silent), NSPreferences, and OpenGL's classes (no OpenGL yet);
+          synthesizer (silent), NSPreferences, and OpenGL's classes (stand-ins until
+          OpenGL came, below);
           `appkit-small3-test` matches Apple's (2026-10-11).
     - [x] NSCollectionViewCompositionalLayout with its dimensions, sizes, items, groups
           (repeating, counted, nested), spacing, sections, boundary and decoration
@@ -638,6 +639,24 @@ and AppKit come in Phase 2).
         (an HDR screenshot is the SDR pixels today), recording to a file (needs a video
         encoder), idle frames.
   - [ ] A device: software rendering, or a GPU driver (the M4's on metal)
+- [x] OpenGL (2026-10-12): Mesa 25.0.7's softpipe renderer through OSMesa, built by Finch,
+      as OpenGL.framework's libGL, under Finch's own CGL (pixel formats, contexts, renderer
+      info; drawing into the app's memory refused, as on Apple silicon) and GLU
+      (projections, quadrics, mipmaps); AppKit's NSOpenGLPixelFormat, NSOpenGLContext and
+      NSOpenGLView draw into windows. `opengl-test` matches Apple's and
+      `appkit-opengl-test` draws on the window server; both pass in the VM.
+  - [x] Apple's unmodified Grapher runs in the VM: its new-graph chooser and a 2D
+        graph's window draw (2026-10-12). What it needed besides OpenGL: typedstream
+        (NSArchiver) coding of colours, fonts, named images, paragraph styles and tabs,
+        shadows, Bézier paths, print info and transforms, byte for byte as Apple's;
+        class versions set with `+setVersion:` reaching archives; Apple's type tolerances
+        (a char read as a BOOL, a long as an int) and allowed classes; cell highlight
+        colours chosen by the control view; image views keeping their own target and
+        action; the cell and font SPI it calls. `appkit-typedstream-test`,
+        `typedstream-test` and `appkit-compat-test` match Apple's.
+  - [ ] Grapher's remaining parts: 3D graphs, entering and plotting equations, the
+        disclosure images it asks AppKit for (`NSDisclosable`, `NSDisclosed`).
+  - [ ] Core-profile contexts (Apple's 3.2 and 4.1) and hardware rendering (with a device)
 - [x] Combine: OpenCombine (MIT) adapted to Apple's ABI, with Finch's Merge, CombineLatest
       and collecting by time; every Combine symbol the system apps import (2026-10-09)
 - [ ] SwiftUI: OpenSwiftUI (MIT) built as SwiftUI and SwiftUICore (`docs/design/SWIFTUI.md`)

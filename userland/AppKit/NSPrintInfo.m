@@ -92,16 +92,44 @@ defaults(void)
     return self;
 }
 
++ (void)initialize
+{
+    if (self == [NSPrintInfo class])
+        [self setVersion:1];
+}
+
 - (instancetype)initWithCoder:(NSCoder *)coder
 {
-    NSDictionary *d = [coder allowsKeyedCoding] ? [coder decodeObjectForKey:@"NSAttributes"] : nil;
-    return [self initWithDictionary:d ?: @{}];
+    NSDictionary *d = [coder allowsKeyedCoding] ? [coder decodeObjectForKey:@"NSAttributes"] : [coder decodeObject];
+    return [self initWithDictionary:[d isKindOfClass:[NSDictionary class]] ? d : @{}];
 }
 
 - (void)encodeWithCoder:(NSCoder *)coder
 {
-    if ([coder allowsKeyedCoding])
+    if ([coder allowsKeyedCoding]) {
         [coder encodeObject:_dict forKey:@"NSAttributes"];
+        return;
+    }
+    /* a typedstream: the attributes, less the printer and the job settings still at their
+       defaults, as Apple's */
+    static NSSet *skipped;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        skipped = [[NSSet alloc] initWithObjects:NSPrintPrinter, NSPrintPrinterName, NSPrintPaperName, NSPrintFirstPage,
+                                                 NSPrintLastPage, NSPrintMustCollate, NSPrintAllPages, NSPrintDetailedErrorReporting,
+                                                 NSPrintFaxNumber, NSPrintTime, NSPrintSavePath, @"NSDestinationFormat",
+                                                 NSPrintPagesAcross, NSPrintPagesDown, @"NSPrintProtected", NSPrintSelectionOnly,
+                                                 NSPrintJobSavingFileNameExtensionHidden, nil];
+    });
+    NSMutableDictionary *d = [NSMutableDictionary dictionary];
+    NSDictionary *standard = defaults();
+    [_dict enumerateKeysAndObjectsUsingBlock:^(id k, id v, BOOL *stop) {
+        if ([k isEqual:NSPrintPrinter] || ([skipped containsObject:k] && [standard[k] isEqual:v]))
+            return;
+        if ([v conformsToProtocol:@protocol(NSCoding)])
+            d[k] = v;
+    }];
+    [coder encodeObject:d];
 }
 
 - (id)copyWithZone:(NSZone *)zone

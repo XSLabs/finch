@@ -1043,9 +1043,40 @@ get_float(const uint8_t *b)
     return f;
 }
 
-/* Apple's NSSegments: per point, a type byte and two big-endian floats (a curve is three such records). */
++ (void)initialize
+{
+    if (self == [NSBezierPath class])
+        [self setVersion:524];
+}
+
+/* Apple's NSSegments: per point, a type byte and two big-endian floats (a curve is three such records).
+   A typedstream has the same records as groups, after their count, then the settings. */
 - (void)encodeWithCoder:(NSCoder *)coder
 {
+    if (![coder allowsKeyedCoding]) {
+        int n = 0;
+        for (NSInteger i = 0; i < _count; i++)
+            n += npoints(_e[i].type);
+        [coder encodeValueOfObjCType:@encode(int) at:&n];
+        for (NSInteger i = 0; i < _count; i++)
+            for (int k = 0; k < npoints(_e[i].type); k++) {
+                char t = (char)_e[i].type;
+                float x = (float)_e[i].p[k].x, y = (float)_e[i].p[k].y;
+                [coder encodeValuesOfObjCTypes:"cff", &t, &x, &y];
+            }
+        int winding = (int)_winding, cap = (int)_lineCap, join = (int)_lineJoin, dashes = (int)_dashCount;
+        float width = (float)_lineWidth, miter = (float)_miterLimit, flatness = (float)_flatness;
+        [coder encodeValuesOfObjCTypes:"iiifffi", &winding, &cap, &join, &width, &miter, &flatness, &dashes];
+        if (_dashCount) {
+            float phase = (float)_dashPhase;
+            [coder encodeValueOfObjCType:@encode(float) at:&phase];
+            for (NSInteger i = 0; i < _dashCount; i++) {
+                float d = (float)_dash[i];
+                [coder encodeValueOfObjCType:@encode(float) at:&d];
+            }
+        }
+        return;
+    }
     if (_count) {
         NSMutableData *d = [NSMutableData data];
         for (NSInteger i = 0; i < _count; i++)
@@ -1082,6 +1113,41 @@ get_float(const uint8_t *b)
 {
     if (!(self = [self init]))
         return nil;
+    if (![coder allowsKeyedCoding]) {
+        int n = 0;
+        [coder decodeValueOfObjCType:@encode(int) at:&n size:sizeof n];
+        for (int i = 0; i < n;) {
+            char t = 0;
+            float x = 0, y = 0;
+            [coder decodeValuesOfObjCTypes:"cff", &t, &x, &y];
+            i++;
+            NSPoint p[3] = {NSMakePoint(x, y), NSZeroPoint, NSZeroPoint};
+            for (int k = 1; k < npoints((NSBezierPathElement)t) && i < n; k++, i++) {
+                char t2 = 0;
+                [coder decodeValuesOfObjCTypes:"cff", &t2, &x, &y];
+                p[k] = NSMakePoint(x, y);
+            }
+            [self _append:(NSBezierPathElement)t p0:p[0] p1:p[1] p2:p[2]];
+        }
+        int winding = 0, cap = 0, join = 0, dashes = 0;
+        float width = 1, miter = 10, flatness = 0.6f;
+        [coder decodeValuesOfObjCTypes:"iiifffi", &winding, &cap, &join, &width, &miter, &flatness, &dashes];
+        _winding = (NSWindingRule)winding, _lineCap = (NSLineCapStyle)cap, _lineJoin = (NSLineJoinStyle)join;
+        _lineWidth = width, _miterLimit = miter, _flatness = flatness;
+        if (dashes > 0) {
+            float phase = 0;
+            [coder decodeValueOfObjCType:@encode(float) at:&phase size:sizeof phase];
+            CGFloat *pat = malloc(sizeof(CGFloat) * (size_t)dashes);
+            for (int i = 0; i < dashes; i++) {
+                float d = 0;
+                [coder decodeValueOfObjCType:@encode(float) at:&d size:sizeof d];
+                pat[i] = d;
+            }
+            [self setLineDash:pat count:dashes phase:phase];
+            free(pat);
+        }
+        return self;
+    }
     NSUInteger len = 0;
     const uint8_t *b = [coder decodeBytesForKey:@"NSSegments" returnedLength:&len];
     for (NSUInteger off = 0; b && off + 9 <= len;) {

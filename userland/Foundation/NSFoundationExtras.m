@@ -580,12 +580,22 @@ multiply(NSAffineTransformStruct a, NSAffineTransformStruct b)
 - (void)encodeWithCoder:(NSCoder *)coder
 {
     float f[6] = { (float)_t.m11, (float)_t.m12, (float)_t.m21, (float)_t.m22, (float)_t.tX, (float)_t.tY };
+    if (![coder allowsKeyedCoding]) {
+        [coder encodeArrayOfObjCType:"f" count:6 at:f];
+        return;
+    }
     [coder encodeBytes:(const uint8_t *)f length:sizeof(f) forKey:@"NSTransformStruct"];
 }
 
 - (instancetype)initWithCoder:(NSCoder *)coder
 {
     if ((self = [self init])) {
+        if (![coder allowsKeyedCoding]) {
+            float f[6];
+            [coder decodeArrayOfObjCType:"f" count:6 at:f];
+            _t = (NSAffineTransformStruct){ f[0], f[1], f[2], f[3], f[4], f[5] };
+            return self;
+        }
         NSUInteger n = 0;
         const float *f = (const float *)[coder decodeBytesForKey:@"NSTransformStruct" returnedLength:&n];
         if (f && n >= 6 * sizeof(float)) _t = (NSAffineTransformStruct){ f[0], f[1], f[2], f[3], f[4], f[5] };

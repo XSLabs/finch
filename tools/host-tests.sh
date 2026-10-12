@@ -29,11 +29,11 @@ trap 'rm -rf "${TMP}"' EXIT
 # swap in its libSystem as well)
 mkdir -p "${TMP}/lib"
 for l in libMobileGestalt libDiagnosticMessagesClient; do ln -s "${FINCH_ROOT}/build/root/usr/lib/${l}.dylib" "${TMP}/lib/"; done
-LIBS="build/root/usr/lib/swift:${TMP}/lib"
+LIBS="build/root/usr/lib/swift:${TMP}/lib:${R}/Frameworks/OpenGL.framework/Versions/A/Libraries"
 
 # name|arguments: comparison tests (arguments are relative to the repo root)
 COMPARE=(
-    "avaudio-file-test|" "avaudio-converter-test|" "avaudio-engine-test|" "avaudio-player-test|" "avaudio-unit-test|" "audiounit-effects-test|" "itemprovider-test|" "formatters2-test|" "urlcache-test|" "appkit-small3-test|" "compositional-test|" "filepromise-test|" "appkit-swift2-test|" "private-calls-test|" "mobilegestalt-test|" "utilities-test|" "foundation-audit-test|" "tree-test|" "outline-bindings-test|" "typeselect-test|" "screencapturekit-test|" "appkit-compat-test|" "pdf-image-rep-test|" "sounddesc-test|" "avasset-test|" "avreader-test|" "avwriter-test|" "avimage-test|" "avplayer-test|" "xml-test|" "document-more-test|" "textview-more-test|" "windowing-more-test|"
+    "avaudio-file-test|" "avaudio-converter-test|" "avaudio-engine-test|" "avaudio-player-test|" "avaudio-unit-test|" "audiounit-effects-test|" "itemprovider-test|" "formatters2-test|" "urlcache-test|" "appkit-small3-test|" "compositional-test|" "filepromise-test|" "appkit-swift2-test|" "private-calls-test|" "mobilegestalt-test|" "utilities-test|" "foundation-audit-test|" "tree-test|" "outline-bindings-test|" "typeselect-test|" "screencapturekit-test|" "appkit-compat-test|" "pdf-image-rep-test|" "sounddesc-test|" "avasset-test|" "avreader-test|" "avwriter-test|" "avimage-test|" "avplayer-test|" "opengl-test|" "appkit-typedstream-test|" "xml-test|" "document-more-test|" "textview-more-test|" "windowing-more-test|"
     "cf-test|" "foundation-test|" "intl-test|" "misc-test|" "data-test|" "collections-test|" "kvc-test|" "typedstream-test|" "tiff-test|" "colorsync-test|" "hiservices-test|" "scripting-test|" "cfnetwork-test|" "coreimage-test|" "cgevent-test|" "keylayout-test|" "contacts-test|" "accounts-test|" "metal-test|" "iosurface-test|" "gss-test|" "cfurl-test|" "pasteboard-test|" "coremedia-test|" "corevideo-test|" "audiotoolbox-test|" "audioconverter-test|" "extaudiofile-test|" "extaudiofile-test|--src-check"
     "archive-test|" "predicate-test|" "measurement-test|" "bridge-test|" "streams-test|" "documents-test|"
     "files-test|" "xmlparser-test|" "cfnotify-test|" "l10n-test|" "uti-test|" "cg-test|" "imageio-test|"
@@ -45,7 +45,7 @@ COMPARE=(
     "coreservices-test|build/coreservices-test" "security-test|" "rtf-test|" "filecoordinator-test|" "textfinder-test|" "ruler-test|" "textblock-test|" "combine-test|" "cftokenizer-test|" "urlsession-test|" "swift-overlay-test|" "swift-runtime-test|"
 )
 # Finch-only window-server tests and their expected output
-EXPECT=(window controls-window menu-window text-window panels-window tables-window statusbar drag-window screencapture avplayer)
+EXPECT=(window controls-window menu-window text-window panels-window tables-window statusbar drag-window screencapture avplayer opengl)
 FINCH_ONLY=("keychain-crypto-test|" "security-keychain-storage-test|" "security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "avaudio-services-test|" "configd-daemon-test|")
 
 want() {
@@ -117,7 +117,7 @@ for name in "${EXPECT[@]}"; do
         skip=$((skip + 1))
         continue
     fi
-    DYLD_FRAMEWORK_PATH="${FW}" FINCH_FONT_DIRS="${R}/Fonts" "${bin}" "${SERVER}" > "${TMP}/finch" 2> "${TMP}/finch.err"
+    DYLD_FRAMEWORK_PATH="${FW}" DYLD_LIBRARY_PATH="${LIBS}" FINCH_FONT_DIRS="${R}/Fonts" "${bin}" "${SERVER}" > "${TMP}/finch" 2> "${TMP}/finch.err"
     finch_status=$?
     d=$(diff "${TMP}/finch" "${expected}" | grep -c '^[<>]')
     if [[ "${finch_status}" -ne 0 ]]; then

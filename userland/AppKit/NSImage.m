@@ -797,10 +797,24 @@ rep_rect(NSImage *image, NSImageRep *rep, NSRect r)
 
 + (BOOL)supportsSecureCoding { return YES; }
 
++ (void)initialize
+{
+    if (self == [NSImage class])
+        [self setVersion:46];
+}
+
 - (void)encodeWithCoder:(NSCoder *)coder
 {
-    if (![coder allowsKeyedCoding])
+    if (![coder allowsKeyedCoding] && _name && named_images[_name] == self) {
+        /* a typedstream holds named images only (by name, a char saying so and one
+           for template-ness); others fall to the keyed calls below, which a
+           typedstream refuses, as Apple's */
+        char named = 1, tmpl = _template;
+        [coder encodeObject:_name];
+        [coder encodeValueOfObjCType:@encode(char) at:&named];
+        [coder encodeValueOfObjCType:@encode(char) at:&tmpl];
         return;
+    }
     if (_name && named_images[_name] == self) {
         [coder encodeObject:_name forKey:@"NSName"];
         return;
@@ -817,6 +831,14 @@ rep_rect(NSImage *image, NSImageRep *rep, NSRect r)
 
 - (instancetype)initWithCoder:(NSCoder *)coder
 {
+    if (![coder allowsKeyedCoding]) {
+        NSString *typedName = [coder decodeObject];
+        char named = 0, tmpl = 0;
+        [coder decodeValueOfObjCType:@encode(char) at:&named size:1];
+        [coder decodeValueOfObjCType:@encode(char) at:&tmpl size:1];
+        [self release];
+        return [[NSImage imageNamed:typedName] retain];
+    }
     NSString *name = [coder decodeObjectOfClass:[NSString class] forKey:@"NSName"];
     if (name) {
         [self release];

@@ -10,6 +10,10 @@
 #import "NSControl_Finch.h"
 #import "FinchTheme.h"
 
+@interface NSView (NSCellHighlight)
+- (NSColor *)_highlightColorForCell:(NSCell *)cell;
+@end
+
 #pragma mark - Finch's look
 
 /* Classic's colours, or the theme's (docs/design/FIELDWORK.md): Fieldwork's controls are slate, outlined in ink. */
@@ -365,6 +369,7 @@ FinchAlignmentToArchive(NSTextAlignment a)
         unsigned truncatesLastLine : 1;
         unsigned invalid : 1;
         unsigned editing : 1;
+        unsigned verticallyCentered : 1;
     } _c;
 }
 
@@ -453,6 +458,7 @@ cell_defaults(NSCell *self)
     _c.bezeled = (f1 & CF1_BEZELED) != 0;
     _c.selectable = (f1 & CF1_SELECTABLE) != 0;
     _c.scrollable = (f1 & CF1_SCROLLABLE) != 0;
+    _c.verticallyCentered = (f1 & CF1_VERTICALLY_CENTERED) != 0;
     if (f1 & CF1_CONTINUOUS)
         _actionMask |= NSEventMaskPeriodic;
     _c.editsAttributes = (f2 & CF2_EDITS_ATTRIBUTES) != 0;
@@ -512,6 +518,7 @@ cell_defaults(NSCell *self)
     if (_c.bezeled) f1 |= CF1_BEZELED;
     if (_c.selectable) f1 |= CF1_SELECTABLE;
     if (_c.scrollable) f1 |= CF1_SCROLLABLE;
+    if (_c.verticallyCentered) f1 |= CF1_VERTICALLY_CENTERED;
     if (_actionMask & NSEventMaskPeriodic) f1 |= CF1_CONTINUOUS;
     unsigned f2 = FinchAlignmentToArchive(_alignment) << CF2_ALIGNMENT_SHIFT;
     if (_c.editsAttributes) f2 |= CF2_EDITS_ATTRIBUTES;
@@ -653,21 +660,21 @@ cell_defaults(NSCell *self)
 
 - (void)setTarget:(id)target
 {
-    [NSException raise:NSInternalInconsistencyException format:@"Must use setTarget: on an NSActionCell subclass"];
+    [NSException raise:NSInternalInconsistencyException format:@"Stub implementation of -setTarget by NSCell does nothing."];
 }
 
 - (SEL)action { return NULL; }
 
 - (void)setAction:(SEL)action
 {
-    [NSException raise:NSInternalInconsistencyException format:@"Must use setAction: on an NSActionCell subclass"];
+    [NSException raise:NSInternalInconsistencyException format:@"Stub implementation of -setAction by NSCell does nothing."];
 }
 
 - (NSInteger)tag { return -1; }
 
 - (void)setTag:(NSInteger)tag
 {
-    [NSException raise:NSInternalInconsistencyException format:@"Must use setTag: on an NSActionCell subclass"];
+    [NSException raise:NSInternalInconsistencyException format:@"Stub implementation of -setTag by NSCell does nothing."];
 }
 
 - (NSString *)title { return [self stringValue]; }
@@ -1193,9 +1200,23 @@ value_integer(id v)
     return [self cellSizeForBounds:NSMakeRect(0, 0, 1e7, 1e7)];
 }
 
+/* The control view chooses (nil with none). */
 - (NSColor *)highlightColorWithFrame:(NSRect)cellFrame inView:(NSView *)controlView
 {
-    return [NSColor selectedControlColor];
+    return [controlView _highlightColorForCell:self];
+}
+
+/* SPI: Finch's cells centre their text vertically anyway; the flag is kept and archived. */
+- (void)_setVerticallyCentered:(BOOL)flag { _c.verticallyCentered = flag; }
+
+/* SPI: the highlight's colour, if there is one, over the whole frame. */
+- (void)_drawHighlightWithFrame:(NSRect)cellFrame inView:(NSView *)controlView
+{
+    NSColor *c = [self highlightColorWithFrame:cellFrame inView:controlView];
+    if (!c)
+        return;
+    [c set];
+    NSRectFill(cellFrame);
 }
 
 - (void)calcDrawInfo:(NSRect)rect {}
@@ -1437,5 +1458,19 @@ up:
 
 - (BOOL)isAccessibilityElement { return YES; }
 - (NSString *)accessibilityLabel { return _type == NSTextCellType ? [self stringValue] : nil; }
+
+@end
+
+@implementation NSView (NSCellHighlight)
+
+/* SPI: a cell's highlight in this view: the selection colour while it has the key
+   window's focus, the unemphasized one otherwise. */
+- (NSColor *)_highlightColorForCell:(NSCell *)cell
+{
+    NSWindow *w = [self window];
+    if ([w firstResponder] == self && [w isKeyWindow])
+        return [NSColor alternateSelectedControlColor];
+    return [NSColor secondarySelectedControlColor];
+}
 
 @end

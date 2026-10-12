@@ -237,8 +237,31 @@ static NSMutableArray *available;
     return self;
 }
 
++ (void)initialize
+{
+    if (self == [NSColorList class])
+        [self setVersion:2];
+}
+
 - (instancetype)initWithCoder:(NSCoder *)coder
 {
+    if (![coder allowsKeyedCoding]) {
+        /* a typedstream: the name, the keys (nil for none) and their count, then the
+           colours in order */
+        NSString *name = [coder decodeObject];
+        NSArray *keys = nil;
+        int n = 0;
+        [coder decodeValuesOfObjCTypes:"@i", &keys, &n];
+        [keys autorelease];
+        if (!(self = [self initWithName:name]))
+            return nil;
+        for (int i = 0; i < n; i++) {
+            NSColor *c = [coder decodeObject];
+            if (i < (int)[keys count] && c)
+                [self setColor:c forKey:[keys objectAtIndex:i]];
+        }
+        return self;
+    }
     if (!(self = [self initWithName:[coder decodeObjectOfClass:[NSString class] forKey:@"NSName"]]))
         return nil;
     NSSet *classes = [NSSet setWithObjects:[NSArray class], [NSString class], [NSColor class], nil];
@@ -251,6 +274,15 @@ static NSMutableArray *available;
 
 - (void)encodeWithCoder:(NSCoder *)coder
 {
+    if (![coder allowsKeyedCoding]) {
+        NSArray *keys = [_keys count] ? [[_keys copy] autorelease] : nil;
+        int n = (int)[_keys count];
+        [coder encodeObject:_name];
+        [coder encodeValuesOfObjCTypes:"@i", &keys, &n];
+        for (NSString *k in _keys)
+            [coder encodeObject:[_colors objectForKey:k]];
+        return;
+    }
     [coder encodeObject:_name forKey:@"NSName"];
     [coder encodeObject:[[_keys mutableCopy] autorelease] forKey:@"NSKeys"];
     [coder encodeObject:[[[_colors objectsForKeys:_keys notFoundMarker:(id)[NSNull null]] mutableCopy] autorelease]

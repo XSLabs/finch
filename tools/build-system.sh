@@ -150,6 +150,7 @@ steps=(
     "CoreMedia|userland/CoreMedia/build.sh"
     "AVFAudio|userland/AVFAudio/build.sh"
     "AVFoundation|userland/AVFoundation/build.sh"
+    "OpenGL|userland/OpenGL/build.sh"
     # Feature flags (os_feature_enabled's Swift face) and the device's answers (libMobileGestalt)
     "FeatureFlags|userland/FeatureFlags/build.sh"
     "libMobileGestalt|userland/libMobileGestalt/build.sh"

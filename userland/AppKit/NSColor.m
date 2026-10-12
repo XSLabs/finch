@@ -501,8 +501,37 @@ convert_to_space(NSColor *color, NSColorSpace *space, Kind kind)
 
 - (void)encodeWithCoder:(NSCoder *)coder
 {
-    if (![coder allowsKeyedCoding])
+    if (![coder allowsKeyedCoding]) {
+        /* a typedstream: the legacy space's number as a char, then its components and
+           alpha as floats; other spaces go as calibrated RGB or white */
+        char tag;
+        NSColor *legacy = self;
+        switch (_kind) {
+        case KIND_CAL_RGB: tag = 1; break;
+        case KIND_DEVICE_RGB: tag = 2; break;
+        case KIND_CAL_WHITE: tag = 3; break;
+        case KIND_DEVICE_WHITE: tag = 4; break;
+        case KIND_DEVICE_CMYK: tag = 5; break;
+        default:
+            tag = [self _model] == NSColorSpaceModelGray ? 3 : 1;
+            legacy = [self colorUsingColorSpaceName:tag == 3 ? NSCalibratedWhiteColorSpace : NSCalibratedRGBColorSpace];
+            break;
+        }
+        if (![legacy isKindOfClass:[NSComponentColor class]])
+            return;
+        NSComponentColor *l = (NSComponentColor *)legacy;
+        float f[5] = {0, 0, 0, 0, 1};
+        for (NSInteger i = 0; i < l->_n && i < 5; i++)
+            f[i] = (float)l->_c[i];
+        [coder encodeValueOfObjCType:@encode(char) at:&tag];
+        if (tag <= 2)
+            [coder encodeValuesOfObjCTypes:"ffff", &f[0], &f[1], &f[2], &f[3]];
+        else if (tag <= 4)
+            [coder encodeValuesOfObjCTypes:"ff", &f[0], &f[1]];
+        else
+            [coder encodeValuesOfObjCTypes:"fffff", &f[0], &f[1], &f[2], &f[3], &f[4]];
         return;
+    }
     NSColorSpaceModel m = [self _model];
     int nsSpace;
     switch (_kind) {
@@ -726,6 +755,13 @@ system_color(NSString *name)
 
 - (void)encodeWithCoder:(NSCoder *)coder
 {
+    if (![coder allowsKeyedCoding]) {
+        char tag = 6;
+        NSColor *resolved = [self _resolved];
+        [coder encodeValueOfObjCType:@encode(char) at:&tag];
+        [coder encodeValuesOfObjCTypes:"@@@", &_catalog, &_name, &resolved];
+        return;
+    }
     [coder encodeInt:6 forKey:@"NSColorSpace"];
     [coder encodeObject:_catalog forKey:@"NSCatalogName"];
     [coder encodeObject:_name forKey:@"NSColorName"];
@@ -1283,6 +1319,8 @@ SYSTEM(alternateSelectedControlColor)
 
 + (BOOL)supportsSecureCoding { return YES; }
 
+- (Class)classForCoder { return [NSColor class]; }
+
 - (void)encodeWithCoder:(NSCoder *)coder
 {
 }
@@ -1311,11 +1349,51 @@ parse_floats(NSCoder *coder, NSString *key, CGFloat *out, int max, int *count)
     return YES;
 }
 
+/* A typedstream's colour (see -[NSComponentColor encodeWithCoder:]). */
+static NSColor *
+decode_typed(NSCoder *coder)
+{
+    char tag = 0;
+    [coder decodeValueOfObjCType:@encode(char) at:&tag size:1];
+    float f[5] = {0, 0, 0, 0, 1};
+    CGFloat c[5];
+    switch (tag) {
+    case 1:
+    case 2:
+        [coder decodeValuesOfObjCTypes:"ffff", &f[0], &f[1], &f[2], &f[3]];
+        for (int i = 0; i < 4; i++)
+            c[i] = f[i];
+        return make_color(tag == 1 ? KIND_CAL_RGB : KIND_DEVICE_RGB, nil, c, 4);
+    case 3:
+    case 4:
+        [coder decodeValuesOfObjCTypes:"ff", &f[0], &f[1]];
+        c[0] = f[0], c[1] = f[1];
+        return make_color(tag == 3 ? KIND_CAL_WHITE : KIND_DEVICE_WHITE, nil, c, 2);
+    case 5:
+        [coder decodeValuesOfObjCTypes:"fffff", &f[0], &f[1], &f[2], &f[3], &f[4]];
+        for (int i = 0; i < 5; i++)
+            c[i] = f[i];
+        return make_color(KIND_DEVICE_CMYK, nil, c, 5);
+    case 6: {
+        NSString *cat = nil, *name = nil;
+        NSColor *col = nil;
+        [coder decodeValuesOfObjCTypes:"@@@", &cat, &name, &col];
+        NSColor *result = [NSColor colorWithCatalogName:cat colorName:name];
+        if (!result)
+            result = col;
+        [[result retain] autorelease];
+        [cat release], [name release], [col release];
+        return result;
+    }
+    }
+    return nil;
+}
+
 - (instancetype)initWithCoder:(NSCoder *)coder
 {
     [self release];
     if (![coder allowsKeyedCoding])
-        return nil;
+        return [decode_typed(coder) retain];
     int space = [coder decodeIntForKey:@"NSColorSpace"];
     CGFloat c[6] = {0, 0, 0, 0, 0, 0};
     int n = 0;

@@ -56,7 +56,10 @@ would, so apps that link them run. CoreVideo's pixel buffers and pools are Finch
 byte for byte as Apple's are (in memory of their own or an IOSurface's), and CoreMedia's
 times, block buffers, format descriptions (including those from H.264 and HEVC
 parameter sets), sample buffers, clocks, timebases, queues, memory pools, metadata
-identifiers and tags match Apple's in their comparison tests. The desktop's frame is the Instrument Bar (each app's menu bar) and the Rail, a
+identifiers and tags match Apple's in their comparison tests. OpenGL is Mesa's software
+renderer (softpipe through OSMesa, built by Finch) under Finch's own CGL and GLU, and
+AppKit's NSOpenGL views draw with it; typedstream archives (NSArchiver) of AppKit's
+colours, fonts, images, paragraph styles, shadows, paths and print info match Apple's. The desktop's frame is the Instrument Bar (each app's menu bar) and the Rail, a
 Finch app down the left edge that replaces the Dock.
 
 CoreFoundation's local notification center shares observers with Foundation's
@@ -102,7 +105,7 @@ block-beta
     block:L7
         columns 4
         t7["Apps and desktop"]
-        apps["Unmodified Mac apps on Finch's<br/>frameworks: Terminal, Stickies,<br/>TextEdit, Apps (in the VM),<br/>Image Capture (on the host;<br/>no devices yet); docs/APPS.md"]
+        apps["Unmodified Mac apps on Finch's<br/>frameworks: Terminal, Stickies,<br/>TextEdit, Apps, Digital Color<br/>Meter, Grapher (in the VM),<br/>Image Capture (on the host;<br/>no devices yet); docs/APPS.md"]
         desktop["finch-windowserver<br/>windows over shared memory,<br/>Skia compositor, cursor,<br/>input routing (headless, viewer),<br/>captures of chosen windows;<br/>the desktop listed as a window"]
         shell["Fieldwork shell: the Rail<br/>(pinned and running apps,<br/>workbench switcher, app launcher;<br/>hears the Dock's requests);<br/>file manager to come"]
     end
@@ -118,7 +121,8 @@ block-beta
         ctio["CoreText<br/>fonts, shaping, lines, frames<br/>(HarfBuzz, FreeType, ICU)"]
         quartzcore["QuartzCore<br/>layers drawn through CoreGraphics,<br/>animation objects, transactions;<br/>animation playback still to come"]
         imagecap["ImageCaptureCore (device<br/>browser, finds no devices yet),<br/>ICADevices; Quartz umbrella<br/>with ImageKit's device views"]
-        avplanned["AVFoundation, VideoToolbox,<br/>AVKit (planned:<br/>docs/design/MEDIA.md)"]
+        avplanned["VideoToolbox, AVKit,<br/>AVFoundation codecs (planned:<br/>docs/design/MEDIA.md)"]
+        opengl["OpenGL<br/>CGL contexts and GLU (Finch's),<br/>NSOpenGL views; software<br/>rendering by Mesa"]
         coreservices["CoreServices<br/>app lookup and launch,<br/>local Apple events, files"]
         later["Metal (no GPU driven yet:<br/>no devices, descriptors<br/>as values)"]
         coreui["CoreUI<br/>compiled asset catalogs,<br/>named images and colors"]
@@ -152,7 +156,7 @@ block-beta
         pam["OpenPAM + pam_modules"]
         pamunix["pam_unix, Finch pam.d<br/>libfinchaccount, accountctl"]
         ess["libEndpointSecuritySystem"]
-        space4b[" "]
+        mesa["Mesa 25.0.7<br/>(softpipe, OSMesa)<br/>for OpenGL"]
         tz["tzdata 2026c (IANA)"]
         skia["Skia m155 + FreeType, HarfBuzz,<br/>libpng, libjpeg-turbo, libwebp, wuffs<br/>(static, for CoreGraphics,<br/>ImageIO and ColorSync)"]
         fonts["Open fonts (data, not code)<br/>Inter, Open Runde, Fragment Mono,<br/>XCharter, Pagella, Liberation, DejaVu,<br/>Noto for other scripts and emoji,<br/>in place of Apple's, which can't ship"]
@@ -209,11 +213,11 @@ block-beta
     class t7,t6,t5,t4,t3,t2,t1,t0 layer
     class avplanned,kexts,metal planned
     class apps testapp
-    class later,coreimage,services,contacts,cfnetwork,appsupport,shell,uti,appkit,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd finch
+    class opengl,later,coreimage,services,contacts,cfnetwork,appsupport,shell,uti,appkit,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
-    class swift,codecs,cxx,qemu,tz,skia,fonts,swiftui upstream
+    class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui upstream
     class vz firmware
-    class space4,space4b,space3,space3b,space3c,space3d,space2,space2b,space2c,space1 blank
+    class space4,space3,space3b,space3c,space3d,space2,space2b,space2c,space1 blank
 ```
 
 | Colour | Meaning |
@@ -264,6 +268,8 @@ flowchart LR
     audiotoolbox["AudioToolbox"]:::finch
     avfaudio["AVFAudio"]:::finch
     avfoundation["AVFoundation"]:::finch
+    openglfw["OpenGL<br/>(CGL, GLU)"]:::finch
+    mesalib["Mesa libGL<br/>(OSMesa, softpipe)"]:::upstream
     devicefw["FeatureFlags,<br/>libMobileGestalt,<br/>libDiagnosticMessagesClient"]:::finch
     skylight["SkyLight"]:::finch
     secfound["SecurityFoundation"]:::finch
@@ -337,6 +343,10 @@ flowchart LR
     avfoundation -->|"re-exports"| avfaudio
     avfoundation --> coremediafw
     avfoundation --> ffound
+    openglfw -->|"re-exports"| mesalib
+    openglfw --> iosurfacefw
+    mesalib --> z
+    mesalib --> cxxlib
     avfaudio --> ffound
     avfaudio --> coremediafw
     devicefw --> cf

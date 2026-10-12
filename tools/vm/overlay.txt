@@ -263,3 +263,6 @@ build/userland/finch-avwriter-test /usr/local/bin/finch-avwriter-test
 build/userland/finch-avimage-test /usr/local/bin/finch-avimage-test
 build/userland/finch-avplayer-test /usr/local/bin/finch-avplayer-test
 build/userland/finch-appkit-avplayer-test /usr/local/bin/finch-appkit-avplayer-test
+build/userland/finch-opengl-test /usr/local/bin/finch-opengl-test
+build/userland/finch-appkit-opengl-test /usr/local/bin/finch-appkit-opengl-test
+build/userland/finch-appkit-typedstream-test /usr/local/bin/finch-appkit-typedstream-test

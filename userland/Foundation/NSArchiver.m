@@ -126,6 +126,7 @@ type_size(const char *t, NSUInteger *align)
     /* Apple's string classes are at version 1 in archives */
     class_setVersion(objc_getClass("NSString"), 1);
     class_setVersion(objc_getClass("NSMutableString"), 1);
+    class_setVersion(objc_getClass("NSAffineTransform"), 1);
 }
 
 + (NSData *)archivedDataWithRootObject:(id)rootObject
@@ -509,6 +510,7 @@ type_size(const char *t, NSUInteger *align)
     NSMutableArray *_objects;           /* objects, classes, and NSData for C strings */
     NSMutableDictionary *_versions;     /* class name -> version */
     NSMutableDictionary *_names;        /* archived -> class name */
+    id _allowedClasses;                 /* class names (any collection), or nil for all */
     NSZone *_zone;
 }
 @end
@@ -564,11 +566,19 @@ type_size(const char *t, NSUInteger *align)
     [_objects release];
     [_versions release];
     [_names release];
+    [_allowedClasses release];
     [super dealloc];
 }
 
 - (void)_inconsistent:(const char *)what
 {
+    /* FINCH_DEBUG_ARCHIVES=1 prints the stream (to find which class reads it wrongly) */
+    if (getenv("FINCH_DEBUG_ARCHIVES")) {
+        fprintf(stderr, "NSUnarchiver: %s at %lu of %lu:", what, (unsigned long)_pos, (unsigned long)_length);
+        for (NSUInteger i = 0; i < _length; i++)
+            fprintf(stderr, (_bytes[i] >= 0x20 && _bytes[i] < 0x7f) ? " %c" : " %02x", _bytes[i]);
+        fprintf(stderr, "\n");
+    }
     FinchRaise(Inconsistency, "*** -[NSUnarchiver decode]: %s (at %lu of %lu)", what, (unsigned long)_pos, (unsigned long)_length);
 }
 
@@ -658,6 +668,15 @@ type_size(const char *t, NSUInteger *align)
     return o == (id)kCFNull ? nil : o;
 }
 
+/* The class names an archive may hold (SPI: superclasses must be listed too). */
+- (void)_setAllowedClasses:(id)names
+{
+    if (_allowedClasses == names)
+        return;
+    [_allowedClasses release];
+    _allowedClasses = [names copy];
+}
+
 - (Class)_class
 {
     uint8_t head = [self _byte];
@@ -674,6 +693,9 @@ type_size(const char *t, NSUInteger *align)
     NSString *archived = [NSString stringWithUTF8String:[nameData bytes]];
     NSInteger version = (NSInteger)[self _int];
     [self _class];   /* the superclass chain, read and kept as entries */
+    if (_allowedClasses && ![_allowedClasses containsObject:archived])
+        FinchRaise(NSInvalidArgumentException, "*** data to unarchive contains class (%s) which has not been allowed",
+                   [archived UTF8String]);
     [_versions setObject:@(version) forKey:archived];
     NSString *name = [self classNameDecodedForArchiveClassName:archived];
     Class cls = NSClassFromString(name);
@@ -807,10 +829,14 @@ type_size(const char *t, NSUInteger *align)
     return type_end(type);
 }
 
-/* The group's type string, which must be the one asked for. */
+/* The group's type string, which must be the one asked for (or, as Apple's allows, a char
+   read as a BOOL or a long read as an int: the same bytes in the stream). */
 - (void)_expectType:(const char *)type
 {
     NSData *s = [self _sharedString];
+    const char *had = s ? [s bytes] : NULL;
+    if (had && ((!strcmp(had, "c") && !strcmp(type, "B")) || (!strcmp(had, "l") && !strcmp(type, "i"))))
+        return;
     if (!s || strcmp([s bytes], type) != 0) {
         FinchRaise(Inconsistency, "*** -[NSUnarchiver decodeValueOfObjCType:at:]: mismatch between encoded ('%s') and decoded ('%s') types",
             s ? (const char *)[s bytes] : "nil", type);

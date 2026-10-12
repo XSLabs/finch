@@ -1358,6 +1358,28 @@ FinchViewInstallLayerHook(void)
         FinchCALayerDidChange = layer_changed;
 }
 
+/* An OpenGL context's last flushed frame for a view (NSOpenGL.m), or NULL. */
+static char gl_image_key;
+
+CGImageRef
+FinchViewOpenGLImage(NSView *view)
+{
+    return (CGImageRef)objc_getAssociatedObject(view, &gl_image_key);
+}
+
+/* (whether a view is in the middle of drawing: an OpenGL flush then needs no redisplay) */
+BOOL
+FinchViewIsBeingDrawn(NSView *view)
+{
+    return being_drawn && [being_drawn objectForKey:view] != nil;
+}
+
+void
+FinchViewSetOpenGLImage(NSView *view, CGImageRef image)
+{
+    objc_setAssociatedObject(view, &gl_image_key, (id)image, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 static void
 draw_view(NSView *view, CGContextRef cg, NSRect rect, CGAffineTransform base)
 {
@@ -1399,11 +1421,26 @@ draw_view(NSView *view, CGContextRef cg, NSRect rect, CGAffineTransform base)
     NSAppearance *savedAppearance = [[appearanceClass currentDrawingAppearance] retain];
     [appearanceClass setCurrentAppearance:[view effectiveAppearance]];
     @try {
+        /* (an OpenGL view makes its context current first: NSOpenGL.m) */
+        if ([view respondsToSelector:@selector(_finchPrepareToDraw)])
+            [(id)view _finchPrepareToDraw];
         /* (a layer-backed view that updates its layer does that instead of drawing, as Apple's) */
         if ([view layer] && [view wantsUpdateLayer])
             [view updateLayer];
         else
             [view drawRect:r];
+        /* what an OpenGL context last flushed for the view, over its drawing */
+        CGImageRef gl = FinchViewOpenGLImage(view);
+        if (gl) {
+            CGContextSaveGState(cg);
+            if ([view isFlipped]) {
+                CGContextTranslateCTM(cg, 0, NSMinY(bounds) + NSMaxY(bounds));
+                CGContextScaleCTM(cg, 1, -1);
+            }
+            CGContextSetBlendMode(cg, kCGBlendModeCopy);
+            CGContextDrawImage(cg, NSRectToCGRect(bounds), gl);
+            CGContextRestoreGState(cg);
+        }
     } @finally {
         [appearanceClass setCurrentAppearance:savedAppearance];
         [savedAppearance release];

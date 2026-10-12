@@ -140,6 +140,13 @@ type_for_alignment(NSTextAlignment a)
 
 - (void)encodeWithCoder:(NSCoder *)coder
 {
+    if (![coder allowsKeyedCoding]) {
+        /* a typedstream: the type as an unsigned char, the location as a float */
+        unsigned char type = (unsigned char)_type;
+        float loc = (float)_location;
+        [coder encodeValuesOfObjCTypes:"Cf", &type, &loc];
+        return;
+    }
     [coder encodeDouble:_location forKey:@"NSLocation"];
     [coder encodeObject:_options forKey:@"NSTabOptions"];
     [coder encodeInteger:alignment_to_archive(_alignment) forKey:@"NSTextAlignment"];
@@ -148,6 +155,12 @@ type_for_alignment(NSTextAlignment a)
 
 - (instancetype)initWithCoder:(NSCoder *)coder
 {
+    if (![coder allowsKeyedCoding]) {
+        unsigned char type = 0;
+        float loc = 0;
+        [coder decodeValuesOfObjCTypes:"Cf", &type, &loc];
+        return [self initWithType:(NSTextTabType)type location:loc];
+    }
     NSSet *classes = [NSSet setWithObjects:[NSDictionary class], [NSString class], [NSCharacterSet class], [NSNumber class], nil];
     NSDictionary *options = [coder decodeObjectOfClasses:classes forKey:@"NSTabOptions"];
     NSTextAlignment a = [coder containsValueForKey:@"NSTextAlignment"]
@@ -570,8 +583,55 @@ direction_name(NSWritingDirection d)
                          _usesDefaultHyphenation ? @", UsesDefaultHyphenation YES" : @""];
 }
 
+/* A typedstream's paragraph style: alignment and line break mode as unsigned chars, the
+   tab stops (nil for the default ones), a mask of the measurements that aren't their
+   defaults, then those, in typed_measures' order, as floats. */
+#define TYPED_TIGHTENING_DEFAULT 0.05f
+
+static void
+typed_measures(NSParagraphStyle *p, CGFloat *out[13], float *factors[2])
+{
+    CGFloat **o = out;
+    *o++ = &p->_lineSpacing;
+    *o++ = &p->_paragraphSpacing;
+    *o++ = &p->_headIndent;
+    *o++ = &p->_tailIndent;
+    *o++ = &p->_firstLineHeadIndent;
+    *o++ = &p->_minimumLineHeight;
+    *o++ = &p->_maximumLineHeight;
+    *o++ = &p->_lineHeightMultiple;
+    *o++ = &p->_paragraphSpacingBefore;
+    *o++ = &p->_defaultTabInterval;
+    /* (10 and 11 are the float factors; 12 the header level) */
+    factors[0] = &p->_hyphenationFactor;
+    factors[1] = &p->_tighteningFactor;
+}
+
 - (void)encodeWithCoder:(NSCoder *)coder
 {
+    if (![coder allowsKeyedCoding]) {
+        unsigned char align = (unsigned char)alignment_to_archive(_alignment), lb = (unsigned char)_lineBreakMode;
+        NSArray *tabs = _tabStops ? [[_tabStops mutableCopy] autorelease] : nil;
+        CGFloat *m[13];
+        float *f[2];
+        typed_measures(self, m, f);
+        float values[13];
+        unsigned short mask = 0;
+        int n = 0;
+        for (int i = 0; i < 10; i++)
+            if (*m[i] != 0)
+                mask |= 1 << i, values[n++] = (float)*m[i];
+        if (*f[0] != 0)
+            mask |= 1 << 10, values[n++] = *f[0];
+        if (*f[1] != TYPED_TIGHTENING_DEFAULT)
+            mask |= 1 << 11, values[n++] = *f[1];
+        if (_headerLevel)
+            mask |= 1 << 12, values[n++] = (float)_headerLevel;
+        [coder encodeValuesOfObjCTypes:"CC@S", &align, &lb, &tabs, &mask];
+        if (n)
+            [coder encodeArrayOfObjCType:"f" count:(NSUInteger)n at:values];
+        return;
+    }
     [coder encodeInteger:alignment_to_archive(_alignment) forKey:@"NSAlignment"];
     if (_allowsTightening)
         [coder encodeInteger:1 forKey:@"NSAllowsTighteningForTruncation"];
@@ -610,6 +670,41 @@ direction_name(NSWritingDirection d)
 {
     if (!(self = [self init]))
         return nil;
+    if (![coder allowsKeyedCoding]) {
+        unsigned char align = 0, lb = 0;
+        NSArray *tabs = nil;
+        unsigned short mask = 0;
+        [coder decodeValuesOfObjCTypes:"CC@S", &align, &lb, &tabs, &mask];
+        _alignment = alignment_from_archive(align);
+        _lineBreakMode = (NSLineBreakMode)lb;
+        _allowsTightening = NO; /* (not in the stream; Apple's comes back without it) */
+        _tabStops = [tabs copy];
+        [tabs release];
+        int n = 0;
+        for (int i = 0; i < 16; i++)
+            if (mask & (1 << i))
+                n++;
+        if (n) {
+            float values[16];
+            [coder decodeArrayOfObjCType:"f" count:(NSUInteger)n at:values];
+            CGFloat *m[13];
+            float *f[2];
+            typed_measures(self, m, f);
+            int k = 0;
+            for (int i = 0; i < 13; i++) {
+                if (!(mask & (1 << i)))
+                    continue;
+                if (i < 10)
+                    *m[i] = values[k];
+                else if (i < 12)
+                    *f[i - 10] = values[k];
+                else
+                    _headerLevel = (NSInteger)values[k];
+                k++;
+            }
+        }
+        return self;
+    }
     if ([coder containsValueForKey:@"NSAlignment"])
         _alignment = alignment_from_archive([coder decodeIntegerForKey:@"NSAlignment"]);
     _allowsTightening = [coder decodeIntegerForKey:@"NSAllowsTighteningForTruncation"] != 0;

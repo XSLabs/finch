@@ -4,7 +4,10 @@
  * object each (apps keep them unretained), CFGetTypeID of any object, which views update
  * their layers instead of drawing, text fields' intrinsic widths (editable or not,
  * scrolling or wrapping), borders and bezels clearing each other, and a label's size
- * following its value under Auto Layout. Compared with Apple's.
+ * following its value under Auto Layout, and SPI apps call (a cell's vertical centring
+ * flag as archived, its highlight drawing, a font's glyph for a character), and an image
+ * view keeping its own target (its cell can't). Compared with
+ * Apple's.
  */
 #import <AppKit/AppKit.h>
 #import <objc/message.h>
@@ -95,6 +98,44 @@ main(void)
         [root layoutSubtreeIfNeeded];
         printf("label under Auto Layout: grows with its string %d, with a number %d\n", set > empty + 20,
             l.frame.size.width > set);
+
+        NSTextFieldCell *vc = [[NSTextFieldCell alloc] initTextCell:@"x"];
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(vc, sel_registerName("_setVerticallyCentered:"), YES);
+        NSKeyedArchiver *ka = [[NSKeyedArchiver alloc] initRequiringSecureCoding:NO];
+        [vc encodeWithCoder:ka];
+        [ka finishEncoding];
+        NSKeyedUnarchiver *ku = [[NSKeyedUnarchiver alloc] initForReadingFromData:ka.encodedData error:nil];
+        ku.requiresSecureCoding = NO;
+        printf("vertically centred flag archived: %#x\n", [ku decodeIntForKey:@"NSCellFlags"] & 0x02000000);
+        NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:4 pixelsHigh:4 bitsPerSample:8
+            samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bytesPerRow:16 bitsPerPixel:32];
+        [NSGraphicsContext saveGraphicsState];
+        NSGraphicsContext.currentContext = [NSGraphicsContext graphicsContextWithBitmapImageRep:rep];
+        NSCell *hc = [[NSCell alloc] initTextCell:@""];
+        ((void (*)(id, SEL, NSRect, id))objc_msgSend)(hc, sel_registerName("_drawHighlightWithFrame:inView:"), NSMakeRect(0, 0, 4, 4), nil);
+        [NSGraphicsContext restoreGraphicsState];
+        NSColor *drawn = [rep colorAtX:2 y:2];
+        printf("highlight drawn: alpha %.0f, not black %d\n", drawn.alphaComponent, drawn.redComponent + drawn.greenComponent + drawn.blueComponent > 0.5);
+        NSView *hv = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 10, 10)];
+        printf("highlight colours: no view %s, a view %s\n", [[hc highlightColorWithFrame:NSZeroRect inView:(NSView *_Nonnull)(id)nil] description].UTF8String,
+            [[hc highlightColorWithFrame:NSZeroRect inView:hv] description].UTF8String);
+        NSImageView *iv = [[NSImageView alloc] initWithFrame:NSMakeRect(0, 0, 10, 10)];
+        iv.target = hv;
+        iv.action = @selector(display);
+        printf("image view: target kept %d, action %s, its cell's target %d\n", iv.target == hv, sel_getName(iv.action), [iv.cell target] == hv);
+        @try {
+            [hc setTarget:hv];
+        } @catch (NSException *e) {
+            printf("plain cell's target: %s %s\n", e.name.UTF8String, e.reason.UTF8String);
+        }
+        NSFont *sys = [NSFont systemFontOfSize:12];
+        unichar chars[] = {'A', ' ', 0x4e00, 0xd83d};
+        for (int i = 0; i < 4; i++) {
+            CGGlyph g = 0;
+            CTFontGetGlyphsForCharacters((CTFontRef)sys, &chars[i], &g, 1);
+            NSGlyph dg = ((NSGlyph (*)(id, SEL, unichar))objc_msgSend)(sys, sel_registerName("_defaultGlyphForChar:"), chars[i]);
+            printf("default glyph for %04x: as CoreText's %d, none %d\n", chars[i], dg == g, dg == 0);
+        }
     }
     return 0;
 }

@@ -709,7 +709,7 @@ $(OUT)/finch-mdnsd-test: mdnsd-test.c
 all: $(OUT)/finch-extaudiofile-test $(OUT)/finch-audiounit-test $(OUT)/finch-avaudio-buffer-test $(OUT)/finch-audioqueue-test
 all: $(OUT)/finch-avaudio-file-test $(OUT)/finch-avaudio-converter-test $(OUT)/finch-avaudio-engine-test $(OUT)/finch-avaudio-player-test $(OUT)/finch-avaudio-services-test
 all: $(OUT)/finch-audiounit-effects-test $(OUT)/finch-avaudio-unit-test
-all: $(OUT)/finch-itemprovider-test $(OUT)/finch-formatters2-test $(OUT)/finch-urlcache-test $(OUT)/finch-appkit-small3-test $(OUT)/finch-compositional-test $(OUT)/finch-filepromise-test $(OUT)/finch-appkit-swift2-test $(OUT)/finch-private-calls-test $(OUT)/finch-mobilegestalt-test $(OUT)/finch-utilities-test $(OUT)/finch-foundation-audit-test $(OUT)/finch-tree-test $(OUT)/finch-xml-test $(OUT)/finch-document-more-test $(OUT)/finch-textview-more-test $(OUT)/finch-windowing-more-test $(OUT)/finch-appkit-drag-window-test $(OUT)/finch-appkit-drag-apps-test $(OUT)/finch-outline-bindings-test $(OUT)/finch-typeselect-test $(OUT)/finch-screencapturekit-test $(OUT)/finch-appkit-screencapture-test $(OUT)/finch-appkit-compat-test $(OUT)/finch-pdf-image-rep-test $(OUT)/finch-sounddesc-test $(OUT)/finch-avasset-test $(OUT)/finch-avreader-test $(OUT)/finch-avwriter-test $(OUT)/finch-avimage-test $(OUT)/finch-avplayer-test $(OUT)/finch-appkit-avplayer-test
+all: $(OUT)/finch-itemprovider-test $(OUT)/finch-formatters2-test $(OUT)/finch-urlcache-test $(OUT)/finch-appkit-small3-test $(OUT)/finch-compositional-test $(OUT)/finch-filepromise-test $(OUT)/finch-appkit-swift2-test $(OUT)/finch-private-calls-test $(OUT)/finch-mobilegestalt-test $(OUT)/finch-utilities-test $(OUT)/finch-foundation-audit-test $(OUT)/finch-tree-test $(OUT)/finch-xml-test $(OUT)/finch-document-more-test $(OUT)/finch-textview-more-test $(OUT)/finch-windowing-more-test $(OUT)/finch-appkit-drag-window-test $(OUT)/finch-appkit-drag-apps-test $(OUT)/finch-outline-bindings-test $(OUT)/finch-typeselect-test $(OUT)/finch-screencapturekit-test $(OUT)/finch-appkit-screencapture-test $(OUT)/finch-appkit-compat-test $(OUT)/finch-pdf-image-rep-test $(OUT)/finch-sounddesc-test $(OUT)/finch-avasset-test $(OUT)/finch-avreader-test $(OUT)/finch-avwriter-test $(OUT)/finch-avimage-test $(OUT)/finch-avplayer-test $(OUT)/finch-appkit-avplayer-test $(OUT)/finch-opengl-test $(OUT)/finch-appkit-opengl-test $(OUT)/finch-appkit-typedstream-test
 all: $(OUT)/finch-configd-service-test $(OUT)/finch-diskarbitration-session-test
 all: $(OUT)/finch-configd-daemon-test
 all: $(OUT)/finch-configd-contained-service
@@ -786,6 +786,9 @@ $(OUT)/finch-appkit-compat-test: appkit-compat-test.m
 $(OUT)/finch-pdf-image-rep-test: pdf-image-rep-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-deprecated-declarations -o $@ $< -framework AppKit
+$(OUT)/finch-appkit-typedstream-test: appkit-typedstream-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-deprecated-declarations -o $@ $< -framework AppKit
 $(OUT)/finch-sounddesc-test: sounddesc-test.c
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -Wno-four-char-constants -o $@ $< -framework CoreMedia -framework CoreFoundation
@@ -807,6 +810,12 @@ $(OUT)/finch-avplayer-test: avplayer-test.m avmovie.h avframes.h
 $(OUT)/finch-appkit-avplayer-test: appkit-avplayer-test.m avmovie.h avframes.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-deprecated-declarations -Wno-four-char-constants -Wno-multichar -o $@ $< -framework AppKit -framework AVFoundation -framework CoreMedia ../../build/root/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics
+$(OUT)/finch-opengl-test: opengl-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework OpenGL
+$(OUT)/finch-appkit-opengl-test: appkit-opengl-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-deprecated-declarations -o $@ $< -framework AppKit -framework OpenGL -framework ImageIO ../../build/root/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics
 $(OUT)/finch-tree-test: tree-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -o $@ $< -framework AppKit

@@ -77,8 +77,37 @@
     return d;
 }
 
++ (void)initialize
+{
+    if (self == [NSShadow class])
+        [self setVersion:1];
+}
+
+/* A typedstream's shadow: a mask of what isn't its default (1 the horizontal offset, 2
+   the vertical, 4 the blur, 0x4000 the colour), the colour, then the rest as floats. */
+enum { SHADOW_DX = 1, SHADOW_DY = 2, SHADOW_BLUR = 4, SHADOW_COLOR = 0x4000 };
+
 - (void)encodeWithCoder:(NSCoder *)coder
 {
+    if (![coder allowsKeyedCoding]) {
+        unsigned short mask = 0;
+        float v[3];
+        int n = 0;
+        if (_offset.width != 0)
+            mask |= SHADOW_DX, v[n++] = (float)_offset.width;
+        if (_offset.height != 0)
+            mask |= SHADOW_DY, v[n++] = (float)_offset.height;
+        if (_blur != 0)
+            mask |= SHADOW_BLUR, v[n++] = (float)_blur;
+        if (_color)
+            mask |= SHADOW_COLOR;
+        [coder encodeValueOfObjCType:@encode(unsigned short) at:&mask];
+        if (_color)
+            [coder encodeObject:_color];
+        if (n)
+            [coder encodeArrayOfObjCType:"f" count:(NSUInteger)n at:v];
+        return;
+    }
     if (_blur != 0)
         [coder encodeDouble:_blur forKey:@"NSShadowBlurRadius"];
     if (_color)
@@ -89,7 +118,24 @@
 
 - (instancetype)initWithCoder:(NSCoder *)coder
 {
-    if ((self = [self init])) {
+    if ((self = [self init]) && ![coder allowsKeyedCoding]) {
+        unsigned short mask = 0;
+        [coder decodeValueOfObjCType:@encode(unsigned short) at:&mask size:sizeof mask];
+        if (mask & SHADOW_COLOR)
+            _color = [[coder decodeObject] retain];
+        int n = !!(mask & SHADOW_DX) + !!(mask & SHADOW_DY) + !!(mask & SHADOW_BLUR), k = 0;
+        float v[3] = {0, 0, 0};
+        if (n)
+            [coder decodeArrayOfObjCType:"f" count:(NSUInteger)n at:v];
+        if (mask & SHADOW_DX)
+            _offset.width = v[k++];
+        if (mask & SHADOW_DY)
+            _offset.height = v[k++];
+        if (mask & SHADOW_BLUR)
+            _blur = v[k++];
+        return self;
+    }
+    if (self) {
         _blur = [coder decodeDoubleForKey:@"NSShadowBlurRadius"];
         _offset = NSMakeSize([coder decodeDoubleForKey:@"NSShadowHoriz"], [coder decodeDoubleForKey:@"NSShadowVert"]);
         Class colorClass = UIFClass("NSColor");

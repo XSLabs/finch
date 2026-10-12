@@ -685,6 +685,14 @@ set_in_cgcontext(NSFont *font, CGContextRef cg)
     return f ? f : self;
 }
 
+/* SPI: the font's own glyph for a character (0 if it has none). */
+- (NSGlyph)_defaultGlyphForChar:(unichar)c
+{
+    CGGlyph g = 0;
+    CTFontGetGlyphsForCharacters(self._ctFont, &c, &g, 1);
+    return g;
+}
+
 #pragma mark Copying, coding, equality, description
 
 - (id)copyWithZone:(NSZone *)zone { return [self retain]; }
@@ -720,12 +728,42 @@ set_in_cgcontext(NSFont *font, CGContextRef cg)
             [coder encodeObject:[NSData dataWithBytes:be length:sizeof be] forKey:@"NSMatrix"];
         }
     } else {
+        /* a typedstream: the name as a data object (6, its byte count, then UTF-16 with a
+           byte order mark, padded to four bytes), the size, four chars (the second says
+           the font has no matrix of its own) and, if it has one, the matrix */
+        NSMutableData *blob = [NSMutableData data];
+        NSData *utf16 = [name dataUsingEncoding:NSUTF16LittleEndianStringEncoding];
+        uint32_t head[2] = {CFSwapInt32HostToLittle(6), CFSwapInt32HostToLittle((uint32_t)utf16.length + 2)};
+        [blob appendBytes:head length:sizeof head];
+        [blob appendBytes:"\xff\xfe" length:2];
+        [blob appendData:utf16];
+        blob.length = (blob.length + 3) & ~(NSUInteger)3;
+        [coder encodeDataObject:blob];
         float size = (float)s;
-        int iflags = (int)flags;
-        [coder encodeObject:name];
+        char c[4] = {0, (char)plain, 0, 0};
         [coder encodeValueOfObjCType:@encode(float) at:&size];
-        [coder encodeValueOfObjCType:@encode(int) at:&iflags];
+        for (int i = 0; i < 4; i++)
+            [coder encodeValueOfObjCType:@encode(char) at:&c[i]];
+        if (!plain) {
+            float f[6];
+            for (int i = 0; i < 6; i++)
+                f[i] = (float)m[i];
+            [coder encodeArrayOfObjCType:"f" count:6 at:f];
+        }
     }
+}
+
+/* A typedstream font's name (see -encodeWithCoder:). */
+static NSString *
+typed_font_name(NSData *blob)
+{
+    const uint8_t *b = blob.bytes;
+    if (blob.length < 8)
+        return nil;
+    uint32_t len = (uint32_t)b[4] | (uint32_t)b[5] << 8 | (uint32_t)b[6] << 16 | (uint32_t)b[7] << 24;
+    if (len > blob.length - 8)
+        return nil;
+    return [[[NSString alloc] initWithBytes:b + 8 length:len encoding:NSUnicodeStringEncoding] autorelease];
 }
 
 /* The font an archive names. */
@@ -772,12 +810,31 @@ decoded_font(NSString *name, CGFloat size, NSInteger flags, NSData *matrix)
         f = decoded_font(name, [coder decodeDoubleForKey:@"NSSize"], [coder decodeIntegerForKey:@"NSfFlags"],
                          [coder decodeObjectOfClass:[NSData class] forKey:@"NSMatrix"]);
     } else {
-        NSString *name = [coder decodeObject];
+        NSString *name = typed_font_name([coder decodeDataObject]);
         float size = 0;
-        int flags = 0;
+        char c[4] = {0, 1, 0, 0};
         [coder decodeValueOfObjCType:@encode(float) at:&size size:sizeof size];
-        [coder decodeValueOfObjCType:@encode(int) at:&flags size:sizeof flags];
-        f = decoded_font(name, size, flags, nil);
+        for (int i = 0; i < 4; i++)
+            [coder decodeValueOfObjCType:@encode(char) at:&c[i] size:1];
+        NSData *matrix = nil;
+        if (!c[1]) {
+            /* (as the keyed form has it: big-endian floats) */
+            float m[6];
+            uint32_t be[6];
+            [coder decodeArrayOfObjCType:"f" count:6 at:m];
+            for (int i = 0; i < 6; i++) {
+                memcpy(&be[i], &m[i], 4);
+                be[i] = CFSwapInt32HostToBig(be[i]);
+            }
+            matrix = [NSData dataWithBytes:be length:sizeof be];
+        }
+        f = nil;
+        /* (the system font's weights by the names they archive under) */
+        for (size_t i = 0; name && !matrix && i < NWEIGHTS; i++)
+            if ([name isEqualToString:system_weights[i].name])
+                f = system_font_with_weight(size, system_weights[i].weight, nil);
+        if (!f)
+            f = decoded_font(name, size, c[1] ? kFontFlagBase : 0, matrix);
     }
     if (f != self)
         [self release];
@@ -825,6 +882,8 @@ decoded_font(NSString *name, CGFloat size, NSInteger flags, NSData *matrix)
     /* Before any font is made: a CTFont's class is fixed when it is created. */
     _CFRuntimeBridgeTypeToClass(CTFontGetTypeID(), (const void *)self);
     make_caches();
+    /* (the version Apple's typedstreams carry) */
+    class_setVersion([NSFont class], 30);
 }
 
 - (instancetype)retain { return (id)CFRetain((CFTypeRef)self); }

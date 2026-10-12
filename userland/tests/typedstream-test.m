@@ -7,6 +7,8 @@
  * macOS 26 (embedded below).
  */
 #import <Foundation/Foundation.h>
+#import <objc/message.h>
+#import <objc/runtime.h>
 
 /* NSArchiver output from macOS 26 for the array in mk_root() of the test's history. */
 static const char apple_archive[] =
@@ -62,6 +64,18 @@ show(id o)
         return [[o description] stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
     return [NSString stringWithFormat:@"%@", o];
 }
+
+@interface Versioned : NSObject <NSCoding>
+@end
+@implementation Versioned
+- (void)encodeWithCoder:(NSCoder *)coder
+{
+}
+- (instancetype)initWithCoder:(NSCoder *)coder
+{
+    return [super init];
+}
+@end
 
 int
 main(void)
@@ -166,6 +180,53 @@ main(void)
             printf("type mismatch: %s\n", [[e name] UTF8String]);
         }
         printf("not an archive: %s\n", [NSUnarchiver unarchiveObjectWithData:[NSData dataWithBytes:"junk" length:4]] ? "decoded" : "nil");
+
+        /* allowed classes (SPI): names, superclasses included */
+        struct { const char *label; id root; id allowed; } allow[] = {
+            {"string, NSString only", @"a", [NSSet setWithObject:@"NSString"]},
+            {"string, with NSObject", @"a", [NSSet setWithObjects:@"NSString", @"NSObject", nil]},
+            {"array, no NSValue", @[@"a", @2], [NSSet setWithObjects:@"NSArray", @"NSString", @"NSNumber", @"NSObject", nil]},
+            {"array, as a list", @[@"a"], @[@"NSArray", @"NSString", @"NSObject"]},
+            {"string, nil", @"a", nil},
+        };
+        for (unsigned i = 0; i < sizeof allow / sizeof allow[0]; i++) {
+            NSUnarchiver *au = [[NSUnarchiver alloc] initForReadingWithData:[NSArchiver archivedDataWithRootObject:allow[i].root]];
+            ((void (*)(id, SEL, id))objc_msgSend)(au, sel_registerName("_setAllowedClasses:"), allow[i].allowed);
+            @try {
+                printf("allowed, %s: %s\n", allow[i].label, [show([au decodeObject]) UTF8String]);
+            } @catch (NSException *e) {
+                printf("allowed, %s: %s %s\n", allow[i].label, [[e name] UTF8String], [[e reason] UTF8String]);
+            }
+        }
+
+        /* a class's version, set by the class, as archives carry it */
+        [Versioned setVersion:7];
+        NSUnarchiver *vu = [[NSUnarchiver alloc] initForReadingWithData:[NSArchiver archivedDataWithRootObject:[Versioned new]]];
+        [vu decodeObject];
+        printf("version: class %ld, in the archive %ld, runtime %d\n", (long)[Versioned version], (long)[vu versionForClassName:@"Versioned"],
+               class_getVersion([Versioned class]));
+
+        /* which types a value can be read back as */
+        const char *types[] = {"c", "C", "B", "s", "S", "i", "I", "l", "L", "q", "Q", "f", "d"};
+        int ntypes = sizeof types / sizeof *types;
+        for (int w = 0; w < ntypes; w++) {
+            printf("written %s, read as:", types[w]);
+            for (int r = 0; r < ntypes; r++) {
+                NSMutableData *td = [NSMutableData data];
+                NSArchiver *ta = [[NSArchiver alloc] initForWritingWithMutableData:td];
+                uint8_t in[16] = {5}, out[16] = {0};
+                [ta encodeValueOfObjCType:types[w] at:in];
+                NSUnarchiver *tu = [[NSUnarchiver alloc] initForReadingWithData:td];
+                NSUInteger sz = 0;
+                NSGetSizeAndAlignment(types[r], &sz, NULL);
+                @try {
+                    [tu decodeValueOfObjCType:types[r] at:out size:sz];
+                    printf(" %s", types[r]);
+                } @catch (NSException *e) {
+                }
+            }
+            printf("\n");
+        }
 
         /* Apple's archive */
         NSUnarchiver *ua = [[NSUnarchiver alloc] initForReadingWithData:from_hex(apple_archive)];

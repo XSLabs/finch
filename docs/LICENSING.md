@@ -50,7 +50,8 @@ Contributions are accepted under the same dual license (inbound = outbound).
 | TeX Gyre Pagella 2.501 | GUST Font License | Four unchanged OpenType faces, with `GUST-FONT-LICENSE.txt` and `README-TeX-Gyre-Pagella.txt`. |
 | DejaVu Sans Mono 2.37 | Bitstream Vera licence (DejaVu's changes public domain) | Shipped unmodified, as above. Permissive; a modified font must be renamed away from "Bitstream" and "Vera". |
 | m1n1 | MIT | Import |
-| Mesa (incl. asahi driver) | MIT | Import |
+| Mesa 25.0.7 (softpipe, OSMesa, GLSL compiler, util) | MIT, with some files under BSD/Boost-style licences and Bison's parser-skeleton exception | Built by Finch as OpenGL.framework's libGL (`userland/OpenGL/mesa.sh`, pinned by commit); the build checks that no GPL-only file is compiled in, and the licences ship under `/usr/share/finch/licenses/mesa` |
+| Mesa (incl. asahi driver), for GPU drivers later | MIT | Import |
 | Asahi **documentation** (wiki, register notes) | Docs | Use as reference |
 | Asahi Linux kernel code, **dual-licensed** files (e.g. `drivers/gpu/drm/asahi`: `GPL-2.0-only OR MIT`) | MIT option | Import under MIT. Keep the SPDX line and copyright. |
 | Asahi Linux kernel code, **GPL-only** files | GPL-2.0 | **Reference only, under the clean-room rule** |
