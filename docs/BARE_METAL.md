@@ -88,6 +88,14 @@ Open **/Applications/Install macOS ….app**. When it asks for a disk, choose
 If 26.4.1 is no longer offered, stop and tell me which build is. I'll move the kernel
 to the matching XNU tag before you install anything.
 
+**Status (2026-10-12):** the external drive is ready (Option A: a 1 TB USB disk erased
+as GUID + APFS, volume `Finch`). Apple's catalog no longer offers 26.4.1; the nearest
+26.x installer, **26.5.2 (25F84)**, is downloaded (signature checked) and unpacked at
+`/Volumes/Finch/installer/expanded/Payload/Applications/Install macOS Tahoe.app`. Its
+kernel should be `xnu-12377.121.6` (to confirm with `uname -v` on the installed
+system); metal kernel builds move to that tag, while QEMU keeps `xnu-12377.101.15`.
+Delete `/Volumes/Finch/installer` once the install is done.
+
 ### 3. First boot of the Finch install
 
 When setup finishes, the Mac boots into the new install. Walk through Setup Assistant:
