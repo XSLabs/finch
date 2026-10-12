@@ -201,7 +201,8 @@ changed(CALayer *layer)
             @"opacity" : @1.0f, @"anchorPoint" : [NSValue valueWithPoint:NSMakePoint(0.5, 0.5)],
             @"contentsScale" : @1.0, @"shadowRadius" : @3.0,
             @"shadowOffset" : [NSValue valueWithSize:NSMakeSize(0, -3)], @"doubleSided" : @YES,
-            @"contentsGravity" : kCAGravityResize,
+            @"contentsGravity" : kCAGravityResize, @"preferredDynamicRange" : @"standard",
+            @"toneMapMode" : @"automatic",
         } retain];
     return d[key];
 }
@@ -591,6 +592,13 @@ set_color(CGColorRef *slot, CGColorRef c)
 }
 - (BOOL)wantsExtendedDynamicRangeContent { return NO; }
 - (void)setWantsExtendedDynamicRangeContent:(BOOL)f {}
+/* (kept as values: Finch composites in standard range, so nothing is tone mapped) */
+- (NSString *)preferredDynamicRange { return [self valueForUndefinedKey:@"preferredDynamicRange"]; }
+- (void)setPreferredDynamicRange:(NSString *)r { [self setValue:[[r copy] autorelease] forUndefinedKey:@"preferredDynamicRange"]; }
+- (NSString *)toneMapMode { return [self valueForUndefinedKey:@"toneMapMode"]; }
+- (void)setToneMapMode:(NSString *)m { [self setValue:[[m copy] autorelease] forUndefinedKey:@"toneMapMode"]; }
+- (BOOL)toneMapToStandardDynamicRange { return [[self valueForUndefinedKey:@"toneMapToStandardDynamicRange"] boolValue]; }
+- (void)setToneMapToStandardDynamicRange:(BOOL)f { [self setValue:@(f) forUndefinedKey:@"toneMapToStandardDynamicRange"]; }
 
 #pragma mark Drawing
 

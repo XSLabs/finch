@@ -7,6 +7,7 @@
  * caches it: the common 8-bit layouts are wrapped as they are; the rest are
  * unpacked into RGBA.
  */
+#include <dlfcn.h>
 #include "CGImageInternal.h"
 #include "CGPixels.h"
 #include "CGSkia.h"
@@ -153,6 +154,61 @@ CGImageCreateCopy(CGImageRef im)
     return im ? (CGImageRef)CFRetain(im) : NULL;
 }
 
+static struct CGImage *image_clone(CGImageRef im);
+
+/* A copy of an extended-range or HDR image with its headroom set (0, unset, or at least
+   1); NULL for a standard-range image or a headroom below 1, as Apple's. */
+CGImageRef
+CGImageCreateCopyWithContentHeadroom(float headroom, CGImageRef im)
+{
+    if (!im || !im->space || (headroom != 0 && !(headroom >= 1)) ||
+        !(CGColorSpaceUsesExtendedRange(im->space) || CGColorSpaceIsHDR(im->space)))
+        return NULL;
+    struct CGImage *c = image_clone(im);
+    if (c)
+        c->headroom = headroom;
+    return c;
+}
+
+/* An image written to a file, in the format its extension names (TIFF otherwise), through
+   ImageIO, loaded when first asked: a debugging aid apps call. */
+extern "C" __attribute__((visibility("default"))) bool
+CGImageWriteToFile(CGImageRef im, const char *path)
+{
+    if (!im || !path)
+        return false;
+    static void *imageio = dlopen("/System/Library/Frameworks/ImageIO.framework/ImageIO", RTLD_LAZY);
+    typedef void *(*create_fn)(CFURLRef, CFStringRef, size_t, CFDictionaryRef);
+    typedef void (*add_fn)(void *, CGImageRef, CFDictionaryRef);
+    typedef bool (*finalize_fn)(void *);
+    create_fn create = imageio ? (create_fn)dlsym(imageio, "CGImageDestinationCreateWithURL") : NULL;
+    add_fn add = imageio ? (add_fn)dlsym(imageio, "CGImageDestinationAddImage") : NULL;
+    finalize_fn finalize = imageio ? (finalize_fn)dlsym(imageio, "CGImageDestinationFinalize") : NULL;
+    if (!create || !add || !finalize)
+        return false;
+    const char *dot = strrchr(path, '.');
+    CFStringRef type = CFSTR("public.tiff");
+    if (dot && !strcasecmp(dot, ".png"))
+        type = CFSTR("public.png");
+    else if (dot && (!strcasecmp(dot, ".jpg") || !strcasecmp(dot, ".jpeg")))
+        type = CFSTR("public.jpeg");
+    else if (dot && !strcasecmp(dot, ".gif"))
+        type = CFSTR("com.compuserve.gif");
+    else if (dot && !strcasecmp(dot, ".bmp"))
+        type = CFSTR("com.microsoft.bmp");
+    CFURLRef url = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, (const UInt8 *)path, (CFIndex)strlen(path), false);
+    void *dest = url ? create(url, type, 1, NULL) : NULL;
+    bool ok = false;
+    if (dest) {
+        add(dest, im, NULL);
+        ok = finalize(dest);
+        CFRelease(dest);
+    }
+    if (url)
+        CFRelease(url);
+    return ok;
+}
+
 static struct CGImage *
 image_clone(CGImageRef im)
 {
@@ -287,7 +343,17 @@ const CGFloat *CGImageGetDecode(CGImageRef im) { return im ? im->decode : NULL; 
 bool CGImageGetShouldInterpolate(CGImageRef im) { return im && im->interpolate; }
 CGColorRenderingIntent CGImageGetRenderingIntent(CGImageRef im) { return im ? im->intent : kCGRenderingIntentDefault; }
 CFStringRef CGImageGetUTType(CGImageRef im) { return im ? im->uttype : NULL; }
-float CGImageGetContentHeadroom(CGImageRef im) { return im ? im->headroom : 0; }
+/* (an image in a standard-range space has a headroom of 1; an extended-range or HDR one
+   has none until it's given one, as Apple's) */
+float
+CGImageGetContentHeadroom(CGImageRef im)
+{
+    if (!im)
+        return 0;
+    if (im->headroom > 0 || !im->space)
+        return im->headroom;
+    return CGColorSpaceUsesExtendedRange(im->space) || CGColorSpaceIsHDR(im->space) ? 0 : 1;
+}
 bool CGImageShouldToneMap(CGImageRef im) { return false; }
 bool CGImageContainsImageSpecificToneMappingMetadata(CGImageRef im) { return false; }
 

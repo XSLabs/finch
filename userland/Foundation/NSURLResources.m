@@ -81,7 +81,7 @@ answers_without_file(NSString *key)
                         NSURLAttributeModificationDateKey, NSURLContentAccessDateKey, NSURLFileResourceIdentifierKey,
                         NSURLFileIdentifierKey, NSURLGenerationIdentifierKey, NSURLPreferredIOBlockSizeKey,
                         NSURLVolumeURLKey, NSURLTypeIdentifierKey, NSURLLocalizedTypeDescriptionKey,
-                        NSURLContentTypeKey, nil];
+                        NSURLContentTypeKey, NSURLFileSecurityKey, nil];
     return ![needsFile containsObject:key];
 }
 
@@ -234,6 +234,10 @@ value_for_key(NSURL *url, NSString *key, const struct stat *st, BOOL exists)
         return @0;
     if ([key isEqualToString:NSURLLinkCountKey])
         return @(dir ? 1 : st->st_nlink);
+    if ([key isEqualToString:NSURLFileSecurityKey]) {
+        extern CFTypeRef _CFFileSecurityCreateFromPath(const char *);  /* (CFFileSecurity_Finch.m) */
+        return [(id)_CFFileSecurityCreateFromPath(url.fileSystemRepresentation) autorelease];
+    }
     if ([key isEqualToString:NSURLFileSizeKey] || [key isEqualToString:NSURLTotalFileSizeKey])
         return dir ? nil : @(st->st_size);
     if ([key isEqualToString:NSURLFileAllocatedSizeKey] || [key isEqualToString:NSURLTotalFileAllocatedSizeKey])

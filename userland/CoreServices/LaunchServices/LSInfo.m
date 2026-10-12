@@ -269,6 +269,33 @@ _LSSetDefaultSchemeHandlerURL(CFStringRef scheme, CFURLRef appURL)
     }
 }
 
+/* Private: an app bound to documents by extension (or by type code, mapped to a type)
+   for the roles given, by its URL: Finch records it as the type's default handler. */
+FINCH_EXPORT OSStatus _LSSetWeakBindingURLForType(OSType type, OSType creator, CFStringRef extension, LSRolesMask roles,
+                                                  CFURLRef appURL);
+OSStatus
+_LSSetWeakBindingURLForType(OSType type, OSType creator, CFStringRef extension, LSRolesMask roles, CFURLRef appURL)
+{
+    @autoreleasepool {
+        LSFinchApp *a = _LSApplicationAtPath(path_of(appURL));
+        if (!a.bundleIdentifier)
+            return kLSApplicationNotFoundErr;
+        CFStringRef uti = NULL;
+        if (extension)
+            uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, extension, NULL);
+        else if (type) {
+            CFStringRef code = UTCreateStringForOSType(type);
+            uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassOSType, code, NULL);
+            CFRelease(code);
+        }
+        if (!uti)
+            return paramErr;
+        OSStatus err = LSSetDefaultRoleHandlerForContentType(uti, roles, (CFStringRef)a.bundleIdentifier);
+        CFRelease(uti);
+        return err;
+    }
+}
+
 LSHandlerOptions LSGetHandlerOptionsForContentType(CFStringRef inContentType) { return kLSHandlerOptionsDefault; }
 OSStatus LSSetHandlerOptionsForContentType(CFStringRef inContentType, LSHandlerOptions inOptions) { return noErr; }
 

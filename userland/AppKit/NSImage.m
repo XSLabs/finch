@@ -11,12 +11,18 @@
 #import <ImageIO/ImageIO.h>
 
 NSImageHintKey const NSImageHintCTM = @"NSImageHintCTM";
+NSImageHintKey const NSImageHintSymbolScale = @"NSImageHintSymbolScale";
+NSImageHintKey const NSImageHintSymbolFont = @"NSImageHintSymbolFont";
+NSImageHintKey const NSImageHintSymbolNamedColorOverrides = @"NSImageHintSymbolNamedColorOverrides";
 NSImageHintKey const NSImageHintInterpolation = @"NSImageHintInterpolation";
 NSImageHintKey const NSImageHintUserInterfaceLayoutDirection = @"NSImageHintUserInterfaceLayoutDirection";
 
 /* Each NSImageNameX is "NSX", as Apple's. */
 NSImageName const NSImageNameActionTemplate = @"NSActionTemplate";
 NSImageName const NSImageNameAddTemplate = @"NSAddTemplate";
+NSImageName const NSImageNamePauseTemplate = @"NSPauseTemplate";
+NSImageName const NSImageNamePlayTemplate = @"NSPlayTemplate";
+NSImageName const NSImageNamePrintTemplate = @"NSPrintTemplate";
 NSImageName const NSImageNameAdvanced = @"NSAdvanced";
 NSImageName const NSImageNameApplicationIcon = @"NSApplicationIcon";
 NSImageName const NSImageNameBluetoothTemplate = @"NSBluetoothTemplate";

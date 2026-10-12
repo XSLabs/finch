@@ -113,7 +113,7 @@ block-beta
         cg["CoreGraphics<br/>bitmap contexts, paths, images,<br/>gradients, patterns, fonts, text,<br/>shadows (over Skia, skcms);<br/>PDF writing (SkPDF), PDF reading<br/>and drawing (own parser);<br/>window server client, displays,<br/>Quartz events (posting, sources)"]
         imageio["ImageIO<br/>image sources, thumbnails,<br/>destinations, property keys<br/>(libpng, libjpeg-turbo, libwebp,<br/>wuffs, via Skia); TIFF (own codec)"]
         coreimage["CoreImage<br/>images as recipes, CPU rendering<br/>in linear light, ~70 filters"]
-        services["UserNotifications (local),<br/>ServiceManagement (launchd jobs),<br/>CoreLocation, LocalAuthentication,<br/>CoreWLAN, IOBluetooth, StoreKit,<br/>Accounts, GSS (answering as a Mac<br/>without those services would)"]
+        services["UserNotifications (local),<br/>ServiceManagement (launchd jobs),<br/>CoreLocation, LocalAuthentication,<br/>CoreWLAN, IOBluetooth (and its<br/>UI's panels), StoreKit,<br/>Accounts, GSS (answering as a Mac<br/>without those services would)"]
         contacts["Contacts<br/>the user's contacts in Finch's<br/>own store, groups, change history;<br/>name and address formatters, vCard"]
         ctio["CoreText<br/>fonts, shaping, lines, frames<br/>(HarfBuzz, FreeType, ICU)"]
         quartzcore["QuartzCore<br/>layers drawn through CoreGraphics,<br/>animation objects, transactions;<br/>animation playback still to come"]
@@ -122,7 +122,7 @@ block-beta
         coreservices["CoreServices<br/>app lookup and launch,<br/>local Apple events, files"]
         later["Metal (no GPU driven yet:<br/>no devices, descriptors<br/>as values)"]
         coreui["CoreUI<br/>compiled asset catalogs,<br/>named images and colors"]
-        appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds,<br/>AudioFormat properties, audio files,<br/>PCM/G.711 conversion,<br/>ExtAudioFile, software audio units:<br/>effects, EQ, reverbs, time-pitch,<br/>varispeed, sampler; offline<br/>PCM queues); AVFAudio<br/>(formats, layouts, PCM buffers,<br/>PCM/G.711 files and conversion,<br/>times, the engine graph:<br/>players, mixer, effect and<br/>instrument units, offline render;<br/>AVAudioPlayer, constants,<br/>session, silent speech),<br/>Carbon/HIToolbox (events, keys),<br/>CoreAnalytics, libScreenReader;<br/>FeatureFlags, libMobileGestalt<br/>(the device's answers);<br/>ColorSync (profiles, transforms);<br/>HIServices (AX client, Process Manager),<br/>DataDetectorsCore (links in text);<br/>Text Input Sources, UCKeyTranslate,<br/>Carbon event handlers, hot keys;<br/>IOSurface (shared pixel buffers);<br/>CoreVideo pixel buffers and pools;<br/>CoreMedia (times, block, format<br/>and sample buffers, clocks,<br/>timebases, queues, metadata, tags)"]
+        appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds,<br/>AudioFormat properties, audio files,<br/>PCM/G.711 conversion,<br/>ExtAudioFile, software audio units:<br/>effects, EQ, reverbs, time-pitch,<br/>varispeed, sampler; offline<br/>PCM queues); AVFAudio<br/>(formats, layouts, PCM buffers,<br/>PCM/G.711 files and conversion,<br/>times, the engine graph:<br/>players, mixer, effect and<br/>instrument units, offline render;<br/>AVAudioPlayer, constants,<br/>session, silent speech),<br/>Carbon/HIToolbox (events, keys),<br/>CoreAnalytics, libScreenReader;<br/>FeatureFlags, libMobileGestalt<br/>(the device's answers),<br/>libDiagnosticMessagesClient<br/>(messages sent nowhere);<br/>SkyLight's SLS calls (window<br/>capture, display queries);<br/>ColorSync (profiles, transforms);<br/>HIServices (AX client, Process Manager),<br/>DataDetectorsCore (links in text);<br/>Text Input Sources, UCKeyTranslate,<br/>Carbon event handlers, hot keys;<br/>IOSurface (shared pixel buffers);<br/>CoreVideo pixel buffers and pools;<br/>CoreMedia (times, block, format<br/>and sample buffers, clocks,<br/>timebases, queues, metadata, tags)"]
         swiftui["SwiftUI, SwiftUICore<br/>(OpenSwiftUI on Compute's<br/>attribute graph; first app draws)"]
     end
     block:L5
@@ -132,7 +132,7 @@ block-beta
         uti["UniformTypeIdentifiers<br/>UTType, declared and<br/>dynamic types"]
         cfnetwork["CFNetwork<br/>HTTP messages and streams,<br/>socket streams (TLS via OpenSSL),<br/>CFHost, Bonjour (dns_sd),<br/>proxies, FTP"]
         cf["CoreFoundation<br/>swift-corelibs CF + Finch ObjC:<br/>toll-free dispatch, collections,<br/>ordered sets, NSCache, NSData, NSDate,<br/>NSURL, locales, calendars, defaults,<br/>run loops, attributed strings,<br/>streams, Mach ports, notifications;<br/>bundle languages and .loctable files"]
-        security["Security<br/>keys, certificates, web roots,<br/>file keychains, signature checks,<br/>Secure Transport (OpenSSL)"]
+        security["Security<br/>keys, certificates, web roots,<br/>file keychains, signature checks,<br/>Secure Transport (OpenSSL);<br/>SecurityFoundation (SFAuthorization,<br/>certificate summaries)"]
         od["OpenDirectory<br/>CFOpenDirectory,<br/>local account password checks"]
         icu["libicucore<br/>ICU-76142.4.7"]
         objc["libobjc (objc4)"]
@@ -263,7 +263,10 @@ flowchart LR
     coremediafw["CoreMedia"]:::finch
     audiotoolbox["AudioToolbox"]:::finch
     avfaudio["AVFAudio"]:::finch
-    devicefw["FeatureFlags,<br/>libMobileGestalt"]:::finch
+    devicefw["FeatureFlags,<br/>libMobileGestalt,<br/>libDiagnosticMessagesClient"]:::finch
+    skylight["SkyLight"]:::finch
+    secfound["SecurityFoundation"]:::finch
+    btui["IOBluetoothUI"]:::finch
     colorsync["ColorSync"]:::finch
     hiservices["HIServices"]:::finch
     coreui["CoreUI"]:::finch
@@ -333,6 +336,11 @@ flowchart LR
     avfaudio --> coremediafw
     devicefw --> cf
     devicefw --> iokit
+    skylight --> cgfw
+    secfound --> security
+    secfound --> ffound
+    btui --> appkit
+    btui --> servicesfw
     audiotoolbox --> cf
     coreimagefw --> ffound
     coreimagefw --> cgfw

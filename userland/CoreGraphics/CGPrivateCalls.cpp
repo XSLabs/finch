@@ -61,6 +61,9 @@ CGError CGSSetWindowTransform(CGSConnectionID cid, CGSWindowID wid, CGAffineTran
 CGError CGSSetWindowTransformAtPlacement(CGSConnectionID cid, CGSWindowID wid, CGAffineTransform t, CGPoint placement);
 CGError CGSGetWindowTransformAtPlacement(CGSConnectionID cid, CGSWindowID wid, CGPoint placement, CGAffineTransform *t);
 CGError CGSCopySpecifiedWindowShape(CGSConnectionID cid, CGSWindowID wid, int kind, CGSRegionRef *out);
+CGError CGSGetOnScreenWindowCount(CGSConnectionID cid, CGSConnectionID owner, int *count);
+CGError CGSGetOnScreenWindowList(CGSConnectionID cid, CGSConnectionID owner, int capacity, CGSWindowID *list, int *count);
+CGPoint CGSCurrentInputPointerPosition(void);
 CGError CGSSetWindowCaptureExcludeShape(CGSConnectionID cid, CGSWindowID wid, CGSRegionRef region);
 CFDictionaryRef CGSSessionCopyCurrentSessionProperties(void);
 double CGSSecondsSinceLastInputEvent(int type);
@@ -228,8 +231,6 @@ CGError
 CGSCopySpecifiedWindowShape(CGSConnectionID cid, CGSWindowID wid, int kind, CGSRegionRef *out)
 {
     CGRect frame = CGRectZero;
-    CFArrayRef list = CGWindowListCreateDescriptionFromArray(NULL);
-    (void)list;
     CFArrayRef info = CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, wid);
     if (info && CFArrayGetCount(info)) {
         CFDictionaryRef w = (CFDictionaryRef)CFArrayGetValueAtIndex(info, 0);
@@ -240,6 +241,53 @@ CGSCopySpecifiedWindowShape(CGSConnectionID cid, CGSWindowID wid, int kind, CGSR
     if (info)
         CFRelease(info);
     return CGSNewRegionWithRect(&frame, out);
+}
+
+/* The on-screen windows, front to back, of every connection (owner 0) or of one (this
+   process's: Finch's connection IDs are process IDs), as the window list has them. */
+static CFArrayRef
+onscreen_windows(CGSConnectionID owner)
+{
+    CFArrayRef info = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
+    CFMutableArrayRef ids = CFArrayCreateMutable(kCFAllocatorDefault, 0, NULL);
+    for (CFIndex i = 0; info && i < CFArrayGetCount(info); i++) {
+        CFDictionaryRef w = (CFDictionaryRef)CFArrayGetValueAtIndex(info, i);
+        int number = 0, pid = 0;
+        CFNumberRef n = (CFNumberRef)CFDictionaryGetValue(w, kCGWindowNumber);
+        CFNumberRef p = (CFNumberRef)CFDictionaryGetValue(w, kCGWindowOwnerPID);
+        if (!n || !CFNumberGetValue(n, kCFNumberIntType, &number))
+            continue;
+        if (p)
+            CFNumberGetValue(p, kCFNumberIntType, &pid);
+        if (owner == 0 || owner == pid)
+            CFArrayAppendValue(ids, (const void *)(uintptr_t)number);
+    }
+    if (info)
+        CFRelease(info);
+    return ids;
+}
+
+CGError
+CGSGetOnScreenWindowCount(CGSConnectionID cid, CGSConnectionID owner, int *count)
+{
+    CFArrayRef ids = onscreen_windows(owner);
+    if (count)
+        *count = (int)CFArrayGetCount(ids);
+    CFRelease(ids);
+    return kCGErrorSuccess;
+}
+
+CGError
+CGSGetOnScreenWindowList(CGSConnectionID cid, CGSConnectionID owner, int capacity, CGSWindowID *list, int *count)
+{
+    CFArrayRef ids = onscreen_windows(owner);
+    int n = 0;
+    for (CFIndex i = 0; list && i < CFArrayGetCount(ids) && n < capacity; i++)
+        list[n++] = (CGSWindowID)(uintptr_t)CFArrayGetValueAtIndex(ids, i);
+    if (count)
+        *count = n;
+    CFRelease(ids);
+    return kCGErrorSuccess;
 }
 
 CGError CGSSetWindowCaptureExcludeShape(CGSConnectionID cid, CGSWindowID wid, CGSRegionRef region) { return kCGErrorSuccess; }
@@ -265,6 +313,17 @@ CGSInputModifierKeyState(int which)
 }
 
 int CGSServerOperationState(void) { return 0; }
+
+/* The pointer, in global display coordinates (top left origin), as an event has it. */
+CGPoint
+CGSCurrentInputPointerPosition(void)
+{
+    CGEventRef e = CGEventCreate(NULL);
+    CGPoint p = e ? CGEventGetLocation(e) : CGPointZero;
+    if (e)
+        CFRelease(e);
+    return p;
+}
 
 CGError
 CGSDisableUpdateToken(CGSConnectionID cid, int *token)

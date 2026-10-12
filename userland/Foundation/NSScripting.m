@@ -13,6 +13,7 @@
  * (docs/design/CORESERVICES.md); until then the registry starts empty.
  */
 #import <Foundation/Foundation.h>
+#import <objc/message.h>
 #include <objc/message.h>
 #include <objc/runtime.h>
 #include <stdlib.h>
@@ -1406,4 +1407,96 @@ like(NSString *s, NSString *pattern, BOOL caseInsensitive)
         return [(NSString *)self rangeOfString:object].location != NSNotFound;
     return [self doesContain:object];
 }
+@end
+
+/* Conversions between classes for scripting: registered coercers (a selector taking the
+   value and the class to convert to), found for the value's class or its superclasses,
+   and Foundation's own between numbers and strings. */
+@implementation NSScriptCoercionHandler
+
++ (NSScriptCoercionHandler *)sharedCoercionHandler
+{
+    static NSScriptCoercionHandler *shared;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        shared = [[self alloc] init];
+    });
+    return shared;
+}
+
+- (instancetype)init
+{
+    if ((self = [super init])) {
+        _coercers = [[NSMutableDictionary alloc] init];
+        [self _setUpFoundationCoercions];
+    }
+    return self;
+}
+
+- (void)dealloc
+{
+    [_coercers release];
+    [super dealloc];
+}
+
+static NSString *
+coercion_key(Class from, Class to)
+{
+    return [NSString stringWithFormat:@"%s>%s", class_getName(from), class_getName(to)];
+}
+
++ (id)_finchCoerceValue:(id)value toClass:(Class)toClass
+{
+    if ([value isKindOfClass:[NSNumber class]] && [toClass isSubclassOfClass:[NSString class]])
+        return [value stringValue];
+    if ([value isKindOfClass:[NSString class]] && [toClass isSubclassOfClass:[NSNumber class]]) {
+        NSScanner *s = [NSScanner scannerWithString:value];
+        double d;
+        if (![s scanDouble:&d] || ![s isAtEnd])
+            return nil;
+        return d == (double)(long long)d ? @((long long)d) : @(d);
+    }
+    return nil;
+}
+
+- (void)_setUpFoundationCoercions
+{
+    [self registerCoercer:[NSScriptCoercionHandler class] selector:@selector(_finchCoerceValue:toClass:)
+        toConvertFromClass:[NSNumber class] toClass:[NSString class]];
+    [self registerCoercer:[NSScriptCoercionHandler class] selector:@selector(_finchCoerceValue:toClass:)
+        toConvertFromClass:[NSString class] toClass:[NSNumber class]];
+}
+
+- (void)registerCoercer:(id)coercer selector:(SEL)selector toConvertFromClass:(Class)fromClass toClass:(Class)toClass
+{
+    if (!coercer || !selector || !fromClass || !toClass)
+        return;
+    @synchronized(self) {
+        ((NSMutableDictionary *)_coercers)[coercion_key(fromClass, toClass)] = @[ coercer, NSStringFromSelector(selector) ];
+    }
+}
+
+- (NSArray *)_findCoercerFromClass:(Class)fromClass toClass:(Class)toClass
+{
+    @synchronized(self) {
+        for (Class c = fromClass; c; c = class_getSuperclass(c)) {
+            NSArray *found = ((NSDictionary *)_coercers)[coercion_key(c, toClass)];
+            if (found)
+                return found;
+        }
+    }
+    return nil;
+}
+
+- (id)coerceValue:(id)value toClass:(Class)toClass
+{
+    if (!value || !toClass || [value isKindOfClass:toClass])
+        return value;
+    NSArray *coercer = [self _findCoercerFromClass:[value class] toClass:toClass];
+    if (!coercer)
+        return nil;
+    SEL sel = NSSelectorFromString(coercer[1]);
+    return ((id(*)(id, SEL, id, Class))objc_msgSend)(coercer[0], sel, value, toClass);
+}
+
 @end

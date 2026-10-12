@@ -12,6 +12,7 @@
 #include <openssl/ec.h>
 #include <openssl/rand.h>
 #include <openssl/bio.h>
+#include <openssl/pem.h>
 #include <time.h>
 #include <dispatch/dispatch.h>
 #include <pthread.h>
@@ -357,6 +358,32 @@ CFDateRef SecCertificateCopyNotValidAfterDate(SecCertificateRef c)
 	return valid(c, SecCertificateGetTypeID())
 	    ? CFDateCreate(NULL, asn1Time(X509_get0_notAfter(((Certificate *)c)->cert)))
 	    : NULL;
+}
+/* Private, as Apple's: a certificate's CA flag (basic constraints), whether it issued
+   itself, and whether it's valid at a time. */
+bool SecCertificateIsCA(SecCertificateRef c)
+{
+	return valid(c, SecCertificateGetTypeID()) && X509_check_ca(((Certificate *)c)->cert) > 0;
+}
+OSStatus SecCertificateIsSelfSigned(SecCertificateRef c, Boolean *isSelfSigned)
+{
+	if (!valid(c, SecCertificateGetTypeID()) || !isSelfSigned)
+		return errSecParam;
+	X509 *x = ((Certificate *)c)->cert;
+	*isSelfSigned = X509_check_issued(x, x) == X509_V_OK;
+	return errSecSuccess;
+}
+bool SecCertificateIsSelfSignedCA(SecCertificateRef c)
+{
+	Boolean self = false;
+	return SecCertificateIsSelfSigned(c, &self) == errSecSuccess && self && SecCertificateIsCA(c);
+}
+bool SecCertificateIsValid(SecCertificateRef c, CFAbsoluteTime verifyTime)
+{
+	if (!valid(c, SecCertificateGetTypeID()))
+		return false;
+	X509 *x = ((Certificate *)c)->cert;
+	return verifyTime >= asn1Time(X509_get0_notBefore(x)) && verifyTime <= asn1Time(X509_get0_notAfter(x));
 }
 CFDataRef SecCertificateCopyNormalizedIssuerSequence(SecCertificateRef c)
 {
@@ -943,6 +970,33 @@ OSStatus SecTrustCreateWithCertificates(CFTypeRef certs, CFTypeRef policies, Sec
 	t->result = kSecTrustResultInvalid;
 	*out = (SecTrustRef)t;
 	return 0;
+}
+/* The system's anchors: Finch's pinned root bundle (userland/certificates). */
+OSStatus SecTrustCopyAnchorCertificates(CFArrayRef *anchors)
+{
+	if (!anchors)
+		return errSecParam;
+	char path[PATH_MAX];
+	const char *file = finch_ca_bundle((const void *)SecTrustCopyAnchorCertificates, path);
+	BIO *in = file ? BIO_new_file(file, "r") : NULL;
+	if (!in)
+		return errSecNoTrustSettings;
+	CFMutableArrayRef out = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+	X509 *x;
+	while ((x = PEM_read_bio_X509(in, NULL, NULL, NULL))) {
+		Certificate *c = (Certificate *)_SecCreateInstance(SecCertificateGetTypeID(), sizeof(*c));
+		if (!c) {
+			X509_free(x);
+			break;
+		}
+		c->cert = x;
+		CFArrayAppendValue(out, c);
+		CFRelease(c);
+	}
+	ERR_clear_error();
+	BIO_free(in);
+	*anchors = out;
+	return errSecSuccess;
 }
 OSStatus SecTrustSetAnchorCertificates(SecTrustRef ref, CFArrayRef anchors)
 {

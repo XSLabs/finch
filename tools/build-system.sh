@@ -102,6 +102,8 @@ steps=(
     "skia|userland/skia/build.sh"
     "CoreGraphics|userland/CoreGraphics/build.sh"
     "QuartzCore|userland/QuartzCore/build.sh"
+    # SkyLight's SLS calls apps import directly, over CoreGraphics
+    "SkyLight|userland/SkyLight/build.sh"
     # The open fonts Finch ships for Apple's (userland/fonts)
     "fonts|userland/fonts/build.sh"
     "CoreText|userland/CoreText/build.sh"
@@ -137,6 +139,7 @@ steps=(
     "ServiceManagement|userland/ServiceManagement/build.sh"
     "CoreWLAN|userland/CoreWLAN/build.sh"
     "IOBluetooth|userland/IOBluetooth/build.sh"
+    "IOBluetoothUI|userland/IOBluetoothUI/build.sh"
     "StoreKit|userland/StoreKit/build.sh"
     "Contacts|userland/Contacts/build.sh"
     "Accounts|userland/Accounts/build.sh"
@@ -148,6 +151,8 @@ steps=(
     # Feature flags (os_feature_enabled's Swift face) and the device's answers (libMobileGestalt)
     "FeatureFlags|userland/FeatureFlags/build.sh"
     "libMobileGestalt|userland/libMobileGestalt/build.sh"
+    # message tracer messages (built, sent nowhere: Finch collects nothing)
+    "libDiagnosticMessagesClient|userland/libDiagnosticMessagesClient/build.sh"
     # Image Capture's frameworks: ImageCaptureCore, ICADevices, and Quartz with ImageKit
     # (docs/design/IMAGECAPTURE.md)
     "ImageCaptureCore|userland/ImageCaptureCore/build.sh"
@@ -177,6 +182,7 @@ steps=(
     "libsystem-finch|make -s -C userland/libsystem"
     "libm|make -s -C userland/libm"
     "Security|userland/Security/build.sh"
+    "SecurityFoundation|userland/SecurityFoundation/build.sh"
     # DiskArbitration's client and daemon, from Apple's source.
     "DiskArbitration|userland/DiskArbitration/build.sh"
     "diskarbitrationd|userland/oss/DiskArbitration.daemon.build.sh"

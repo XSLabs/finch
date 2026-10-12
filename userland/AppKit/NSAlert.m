@@ -371,6 +371,19 @@ button_width(NSButton *b)
         [NSApp stopModalWithCode:code];
 }
 
+/* The panel itself, for NSGetAlertPanel: laid out, its buttons ending a modal session
+   with their codes, and keeping this alert alive with it. */
+- (NSPanel *)_finchLegacyPanel
+{
+    if (!_laidOut)
+        [self layout];
+    [_panel center];
+    [_panel setLevel:NSModalPanelWindowLevel];
+    _modal = YES;
+    objc_setAssociatedObject(_panel, @selector(_finchLegacyPanel), self, OBJC_ASSOCIATION_RETAIN);
+    return [_panel retain];
+}
+
 - (NSModalResponse)runModal
 {
     if (!_laidOut)
@@ -457,6 +470,55 @@ run_panel(NSAlertStyle style, NSString *title, NSString *msgFormat, NSString *de
 {
     NSAlert *a = legacy_alert(style, title, defaultButton, alternateButton, otherButton, msgFormat, ap);
     return [a runModal];
+}
+
+/* A panel to run with NSRunModalForWindow (the buttons answer NSAlertDefaultReturn,
+   ...Alternate, ...Other), released with NSReleaseAlertPanel. */
+static id
+get_panel(NSAlertStyle style, NSString *title, NSString *msgFormat, NSString *defaultButton, NSString *alternateButton,
+          NSString *otherButton, va_list ap)
+{
+    return [legacy_alert(style, title, defaultButton, alternateButton, otherButton, msgFormat, ap) _finchLegacyPanel];
+}
+
+id
+NSGetAlertPanel(NSString *title, NSString *msgFormat, NSString *defaultButton, NSString *alternateButton,
+                NSString *otherButton, ...)
+{
+    va_list ap;
+    va_start(ap, otherButton);
+    id panel = get_panel(NSAlertStyleWarning, title, msgFormat, defaultButton, alternateButton, otherButton, ap);
+    va_end(ap);
+    return panel;
+}
+
+id
+NSGetInformationalAlertPanel(NSString *title, NSString *msgFormat, NSString *defaultButton, NSString *alternateButton,
+                             NSString *otherButton, ...)
+{
+    va_list ap;
+    va_start(ap, otherButton);
+    id panel = get_panel(NSAlertStyleInformational, title, msgFormat, defaultButton, alternateButton, otherButton, ap);
+    va_end(ap);
+    return panel;
+}
+
+id
+NSGetCriticalAlertPanel(NSString *title, NSString *msgFormat, NSString *defaultButton, NSString *alternateButton,
+                        NSString *otherButton, ...)
+{
+    va_list ap;
+    va_start(ap, otherButton);
+    id panel = get_panel(NSAlertStyleCritical, title, msgFormat, defaultButton, alternateButton, otherButton, ap);
+    va_end(ap);
+    return panel;
+}
+
+void
+NSReleaseAlertPanel(id panel)
+{
+    [panel orderOut:nil];
+    [panel release];
 }
 
 NSInteger

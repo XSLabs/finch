@@ -496,3 +496,9 @@ _NSLocalizedFileSizeDescription(unsigned long long size, long unused, unsigned l
 {
     return NSLocalizedFileSizeDescription(size, unused, flags);
 }
+
+/* How sure a guess at a text's language is (private; Apple's values) */
+FOUNDATION_EXPORT const float NSLocaleLanguageConfidenceHigh, NSLocaleLanguageConfidenceMedium, NSLocaleLanguageConfidenceLow;
+const float NSLocaleLanguageConfidenceHigh = 1.0f;
+const float NSLocaleLanguageConfidenceMedium = 0.5f;
+const float NSLocaleLanguageConfidenceLow = 0.0f;

@@ -9,7 +9,7 @@
  * CoreFoundation_Private.h) and this file implements what they declare,
  * plus the public classes and constants the Swift half refers to that
  * Finch's Foundation didn't have yet (NSPersonNameComponents,
- * NSFileSecurity, NSLocalizedNumberFormatRule, the Markdown and inflection
+ * NSLocalizedNumberFormatRule, the Markdown and inflection
  * attribute names).
  */
 #import <Foundation/Foundation.h>
@@ -305,14 +305,6 @@ static NSString *const PNCKeys[] = { @"NS.namePrefix", @"NS.givenName", @"NS.mid
     return _phoneticRepresentation == o->_phoneticRepresentation || [_phoneticRepresentation isEqual:o->_phoneticRepresentation];
 }
 - (NSUInteger)hash { return [_givenName hash] ^ [_familyName hash]; }
-@end
-
-/* A file's ownership, mode and ACL (Apple's bridges to CFFileSecurity). */
-@implementation NSFileSecurity
-+ (BOOL)supportsSecureCoding { return YES; }
-- (instancetype)initWithCoder:(NSCoder *)coder { return [super init]; }
-- (void)encodeWithCoder:(NSCoder *)coder {}
-- (id)copyWithZone:(struct _NSZone *)zone { return [self retain]; }
 @end
 
 /* The number format of a localized number in an attributed string. Finch has

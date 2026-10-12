@@ -456,6 +456,21 @@ provider_for(NSImage *image)
 
 /* --- the speech synthesizer --- */
 
+/* The voice attribute keys (Apple's values) */
+NSString *const NSVoiceAge = @"VoiceAge";
+NSString *const NSVoiceDemoText = @"VoiceDemoText";
+NSString *const NSVoiceGender = @"VoiceGender";
+NSString *const NSVoiceGenderFemale = @"VoiceGenderFemale";
+NSString *const NSVoiceGenderMale = @"VoiceGenderMale";
+NSString *const NSVoiceGenderNeuter = @"VoiceGenderNeuter";
+NSString *const NSVoiceGenderNeutral = @"VoiceGenderNeutral";
+NSString *const NSVoiceIdentifier = @"VoiceIdentifier";
+NSString *const NSVoiceIndividuallySpokenCharacters = @"VoiceIndividuallySpokenCharacters";
+NSString *const NSVoiceLanguage = @"VoiceLanguage";
+NSString *const NSVoiceLocaleIdentifier = @"VoiceLocaleIdentifier";
+NSString *const NSVoiceName = @"VoiceName";
+NSString *const NSVoiceSupportedCharacters = @"VoiceSupportedCharacters";
+
 @implementation NSSpeechSynthesizer {
     NSSpeechSynthesizerVoiceName _voice;
     id<NSSpeechSynthesizerDelegate> _delegate; /* (weak) */

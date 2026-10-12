@@ -396,7 +396,7 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         (`tools/check-imports.py`).
   - [x] Drop-in check: `tools/app-sweep.py` runs the import check over every app and the
         frameworks it carries, and ranks what's missing by apps blocked. Apple's apps are
-        recorded in [`docs/APPS.md`](APPS.md) (2026-10-11: 9 of 65 have every import;
+        recorded in [`docs/APPS.md`](APPS.md) (2026-10-12: 10 of 65 have every import;
         gaps in AppKit, Foundation and CoreGraphics block the most, then AppIntents and
         AVFoundation). The next frameworks are picked from it.
   - [ ] Close the symbol gaps in Finch's own frameworks that block the most apps
@@ -448,6 +448,17 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           libMobileGestalt: a Mac's answers (device class, product, versions, serial,
           device ID from the chip IDs, architecture, screen scale, disk usage);
           `mobilegestalt-test` matches Apple's (2026-10-12).
+    - [x] What the Utilities apps import beyond the rest: CoreGraphics' headroom copies,
+          image writing, on-screen window lists and pointer; Core Animation's tone
+          mapping; AppKit's legacy alert panels, voice keys and image names; CFFileSecurity
+          (NSFileSecurity moves to CoreFoundation, as Apple's) and the file-security
+          resource; scripting coercions; LaunchServices' weak bindings; and new
+          SecurityFoundation, SkyLight (its SLS calls, over CoreGraphics), IOBluetoothUI
+          and libDiagnosticMessagesClient. `utilities-test` matches Apple's
+          (2026-10-12); Bluetooth File Exchange has every import (10 of 65 apps).
+  - [ ] AppKit's system images (NSAddTemplate, NSPauseTemplate, the toolbar and status
+        images): Finch draws its own set in the Fieldwork style; `+imageNamed:` finds
+        none of them yet.
   - [x] A Cocoa app bundle built the usual way (`userland/tests/apps/Hello`: NSApplicationMain,
         a MainMenu nib from ibtool, outlets and actions) launches on Finch's frameworks and window
         server, shows its menu bar and window, and responds to clicks and typing

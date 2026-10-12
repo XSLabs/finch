@@ -296,3 +296,85 @@ OBEXFolderListingCreateFromFile(CFURLRef url)
 {
     return NULL;
 }
+
+/* --- transfer progress --- */
+
+#import "IOBluetoothTransferProgress.h"
+
+/* Counts kept as a transfer reports them; the rate is bytes over the time since the first
+   bytes, and the time remaining what's left at that rate. */
+@implementation IOBluetoothTransferProgress
+
+- (instancetype)init
+{
+    return [self initWithTotalBytes:0];
+}
+
+- (instancetype)initWithTotalBytes:(unsigned int)totalBytes
+{
+    if ((self = [super init])) {
+        mTotalBytes = mRemainingBytes = totalBytes;
+        mTimeOfTransferStart = [[NSDate alloc] init];
+    }
+    return self;
+}
+
+- (id)copyWithZone:(NSZone *)zone
+{
+    IOBluetoothTransferProgress *c = [[[self class] allocWithZone:zone] initWithTotalBytes:(unsigned int)mTotalBytes];
+    c->mTransferedBytes = mTransferedBytes;
+    c->mRemainingBytes = mRemainingBytes;
+    c->mPercentDone = mPercentDone;
+    c->mTransferState = mTransferState;
+    c->mThreshold = mThreshold;
+    c->mTimeOfTransferStart = [mTimeOfTransferStart copy];
+    return c;
+}
+
+- (void)recount
+{
+    mRemainingBytes = mTotalBytes > mTransferedBytes ? mTotalBytes - mTransferedBytes : 0;
+    mPercentDone = mTotalBytes ? (float)((double)mTransferedBytes / (double)mTotalBytes * 100.0) : 0;
+    double elapsed = [self getTimeElapsed];
+    mTransferRate = elapsed > 0 ? (float)(mTransferedBytes / elapsed) : 0;
+    mSecondsRemaining = mTransferRate > 0 ? mRemainingBytes / mTransferRate : 0;
+}
+
+- (void)moreBytesTransferred:(unsigned int)bytes
+{
+    mTransferedBytes += bytes;
+    [self recount];
+    [self updateUI];
+}
+
+- (void)setBytesTransferred:(unsigned long long)bytes
+{
+    mTransferedBytes = bytes;
+    [self recount];
+}
+
+- (void)setTotalBytes:(unsigned long long)bytes
+{
+    mTotalBytes = bytes;
+    [self recount];
+}
+
+- (void)setBytesRemaining:(unsigned long long)bytes { mRemainingBytes = bytes; }
+- (void)setPercentDone:(float)percent { mPercentDone = percent; }
+- (void)setTransferRate:(float)rate { mTransferRate = rate; }
+- (void)setSecondsRemaining:(double)seconds { mSecondsRemaining = seconds; }
+- (void)setDeterminateThreshold:(unsigned short)threshold { mThreshold = threshold; }
+- (void)setTransferState:(int)state { mTransferState = state; }
+- (int)transferState { return mTransferState; }
+- (unsigned long long)getBytesTotal { return mTotalBytes; }
+- (unsigned long long)getBytesTransferred { return mTransferedBytes; }
+- (unsigned long long)getRemainingBytes { return mRemainingBytes; }
+- (float)getTransferPercentage { return mPercentDone; }
+- (float)getByteTransferRate { return mTransferRate; }
+- (double)getTimeElapsed { return -[mTimeOfTransferStart timeIntervalSinceNow]; }
+- (double)getEstimatedTimeRemaining { return mSecondsRemaining; }
+- (NSDate *)getEstimatedTimeRemainingDate { return [NSDate dateWithTimeIntervalSinceNow:mSecondsRemaining]; }
+- (NSDate *)getStartTime { return mTimeOfTransferStart; }
+- (void)updateUI {}
+
+@end
