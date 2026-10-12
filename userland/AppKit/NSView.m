@@ -1299,13 +1299,24 @@ enum {
     _toolTip = [[coder decodeObjectForKey:@"NSToolTip"] copy];
     _appearance = [[coder decodeObjectForKey:@"NSAppearance"] retain];
     _superview = [coder decodeObjectForKey:@"NSSuperview"];
-    for (NSView *v in [coder decodeObjectForKey:@"NSSubviews"]) {
+    /* in the archived order, even for subviews that joined while they decoded (a view
+       swapped for the app's class while this one was decoding) */
+    NSArray *archived = [coder decodeObjectForKey:@"NSSubviews"];
+    if ([archived count]) {
+        NSMutableArray *ordered = [NSMutableArray arrayWithCapacity:[archived count] + [_subviews count]];
+        for (NSView *v in archived)
+            if ([ordered indexOfObjectIdenticalTo:v] == NSNotFound)
+                [ordered addObject:v];
+        for (NSView *v in _subviews)
+            if ([ordered indexOfObjectIdenticalTo:v] == NSNotFound)
+                [ordered addObject:v];
         if (!_subviews)
             _subviews = [[NSMutableArray alloc] init];
-        if ([_subviews indexOfObjectIdenticalTo:v] == NSNotFound)
-            [_subviews addObject:v];
-        v->_superview = self;
-        [v setNextResponder:self];
+        [_subviews setArray:ordered];
+        for (NSView *v in archived) {
+            v->_superview = self;
+            [v setNextResponder:self];
+        }
     }
     NSView *next = [coder decodeObjectForKey:@"NSNextKeyView"];
     if (next)

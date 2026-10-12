@@ -579,6 +579,19 @@ retarget(NSLayoutConstraint *c, id from, id to)
     }
     for (NSLayoutConstraint *k in constraints)
         [v addConstraint:retarget(k, proto, v)];
+    /* A superview decoded while this view was (through NSNextResponder) already holds the
+       placeholder: the view takes its place there, constraints and all. */
+    NSView *superview = [proto superview];
+    if (superview) {
+        NSMutableArray *moved = [NSMutableArray array];
+        for (NSLayoutConstraint *k in [superview constraints])
+            if ([k firstItem] == proto || [k secondItem] == proto)
+                [moved addObject:k];
+        [superview removeConstraints:moved];
+        [superview replaceSubview:proto with:v];
+        for (NSLayoutConstraint *k in moved)
+            [superview addConstraint:retarget(k, proto, v)];
+    }
     [proto release];
     return (id)v;
 }

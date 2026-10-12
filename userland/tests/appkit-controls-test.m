@@ -1102,6 +1102,13 @@ test_controls(void)
     cw.color = NSColor.greenColor;
     SHOW(@"%@", color_desc([cw color]));
     SHOW(@"%ld", (long)[cw colorWellStyle]);
+    [cw setObjectValue:nil];  /* nil is black */
+    SHOW(@"%@", color_desc([cw color]));
+    @try {
+        [cw setObjectValue:@"red"];
+    } @catch (NSException *e) {
+        SHOW(@"%@", [e name]);
+    }
 
     out(@"== NSImageView");
     NSImageView *iv = [[NSImageView alloc] initWithFrame:NSMakeRect(0, 0, 48, 48)];

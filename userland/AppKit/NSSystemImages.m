@@ -962,7 +962,8 @@ FinchSystemImageNames(void)
  * read as a base glyph and Apple's modifiers: ".fill" (the glyph's filled form),
  * ".circle" or ".square" (enclosed; with ".fill", a filled shape with the glyph knocked
  * out), ".slash" (struck through) and ".badge.plus" / ".badge.minus" / ".badge.checkmark"
- * (a small mark at the corner). Names with no glyph give nil, as Apple's unknown names
+ * (a small mark at the corner) or ".badge." and another glyph's name (that glyph, small,
+ * at the corner). Names with no glyph give nil, as Apple's unknown names
  * do. Sizes follow the configuration as Apple's do: a glyph's size at 13 points scaled
  * with the point size and by the scale (small 0.82, large 1.29); the weight sets the
  * stroke.
@@ -974,6 +975,7 @@ typedef struct {
     CGFloat w, h; /* at 13 points */
     __unsafe_unretained NSString *label;
     SymbolDrawer draw;
+    BOOL privateOnly; /* Apple's private symbols: only +_imageWithSystemSymbolName: gives them */
 } SymbolGlyph;
 
 static void
@@ -1608,6 +1610,22 @@ symbol_glyphs(void)
             for (int i = 0; i < 4; i++)
                 circle(4.5 + i * (w - 9) / 3, h * 0.62, 0.8, YES);
         });
+        add(@"calculator", 13, 16, nil, ^(CGFloat w, CGFloat h, BOOL f) {
+            rrect(1.5, 1.5, w - 3, h - 3, 2.5, f);
+            /* the display, then keys in three rows of two */
+            CGContextRef cg = [NSGraphicsContext currentContext].CGContext;
+            if (f) {
+                CGContextSaveGState(cg);
+                CGContextSetBlendMode(cg, kCGBlendModeClear);
+            }
+            rrect(3.5, h * 0.66, w - 7, h * 0.16, 0.8, YES);
+            for (int row = 0; row < 3; row++)
+                for (int col = 0; col < 2; col++)
+                    circle(w * (col ? 0.66 : 0.34), h * (0.5 - row * 0.15), 0.95, YES);
+            if (f)
+                CGContextRestoreGState(cg);
+        });
+        ((SymbolGlyph *)[t[@"calculator"] pointerValue])->privateOnly = YES;
         add(@"display", 18, 15, @"display", ^(CGFloat w, CGFloat h, BOOL f) {
             rrect(1.5, h * 0.28, w - 3, h * 0.7, 2, f);
             line(w * 0.35, 1, w * 0.65, 1);
@@ -1647,7 +1665,8 @@ typedef struct {
     SymbolGlyph *glyph;
     BOOL fill, slash;
     int enclosure; /* 0 none, 1 circle, 2 square */
-    int badge;     /* 0 none, 1 plus, 2 minus, 3 checkmark */
+    int badge;     /* 0 none, 1 plus, 2 minus, 3 checkmark, 4 another glyph */
+    SymbolGlyph *badgeGlyph;
 } ParsedSymbol;
 
 static BOOL
@@ -1675,6 +1694,11 @@ parse_symbol(NSString *name, ParsedSymbol *out)
         else if ([before isEqual:@"badge"] && !out->badge &&
                  ([last isEqual:@"plus"] || [last isEqual:@"minus"] || [last isEqual:@"checkmark"])) {
             out->badge = [last isEqual:@"plus"] ? 1 : [last isEqual:@"minus"] ? 2 : 3;
+            [parts removeLastObject];
+        } else if ([before isEqual:@"badge"] && !out->badge && glyphs[last]) {
+            /* a small glyph at the corner (doc.badge.gearshape) */
+            out->badge = 4;
+            out->badgeGlyph = [glyphs[last] pointerValue];
             [parts removeLastObject];
         } else
             return NO;
@@ -1713,10 +1737,12 @@ static char symbol_name_key, symbol_config_key;
 
 /* The symbol image for a name and configuration, or nil for a name with no glyph. */
 static NSImage *
-symbol_image(NSString *name, NSImageSymbolConfiguration *config, NSString *description)
+symbol_image(NSString *name, NSImageSymbolConfiguration *config, NSString *description, BOOL allowPrivate)
 {
     ParsedSymbol ps;
     if (![name isKindOfClass:[NSString class]] || !parse_symbol(name, &ps))
+        return nil;
+    if ((ps.glyph->privateOnly || (ps.badgeGlyph && ps.badgeGlyph->privateOnly)) && !allowPrivate)
         return nil;
     CGFloat pointSize = 0;
     NSFontWeight weight = NSFontWeightRegular;
@@ -1783,7 +1809,25 @@ symbol_image(NSString *name, NSImageSymbolConfiguration *config, NSString *descr
             CGContextRestoreGState(cg);
             line(1.5, gh - 0.5, gw - 0.5, 1.5);
         }
-        if (p.badge) {
+        if (p.badge == 4) {
+            /* the badge glyph in the bottom-right corner, the glyph cut away around it */
+            SymbolGlyph *b = p.badgeGlyph;
+            CGFloat r = MIN(gw, gh) * 0.3, cx = gw - r, cy = r;
+            CGContextSaveGState(cg);
+            CGContextSetBlendMode(cg, kCGBlendModeClear);
+            circle(cx, cy, r + 1.2, YES);
+            CGContextRestoreGState(cg);
+            CGFloat s = 2 * r / MAX(b->w, b->h);
+            NSAffineTransform *in = [NSAffineTransform transform];
+            [in translateXBy:cx - b->w * s / 2 yBy:cy - b->h * s / 2];
+            [in scaleBy:s];
+            [NSGraphicsContext saveGraphicsState];
+            [in concat];
+            kStroke = stroke / s * 0.8;
+            b->draw(b->w, b->h, p.fill);
+            [NSGraphicsContext restoreGraphicsState];
+            kStroke = stroke;
+        } else if (p.badge) {
             CGFloat r = MIN(gw, gh) * 0.24, cx = gw - r, cy = r;
             CGContextSaveGState(cg);
             CGContextSetBlendMode(cg, kCGBlendModeClear);
@@ -1806,7 +1850,8 @@ symbol_image(NSString *name, NSImageSymbolConfiguration *config, NSString *descr
         return YES;
     }];
     im.template = YES;
-    im.accessibilityDescription = description ?: g->label;
+    /* (Apple's have no description for a glyph badge) */
+    im.accessibilityDescription = description ?: p.badge == 4 ? nil : g->label;
     objc_setAssociatedObject(im, &symbol_name_key, name, OBJC_ASSOCIATION_COPY_NONATOMIC);
     objc_setAssociatedObject(im, &symbol_config_key, config ?: [NSImageSymbolConfiguration configurationWithScale:NSImageSymbolScaleMedium],
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -1816,7 +1861,14 @@ symbol_image(NSString *name, NSImageSymbolConfiguration *config, NSString *descr
 __attribute__((visibility("hidden"))) NSImage *
 FinchSymbolImage(NSString *name, NSImageSymbolConfiguration *config, NSString *description)
 {
-    return symbol_image(name, config, description);
+    return symbol_image(name, config, description, NO);
+}
+
+/* Private symbols too: the SPI, and an existing symbol image reconfigured. */
+__attribute__((visibility("hidden"))) NSImage *
+FinchPrivateSymbolImage(NSString *name, NSImageSymbolConfiguration *config, NSString *description)
+{
+    return symbol_image(name, config, description, YES);
 }
 
 /* For -imageWithSymbolConfiguration: and -symbolConfiguration (NSImage.m): the name a

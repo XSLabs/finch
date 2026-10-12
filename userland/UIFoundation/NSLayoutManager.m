@@ -704,7 +704,8 @@ range_rect_in_line(ContainerLayout *cl, size_t i, NSRange range)
 {
     UIFLine *ln = &cl->layout.lines[i];
     NSRect f = fragment_rect(cl, i);
-    CGFloat x0 = range.location <= ln->range.location ? cl->padding
+    /* from the margin only for a range that began on an earlier line */
+    CGFloat x0 = range.location < ln->range.location ? cl->padding
                                                        : cl->padding + ln->x + offset_in_line(ln, range.location);
     CGFloat x1 = NSMaxRange(range) > NSMaxRange(ln->range) ? cl->width - cl->padding
                                                            : cl->padding + ln->x + offset_in_line(ln, NSMaxRange(range));

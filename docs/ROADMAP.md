@@ -702,8 +702,16 @@ and AppKit come in Phase 2).
         ColorSync now writes the standard profiles into `/System/Library/ColorSync/Profiles`,
         and `tools/app-sweep.py` counts the plug-in bundles an app loads (not its app
         extensions) against Finch as well.
-  - [ ] The Profiles and Devices browsers list profiles and devices; Calculator's colour
-        swatches show the converted colour; toolbar items show their icon and label.
+  - [x] Its browsers and tools (2026-10-12): Profiles lists the installed profiles with
+        their details, Devices its device groups, Calculator's wells show the colour, and
+        the toolbar shows each utility's symbol (`doc.badge.gearshape`, and `calculator`,
+        one of Apple's private symbols). What they needed: a nib's custom view swapped for
+        its class taking the placeholder's place in a superview decoded first, subviews
+        kept in archived order, `NSColorWell` taking nil as black, and field editors that
+        lay out centred and right-aligned text within the field (a focused number field
+        showed nothing) and highlight only the selected text.
+  - [ ] The selected profile's 3D Lab plot (OpenGL), and the display under Devices
+        (ColorSync's device registry).
 - [x] Combine: OpenCombine (MIT) adapted to Apple's ABI, with Finch's Merge, CombineLatest
       and collecting by time; every Combine symbol the system apps import (2026-10-09)
 - [ ] SwiftUI: OpenSwiftUI (MIT) built as SwiftUI and SwiftUICore (`docs/design/SWIFTUI.md`)

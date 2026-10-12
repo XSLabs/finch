@@ -345,6 +345,7 @@ NSImage *FinchSystemImageNamed(NSString *name);
 
 /* Symbol images: Finch's own glyphs under the symbol names (NSSystemImages.m). */
 NSImage *FinchSymbolImage(NSString *name, NSImageSymbolConfiguration *config, NSString *description);
+NSImage *FinchPrivateSymbolImage(NSString *name, NSImageSymbolConfiguration *config, NSString *description);
 NSString *FinchSymbolImageName(NSImage *image);
 NSImageSymbolConfiguration *FinchSymbolImageConfiguration(NSImage *image);
 
@@ -357,7 +358,7 @@ NSImageSymbolConfiguration *FinchSymbolImageConfiguration(NSImage *image);
     return FinchSymbolImage(name, nil, description);
 }
 /* SPI */
-+ (instancetype)_imageWithSystemSymbolName:(NSString *)name { return FinchSymbolImage(name, nil, nil); }
++ (instancetype)_imageWithSystemSymbolName:(NSString *)name { return FinchPrivateSymbolImage(name, nil, nil); }
 + (instancetype)imageWithSymbolName:(NSString *)name variableValue:(double)value { return nil; }
 + (instancetype)imageWithSymbolName:(NSString *)name bundle:(NSBundle *)bundle variableValue:(double)value { return nil; }
 
@@ -508,7 +509,7 @@ NSImageSymbolConfiguration *FinchSymbolImageConfiguration(NSImage *image);
         return self;
     NSImageSymbolConfiguration *mine = FinchSymbolImageConfiguration(self);
     NSImageSymbolConfiguration *c = mine ? [mine configurationByApplyingConfiguration:configuration] : configuration;
-    return FinchSymbolImage(name, c, [self accessibilityDescription]);
+    return FinchPrivateSymbolImage(name, c, [self accessibilityDescription]);
 }
 - (NSImage *)imageWithLocale:(NSLocale *)locale { return self; }
 - (NSLocale *)locale { return nil; }

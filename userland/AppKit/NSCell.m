@@ -1402,8 +1402,21 @@ up:
         [[(NSTextView *)editor textStorage] setAttributedString:[self objectValue]];
     else
         [editor setString:[self stringValue]];
-    if ([editor isKindOfClass:[NSTextView class]] && !_c.singleLine && [self wraps])
-        [[(NSTextView *)editor textContainer] setWidthTracksTextView:YES];
+    if ([editor isKindOfClass:[NSTextView class]] && !_c.singleLine && [self wraps]) {
+        /* the line is the field's width now, not when the editor's frame next changes */
+        NSTextContainer *tc = [(NSTextView *)editor textContainer];
+        [tc setWidthTracksTextView:YES];
+        [tc setSize:NSMakeSize(r.size.width, [tc size].height)];
+    } else if ([editor isKindOfClass:[NSTextView class]] && [(NSTextView *)editor isFieldEditor]) {
+        /* One line: left-aligned text runs on past the field (an unbounded line); centred or
+           right-aligned text is placed within the field, so the line is the field's width. */
+        NSTextAlignment a = _alignment;
+        if (a == NSTextAlignmentNatural || a == NSTextAlignmentJustified)
+            a = NSTextAlignmentLeft;
+        NSTextContainer *tc = [(NSTextView *)editor textContainer];
+        [tc setWidthTracksTextView:NO];
+        [tc setSize:NSMakeSize(a == NSTextAlignmentLeft ? 9000000 : r.size.width, [tc size].height)];
+    }
     [editor setDelegate:delegate];
     if ([editor superview] != view)
         [view addSubview:editor];

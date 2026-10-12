@@ -17,7 +17,7 @@ main(void)
         NSArray *names = @[@"star", @"star.fill", @"heart.fill", @"xmark", @"xmark.circle.fill", @"checkmark.circle", @"info.circle",
                            @"plus.circle.fill", @"trash", @"trash.fill", @"folder.badge.plus", @"eye.slash", @"speaker.slash.fill",
                            @"gearshape.2", @"person.crop.circle.fill", @"square.and.arrow.up", @"magnifyingglass", @"chevron.right",
-                           @"doc", @"arrow.clockwise", @"play.fill", @"pause.circle.fill", @"lock.fill", @"printer", @"film",
+                           @"doc", @"doc.badge.gearshape", @"calculator", @"arrow.clockwise", @"play.fill", @"pause.circle.fill", @"lock.fill", @"printer", @"film",
                            @"nonexistent.symbol", @"", @"star.fill.fill"];
         for (NSString *n in names) {
             NSImage *im = [NSImage imageWithSystemSymbolName:n accessibilityDescription:nil];
@@ -43,6 +43,10 @@ main(void)
         printf("plain image's configuration %d\n", [[NSImage alloc] initWithSize:NSMakeSize(4, 4)].symbolConfiguration != nil);
         NSImage *priv = ((id (*)(id, SEL, id))objc_msgSend)([NSImage class], sel_registerName("_imageWithSystemSymbolName:"), @"gear");
         printf("private call: %d template %d\n", priv != nil, priv.template);
+        /* a private symbol: only the private call gives it */
+        NSImage *calc = ((id (*)(id, SEL, id))objc_msgSend)([NSImage class], sel_registerName("_imageWithSystemSymbolName:"), @"calculator");
+        printf("private symbol: private call %d (%gx%g, description %d), public call %d\n", calc != nil, calc.size.width, calc.size.height,
+               calc.accessibilityDescription != nil, [NSImage imageWithSystemSymbolName:@"calculator" accessibilityDescription:nil] != nil);
 
         const char *sheet = getenv("SYMBOLS_SHEET");
         if (sheet) {

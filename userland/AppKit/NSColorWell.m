@@ -86,7 +86,9 @@ well_defaults(NSColorWell *self)
 
 - (void)setColor:(NSColor *)color
 {
-    if (!color || color == _color)
+    if (!color)
+        [NSException raise:NSInternalInconsistencyException format:@"Invalid parameter not satisfying: aColor != nil"];
+    if (color == _color)
         return;
     [_color release];
     _color = [color copy];
@@ -101,10 +103,13 @@ well_defaults(NSColorWell *self)
 
 - (id)objectValue { return _color; }
 
+/* As Apple's: nil is black, anything but a colour is a mistake. */
 - (void)setObjectValue:(id)value
 {
-    if ([value isKindOfClass:[NSColor class]])
-        [self setColor:value];
+    if (value && ![value isKindOfClass:[NSColor class]])
+        [NSException raise:NSInternalInconsistencyException
+                    format:@"NSColorWells require their objectValue to be an NSColor, was set to %@", value];
+    [self setColor:value ?: [NSColor blackColor]];
 }
 
 - (NSString *)stringValue { return @""; }
