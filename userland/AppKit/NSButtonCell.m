@@ -790,6 +790,13 @@ position_to_flags(NSCellImagePosition p)
         radius = r.size.height / 2;
     }
     FinchDrawBezel(r, radius, FinchDisabled(fill, enabled), accent ? nil : FinchDisabled(FinchControlStroke(), enabled));
+    if (_bezelStyle == NSBezelStyleHelpButton && ![[self title] length] && ![self image]) {
+        /* the help button's own mark */
+        NSDictionary *a = @{NSFontAttributeName : [NSFont systemFontOfSize:r.size.height * 0.6 weight:NSFontWeightMedium],
+                            NSForegroundColorAttributeName : FinchDisabled([NSColor controlTextColor], enabled)};
+        NSSize q = [@"?" sizeWithAttributes:a];
+        [@"?" drawAtPoint:NSMakePoint(NSMidX(r) - q.width / 2, NSMidY(r) - q.height / 2) withAttributes:a];
+    }
 }
 
 - (void)drawImage:(NSImage *)image withFrame:(NSRect)frame inView:(NSView *)controlView
