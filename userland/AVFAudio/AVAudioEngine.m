@@ -14,8 +14,7 @@
  * output's rate and the audio goes nowhere: players, taps and completion handlers run
  * as they would.
  */
-#import <AVFAudio/AVFAudio.h>
-#import <AudioToolbox/AudioToolbox.h>
+#import "AVAudioNodeInternal.h"
 #import <Block.h>
 #include <dispatch/dispatch.h>
 #include <math.h>
@@ -55,13 +54,6 @@ NSString *const AVAudioEngineConfigurationChangeNotification = @"AVAudioEngineCo
 
 /* --- nodes --- */
 
-/* An input bus's connection. */
-typedef struct {
-    AVAudioNode *source;
-    AVAudioNodeBus bus;
-    AVAudioFormat *format;
-} Link;
-
 /* A tap: frames gathered until there are bufferSize of them. */
 @interface FinchTap : NSObject {
 @public
@@ -82,49 +74,6 @@ typedef struct {
     [super dealloc];
 }
 @end
-
-/* The mixing parameters a source node carries to its mixer. */
-typedef struct {
-    float volume, pan, rate, reverbBlend, obstruction, occlusion;
-    AVAudio3DPoint position;
-    AVAudio3DMixingRenderingAlgorithm algorithm;
-    AVAudio3DMixingSourceMode sourceMode;
-    AVAudio3DMixingPointSourceInHeadMode inHeadMode;
-} Mixing;
-
-@interface AVAudioNode () {
-@public
-    AVAudioEngine *_engine;
-    NSUInteger _inputs, _outputs;
-    Link _in[64];
-    NSMutableDictionary *_outFormats; /* bus -> format */
-    NSMutableDictionary *_taps;       /* bus -> FinchTap */
-    AVAudioTime *_lastRender;
-    /* (the bus rendered this cycle, kept for the other destinations) */
-    AVAudioFramePosition _cachedAt;
-    AVAudioPCMBuffer *_cached[8];
-    Mixing _mixing;
-}
-- (OSStatus)_render:(AVAudioPCMBuffer *)out bus:(AVAudioNodeBus)bus at:(AVAudioFramePosition)time;
-- (OSStatus)_pull:(AVAudioNodeBus)bus frames:(AVAudioFrameCount)frames at:(AVAudioFramePosition)time into:(AVAudioPCMBuffer **)out;
-- (AVAudioFormat *)_defaultOutputFormat;
-- (void)_wasConnected;
-@end
-
-static AVAudioFormat *
-standard(double rate, AVAudioChannelCount channels)
-{
-    return [[[AVAudioFormat alloc] initStandardFormatWithSampleRate:rate channels:channels ? channels : 1] autorelease];
-}
-
-static void
-zero(AVAudioPCMBuffer *b, AVAudioFrameCount frames)
-{
-    b.frameLength = frames;
-    const AudioBufferList *abl = b.audioBufferList;
-    for (UInt32 i = 0; i < abl->mNumberBuffers; i++)
-        memset(abl->mBuffers[i].mData, 0, abl->mBuffers[i].mDataByteSize);
-}
 
 @implementation AVAudioNode
 
@@ -331,8 +280,8 @@ feed_tap(FinchTap *t, AVAudioPCMBuffer *b, AVAudioFramePosition time)
 }
 
 /* The input bus's source rendered (or silence when nothing is connected). */
-static OSStatus
-pull_input(AVAudioNode *node, AVAudioNodeBus bus, AVAudioFrameCount frames, AVAudioFramePosition time, AVAudioPCMBuffer **out)
+OSStatus
+finch_pull_input(AVAudioNode *node, AVAudioNodeBus bus, AVAudioFrameCount frames, AVAudioFramePosition time, AVAudioPCMBuffer **out)
 {
     if (bus >= 64 || !node->_in[bus].source) {
         *out = nil;
@@ -343,39 +292,7 @@ pull_input(AVAudioNode *node, AVAudioNodeBus bus, AVAudioFrameCount frames, AVAu
 
 @end
 
-/* --- mixing parameters, on every node that can feed a mixer --- */
-
-#define MIXING_ACCESSORS                                                                                       \
-    -(float)volume { return _mixing.volume; }                                                                  \
-    -(void)setVolume : (float)v { _mixing.volume = v < 0 ? 0 : v; }                                            \
-    -(float)pan { return _mixing.pan; }                                                                        \
-    -(void)setPan : (float)v { _mixing.pan = v < -1 ? -1 : v > 1 ? 1 : v; }                                    \
-    -(float)rate { return _mixing.rate; }                                                                      \
-    -(void)setRate : (float)v { _mixing.rate = v; }                                                            \
-    -(float)reverbBlend { return _mixing.reverbBlend; }                                                        \
-    -(void)setReverbBlend : (float)v { _mixing.reverbBlend = v; }                                              \
-    -(float)obstruction { return _mixing.obstruction; }                                                        \
-    -(void)setObstruction : (float)v { _mixing.obstruction = v; }                                              \
-    -(float)occlusion { return _mixing.occlusion; }                                                            \
-    -(void)setOcclusion : (float)v { _mixing.occlusion = v; }                                                  \
-    -(AVAudio3DPoint)position { return _mixing.position; }                                                     \
-    -(void)setPosition : (AVAudio3DPoint)v { _mixing.position = v; }                                           \
-    -(AVAudio3DMixingRenderingAlgorithm)renderingAlgorithm { return _mixing.algorithm; }                       \
-    -(void)setRenderingAlgorithm : (AVAudio3DMixingRenderingAlgorithm)v { _mixing.algorithm = v; }             \
-    -(AVAudio3DMixingSourceMode)sourceMode { return _mixing.sourceMode; }                                      \
-    -(void)setSourceMode : (AVAudio3DMixingSourceMode)v { _mixing.sourceMode = v; }                            \
-    -(AVAudio3DMixingPointSourceInHeadMode)pointSourceInHeadMode { return _mixing.inHeadMode; }                \
-    -(void)setPointSourceInHeadMode : (AVAudio3DMixingPointSourceInHeadMode)v { _mixing.inHeadMode = v; }      \
-    -(AVAudioMixingDestination *)destinationForMixer : (AVAudioNode *)mixer bus : (AVAudioNodeBus)bus          \
-    {                                                                                                          \
-        return finch_destination(self, mixer, bus);                                                            \
-    }
-
-@interface AVAudioMixingDestination ()
-- (instancetype)_initWithSource:(AVAudioNode *)source point:(AVAudioConnectionPoint *)point;
-@end
-
-static AVAudioMixingDestination *
+AVAudioMixingDestination *
 finch_destination(AVAudioNode *source, AVAudioNode *mixer, AVAudioNodeBus bus)
 {
     if (![mixer isKindOfClass:[AVAudioMixerNode class]] || bus >= 64 || mixer->_in[bus].source != source)
@@ -471,7 +388,7 @@ rate_input(AudioConverterRef c, UInt32 *packets, AudioBufferList *data, AudioStr
     FinchRateStage *s = info;
     AVAudioFrameCount want = *packets > 4096 ? 4096 : *packets;
     AVAudioPCMBuffer *got = nil;
-    OSStatus e = pull_input(s->mixer, s->bus, want, s->sourceTime, &got);
+    OSStatus e = finch_pull_input(s->mixer, s->bus, want, s->sourceTime, &got);
     if (e)
         return e;
     s->sourceTime += want;
@@ -548,7 +465,7 @@ MIXING_ACCESSORS
 {
     AVAudioFormat *in = _in[bus].format, *outFormat = [self outputFormatForBus:0];
     if (!in || in.sampleRate == outFormat.sampleRate)
-        return pull_input(self, bus, frames, time, out);
+        return finch_pull_input(self, bus, frames, time, out);
     FinchRateStage *s = _stages[@(bus)];
     AVAudioFormat *target = standard(outFormat.sampleRate, in.channelCount);
     if (!s || ![s->from isEqual:in] || ![s->to isEqual:target]) {
@@ -1021,7 +938,7 @@ MIXING_ACCESSORS
 - (OSStatus)_receive:(AVAudioFrameCount)frames at:(AVAudioFramePosition)time
 {
     AVAudioPCMBuffer *in = nil;
-    OSStatus e = pull_input(self, 0, frames, time, &in);
+    OSStatus e = finch_pull_input(self, 0, frames, time, &in);
     if (e || !in)
         return e;
     AudioTimeStamp ts = {0};
@@ -1094,7 +1011,7 @@ MIXING_ACCESSORS
 {
     AVAudioPCMBuffer *in = nil;
     AVAudioFrameCount frames = out.frameLength;
-    OSStatus e = pull_input(self, 0, frames, time, &in);
+    OSStatus e = finch_pull_input(self, 0, frames, time, &in);
     if (e)
         return e;
     zero(out, frames);

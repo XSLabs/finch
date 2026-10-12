@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
-/* Small PCM audio units for Finch's device-free audio stack. */
+/* Small PCM audio units for Finch's device-free audio stack; the effect, time and
+   instrument units' processing is in AudioUnitEffects.c. */
 #include <AudioToolbox/AudioToolbox.h>
+#include "AudioUnitEffects.h"
 #include <math.h>
 #include <pthread.h>
 #include <stdbool.h>
@@ -20,7 +22,8 @@
 enum UnitKind {
     UnitOutput,
     UnitConverter,
-    UnitMixer
+    UnitMixer,
+    UnitEffect
 };
 
 struct ComponentRecord {
@@ -28,22 +31,52 @@ struct ComponentRecord {
     const char *name;
     UInt32 version;
     enum UnitKind kind;
+    const struct EffectTable *effect;
 };
 
-static const struct ComponentRecord components[] = {
+static const struct ComponentRecord base_components[] = {
     {{kAudioUnitType_Output, kAudioUnitSubType_DefaultOutput,
         kAudioUnitManufacturer_Apple, kAudioComponentFlag_SandboxSafe, 0},
-        "Finch Default Output (no device)", 0x00010000, UnitOutput},
+        "Finch Default Output (no device)", 0x00010000, UnitOutput, NULL},
     {{kAudioUnitType_Output, kAudioUnitSubType_SystemOutput,
         kAudioUnitManufacturer_Apple, kAudioComponentFlag_SandboxSafe, 0},
-        "Finch System Output (no device)", 0x00010000, UnitOutput},
+        "Finch System Output (no device)", 0x00010000, UnitOutput, NULL},
     {{kAudioUnitType_FormatConverter, kAudioUnitSubType_AUConverter,
         kAudioUnitManufacturer_Apple, kAudioComponentFlag_SandboxSafe, 0},
-        "Finch PCM Converter", 0x00010000, UnitConverter},
+        "Finch PCM Converter", 0x00010000, UnitConverter, NULL},
     {{kAudioUnitType_Mixer, kAudioUnitSubType_MultiChannelMixer,
         kAudioUnitManufacturer_Apple, kAudioComponentFlag_SandboxSafe, 0},
-        "Finch Multichannel Mixer", 0x00010000, UnitMixer}
+        "Finch Multichannel Mixer", 0x00010000, UnitMixer, NULL}
 };
+
+/* The units above, then the effect units. */
+static struct ComponentRecord *components;
+static size_t component_count;
+static pthread_once_t components_once = PTHREAD_ONCE_INIT;
+
+static void
+make_components(void)
+{
+    size_t base = sizeof(base_components) / sizeof(base_components[0]);
+    struct ComponentRecord *all = calloc(base + _FinchEffectTableCount, sizeof *all);
+    if (!all)
+        return;
+    memcpy(all, base_components, sizeof base_components);
+    for (size_t i = 0; i < _FinchEffectTableCount; i++) {
+        const struct EffectTable *t = &_FinchEffectTables[i];
+        all[base + i] = (struct ComponentRecord){{t->type, t->subtype, kAudioUnitManufacturer_Apple,
+            kAudioComponentFlag_SandboxSafe, 0}, t->name, t->version, UnitEffect, t};
+    }
+    components = all;
+    component_count = base + _FinchEffectTableCount;
+}
+
+static size_t
+all_components(void)
+{
+    pthread_once(&components_once, make_components);
+    return component_count;
+}
 
 struct UnitInstance {
     UInt32 signature;
@@ -69,6 +102,8 @@ struct UnitInstance {
     void *inputScratch[FINCH_MAX_INPUTS];
     UInt32 inputScratchFrames[FINCH_MAX_INPUTS];
     Float32 *mixScratch;
+    struct Effect *effect;
+    float *effectOut[FINCH_MAX_CHANNELS];
 };
 
 typedef struct {
@@ -94,7 +129,8 @@ component_handle(const struct ComponentRecord *record)
 static const struct ComponentRecord *
 component_record(AudioComponent handle)
 {
-    for (size_t i = 0; i < sizeof(components) / sizeof(components[0]); i++) {
+    size_t count = all_components();
+    for (size_t i = 0; i < count; i++) {
         if (component_handle(&components[i]) == handle)
             return &components[i];
     }
@@ -211,14 +247,14 @@ matches_description(const struct ComponentRecord *record, const AudioComponentDe
 AudioComponent
 AudioComponentFindNext(AudioComponent inComponent, const AudioComponentDescription *inDesc)
 {
-    size_t start = 0;
+    size_t start = 0, count = all_components();
     if (inComponent) {
         const struct ComponentRecord *current = component_record(inComponent);
         if (!current)
             return NULL;
         start = (size_t)(current - components) + 1;
     }
-    for (size_t i = start; i < sizeof(components) / sizeof(components[0]); i++) {
+    for (size_t i = start; i < count; i++) {
         if (matches_description(&components[i], inDesc))
             return component_handle(&components[i]);
     }
@@ -229,7 +265,8 @@ UInt32
 AudioComponentCount(const AudioComponentDescription *inDesc)
 {
     UInt32 count = 0;
-    for (size_t i = 0; i < sizeof(components) / sizeof(components[0]); i++)
+    size_t all = all_components();
+    for (size_t i = 0; i < all; i++)
         if (matches_description(&components[i], inDesc))
             count++;
     return count;
@@ -275,6 +312,12 @@ free_render_memory(struct UnitInstance *unit)
     }
     free(unit->mixScratch);
     unit->mixScratch = NULL;
+    for (UInt32 i = 0; i < FINCH_MAX_CHANNELS; i++) {
+        free(unit->effectOut[i]);
+        unit->effectOut[i] = NULL;
+    }
+    if (unit->effect)
+        _FinchEffectUninitialize(unit->effect);
     if (unit->converter) {
         AudioConverterDispose(unit->converter);
         unit->converter = NULL;
@@ -313,6 +356,16 @@ AudioComponentInstanceNew(AudioComponent inComponent, AudioComponentInstance *ou
     unit->outputEnabled = true;
     unit->renderQuality = 127;
     AudioStreamBasicDescription format = default_format();
+    if (record->kind == UnitEffect) {
+        /* (effects take deinterleaved float, as Apple's do) */
+        format.mFormatFlags |= kAudioFormatFlagIsNonInterleaved;
+        format.mBytesPerPacket = format.mBytesPerFrame = 4;
+        if (!(unit->effect = _FinchEffectNew(record->effect))) {
+            free(unit);
+            return kAudioUnitErr_FailedInitialization;
+        }
+        unit->inputCount = _FinchEffectHasInput(record->effect) ? 1 : 0;
+    }
     unit->outputFormat = format;
     for (UInt32 i = 0; i < FINCH_MAX_INPUTS; i++) {
         unit->inputFormats[i] = format;
@@ -326,6 +379,7 @@ AudioComponentInstanceNew(AudioComponent inComponent, AudioComponentInstance *ou
         ;
     if (slot == FINCH_MAX_INSTANCES) {
         pthread_mutex_unlock(&instance_registry_lock);
+        _FinchEffectDispose(unit->effect);
         free(unit);
         return kAudioUnitErr_FailedInitialization;
     }
@@ -360,6 +414,7 @@ AudioComponentInstanceDispose(AudioComponentInstance inInstance)
     atomic_store_explicit(&instances[slot], NULL, memory_order_release);
     pthread_mutex_unlock(&instance_registry_lock);
     unit->signature = 0;
+    _FinchEffectDispose(unit->effect);
     free(unit);
     return noErr;
 }
@@ -389,7 +444,9 @@ AudioComponentInstanceCanDo(AudioComponentInstance inInstance, SInt16 inSelector
         return true;
     case kAudioUnitGetParameterSelect:
     case kAudioUnitSetParameterSelect:
-        return unit->component->kind == UnitMixer;
+        return unit->component->kind == UnitMixer || unit->component->kind == UnitEffect;
+    case kMusicDeviceMIDIEventSelect:
+        return unit->component->description.componentType == kAudioUnitType_MusicDevice;
     case kAudioOutputUnitStartSelect:
     case kAudioOutputUnitStopSelect:
         return unit->component->kind == UnitOutput;
@@ -421,6 +478,11 @@ property_info(struct UnitInstance *unit, AudioUnitPropertyID property, AudioUnit
     OSStatus status = property_error_for_scope(scope);
     if (status)
         return status;
+    if (unit->effect) {
+        status = _FinchEffectPropertyInfo(unit->effect, property, scope, element, size, writable);
+        if (status != kAudioUnitErr_InvalidProperty || property == kAudioUnitProperty_TailTime)
+            return status;
+    }
     Boolean writeable = false;
     switch (property) {
     case kAudioUnitProperty_StreamFormat:
@@ -527,6 +589,8 @@ AudioUnitGetProperty(AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope 
     OSStatus status = property_info(unit, inID, inScope, inElement, &size, NULL);
     if (status)
         return status;
+    if (unit->effect && _FinchEffectPropertyInfo(unit->effect, inID, inScope, inElement, &size, NULL) == noErr)
+        return _FinchEffectGetProperty(unit->effect, inID, inScope, inElement, outData, ioDataSize);
     switch (inID) {
     case kAudioUnitProperty_StreamFormat:
         return copy_property(inScope == kAudioUnitScope_Input ? &unit->inputFormats[inElement] :
@@ -582,6 +646,9 @@ AudioUnitSetProperty(AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope 
         return status;
     if (!writable)
         return kAudioUnitErr_PropertyNotWritable;
+    /* (an effect's own properties can change while it renders) */
+    if (unit->effect && _FinchEffectPropertyInfo(unit->effect, inID, inScope, inElement, &size, NULL) == noErr)
+        return _FinchEffectSetProperty(unit->effect, inID, inScope, inElement, inData, inDataSize);
     if (!inData || inDataSize != size)
         return kAudioUnitErr_InvalidPropertyValue;
     if (unit->initialized)
@@ -591,6 +658,10 @@ AudioUnitSetProperty(AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope 
     case kAudioUnitProperty_StreamFormat: {
         const AudioStreamBasicDescription *format = inData;
         if (!valid_pcm_format(format))
+            return kAudioUnitErr_FormatNotSupported;
+        if (unit->component->kind == UnitEffect &&
+            (!(format->mFormatFlags & kAudioFormatFlagIsFloat) || format->mBitsPerChannel != 32 ||
+                !non_interleaved(format)))
             return kAudioUnitErr_FormatNotSupported;
         if (inScope == kAudioUnitScope_Input)
             unit->inputFormats[inElement] = *format;
@@ -821,6 +892,19 @@ allocate_render_memory(struct UnitInstance *unit)
         return noErr;
     }
 
+    if (unit->component->kind == UnitEffect) {
+        const AudioStreamBasicDescription *out = &unit->outputFormat;
+        if (unit->inputCount && (unit->inputFormats[0].mChannelsPerFrame != out->mChannelsPerFrame ||
+                fabs(unit->inputFormats[0].mSampleRate - out->mSampleRate) > 0.001))
+            return kAudioUnitErr_FormatNotSupported;
+        if (out->mChannelsPerFrame > FINCH_MAX_CHANNELS)
+            return kAudioUnitErr_FormatNotSupported;
+        for (UInt32 i = 0; i < out->mChannelsPerFrame; i++)
+            if (!(unit->effectOut[i] = calloc(unit->maximumFrames, sizeof(float))))
+                return kAudioUnitErr_FailedInitialization;
+        return _FinchEffectInitialize(unit->effect, out->mSampleRate, out->mChannelsPerFrame, unit->maximumFrames);
+    }
+
     if (unit->component->kind == UnitMixer) {
         size_t samples = (size_t)unit->maximumFrames * unit->outputFormat.mChannelsPerFrame;
         if (samples > SIZE_MAX / sizeof(Float32))
@@ -1048,6 +1132,76 @@ render_mixer(struct UnitInstance *unit, AudioUnitRenderActionFlags *flags,
     return noErr;
 }
 
+typedef struct {
+    struct UnitInstance *unit;
+    AudioUnitRenderActionFlags flags;
+    AudioTimeStamp timestamp;
+} EffectInputContext;
+
+/* Pulls an effect's input through its render callback, straight into channels. */
+static OSStatus
+effect_pull(void *context, UInt32 frames, float *const *channels)
+{
+    EffectInputContext *c = context;
+    struct UnitInstance *unit = c->unit;
+    AURenderCallbackStruct callback = unit->inputCallbacks[0];
+    if (!callback.inputProc)
+        return kAudioUnitErr_NoConnection;
+    const AudioStreamBasicDescription *format = &unit->inputFormats[0];
+    FinchAudioBufferList list;
+    list.mNumberBuffers = format->mChannelsPerFrame;
+    for (UInt32 i = 0; i < list.mNumberBuffers; i++)
+        list.mBuffers[i] = (AudioBuffer){1, frames * (UInt32)sizeof(float), channels[i]};
+    AudioUnitRenderActionFlags flags = c->flags;
+    OSStatus status = callback.inputProc(callback.inputProcRefCon, &flags, &c->timestamp, 0, frames,
+        (AudioBufferList *)&list);
+    if (status)
+        return status;
+    /* (a callback may hand back its own buffers instead of filling these) */
+    for (UInt32 i = 0; i < list.mNumberBuffers; i++)
+        if (list.mBuffers[i].mData && list.mBuffers[i].mData != channels[i])
+            memcpy(channels[i], list.mBuffers[i].mData, frames * sizeof(float));
+    advance_timestamp(&c->timestamp, frames);
+    return noErr;
+}
+
+static OSStatus
+render_effect(struct UnitInstance *unit, AudioUnitRenderActionFlags *flags,
+    const AudioTimeStamp *timestamp, UInt32 frames, AudioBufferList *ioData)
+{
+    const AudioStreamBasicDescription *output = &unit->outputFormat;
+    if (unit->inputCount && !unit->inputCallbacks[0].inputProc)
+        return kAudioUnitErr_NoConnection;
+    if (!ioData || ioData->mNumberBuffers != output->mChannelsPerFrame ||
+        ioData->mNumberBuffers > FINCH_MAX_CHANNELS)
+        return kAudioUnitErr_InvalidPropertyValue;
+    float *channels[FINCH_MAX_CHANNELS];
+    for (UInt32 i = 0; i < ioData->mNumberBuffers; i++) {
+        /* (null buffers: the unit renders into its own) */
+        if (!ioData->mBuffers[i].mData)
+            ioData->mBuffers[i].mData = unit->effectOut[i];
+        else if (ioData->mBuffers[i].mDataByteSize < frames * sizeof(float))
+            return kAudioUnitErr_InvalidPropertyValue;
+        channels[i] = ioData->mBuffers[i].mData;
+        ioData->mBuffers[i].mDataByteSize = frames * (UInt32)sizeof(float);
+    }
+    EffectInputContext context = {unit, flags ? *flags : 0, *timestamp};
+    if (!unit->inputSampleTimeValid && (timestamp->mFlags & kAudioTimeStampSampleTimeValid)) {
+        unit->inputSampleTime = timestamp->mSampleTime;
+        unit->inputSampleTimeValid = true;
+    }
+    if (unit->inputSampleTimeValid) {
+        context.timestamp.mSampleTime = unit->inputSampleTime;
+        context.timestamp.mFlags |= kAudioTimeStampSampleTimeValid;
+    }
+    OSStatus status = _FinchEffectRender(unit->effect, effect_pull, &context, frames, channels);
+    if (unit->inputSampleTimeValid && (context.timestamp.mFlags & kAudioTimeStampSampleTimeValid))
+        unit->inputSampleTime = context.timestamp.mSampleTime;
+    if (!status && flags)
+        *flags &= ~kAudioUnitRenderAction_OutputIsSilence;
+    return status;
+}
+
 OSStatus
 AudioUnitRender(AudioUnit inUnit, AudioUnitRenderActionFlags *ioActionFlags,
     const AudioTimeStamp *inTimeStamp, UInt32 inOutputBusNumber, UInt32 inNumberFrames,
@@ -1077,7 +1231,9 @@ AudioUnitRender(AudioUnit inUnit, AudioUnitRenderActionFlags *ioActionFlags,
 
     unit->lastRenderError = noErr;
     OSStatus status;
-    if (unit->component->kind == UnitMixer) {
+    if (unit->component->kind == UnitEffect) {
+        status = render_effect(unit, ioActionFlags, inTimeStamp, inNumberFrames, ioData);
+    } else if (unit->component->kind == UnitMixer) {
         status = render_mixer(unit, ioActionFlags, inTimeStamp, inNumberFrames, ioData);
     } else {
         if (!unit->inputCallbacks[0].inputProc)
@@ -1145,10 +1301,12 @@ AudioUnitReset(AudioUnit inUnit, AudioUnitScope inScope, AudioUnitElement inElem
         if (status)
             return status;
     }
-    if (unit->component->kind == UnitConverter) {
+    if (unit->component->kind == UnitConverter || unit->component->kind == UnitEffect) {
         unit->inputSampleTime = 0.0;
         unit->inputSampleTimeValid = false;
     }
+    if (unit->effect)
+        _FinchEffectReset(unit->effect);
     if (unit->mixScratch)
         memset(unit->mixScratch, 0, (size_t)unit->maximumFrames *
             unit->outputFormat.mChannelsPerFrame * sizeof(Float32));
@@ -1210,6 +1368,8 @@ AudioUnitGetParameter(AudioUnit inUnit, AudioUnitParameterID inID, AudioUnitScop
     struct UnitInstance *unit = unit_instance(inUnit);
     if (!unit || !outValue)
         return kAudio_ParamError;
+    if (unit->effect)
+        return _FinchEffectGetParameter(unit->effect, inID, inScope, inElement, outValue);
     return get_mixer_parameter(unit, inID, inScope, inElement, outValue);
 }
 
@@ -1220,6 +1380,12 @@ AudioUnitSetParameter(AudioUnit inUnit, AudioUnitParameterID inID, AudioUnitScop
     struct UnitInstance *unit = unit_instance(inUnit);
     if (!unit)
         return kAudio_ParamError;
+    if (unit->effect) {
+        /* (any value: Apple's effects take values out of range too) */
+        if (!isfinite(inValue))
+            return kAudioUnitErr_InvalidParameterValue;
+        return _FinchEffectSetParameter(unit->effect, inID, inScope, inElement, inValue);
+    }
     if (!isfinite(inValue) || inBufferOffsetInFrames)
         return kAudioUnitErr_InvalidParameterValue;
     AudioUnitParameterValue previous;
@@ -1242,4 +1408,47 @@ AudioUnitSetParameter(AudioUnit inUnit, AudioUnitParameterID inID, AudioUnitScop
         unit->inputPans[inElement] = inValue;
     }
     return noErr;
+}
+
+OSStatus
+MusicDeviceMIDIEvent(MusicDeviceComponent inUnit, UInt32 inStatus, UInt32 inData1, UInt32 inData2,
+    UInt32 inOffsetSampleFrame)
+{
+    struct UnitInstance *unit = unit_instance(inUnit);
+    if (!unit)
+        return kAudio_ParamError;
+    if (!unit->effect || unit->component->description.componentType != kAudioUnitType_MusicDevice)
+        return kAudioUnitErr_InvalidProperty;
+    return _FinchEffectMIDIEvent(unit->effect, inStatus, inData1, inData2, inOffsetSampleFrame);
+}
+
+OSStatus
+MusicDeviceSysEx(MusicDeviceComponent inUnit, const UInt8 *inData, UInt32 inLength)
+{
+    struct UnitInstance *unit = unit_instance(inUnit);
+    if (!unit || (!inData && inLength))
+        return kAudio_ParamError;
+    /* (no system-exclusive messages are understood yet; they are taken and ignored) */
+    return unit->component->description.componentType == kAudioUnitType_MusicDevice ? noErr : kAudioUnitErr_InvalidProperty;
+}
+
+OSStatus
+MusicDeviceStartNote(MusicDeviceComponent inUnit, MusicDeviceInstrumentID inInstrument,
+    MusicDeviceGroupID inGroupID, NoteInstanceID *outNoteInstanceID, UInt32 inOffsetSampleFrame,
+    const MusicDeviceNoteParams *inParams)
+{
+    (void)inInstrument;
+    if (!inParams || inParams->argCount < 2)
+        return kAudio_ParamError;
+    UInt32 note = (UInt32)inParams->mPitch & 0x7F;
+    if (outNoteInstanceID)
+        *outNoteInstanceID = note;
+    return MusicDeviceMIDIEvent(inUnit, 0x90 | (inGroupID & 0xF), note, (UInt32)inParams->mVelocity, inOffsetSampleFrame);
+}
+
+OSStatus
+MusicDeviceStopNote(MusicDeviceComponent inUnit, MusicDeviceGroupID inGroupID, NoteInstanceID inNoteInstanceID,
+    UInt32 inOffsetSampleFrame)
+{
+    return MusicDeviceMIDIEvent(inUnit, 0x80 | (inGroupID & 0xF), inNoteInstanceID & 0x7F, 0, inOffsetSampleFrame);
 }

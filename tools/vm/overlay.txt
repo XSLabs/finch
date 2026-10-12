@@ -227,5 +227,7 @@ build/userland/finch-audioqueue-test /usr/local/bin/finch-audioqueue-test
 build/userland/finch-security-keychain-storage-test /usr/local/bin/finch-security-keychain-storage-test
 build/userland/finch-keychain-crypto-test /usr/local/bin/finch-keychain-crypto-test
 build/userland/finch-avaudio-engine-test /usr/local/bin/finch-avaudio-engine-test
+build/userland/finch-avaudio-unit-test /usr/local/bin/finch-avaudio-unit-test
+build/userland/finch-audiounit-effects-test /usr/local/bin/finch-audiounit-effects-test
 build/userland/finch-avaudio-player-test /usr/local/bin/finch-avaudio-player-test
 build/userland/finch-avaudio-services-test /usr/local/bin/finch-avaudio-services-test

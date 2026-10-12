@@ -7,7 +7,7 @@ is built on it.
 ```
 AVKit                          playback views
 AVFoundation                   assets, players, readers and writers, capture, metadata
-AVFAudio                       formats, buffers, files, players, the engine graph, speech
+AVFAudio                       formats, buffers, files, players, the engine graph, units, speech
 VideoToolbox                   decode, encode, pixel transfer
 AudioToolbox / AudioUnit       formats, files, converters, queues, audio units
 CoreMedia / CoreVideo          times, buffers, format descriptions, pixel buffers  (done)
@@ -45,6 +45,18 @@ CoreAudio (HAL)                devices: none until Finch has an audio driver
   resets and malformed callbacks. The host and QEMU runs pass. Default and
   System Output components report no connection; Finch has no audio device.
   Generic Output and the remaining unit properties are not implemented yet.
+- Effect, time and instrument units under Apple's component descriptions:
+  AUDelay, AUDistortion, AUNBandEQ, AUMatrixReverb, AUReverb2, the lowpass,
+  highpass, bandpass, shelf and parametric filters, AUPeakLimiter,
+  AUDynamicsProcessor, AUSampleDelay, AUNewTimePitch, AUNewPitch, AUVarispeed
+  and AUSampler (sine voices or loaded audio files, played over MIDI). Their
+  parameters, ranges and factory presets are Apple's, taken as data
+  (`tools/audiotoolbox/gen-effect-tables.sh`); the signal processing is Finch's
+  own (`AudioUnitEffects.c`) and is not a sample-for-sample copy. The comparison
+  test checks what the units describe, and what they do in coarse terms: a filter
+  cuts, a band gains 12 dB, a delay lands on its frame, time-pitch keeps the pitch
+  at twice the rate. Sound banks (SF2/DLS), `.aupreset` instruments and saved unit
+  state (`ClassInfo`) are open.
 - `AudioQueue` owns PCM buffers and renders queued audio into memory through
   `AudioConverter`. Completed buffers can be queued again by the callback.
   Offline output requires interleaved PCM with the same rate and channel count;
@@ -61,7 +73,12 @@ CoreAudio (HAL)                devices: none until Finch has an audio driver
   with seeking, short reads and format checks. `AVAudioConverter` wraps the
   software converter for PCM/G.711, including sample-rate conversion and reset.
   Both new checks match Apple's output on the host, in QEMU and in the VZ
-  guest (2026-10-11). Players, the engine graph and speech remain open.
+  guest (2026-10-11). The engine graph (players, the mixer, source and sink
+  nodes, taps, offline rendering), `AVAudioPlayer`, the session, speech timing
+  and `AVAudioUnit` with every named unit (delay, distortion, EQ, reverb,
+  time-pitch, varispeed, sampler) followed; `avaudio-unit-test` matches Apple's
+  output. `AUAudioUnit` (the version 3 interface), unit components and the
+  sequencer remain open.
 
 The converter, extended-file, software-unit, queue and AVFAudio buffer checks
 pass on the host, in QEMU and in the VZ guest (2026-10-11). These checks exercise

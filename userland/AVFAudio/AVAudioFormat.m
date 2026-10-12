@@ -247,7 +247,12 @@ valid_format(const AudioStreamBasicDescription *asbd, AVAudioChannelLayout *layo
     double rate = [rateObj doubleValue];
     AVAudioChannelCount channels = [channelsObj unsignedIntValue];
     UInt32 formatID = [formatObj isKindOfClass:[NSNumber class]] ? [formatObj unsignedIntValue] : kAudioFormatLinearPCM;
-    if (formatID != kAudioFormatLinearPCM || !channels || !isfinite(rate) || rate <= 0) AVAUDIO_INIT_FAIL();
+    if (!formatID || !channels || !isfinite(rate) || rate <= 0) AVAUDIO_INIT_FAIL();
+    if (formatID != kAudioFormatLinearPCM) {
+        /* (a compressed format: the rest of its description is left for a codec to fill, as Apple's leaves it) */
+        AudioStreamBasicDescription asbd = {rate, formatID, 0, 0, 0, 0, channels, 0, 0};
+        return [self initWithStreamDescription:&asbd];
+    }
     int bits = [settings[AVLinearPCMBitDepthKey] respondsToSelector:@selector(intValue)] ? [settings[AVLinearPCMBitDepthKey] intValue] : 16;
     BOOL flt = [settings[AVLinearPCMIsFloatKey] respondsToSelector:@selector(boolValue)] && [settings[AVLinearPCMIsFloatKey] boolValue];
     BOOL big = [settings[AVLinearPCMIsBigEndianKey] respondsToSelector:@selector(boolValue)] && [settings[AVLinearPCMIsBigEndianKey] boolValue];
@@ -368,6 +373,39 @@ valid_format(const AudioStreamBasicDescription *asbd, AVAudioChannelLayout *layo
         if (extra->description) { CFRelease(extra->description); extra->description = NULL; }
 #endif
     }
+}
+
+/* "<AVAudioFormat 0x...:  2 ch,  44100 Hz, Float32, deinterleaved>", as Apple's reads. */
+- (NSString *)description
+{
+    const AudioStreamBasicDescription *d = &_asbd;
+    NSString *what;
+    static NSString *const common[] = {nil, @"Float32", @"Float64", @"Int16", @"Int32"};
+    if (_commonFormat >= AVAudioPCMFormatFloat32 && _commonFormat <= AVAudioPCMFormatInt32) {
+        what = common[_commonFormat];
+        if (d->mChannelsPerFrame > 1)
+            what = [what stringByAppendingString:self.interleaved ? @", interleaved" : @", deinterleaved"];
+    } else {
+        char id[5] = {(char)(d->mFormatID >> 24), (char)(d->mFormatID >> 16), (char)(d->mFormatID >> 8), (char)d->mFormatID, 0};
+        NSString *head = [NSString stringWithFormat:@"%-4.4s (0x%08X)", id, (unsigned)d->mFormatFlags];
+        if (d->mFormatID == kAudioFormatLinearPCM) {
+            BOOL isFloat = (d->mFormatFlags & kAudioFormatFlagIsFloat) != 0;
+            NSString *kind = isFloat ? @"float" : (d->mFormatFlags & kAudioFormatFlagIsSignedInteger) ? @"signed integer" : @"unsigned integer";
+            NSString *endian = d->mBitsPerChannel > 8 ? ((d->mFormatFlags & kAudioFormatFlagIsBigEndian) ? @"big-endian " : @"little-endian ") : @"";
+            what = [NSString stringWithFormat:@"%@ %u-bit %@%@", head, (unsigned)d->mBitsPerChannel, endian, kind];
+            if (d->mChannelsPerFrame > 1 && (d->mFormatFlags & kAudioFormatFlagIsNonInterleaved))
+                what = [what stringByAppendingString:@", deinterleaved"];
+        } else if (d->mFormatID == kAudioFormatAppleLossless) {
+            static const char *const depths[] = {"UNKNOWN", "16", "20", "24", "32"};
+            UInt32 depth = d->mFormatFlags <= 4 ? d->mFormatFlags : 0;
+            what = [NSString stringWithFormat:@"%@ from %s source bit depth, %u frames/packet", head, depths[depth],
+                             (unsigned)d->mFramesPerPacket];
+        } else
+            what = [NSString stringWithFormat:@"%@ %u bits/channel, %u bytes/packet, %u frames/packet, %u bytes/frame", head,
+                             (unsigned)d->mBitsPerChannel, (unsigned)d->mBytesPerPacket, (unsigned)d->mFramesPerPacket,
+                             (unsigned)d->mBytesPerFrame];
+    }
+    return [NSString stringWithFormat:@"<AVAudioFormat %p: %2u ch, %6.0f Hz, %@>", self, (unsigned)d->mChannelsPerFrame, d->mSampleRate, what];
 }
 
 - (NSDictionary<NSString *,id> *)settings

@@ -222,8 +222,9 @@ static void
 components(void)
 {
     AudioComponentDescription all = {0};
-    if (AudioComponentCount(&all) != 4) {
-        fprintf(stderr, "component count did not include the four Finch units\n");
+    /* (the four below, and the eighteen effect, time and instrument units) */
+    if (AudioComponentCount(&all) != 22) {
+        fprintf(stderr, "component count did not include the Finch units\n");
         exit(1);
     }
     const UInt32 types[] = {
