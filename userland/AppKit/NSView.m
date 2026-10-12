@@ -1391,7 +1391,11 @@ draw_view(NSView *view, CGContextRef cg, NSRect rect, CGAffineTransform base)
     NSAppearance *savedAppearance = [[appearanceClass currentDrawingAppearance] retain];
     [appearanceClass setCurrentAppearance:[view effectiveAppearance]];
     @try {
-        [view drawRect:r];
+        /* (a layer-backed view that updates its layer does that instead of drawing, as Apple's) */
+        if ([view layer] && [view wantsUpdateLayer])
+            [view updateLayer];
+        else
+            [view drawRect:r];
     } @finally {
         [appearanceClass setCurrentAppearance:savedAppearance];
         [savedAppearance release];

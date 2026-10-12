@@ -460,37 +460,7 @@ FinchViewControllerOf(NSView *view)
         [_parent removeChildViewControllerAtIndex:(NSInteger)i];
 }
 
-- (void)presentViewControllerAsModalWindow:(NSViewController *)controller
-{
-    NSWindow *w = [NSWindow windowWithContentViewController:controller];
-    [w makeKeyAndOrderFront:self];
-}
-
-- (void)presentViewControllerAsSheet:(NSViewController *)controller
-{
-    [self presentViewControllerAsModalWindow:controller];
-}
-
-- (void)dismissViewController:(NSViewController *)controller
-{
-    extern BOOL FinchDismissPopoverController(NSViewController *);
-    if (FinchDismissPopoverController(controller)) return;
-    [[[controller view] window] close];
-}
-
-- (IBAction)dismissController:(id)sender
-{
-    [self dismissViewController:self];
-}
-
-- (void)presentViewController:(NSViewController *)controller relativeToRect:(NSRect)rect ofView:(NSView *)view
-               preferredEdge:(NSRectEdge)edge behavior:(NSPopoverBehavior)behavior
-{
-    NSPopover *popover = [[[NSPopover alloc] init] autorelease];
-    [popover setContentViewController:controller];
-    [popover setBehavior:behavior];
-    [popover showRelativeToRect:rect ofView:view preferredEdge:edge];
-}
+/* (presentation: NSWindowingMore.m, through animators as Apple's) */
 
 - (void)encodeWithCoder:(NSCoder *)coder
 {

@@ -246,3 +246,4 @@ build/userland/finch-tree-test /usr/local/bin/finch-tree-test
 build/userland/finch-xml-test /usr/local/bin/finch-xml-test
 build/userland/finch-document-more-test /usr/local/bin/finch-document-more-test
 build/userland/finch-textview-more-test /usr/local/bin/finch-textview-more-test
+build/userland/finch-windowing-more-test /usr/local/bin/finch-windowing-more-test

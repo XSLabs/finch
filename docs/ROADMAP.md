@@ -410,7 +410,7 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         (AppKit, Foundation, CoreGraphics, QuartzCore, CoreFoundation).
     - [ ] Every class and method the public headers declare, as Apple's answers them:
           `tools/api-audit.sh` lists what Finch lacks. 2026-10-12: Foundation 61 classes
-          and 140 methods (from 67 and 225), AppKit 49 classes and 337 methods (from 50 and 562).
+          and 140 methods (from 67 and 225), AppKit 49 classes and 119 methods (from 50 and 562).
     - [x] Foundation, first audit batch: collection searches, tests with options,
           sorted keys and removals; KVC's set and ordered-set proxies (changes now reach
           the object; set mutations report the objects changed, as Apple's) and its
@@ -438,6 +438,16 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           NSLayoutManager's ruler markers (NSTextView now asks it, as Apple's), glyph
           storage, underline and strikethrough drawing; NSGlyphGenerator; NSTextStorage's
           scripting collections. `textview-more-test` matches Apple's (2026-10-12).
+    - [x] Windows, views and controllers: view-controller presentation through animators
+          (sheets are sheets now, and presenting and presented controllers are tracked),
+          transitions, safe areas and their guides, full-screen views, updateLayer for
+          layer-backed views, window content borders, PDF of a window, cursor rects, the
+          newer cursors, mnemonics, table grids, the object controllers' Core Data
+          settings, application search and document order, event touches, split-view
+          accessories and tab toolbars; `windowing-more-test` matches Apple's (2026-10-12).
+  - [ ] Drag and drop: within an app (NSDraggingSession runs the drag: destinations
+        registered for the types get the NSDraggingDestination calls), then between apps
+        through the window server and the pasteboard server. Finch has neither yet.
     - [x] Foundation: NSItemProvider (with NSString's and NSURL's item-provider
           conformance, and UniformTypeIdentifiers' UTType methods), NSListFormatter,
           NSRelativeDateTimeFormatter, NSPersonNameComponentsFormatter,
