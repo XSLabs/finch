@@ -413,6 +413,11 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           providers, preview activity items, the scrubber family, the speech
           synthesizer (silent), NSPreferences, and OpenGL's classes (no OpenGL yet);
           `appkit-small3-test` matches Apple's (2026-10-11).
+    - [x] NSCollectionViewCompositionalLayout with its dimensions, sizes, items, groups
+          (repeating, counted, nested), spacing, sections, boundary and decoration
+          items, section providers and horizontal scrolling; `compositional-test`
+          matches Apple's frames (2026-10-12). Pinned headers, anchored item
+          supplementaries and self-sizing (estimated) items are still to do.
     - [x] libswiftDispatch: DispatchQueue's conformance to Combine's Scheduler, from
           Apple's overlay source, weak-linking Finch's Combine (2026-10-11); 19 apps
           imported it.

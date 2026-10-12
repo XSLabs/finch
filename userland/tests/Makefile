@@ -709,7 +709,7 @@ $(OUT)/finch-mdnsd-test: mdnsd-test.c
 all: $(OUT)/finch-extaudiofile-test $(OUT)/finch-audiounit-test $(OUT)/finch-avaudio-buffer-test $(OUT)/finch-audioqueue-test
 all: $(OUT)/finch-avaudio-file-test $(OUT)/finch-avaudio-converter-test $(OUT)/finch-avaudio-engine-test $(OUT)/finch-avaudio-player-test $(OUT)/finch-avaudio-services-test
 all: $(OUT)/finch-audiounit-effects-test $(OUT)/finch-avaudio-unit-test
-all: $(OUT)/finch-itemprovider-test $(OUT)/finch-formatters2-test $(OUT)/finch-urlcache-test $(OUT)/finch-appkit-small3-test
+all: $(OUT)/finch-itemprovider-test $(OUT)/finch-formatters2-test $(OUT)/finch-urlcache-test $(OUT)/finch-appkit-small3-test $(OUT)/finch-compositional-test
 all: $(OUT)/finch-configd-service-test $(OUT)/finch-diskarbitration-session-test
 all: $(OUT)/finch-configd-daemon-test
 all: $(OUT)/finch-configd-contained-service
@@ -746,6 +746,9 @@ $(OUT)/finch-avaudio-converter-test: avaudio-converter-test.m
 $(OUT)/finch-avaudio-engine-test: avaudio-engine-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fno-objc-arc -fblocks -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation
+$(OUT)/finch-compositional-test: compositional-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -o $@ $< -framework AppKit
 $(OUT)/finch-appkit-small3-test: appkit-small3-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -o $@ $< -framework AppKit
