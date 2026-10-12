@@ -145,12 +145,13 @@ mkdir -p "${ROOT}/usr/lib/swift"
 overlay ObjectiveC 951.7 1 "${SRC}/objc4/ObjectiveC/ObjectiveC.swift" -Xcc -DOS_OBJECT_HAVE_OBJC_SUPPORT=0
 
 # --- Dispatch (libdispatch) --------------------------------------------------
-# Apple's also conforms DispatchQueue to Combine's Scheduler
-# (Schedulers+DispatchQueue.swift, weak-linking Combine); Finch has no
-# Combine, so that file is left out.
+# With DispatchQueue's conformance to Combine's Scheduler (Schedulers+DispatchQueue.swift),
+# weak-linking Combine as Apple's does: compiled against the SDK's Combine interface,
+# linked to Finch's Combine, which has Apple's ABI (userland/Combine).
 D="${SRC}/libdispatch/src/swift"
 overlay Dispatch 1542.100.32 1 "${D}"/{Block,Data,Dispatch,IO,Private,Queue,Source,Time}.swift \
-    -I "${D}/shims" -- "${D}/Dispatch.mm"
+    "${D}/Schedulers+DispatchQueue.swift" -I "${D}/shims" \
+    -F "${ROOT}/System/Library/Frameworks" -Xlinker -weak_framework -Xlinker Combine -- "${D}/Dispatch.mm"
 
 # --- _Builtin_float (Swift 6.3.1's ClangOverlays, as Runtimes/Overlay builds it)
 gyb() {   # gyb <in> <out>: expand a .gyb template with Swift's gyb

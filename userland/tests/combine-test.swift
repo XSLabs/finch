@@ -6,6 +6,7 @@
 // the same every run.
 
 import Combine
+import Foundation
 import Darwin
 
 func show(_ s: String) { print(s) }
@@ -216,5 +217,25 @@ struct Main {
             deb.send(1); vs3.advance(to: 2); deb.send(2); vs3.advance(to: 10); deb.send(3); vs3.advance(to: 20)
         }
         show("Demand: \(Subscribers.Demand.max(3)) \(Subscribers.Demand.unlimited) \(Subscribers.Demand.none + 2)")
+
+        // DispatchQueue as a Scheduler (libswiftDispatch's conformance)
+        let q = DispatchQueue(label: "org.finch.combine-test")
+        let stride = DispatchQueue.SchedulerTimeType.Stride.milliseconds(1500)
+        show("stride: \(stride.magnitude) \(DispatchQueue.SchedulerTimeType.Stride.seconds(2).magnitude) \(DispatchQueue.SchedulerTimeType.Stride(floatLiteral: 0.25).magnitude) \(DispatchQueue.SchedulerTimeType.Stride(integerLiteral: 3).magnitude) \((stride * 2).magnitude) \(stride < .seconds(2))")
+        let t0 = q.now, t1 = t0.advanced(by: .milliseconds(10))
+        show("time: \(t0.distance(to: t1).magnitude) \(t0 < t1) tolerance \(q.minimumTolerance.magnitude)")
+        let done = DispatchSemaphore(value: 0)
+        var delayed: [Int] = []
+        let sub = [1, 2, 3].publisher.delay(for: .milliseconds(20), scheduler: q).receive(on: q, options: .init(qos: .userInitiated))
+            .sink(receiveCompletion: { _ in done.signal() }, receiveValue: { delayed.append($0) })
+        done.wait()
+        show("delayed on a queue: \(delayed)")
+        var fired = 0
+        let repeating = q.schedule(after: q.now, interval: .milliseconds(5)) { fired += 1 }
+        Thread.sleep(forTimeInterval: 0.05)
+        repeating.cancel()
+        q.sync {}
+        show("repeating fired: \(fired > 2)")
+        _ = sub
     }
 }

@@ -400,7 +400,10 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         gaps in AppKit, Foundation and CoreGraphics block the most, then AppIntents and
         AVFoundation). The next frameworks are picked from it.
   - [ ] Close the symbol gaps in Finch's own frameworks that block the most apps
-        (AppKit, Foundation, CoreGraphics, libswiftDispatch, QuartzCore, CoreFoundation).
+        (AppKit, Foundation, CoreGraphics, QuartzCore, CoreFoundation).
+    - [x] libswiftDispatch: DispatchQueue's conformance to Combine's Scheduler, from
+          Apple's overlay source, weak-linking Finch's Combine (2026-10-11); 19 apps
+          imported it.
     - [x] Apps, Mission Control and Time Machine: `CoreDockSendNotification` (HIServices;
           the Rail hears it, and answers Apps' Launchpad request with its launcher) and
           Time Machine's backup-server calls (CarbonCore; no backup server yet). Apps
