@@ -392,7 +392,7 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         reopen, revert, find, rulers, tables, print to PDF, autosave and versions
         (NSFileVersion is missing).
   - [ ] Calculator: needs Finch's own Calculate, CalculateUI, SwiftData, TipKit,
-        AppIntents, Network and FeatureFlags, and 101 more SwiftUI symbols
+        AppIntents and Network, and 101 more SwiftUI symbols
         (`tools/check-imports.py`).
   - [x] Drop-in check: `tools/app-sweep.py` runs the import check over every app and the
         frameworks it carries, and ranks what's missing by apps blocked. Apple's apps are
@@ -444,6 +444,10 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           the Rail hears it, and answers Apps' Launchpad request with its launcher) and
           Time Machine's backup-server calls (CarbonCore; no backup server yet). Apps
           opens the launcher in QEMU (2026-10-11).
+    - [x] FeatureFlags (private; `isFeatureEnabled` over libsystem's feature table) and
+          libMobileGestalt: a Mac's answers (device class, product, versions, serial,
+          device ID from the chip IDs, architecture, screen scale, disk usage);
+          `mobilegestalt-test` matches Apple's (2026-10-12).
   - [x] A Cocoa app bundle built the usual way (`userland/tests/apps/Hello`: NSApplicationMain,
         a MainMenu nib from ibtool, outlets and actions) launches on Finch's frameworks and window
         server, shows its menu bar and window, and responds to clicks and typing

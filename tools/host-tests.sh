@@ -25,10 +25,15 @@ FW="${FW}:${R}/Frameworks/Carbon.framework/Versions/A/Frameworks"
 SERVER=build/root/usr/libexec/finch-windowserver
 TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT
+# Finch's standalone libraries, alone on the library path (all of build/root/usr/lib would
+# swap in its libSystem as well)
+mkdir -p "${TMP}/lib"
+ln -s "${FINCH_ROOT}/build/root/usr/lib/libMobileGestalt.dylib" "${TMP}/lib/"
+LIBS="build/root/usr/lib/swift:${TMP}/lib"
 
 # name|arguments: comparison tests (arguments are relative to the repo root)
 COMPARE=(
-    "avaudio-file-test|" "avaudio-converter-test|" "avaudio-engine-test|" "avaudio-player-test|" "avaudio-unit-test|" "audiounit-effects-test|" "itemprovider-test|" "formatters2-test|" "urlcache-test|" "appkit-small3-test|" "compositional-test|" "filepromise-test|" "appkit-swift2-test|" "private-calls-test|"
+    "avaudio-file-test|" "avaudio-converter-test|" "avaudio-engine-test|" "avaudio-player-test|" "avaudio-unit-test|" "audiounit-effects-test|" "itemprovider-test|" "formatters2-test|" "urlcache-test|" "appkit-small3-test|" "compositional-test|" "filepromise-test|" "appkit-swift2-test|" "private-calls-test|" "mobilegestalt-test|"
     "cf-test|" "foundation-test|" "intl-test|" "misc-test|" "data-test|" "collections-test|" "kvc-test|" "typedstream-test|" "tiff-test|" "colorsync-test|" "hiservices-test|" "scripting-test|" "cfnetwork-test|" "coreimage-test|" "cgevent-test|" "keylayout-test|" "contacts-test|" "accounts-test|" "metal-test|" "iosurface-test|" "gss-test|" "cfurl-test|" "pasteboard-test|" "coremedia-test|" "corevideo-test|" "audiotoolbox-test|" "audioconverter-test|" "extaudiofile-test|" "extaudiofile-test|--src-check"
     "archive-test|" "predicate-test|" "measurement-test|" "bridge-test|" "streams-test|" "documents-test|"
     "files-test|" "xmlparser-test|" "cfnotify-test|" "l10n-test|" "uti-test|" "cg-test|" "imageio-test|"
@@ -83,7 +88,7 @@ for entry in "${COMPARE[@]}"; do
     "${bin}" ${args} > "${TMP}/apple" 2> "${TMP}/apple.err"
     apple_status=$?
     # shellcheck disable=SC2086
-    DYLD_FRAMEWORK_PATH="${FW}" DYLD_LIBRARY_PATH=build/root/usr/lib/swift FINCH_FONT_DIRS="${R}/Fonts" "${bin}" ${args} > "${TMP}/finch" 2> "${TMP}/finch.err"
+    DYLD_FRAMEWORK_PATH="${FW}" DYLD_LIBRARY_PATH="${LIBS}" FINCH_FONT_DIRS="${R}/Fonts" "${bin}" ${args} > "${TMP}/finch" 2> "${TMP}/finch.err"
     finch_status=$?
     n=$(tail -n +2 "${TMP}/apple" | wc -l | tr -d ' ')
     d=$(diff <(tail -n +2 "${TMP}/apple") <(tail -n +2 "${TMP}/finch") | grep -c '^[<>]')
@@ -140,7 +145,7 @@ for entry in "${FINCH_ONLY[@]}"; do
         continue
     fi
     # shellcheck disable=SC2086
-    DYLD_FRAMEWORK_PATH="${FW}" DYLD_LIBRARY_PATH=build/root/usr/lib/swift "${bin}" ${args} > "${TMP}/finch" 2> "${TMP}/finch.err"
+    DYLD_FRAMEWORK_PATH="${FW}" DYLD_LIBRARY_PATH="${LIBS}" "${bin}" ${args} > "${TMP}/finch" 2> "${TMP}/finch.err"
     finch_status=$?
     if [[ "${finch_status}" -ne 0 ]]; then
         report "${name}" "FAILED (exit ${finch_status})"

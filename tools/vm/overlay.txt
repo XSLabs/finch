@@ -239,3 +239,4 @@ build/userland/finch-compositional-test /usr/local/bin/finch-compositional-test
 build/userland/finch-filepromise-test /usr/local/bin/finch-filepromise-test
 build/userland/finch-appkit-swift2-test /usr/local/bin/finch-appkit-swift2-test
 build/userland/finch-private-calls-test /usr/local/bin/finch-private-calls-test
+build/userland/finch-mobilegestalt-test /usr/local/bin/finch-mobilegestalt-test

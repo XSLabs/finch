@@ -145,6 +145,9 @@ steps=(
     "GSS|userland/GSS/build.sh"
     "CoreMedia|userland/CoreMedia/build.sh"
     "AVFAudio|userland/AVFAudio/build.sh"
+    # Feature flags (os_feature_enabled's Swift face) and the device's answers (libMobileGestalt)
+    "FeatureFlags|userland/FeatureFlags/build.sh"
+    "libMobileGestalt|userland/libMobileGestalt/build.sh"
     # Image Capture's frameworks: ImageCaptureCore, ICADevices, and Quartz with ImageKit
     # (docs/design/IMAGECAPTURE.md)
     "ImageCaptureCore|userland/ImageCaptureCore/build.sh"

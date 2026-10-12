@@ -709,7 +709,7 @@ $(OUT)/finch-mdnsd-test: mdnsd-test.c
 all: $(OUT)/finch-extaudiofile-test $(OUT)/finch-audiounit-test $(OUT)/finch-avaudio-buffer-test $(OUT)/finch-audioqueue-test
 all: $(OUT)/finch-avaudio-file-test $(OUT)/finch-avaudio-converter-test $(OUT)/finch-avaudio-engine-test $(OUT)/finch-avaudio-player-test $(OUT)/finch-avaudio-services-test
 all: $(OUT)/finch-audiounit-effects-test $(OUT)/finch-avaudio-unit-test
-all: $(OUT)/finch-itemprovider-test $(OUT)/finch-formatters2-test $(OUT)/finch-urlcache-test $(OUT)/finch-appkit-small3-test $(OUT)/finch-compositional-test $(OUT)/finch-filepromise-test $(OUT)/finch-appkit-swift2-test $(OUT)/finch-private-calls-test
+all: $(OUT)/finch-itemprovider-test $(OUT)/finch-formatters2-test $(OUT)/finch-urlcache-test $(OUT)/finch-appkit-small3-test $(OUT)/finch-compositional-test $(OUT)/finch-filepromise-test $(OUT)/finch-appkit-swift2-test $(OUT)/finch-private-calls-test $(OUT)/finch-mobilegestalt-test
 all: $(OUT)/finch-configd-service-test $(OUT)/finch-diskarbitration-session-test
 all: $(OUT)/finch-configd-daemon-test
 all: $(OUT)/finch-configd-contained-service
@@ -750,6 +750,9 @@ $(OUT)/finch-appkit-swift2-test: appkit-swift2-test.swift
 	@mkdir -p $(OUT)
 	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -parse-as-library -O -o $@ $<
 	codesign -f -s - -i org.finch.test.appkit-swift2 $@
+$(OUT)/finch-mobilegestalt-test: mobilegestalt-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -o $@ $< -framework CoreFoundation -lMobileGestalt
 $(OUT)/finch-private-calls-test: private-calls-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -o $@ $< -framework Foundation -framework QuartzCore -framework CoreGraphics
