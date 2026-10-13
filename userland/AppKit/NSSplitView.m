@@ -22,6 +22,8 @@ const CGFloat NSSplitViewItemUnspecifiedDimension = -1;
     NSMutableArray<NSView *> *_arranged;
     NSMutableDictionary<NSNumber *, NSNumber *> *_holding;
     NSInteger _dragging;  /* the divider being dragged, or -1 */
+    NSSize _laidOutSize;  /* the size the subviews were last fitted to */
+    NSMapTable *_natural; /* subview -> its length when it was added */
 }
 
 - (instancetype)initWithFrame:(NSRect)frame
@@ -58,12 +60,20 @@ const CGFloat NSSplitViewItemUnspecifiedDimension = -1;
     [_autosaveName release];
     [_arranged release];
     [_holding release];
+    [_natural release];
     [super dealloc];
 }
 
 - (BOOL)isFlipped { return YES; }
 - (BOOL)isVertical { return _vertical; }
-- (void)setVertical:(BOOL)flag { _vertical = flag; [self setNeedsDisplay:YES]; }
+- (void)setVertical:(BOOL)flag
+{
+    if (flag != _vertical)
+        _laidOutSize = NSZeroSize; /* refit along the new axis */
+    _vertical = flag;
+    [self setNeedsLayout:YES];
+    [self setNeedsDisplay:YES];
+}
 - (NSSplitViewDividerStyle)dividerStyle { return _style; }
 - (void)setDividerStyle:(NSSplitViewDividerStyle)style { _style = style; [self setNeedsDisplay:YES]; }
 - (NSSplitViewAutosaveName)autosaveName { return _autosaveName; }
@@ -93,8 +103,22 @@ const CGFloat NSSplitViewItemUnspecifiedDimension = -1;
     [self insertArrangedSubview:view atIndex:(NSInteger)[_arranged count]];
 }
 
+/* A split view places its panes by frame: a pane that uses Auto Layout for its own
+   placement gets constraints from its frame instead (Apple's wraps each pane in a container
+   it pins the pane to, to the same effect). */
+static void
+frame_placed(NSView *view)
+{
+    if (![view translatesAutoresizingMaskIntoConstraints]) {
+        [view setTranslatesAutoresizingMaskIntoConstraints:YES];
+        [view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    }
+}
+
 - (void)insertArrangedSubview:(NSView *)view atIndex:(NSInteger)index
 {
+    frame_placed(view);
+    [self _finchRememberLength:view];
     if ([view superview] != self)
         [self addSubview:view];
     [_arranged removeObjectIdenticalTo:view];
@@ -109,8 +133,11 @@ const CGFloat NSSplitViewItemUnspecifiedDimension = -1;
 - (void)didAddSubview:(NSView *)subview
 {
     [super didAddSubview:subview];
-    if (_arrangesAll && [_arranged indexOfObjectIdenticalTo:subview] == NSNotFound)
+    if (_arrangesAll && [_arranged indexOfObjectIdenticalTo:subview] == NSNotFound) {
+        frame_placed(subview);
+        [self _finchRememberLength:subview];
         [_arranged addObject:subview];
+    }
 }
 
 - (void)willRemoveSubview:(NSView *)subview
@@ -120,6 +147,24 @@ const CGFloat NSSplitViewItemUnspecifiedDimension = -1;
 }
 
 static CGFloat length_of(NSSplitView *s, NSRect r) { return s->_vertical ? r.size.width : r.size.height; }
+
+/* A subview's own length, from when it was added: what it goes back to when the panes
+   holding on would otherwise leave no room for the others. */
+- (void)_finchRememberLength:(NSView *)view
+{
+    if (!_natural)
+        _natural = [[NSMapTable weakToStrongObjectsMapTable] retain];
+    if ([_natural objectForKey:view])
+        return;
+    NSSize sz = [view frame].size;
+    [_natural setObject:@[ @(sz.width), @(sz.height) ] forKey:view];
+}
+
+- (CGFloat)_finchNaturalLength:(NSView *)view
+{
+    NSArray *n = [_natural objectForKey:view];
+    return n ? [n[_vertical ? 0 : 1] doubleValue] : 0;
+}
 static CGFloat start_of(NSSplitView *s, NSRect r) { return s->_vertical ? NSMinX(r) : NSMinY(r); }
 
 static NSRect
@@ -161,16 +206,98 @@ half(CGFloat v)
         [v setFrame:along(self, pos, len)];
         pos += len + [self dividerThickness];
     }
+    _laidOutSize = [self bounds].size;
     [[NSNotificationCenter defaultCenter] postNotificationName:NSSplitViewDidResizeSubviewsNotification object:self];
     [self setNeedsDisplay:YES];
 }
 
+/* A change of size goes to the subviews holding on least (the lowest holding priority),
+   as Apple's does: a sidebar keeps its width while the content beside it grows. When
+   every subview holds on equally, they all change in proportion. */
 - (void)resizeSubviewsWithOldSize:(NSSize)oldSize
 {
-    if ([(id)_delegate respondsToSelector:@selector(splitView:resizeSubviewsWithOldSize:)])
+    if ([(id)_delegate respondsToSelector:@selector(splitView:resizeSubviewsWithOldSize:)]) {
         [_delegate splitView:self resizeSubviewsWithOldSize:oldSize];
-    else
+        _laidOutSize = [self bounds].size;
+        return;
+    }
+    NSArray<NSView *> *views = [self arrangedSubviews];
+    NSUInteger n = [views count];
+    if (n < 2) {
         [self adjustSubviews];
+        return;
+    }
+    NSLayoutPriority lowest = NSLayoutPriorityRequired, highest = 0;
+    for (NSUInteger i = 0; i < n; i++) {
+        if ([self isSubviewCollapsed:views[i]])
+            continue;
+        NSLayoutPriority p = [self holdingPriorityForSubviewAtIndex:(NSInteger)i];
+        lowest = MIN(lowest, p);
+        highest = MAX(highest, p);
+    }
+    if (lowest == highest) {
+        [self adjustSubviews];
+        return;
+    }
+    CGFloat available = length_of(self, [self bounds]) - [self dividerThickness] * (n - 1);
+    CGFloat held = 0;
+    NSUInteger flexible = 0;
+    for (NSUInteger i = 0; i < n; i++) {
+        if ([self isSubviewCollapsed:views[i]])
+            continue;
+        if ([self holdingPriorityForSubviewAtIndex:(NSInteger)i] > lowest)
+            held += length_of(self, [views[i] frame]);
+        else
+            flexible++;
+    }
+    /* the panes holding on take their own lengths back when they'd crowd the others out */
+    BOOL natural = flexible && held >= available - flexible;
+    if (natural) {
+        held = 0;
+        for (NSUInteger i = 0; i < n; i++)
+            if (![self isSubviewCollapsed:views[i]] && [self holdingPriorityForSubviewAtIndex:(NSInteger)i] > lowest) {
+                CGFloat own = [self _finchNaturalLength:views[i]];
+                held += own > 0 ? own : length_of(self, [views[i] frame]);
+            }
+    }
+    CGFloat share = flexible ? MAX(0, half((available - held) / flexible)) : 0;
+    [[NSNotificationCenter defaultCenter] postNotificationName:NSSplitViewWillResizeSubviewsNotification object:self];
+    CGFloat pos = start_of(self, [self bounds]);
+    for (NSUInteger i = 0; i < n; i++) {
+        NSView *v = views[i];
+        CGFloat len;
+        if ([self isSubviewCollapsed:v])
+            len = 0;
+        else if (i == n - 1)
+            len = MAX(0, start_of(self, [self bounds]) + length_of(self, [self bounds]) - pos);
+        else if ([self holdingPriorityForSubviewAtIndex:(NSInteger)i] > lowest) {
+            CGFloat own = natural ? [self _finchNaturalLength:v] : 0;
+            len = own > 0 ? own : length_of(self, [v frame]);
+        }
+        else
+            len = share;
+        [v setFrame:along(self, pos, len)];
+        pos += len + [self dividerThickness];
+    }
+    _laidOutSize = [self bounds].size;
+    [[NSNotificationCenter defaultCenter] postNotificationName:NSSplitViewDidResizeSubviewsNotification object:self];
+    [self setNeedsDisplay:YES];
+}
+
+/* However its size is set (by Auto Layout too), a split view refits its subviews. */
+- (void)setFrameSize:(NSSize)size
+{
+    [super setFrameSize:size];
+    if (!NSEqualSizes([self bounds].size, _laidOutSize) && [[self arrangedSubviews] count])
+        [self resizeSubviewsWithOldSize:_laidOutSize];
+}
+
+- (void)layout
+{
+    [super layout];
+    /* (after the engine's pass, which may still hold the subviews' earlier frames) */
+    if ([[self arrangedSubviews] count])
+        [self resizeSubviewsWithOldSize:_laidOutSize];
 }
 
 - (BOOL)isSubviewCollapsed:(NSView *)subview
@@ -288,8 +415,13 @@ half(CGFloat v)
 
 #pragma mark - NSSplitViewItem and NSSplitViewController
 
+@interface NSSplitViewController (FinchItems)
+- (void)_finchItem:(NSSplitViewItem *)item replacedViewController:(NSViewController *)old;
+@end
+
 @implementation NSSplitViewItem {
     NSViewController *_viewController;
+    NSSplitViewController *_owner; /* not retained */
     BOOL _collapsed, _canCollapse;
     NSSplitViewItemBehavior _behavior;
     NSLayoutPriority _holding;
@@ -320,6 +452,7 @@ half(CGFloat v)
 {
     NSSplitViewItem *item = [self splitViewItemWithViewController:viewController];
     item->_behavior = NSSplitViewItemBehaviorContentList;
+    item->_holding = 260; /* a content list keeps its width, as a sidebar does */
     return item;
 }
 
@@ -338,7 +471,17 @@ half(CGFloat v)
 }
 
 - (NSViewController *)viewController { return _viewController; }
-- (void)setViewController:(NSViewController *)c { [_viewController autorelease]; _viewController = [c retain]; }
+/* A new view controller takes its predecessor's place in the split view, as Apple's does. */
+- (void)setViewController:(NSViewController *)c
+{
+    if (c == _viewController)
+        return;
+    NSViewController *old = [_viewController autorelease];
+    _viewController = [c retain];
+    [_owner _finchItem:self replacedViewController:old];
+}
+
+- (void)_finchSetOwner:(NSSplitViewController *)owner { _owner = owner; }
 - (NSSplitViewItemBehavior)behavior { return _behavior; }
 - (BOOL)isCollapsed { return _collapsed; }
 - (void)setCollapsed:(BOOL)flag
@@ -436,13 +579,22 @@ half(CGFloat v)
     [sv setDelegate:self];
 }
 
+/* The split view holds each subview as its item asks. */
+- (void)_finchApplyHoldingPriorities
+{
+    NSUInteger i = 0;
+    for (NSSplitViewItem *item in _items)
+        [_splitView setHoldingPriority:[item holdingPriority] forSubviewAtIndex:(NSInteger)i++];
+}
+
 - (void)loadView
 {
     NSSplitView *sv = [self splitView];
     for (NSSplitViewItem *item in _items)
         [sv addArrangedSubview:[[item viewController] view]];
     [self setView:sv];
-    [sv adjustSubviews];
+    [self _finchApplyHoldingPriorities];
+    [sv resizeSubviewsWithOldSize:[sv bounds].size];
 }
 
 - (void)viewDidLoad {}
@@ -465,19 +617,67 @@ half(CGFloat v)
 - (void)insertSplitViewItem:(NSSplitViewItem *)item atIndex:(NSInteger)index
 {
     [_items insertObject:item atIndex:(NSUInteger)index];
+    [item _finchSetOwner:self];
     [self addChildViewController:[item viewController]];
     if ([self isViewLoaded]) {
         [_splitView insertArrangedSubview:[[item viewController] view] atIndex:index];
-        [_splitView adjustSubviews];
+        [self _finchApplyHoldingPriorities];
+        [_splitView resizeSubviewsWithOldSize:[_splitView bounds].size];
     }
 }
 
 - (void)removeSplitViewItem:(NSSplitViewItem *)item
 {
+    [[item retain] autorelease];
     if ([self isViewLoaded])
         [[[item viewController] view] removeFromSuperview];
-    [[item viewController] removeFromParentViewController];
+    [item _finchSetOwner:nil];
     [_items removeObjectIdenticalTo:item];
+    if ([[item viewController] parentViewController] == self)
+        [[item viewController] removeFromParentViewController];
+    if ([self isViewLoaded])
+        [_splitView resizeSubviewsWithOldSize:[_splitView bounds].size];
+}
+
+/* As Apple's: a child view controller added to a split view controller becomes a split
+   view item (with the default behavior), and removing the child removes its item. */
+- (void)insertChildViewController:(NSViewController *)child atIndex:(NSInteger)index
+{
+    if ([self splitViewItemForViewController:child]) {
+        [super insertChildViewController:child atIndex:index];
+        return;
+    }
+    [self insertSplitViewItem:[NSSplitViewItem splitViewItemWithViewController:child]
+                      atIndex:MAX(0, MIN(index, (NSInteger)[_items count]))];
+}
+
+- (void)removeChildViewControllerAtIndex:(NSInteger)index
+{
+    NSViewController *child = [self childViewControllers][(NSUInteger)index];
+    NSSplitViewItem *item = [self splitViewItemForViewController:child];
+    [super removeChildViewControllerAtIndex:index];
+    if (item)
+        [self removeSplitViewItem:item];
+}
+
+- (void)_finchItem:(NSSplitViewItem *)item replacedViewController:(NSViewController *)old
+{
+    [old removeFromParentViewController];
+    if ([item viewController])
+        [self addChildViewController:[item viewController]];
+    if (![self isViewLoaded])
+        return;
+    NSView *oldView = [old isViewLoaded] ? [old view] : nil;
+    NSUInteger index = [_items indexOfObjectIdenticalTo:item];
+    NSRect frame = oldView ? [oldView frame] : NSZeroRect;
+    [oldView removeFromSuperview];
+    NSView *v = [[item viewController] view];
+    if (v) {
+        if (oldView)
+            [v setFrame:frame];
+        [_splitView insertArrangedSubview:v atIndex:(NSInteger)MIN(index, [[_splitView arrangedSubviews] count])];
+        [_splitView resizeSubviewsWithOldSize:[_splitView bounds].size];
+    }
 }
 
 - (NSSplitViewItem *)splitViewItemForViewController:(NSViewController *)viewController

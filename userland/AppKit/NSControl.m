@@ -614,3 +614,70 @@ VALUE_SETTER(setAttributedStringValue:, NSAttributedString *, setAttributedStrin
 - (id)representedObject { return [[self cell] representedObject]; }
 - (void)setRepresentedObject:(id)o { [[self cell] setRepresentedObject:o]; }
 @end
+
+/* Baselines, as Apple's controls report them to Auto Layout (firstBaseline and
+   lastBaseline anchors): a label's first line starts at its top, its first baseline the
+   font's rounded ascender below it and its last the rest of the line above the text's
+   bottom; a bezeled or bordered control centres a line of text in its height (a 24-point
+   button or field: 17 from the top, 7 from the bottom). Controls without a font (sliders)
+   put their baseline two points above their bottom; an image view's is its bottom. */
+@implementation NSControl (FinchBaselines)
+
+static void
+text_metrics(NSFont *font, CGFloat *ascent, CGFloat *below, CGFloat *lineHeight)
+{
+    CGFloat asc = round(font.ascender);
+    CGFloat line = font.ascender - font.descender + font.leading;
+    *ascent = asc;
+    *below = round(line - font.ascender);
+    *lineHeight = asc + *below;
+}
+
+- (BOOL)_finchIsLabel
+{
+    if (![self isKindOfClass:[NSTextField class]])
+        return NO;
+    NSTextField *t = (NSTextField *)self;
+    return !t.bezeled && !t.bordered;
+}
+
+- (CGFloat)_finchTextTopInset
+{
+    NSFont *font = self.font;
+    if (!font || [self _finchIsLabel])
+        return 0;
+    CGFloat asc, below, line;
+    text_metrics(font, &asc, &below, &line);
+    return MAX(0, floor((self.bounds.size.height - line) / 2));
+}
+
+- (CGFloat)firstBaselineOffsetFromTop
+{
+    /* an image's baseline is its bottom */
+    if ([self isKindOfClass:[NSImageView class]])
+        return self.bounds.size.height > 0 ? self.bounds.size.height : ((NSImageView *)self).image.size.height;
+    NSFont *font = self.font;
+    if (!font)
+        return MAX(0, self.bounds.size.height - 2);
+    CGFloat asc, below, line;
+    text_metrics(font, &asc, &below, &line);
+    return [self _finchTextTopInset] + asc;
+}
+
+- (CGFloat)lastBaselineOffsetFromBottom
+{
+    if ([self isKindOfClass:[NSImageView class]])
+        return 0;
+    NSFont *font = self.font;
+    if (!font)
+        return MIN(2, self.bounds.size.height);
+    CGFloat asc, below, line;
+    text_metrics(font, &asc, &below, &line);
+    if ([self _finchIsLabel])
+        return below;
+    return MAX(0, self.bounds.size.height - [self _finchTextTopInset] - line + below);
+}
+
+- (CGFloat)baselineOffsetFromBottom { return [self lastBaselineOffsetFromBottom]; }
+
+@end

@@ -475,6 +475,17 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           ABI: the screen around the pointer enlarged (Finch has no cameras yet), with
           zoom, follow, freeze and invert. AppKit opens an untitled document at launch only
           when a document type names a document class, as Apple's does.
+    - [x] Console runs (2026-10-13): Finch's ConsoleKit and OSAnalytics (Console.app's
+          private frameworks, written from how Console calls them). The Mac's live log
+          streams from Finch's log store with Console's columns, colours, details pane and
+          search tokens; the sidebar lists the log report folders. Along the way, AppKit:
+          views, windows, cells and menus answer the whole NSAccessibility protocol; controls
+          report Apple's text baselines to Auto Layout; split views refit when Auto Layout
+          sizes them, keep sidebars and content lists at their width, and take child view
+          controllers as items. Foundation: directory enumerators for missing folders, the
+          computer's name for NSHost. In the VM, finch-app-test can read the system apps'
+          crashes, and FINCH_HOST_APPS_DEBUG re-signs host apps' copies for full backtraces.
+          Still to do: the column headers under the toolbar, log archives (Apple's tracev3).
     - [ ] Next: measurement format styles, AppKit's private classes apps link
           (NSTokenAttachment, NSTouchDevice, NSButtonGroupTouchBarItem, ...), among others
           ([`APPS.md`](APPS.md)). Later: a Spotlight-style index

@@ -57,17 +57,32 @@ protocol_types(SEL sel)
     return d.types;
 }
 
-@implementation NSAccessibilityElement {
-    NSMutableDictionary *_values;
-    NSMutableArray *_children;
-    NSRect _frameInParent;
+static char ax_values_key;
+
+/* Where an element's accessibility values are kept. */
+static NSMutableDictionary *
+ax_values(id obj)
+{
+    if ([obj isKindOfClass:[NSAccessibilityElement class]])
+        return [obj _finchValues];
+    NSMutableDictionary *d = objc_getAssociatedObject(obj, &ax_values_key);
+    if (!d) {
+        d = [NSMutableDictionary dictionary];
+        objc_setAssociatedObject(obj, &ax_values_key, d, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return d;
 }
 
-+ (BOOL)resolveInstanceMethod:(SEL)sel
+/* Adds a stored property for an NSAccessibility protocol method a class doesn't
+   implement: setters keep the value, getters return it (nil, NO, 0 or empty when unset).
+   AppKit's elements (views, windows, the application, cells, menu items) answer the whole
+   protocol this way, as Apple's do. */
+BOOL
+FinchAccessibilityResolve(Class cls, SEL sel)
 {
     const char *types = protocol_types(sel);
     if (!types)
-        return [super resolveInstanceMethod:sel];
+        return NO;
     BOOL setter;
     NSString *key = property_key(sel, &setter);
     NSMethodSignature *sig = [NSMethodSignature signatureWithObjCTypes:types];
@@ -79,55 +94,67 @@ protocol_types(SEL sel)
     id block = nil;
     switch (t[0]) {
     case '@':
-        block = setter ? (id) ^ (NSAccessibilityElement * self, id v) {
+        block = setter ? (id) ^ (id self, id v) {
             if (v)
-                [self _finchValues][key] = v;
+                ax_values(self)[key] = v;
             else
-                [[self _finchValues] removeObjectForKey:key];
-        } : (id) ^ id(NSAccessibilityElement * self) { return [self _finchValues][key]; };
+                [ax_values(self) removeObjectForKey:key];
+        } : (id) ^ id(id self) { return ax_values(self)[key]; };
         break;
     case 'B':
     case 'c':
-        block = setter ? (id) ^ (NSAccessibilityElement * self, BOOL v) { [self _finchValues][key] = @(v); }
-                       : (id) ^ BOOL(NSAccessibilityElement * self) { return [[self _finchValues][key] boolValue]; };
+        block = setter ? (id) ^ (id self, BOOL v) { ax_values(self)[key] = @(v); }
+                       : (id) ^ BOOL(id self) { return [ax_values(self)[key] boolValue]; };
         break;
     case 'q':
     case 'Q':
     case 'i':
     case 'I':
-        block = setter ? (id) ^ (NSAccessibilityElement * self, NSInteger v) { [self _finchValues][key] = @(v); }
-                       : (id) ^ NSInteger(NSAccessibilityElement * self) { return [[self _finchValues][key] integerValue]; };
+        block = setter ? (id) ^ (id self, NSInteger v) { ax_values(self)[key] = @(v); }
+                       : (id) ^ NSInteger(id self) { return [ax_values(self)[key] integerValue]; };
         break;
     case 'd':
-        block = setter ? (id) ^ (NSAccessibilityElement * self, double v) { [self _finchValues][key] = @(v); }
-                       : (id) ^ double(NSAccessibilityElement * self) { return [[self _finchValues][key] doubleValue]; };
+        block = setter ? (id) ^ (id self, double v) { ax_values(self)[key] = @(v); }
+                       : (id) ^ double(id self) { return [ax_values(self)[key] doubleValue]; };
         break;
     case 'f':
-        block = setter ? (id) ^ (NSAccessibilityElement * self, float v) { [self _finchValues][key] = @(v); }
-                       : (id) ^ float(NSAccessibilityElement * self) { return [[self _finchValues][key] floatValue]; };
+        block = setter ? (id) ^ (id self, float v) { ax_values(self)[key] = @(v); }
+                       : (id) ^ float(id self) { return [ax_values(self)[key] floatValue]; };
         break;
     case '{':
         if (!strncmp(t, "{CGRect=", 8))
-            block = setter ? (id) ^ (NSAccessibilityElement * self, NSRect v) { [self _finchValues][key] = [NSValue valueWithRect:v]; }
-                           : (id) ^ NSRect(NSAccessibilityElement * self) { return [[self _finchValues][key] rectValue]; };
+            block = setter ? (id) ^ (id self, NSRect v) { ax_values(self)[key] = [NSValue valueWithRect:v]; }
+                           : (id) ^ NSRect(id self) { return [ax_values(self)[key] rectValue]; };
         else if (!strncmp(t, "{CGPoint=", 9))
-            block = setter ? (id) ^ (NSAccessibilityElement * self, NSPoint v) { [self _finchValues][key] = [NSValue valueWithPoint:v]; }
-                           : (id) ^ NSPoint(NSAccessibilityElement * self) { return [[self _finchValues][key] pointValue]; };
+            block = setter ? (id) ^ (id self, NSPoint v) { ax_values(self)[key] = [NSValue valueWithPoint:v]; }
+                           : (id) ^ NSPoint(id self) { return [ax_values(self)[key] pointValue]; };
         else if (!strncmp(t, "{CGSize=", 8))
-            block = setter ? (id) ^ (NSAccessibilityElement * self, NSSize v) { [self _finchValues][key] = [NSValue valueWithSize:v]; }
-                           : (id) ^ NSSize(NSAccessibilityElement * self) { return [[self _finchValues][key] sizeValue]; };
+            block = setter ? (id) ^ (id self, NSSize v) { ax_values(self)[key] = [NSValue valueWithSize:v]; }
+                           : (id) ^ NSSize(id self) { return [ax_values(self)[key] sizeValue]; };
         else if (!strncmp(t, "{_NSRange=", 10))
-            block = setter ? (id) ^ (NSAccessibilityElement * self, NSRange v) { [self _finchValues][key] = [NSValue valueWithRange:v]; }
-                           : (id) ^ NSRange(NSAccessibilityElement * self) {
-                                 NSValue *v = [self _finchValues][key];
+            block = setter ? (id) ^ (id self, NSRange v) { ax_values(self)[key] = [NSValue valueWithRange:v]; }
+                           : (id) ^ NSRange(id self) {
+                                 NSValue *v = ax_values(self)[key];
                                  return v ? [v rangeValue] : NSMakeRange(NSNotFound, 0);
                              };
         break;
     }
     if (!block)
-        return [super resolveInstanceMethod:sel];
-    class_addMethod(self, sel, imp_implementationWithBlock(block), types);
+        return NO;
+    class_addMethod(cls, sel, imp_implementationWithBlock(block), types);
     return YES;
+}
+
+
+@implementation NSAccessibilityElement {
+    NSMutableDictionary *_values;
+    NSMutableArray *_children;
+    NSRect _frameInParent;
+}
+
++ (BOOL)resolveInstanceMethod:(SEL)sel
+{
+    return FinchAccessibilityResolve(self, sel) || [super resolveInstanceMethod:sel];
 }
 
 + (id)accessibilityElementWithRole:(NSAccessibilityRole)role frame:(NSRect)frame label:(NSString *)label parent:(id)parent
@@ -662,3 +689,18 @@ NSUserAccentColorGetHardwareAccentColorName(void)
 {
     return nil;
 }
+
+/* The other AppKit elements answer the NSAccessibility protocol as NSAccessibilityElement does. */
+#define AX_RESOLVING(cls)                                                         \
+    @implementation cls (FinchAccessibilityProperties)                            \
+    +(BOOL)resolveInstanceMethod : (SEL)sel                                       \
+    {                                                                             \
+        return FinchAccessibilityResolve(self, sel);                              \
+    }                                                                             \
+    @end
+AX_RESOLVING(NSView)
+AX_RESOLVING(NSWindow)
+AX_RESOLVING(NSApplication)
+AX_RESOLVING(NSCell)
+AX_RESOLVING(NSMenuItem)
+AX_RESOLVING(NSMenu)

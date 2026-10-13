@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- finch-app-test as installed in the Finch VM: a debugger of the apps it runs, and for the
+     system's own apps (which don't allow debugging) the exception-port and task-port
+     entitlements a crash reporter has. The host's macOS refuses these on an ad hoc binary,
+     so the host's finch-app-test is signed with debugger.entitlements alone. -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.cs.debugger</key>
+	<true/>
+	<key>com.apple.private.amfi.can-set-exception-ports</key>
+	<true/>
+	<key>task_for_pid-allow</key>
+	<true/>
+</dict>
+</plist>

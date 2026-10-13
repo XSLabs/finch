@@ -16,6 +16,7 @@
  * and runs the termination handler.
  */
 #import <Foundation/Foundation.h>
+#include <dlfcn.h>
 #import <objc/runtime.h>
 #include <arpa/inet.h>
 #include <errno.h>
@@ -879,7 +880,27 @@ resolve(NSString *node, BOOL numeric)
 - (NSArray<NSString *> *)names { return names; }
 - (NSString *)address { return [addresses firstObject]; }
 - (NSArray<NSString *> *)addresses { return addresses; }
-- (NSString *)localizedName { return [self name]; }
+/* The computer's name (System Settings' "Sharing" name, from SystemConfiguration, as
+   Apple's), for the current host; otherwise the host name without its .local. */
+- (NSString *)localizedName
+{
+    static CFStringRef (*copyName)(void *, CFStringEncoding *);
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        void *sc = dlopen("/System/Library/Frameworks/SystemConfiguration.framework/SystemConfiguration", RTLD_LAZY);
+        if (sc)
+            copyName = (CFStringRef(*)(void *, CFStringEncoding *))dlsym(sc, "SCDynamicStoreCopyComputerName");
+    });
+    if (copyName && [self isEqualToHost:[NSHost currentHost]]) {
+        NSString *computer = [(NSString *)copyName(NULL, NULL) autorelease];
+        if ([computer length])
+            return computer;
+    }
+    NSString *n = [self name];
+    if ([n hasSuffix:@".local"])
+        n = [n substringToIndex:[n length] - 6];
+    return [n length] ? n : nil;
+}
 
 - (BOOL)isEqualToHost:(NSHost *)aHost
 {

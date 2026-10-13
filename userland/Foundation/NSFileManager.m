@@ -302,6 +302,16 @@ entries(NSString *dir)
                                        errorHandler:(BOOL (^)(NSURL *url, NSError *error))handler
 {
     __NSDirectoryEnumerator *e = (__NSDirectoryEnumerator *)[self enumeratorAtPath:[url path]];
+    if (!e) {
+        /* As Apple's: a folder that can't be read gives an enumerator with nothing in it,
+           and the error goes to the handler. */
+        if (handler)
+            handler(url, file_error(0, ENOENT, [url path]));
+        e = [[[__NSDirectoryEnumerator alloc] init] autorelease];
+        e->_root = [[url path] copy];
+        e->_stack = [[NSMutableArray alloc] init];
+        e->_prefixes = [[NSMutableArray alloc] init];
+    }
     e->_urls = YES;
     e->_skipHidden = (mask & NSDirectoryEnumerationSkipsHiddenFiles) != 0;
     e->_noRecursion = (mask & NSDirectoryEnumerationSkipsSubdirectoryDescendants) != 0;

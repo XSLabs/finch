@@ -131,6 +131,9 @@ steps=(
     "AppKit|userland/AppKit/build.sh"
     "RecapPerformanceTesting|userland/RecapPerformanceTesting/build.sh"
     "Cocoa|userland/Cocoa/build.sh"
+    # OSAnalytics (private): diagnostic reports; ConsoleKit (private): what Console is built on
+    "OSAnalytics|userland/OSAnalytics/build.sh"
+    "ConsoleKit|userland/ConsoleKit/build.sh"
     # MagnifierSupport (private): Finch's Magnifier, in SwiftUI (needs userland/SwiftUI/build.sh)
     "MagnifierSupport|userland/MagnifierSupport/build.sh"
     # libswiftFoundation, libswiftAppKit, libswiftCoreGraphics: re-exports, for older Swift apps

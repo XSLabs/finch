@@ -13,7 +13,7 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 
 **As of 2026-10-12:**
 
-14 of 65 apps have every import Finch's frameworks provide.
+15 of 65 apps have every import Finch's frameworks provide.
 
 | Missing | Apps blocked | Kind |
 |---|---|---|
@@ -373,7 +373,6 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | CloudSharing | 1 | no image |
 | CommerceKit | 1 | no image |
 | ComputationalGraph | 1 | no image |
-| ConsoleKit | 1 | no image |
 | Contacts | 1 | 1 symbols short |
 | ContactsDonation | 1 | no image |
 | ContactsMetrics | 1 | no image |
@@ -533,7 +532,6 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | NotesSiriUI | 1 | no image |
 | NotesSupport | 1 | no image |
 | NotesUI | 1 | no image |
-| OSAnalytics | 1 | no image |
 | OSEligibility | 1 | no image |
 | PAImaging | 1 | no image |
 | PAImagingCore | 1 | no image |
@@ -696,7 +694,6 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | Calendar | AccountsUI, AppIntents, CalDAV, CalendarDatabase, CalendarDraw, CalendarFoundation, CalendarLink, CalendarUIKitInternal, CalendarWeatherKit, CommunicationsFilter, ContactsAutocomplete, ContactsUI, CoreDAV, CoreData, CoreRecents, CoreSpotlight, CoreSuggestions, DataAccess, DataAccessExpress, EmailAddressing, EventKit, ExchangeWebServices, Intents, IntlPreferences, ReminderKit, RemindersAppIntents, Suggestions, TCC, iCalendar, CalendarUI, CalendarUIKit, GeoKit, MapKit, SecurityInterface, SystemUIPlugin, AppKit (6 symbols), ApplicationServices (2 symbols), CoreServices (1 symbols), CoreUI (10 symbols), RecapPerformanceTesting (1 symbols) |
 | Chess | GameKit, GroupActivities, MetalPerformanceShaders, MetalKit, ModelIO |
 | Clock | AppSupportUI, GeoServices, Intents, MediaPlayer, MobileTimer, MobileTimerSupport, MobileTimerUI, NetAppsUtilities, NetAppsUtilitiesUI, RecapPerformanceTesting, SwiftUI, ToneLibrary, UIKit, _LocationEssentials, HealthKit, OnBoardingKit, MobileCoreServices, GraphicsServices, Accelerate, CoreDuet, AggregateDictionary, ToneKit, IconFoundation, IntlPreferences, CoreText (1 symbols), CoreServices (1 symbols), IconServices (2 symbols) |
-| Console | ConsoleKit, OSAnalytics |
 | Contacts | AccountsDaemon, AccountsUI, AddressBook, AppIntents, Backup, ContactsAutocomplete, ContactsAutocompleteUI, ContactsDonation, ContactsFoundation, ContactsPersistence, ContactsUI, ContactsUICore, CoreData, CoreSuggestions, FamilyCircle, IntlPreferences, RTTUtilities, TCC, vCard, MessagesKit, PrintingPrivate, SecurityInterface, ShareKit, ContactsMetrics, ApplicationServices (1 symbols), SwiftUI (9 symbols) |
 | Dictionary | MobileAsset, RTTUtilities, WebKit, InternationalSupport, AppKit (1 symbols), Carbon (1 symbols), CoreServices (52 symbols) |
 | Disk Utility | APFS, DiskImages, DiskManagement, FindMyDeviceUI, LoginUIKit, MobileObliteration, Restore, SecurityInterface, StorageKit, apfs_boot_mount, libDiskUnlock.dylib, libsandbox.1.dylib, IASUtilities, LocalAuthenticationRecoveryUI |
@@ -737,4 +734,4 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 | Weather | AppAnalytics, AppIntents, AppleMediaServices, BackgroundTaskManagement, Charts, Coherence, CoreHaptics, CoreSuggestionsUI, CryptoKit, GeoServices, Intents, MapKit, Network, NewsFeed, NewsKit, OnBoardingKit, RecapPerformanceTesting, SafariServices, SwiftUI, TeaDB, TeaFoundation, TeaSettings, TeaUI, TipKit, UIKit, VFX, WeatherAnalytics, WeatherAppSupport, WeatherCore, WeatherDaemon, WeatherKit, WeatherMaps, WeatherUI, WidgetKit, _AppIntents_SwiftUI, _AppIntents_UIKit, _LocationEssentials, libAccessibility.dylib, AppSSOCore, SyncedDefaults, Foundation (6 symbols), QuartzCore (1 symbols), AppKit (1 symbols) |
 | iPhone Mirroring | ScreenContinuityServices, ScreenSharingKit, BaseBoard, LocalAuthenticationUI, Network, RemoteTextInput, UniversalDrag, UniversalHID, WiFiPeerToPeer, CoreFoundation (1 symbols), CoreGraphics (1 symbols), SwiftUI (96 symbols) |
 
-Ready: Apps, Bluetooth File Exchange, ColorSync Utility, Digital Color Meter, Grapher, Image Capture, Magnifier, Mission Control, Screenshot, Siri, Stickies, Terminal, TextEdit, Time Machine.
+Ready: Apps, Bluetooth File Exchange, ColorSync Utility, Console, Digital Color Meter, Grapher, Image Capture, Magnifier, Mission Control, Screenshot, Siri, Stickies, Terminal, TextEdit, Time Machine.

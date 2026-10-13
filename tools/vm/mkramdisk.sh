@@ -117,6 +117,7 @@ done
 #     install at build time and stay in the local image; nothing of Apple's or
 #     anyone else's is added to the repository. Names with spaces: separate the
 #     names with commas instead ("The Unarchiver,TextEdit").
+#     FINCH_HOST_APPS_DEBUG=1 re-signs the copies so crashes give full backtraces.
 IFS_SAVE="${IFS}"
 [[ "${FINCH_HOST_APPS:-}" == *,* ]] && IFS=,
 for app in ${FINCH_HOST_APPS:-}; do
@@ -127,6 +128,19 @@ for app in ${FINCH_HOST_APPS:-}; do
     [[ -d "${src}" ]] || die "no ${app}.app in /System/Applications or /Applications"
     mkdir -p "${mnt}/Applications"
     cp -R "${src}" "${mnt}/Applications/" && chmod -R u+w "${mnt}/Applications/${app}.app"
+    # FINCH_HOST_APPS_DEBUG=1: the copy's executable is re-signed (ad hoc, its own entitlements
+    # plus get-task-allow) so that finch-app-test can read a crash's full backtrace. Only the
+    # local image's copy changes.
+    if [[ "${FINCH_HOST_APPS_DEBUG:-}" == 1 ]]; then
+        exe="${mnt}/Applications/${app}.app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${src}/Contents/Info.plist")"
+        ents="$(mktemp)"
+        codesign -d --entitlements :- "${exe}" > "${ents}" 2>/dev/null || true
+        [[ -s "${ents}" ]] || printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict/></plist>\n' > "${ents}"
+        /usr/libexec/PlistBuddy -c 'Add :com.apple.security.get-task-allow bool true' "${ents}" >/dev/null 2>&1 ||
+            /usr/libexec/PlistBuddy -c 'Set :com.apple.security.get-task-allow true' "${ents}"
+        codesign -f -s - --entitlements "${ents}" "${exe}" 2>/dev/null
+        rm -f "${ents}"
+    fi
     while IFS= read -r -d '' f; do
         is_macho "$f" && add_hashes "$f"
     done < <(find "${mnt}/Applications/${app}.app" -type f -print0)
