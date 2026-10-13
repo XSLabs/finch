@@ -107,6 +107,39 @@ before_waiting(CFRunLoopObserverRef observer, CFRunLoopActivity activity, void *
         [(NSApplication *)NSApp updateWindows];
 }
 
+/* The main run loop's pools: a stack, as run loops nest (modal sessions, tracking). */
+extern void *objc_autoreleasePoolPush(void);
+extern void objc_autoreleasePoolPop(void *pool);
+static void *run_loop_pools[64];
+static int run_loop_pool_depth;
+
+static void
+pool_observer(CFRunLoopObserverRef observer, CFRunLoopActivity activity, void *info)
+{
+    switch (activity) {
+    case kCFRunLoopEntry:
+        if (run_loop_pool_depth < 64)
+            run_loop_pools[run_loop_pool_depth] = objc_autoreleasePoolPush();
+        run_loop_pool_depth++;
+        break;
+    case kCFRunLoopBeforeWaiting:
+        if (run_loop_pool_depth > 0 && run_loop_pool_depth <= 64) {
+            objc_autoreleasePoolPop(run_loop_pools[run_loop_pool_depth - 1]);
+            run_loop_pools[run_loop_pool_depth - 1] = objc_autoreleasePoolPush();
+        }
+        break;
+    case kCFRunLoopExit:
+        if (run_loop_pool_depth > 0) {
+            run_loop_pool_depth--;
+            if (run_loop_pool_depth < 64)
+                objc_autoreleasePoolPop(run_loop_pools[run_loop_pool_depth]);
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 - (instancetype)init
 {
     if (NSApp && NSApp != self) {
@@ -128,6 +161,14 @@ before_waiting(CFRunLoopObserverRef observer, CFRunLoopActivity activity, void *
     CFRunLoopAddSource(main, post_source, kCFRunLoopCommonModes);
     display_observer = CFRunLoopObserverCreate(NULL, kCFRunLoopBeforeWaiting, true, 2000000, before_waiting, NULL);
     CFRunLoopAddObserver(main, display_observer, kCFRunLoopCommonModes);
+    /* an autorelease pool for each pass of the main run loop, as Apple's: pushed on entry,
+       drained and pushed again before waiting, drained on exit. Without it, what a pass
+       autoreleases (drawing, layout, timers) piles up until the next event's pool goes. */
+    CFRunLoopObserverRef enter = CFRunLoopObserverCreate(NULL, kCFRunLoopEntry, true, -2147483647, pool_observer, NULL);
+    CFRunLoopObserverRef leave = CFRunLoopObserverCreate(NULL, kCFRunLoopBeforeWaiting | kCFRunLoopExit, true, 2147483647,
+                                                         pool_observer, NULL);
+    CFRunLoopAddObserver(main, enter, kCFRunLoopCommonModes);
+    CFRunLoopAddObserver(main, leave, kCFRunLoopCommonModes);
     FWSSetEventHandler(server_event, NULL);
     _policy = NSApplicationActivationPolicyRegular;
     return self;

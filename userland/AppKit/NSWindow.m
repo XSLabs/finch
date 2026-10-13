@@ -1842,6 +1842,13 @@ track(NSView *view, NSPoint inWindow, NSEvent *event, NSInteger window, BOOL inW
     case NSEventTypeRightMouseDown:
     case NSEventTypeOtherMouseDown: {
         NSView *view = [self _finchViewAt:[event locationInWindow]];
+        if (getenv("FINCH_TRACE_HIT")) {
+            /* FINCH_TRACE_HIT: the view a click goes to, and its superviews */
+            fprintf(stderr, "hit %s:", NSStringFromPoint([event locationInWindow]).UTF8String);
+            for (NSView *v = view; v; v = [v superview])
+                fprintf(stderr, " %s", object_getClassName(v));
+            fprintf(stderr, "\n");
+        }
         BOOL wasKey = _w.key;
         if (!wasKey && type == NSEventTypeLeftMouseDown) {
             [NSApp activateIgnoringOtherApps:YES];

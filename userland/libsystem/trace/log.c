@@ -108,11 +108,14 @@ API void _os_log_release(struct finch_log *l)
 {
 	(void)l;
 }
+bool finch_log_mirrored(struct finch_log *l);
 API bool os_log_type_enabled(struct finch_log *l, uint8_t type)
 {
 	uint32_t mode = os_trace_get_mode();
 	if (!l || l == &_os_log_disabled || (mode & 0x100))
 		return false;
+	if (finch_log_mirrored(l))
+		return true; /* FINCH_LOG_MIRROR asks for all of this log's messages */
 	pthread_mutex_lock(&hook_lock);
 	bool have_hook = hook != NULL, wanted = have_hook && rank(type) >= rank(hook_level);
 	pthread_mutex_unlock(&hook_lock);

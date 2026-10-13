@@ -114,14 +114,19 @@ struct Tile: View {
     var body: some View {
         Text(name)
             .padding(4)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .compositingGroup()
+            .opacity(0.95)
             .background(selection.selected == name ? Color.accentColor.opacity(0.3) : Color.clear)
             // as Font Book's tiles: a double click opens, a click selects, a command-click adds
-            .gesture(TapGesture(count: 2).onEnded { fputs("tile open \(name)\n", stderr) }
-                .exclusively(before: TapGesture().onEnded {
-                    fputs("tile select \(name)\n", stderr)
-                    selection.selected = name
-                }))
+            .onTapGesture {
+                fputs("tile select \(name)\n", stderr)
+                selection.selected = name
+            }
+            .highPriorityGesture(TapGesture(count: 2).onEnded { fputs("tile open \(name)\n", stderr) }, including: .all)
             .simultaneousGesture(TapGesture().modifiers(.command).onEnded { fputs("tile add \(name)\n", stderr) })
+            .onDrag { NSItemProvider(object: name as NSString) }
+            .contextMenu { Button("Show \(name)") {} }
     }
 }
 

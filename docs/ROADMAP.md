@@ -553,8 +553,11 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           keys held (a plain click no longer fires Font Book's command-click), and a
           layout's children's gestures keep the gesture clock, so a double tap's deadline
           passes and the single tap it held back goes through. CF's preferred languages
-          are never empty (Font Book's specimen view took the first). Still to do:
-          opening a family from the grid, the toolbar's segmented picker is wider than
+          are never empty (Font Book's specimen view took the first). AppKit drains an
+          autorelease pool on each pass of the main run loop, as Apple's does; before,
+          everything a minute of drawing autoreleased piled up until the next event, which
+          then took seconds to release it. Still to do: opening a family from the grid
+          (clicks reach its tiles but don't select them), the toolbar's segmented picker is wider than
           its slot, the font detail view, installing and validating fonts; menu
           commands' `@Environment` values.
     - [ ] Next: measurement format styles, AppKit's private classes apps link

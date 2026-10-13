@@ -227,6 +227,9 @@ Other switches for an AppKit app (they work on the host too):
   with, and its fields (`@Published` ones by their current value).
 - `FINCH_COMBINE_TRACE=1` (or `bt`, with stacks): each `@Published` change, subject send
   and `objectWillChange`.
+- `FINCH_TRACE_HIT=1`: the view each mouse-down goes to, and its superviews.
+- `OpenSWIFTUI_EVENT_DEBUG=ebph` (events, bindings, phases, hit testing) with
+  `FINCH_LOG_MIRROR=vents`: SwiftUI's event debugging.
 
 To try one of Finch's test apps in the VM, give `FINCH_HOST_APPS` its path:
 `FINCH_HOST_APPS="$PWD/build/userland/apps/SwiftUIMore.app," tools/vm/mkramdisk.sh`.
