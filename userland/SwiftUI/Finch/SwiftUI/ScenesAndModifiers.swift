@@ -489,15 +489,33 @@ public struct _ModifiersGesture<Content>: Gesture where Content: Gesture {
     var content: Content
     var modifiers: EventModifiers
 
-    /// The gesture as it is (the modifier keys aren't checked yet).
+    /// The gesture, over events with the modifier keys held: one without them fails it.
     nonisolated public static func _makeGesture(gesture: _GraphValue<_ModifiersGesture<Content>>,
                                                inputs: _GestureInputs) -> _GestureOutputs<Content.Value> {
-        Content._makeGesture(gesture: gesture[offset: { .of(&$0.content) }], inputs: inputs)
+        let filter = Attribute(_FinchModifiersFilter(gesture: gesture.value))
+        return EventFilter<Content.Value>._makeGesture(modifier: _GraphValue(filter), inputs: inputs) { inputs in
+            Content._makeGesture(gesture: gesture[offset: { .of(&$0.content) }], inputs: inputs)
+        }
     }
 
     public typealias Body = Never
     public typealias Value = Content.Value
     public var body: Never { fatalError("\(Self.self) has no body") }
+}
+
+/// A modifiers gesture's event filter: events with modifier keys must hold the gesture's.
+private struct _FinchModifiersFilter<Content: Gesture>: Rule {
+    @Attribute var gesture: _ModifiersGesture<Content>
+
+    var value: EventFilter<Content.Value> {
+        let required = gesture.modifiers
+        return EventFilter { event in
+            guard let event = event as? any ModifiersEventType else {
+                return true
+            }
+            return event.modifiers.contains(required)
+        }
+    }
 }
 
 @available(OpenSwiftUI_v1_0, *)

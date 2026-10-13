@@ -1,0 +1,27 @@
+CFLocale.c: the preferred languages are never empty, as Apple's: with no AppleLanguages
+preference, the AppleLocale preference's language, else English. Apps take the list's
+first element (Font Book's specimen view: Locale.preferredLanguages.first!).
+
+diff --git a/Sources/CoreFoundation/CFLocale.c b/Sources/CoreFoundation/CFLocale.c
+--- a/Sources/CoreFoundation/CFLocale.c
++++ b/Sources/CoreFoundation/CFLocale.c
+@@ -1274,6 +1274,19 @@
+     }
+     CFArrayRef result = _CFLocaleCopyPreferredLanguagesFromPrefs(languagesArray);
+     if (languagesArray) CFRelease(languagesArray);
++    // Finch: with no AppleLanguages preference, the language of the AppleLocale preference,
++    // or English: as Apple's, the list is never empty (apps take its first element).
++    if (!result || CFArrayGetCount(result) == 0) {
++        if (result) CFRelease(result);
++        CFStringRef localeID = (CFStringRef)CFPreferencesCopyAppValue(CFSTR("AppleLocale"), kCFPreferencesCurrentApplication);
++        CFStringRef language = NULL;
++        if (localeID && CFGetTypeID(localeID) == CFStringGetTypeID())
++            language = CFLocaleCreateCanonicalLanguageIdentifierFromString(kCFAllocatorSystemDefault, localeID);
++        if (localeID) CFRelease(localeID);
++        CFStringRef value = language && CFStringGetLength(language) > 0 && !CFEqual(language, CFSTR("root")) ? language : CFSTR("en");
++        result = CFArrayCreate(kCFAllocatorSystemDefault, (const void **)&value, 1, &kCFTypeArrayCallBacks);
++        if (language) CFRelease(language);
++    }
+     return result;
+ }
+ 

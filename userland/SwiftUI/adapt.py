@@ -389,6 +389,17 @@ extension _FocusableModifier: Sendable {}'''),
     ('SwiftUICore/Shape/InsettableShape.swift',
      'extension Circle: InsettableShape {\n    @inlinable\n    public func inset(by amount: CGFloat) -> some InsettableShape {\n        _Inset(amount: amount)\n    }\n\n    @usableFromInline\n    @frozen\n    struct _Inset: InsettableShape {\n        @usableFromInline\n        var amount: CGFloat\n    \n        @inlinable\n        init(amount: CGFloat) {\n            self.amount = amount\n        }\n\n        @usableFromInline\n        nonisolated func path(in rect: CGRect) -> Path {\n            _openSwiftUIUnimplementedFailure()\n        }',
      'extension Circle: InsettableShape {\n    @inlinable\n    public func inset(by amount: CGFloat) -> some InsettableShape {\n        _Inset(amount: amount)\n    }\n\n    @usableFromInline\n    @frozen\n    struct _Inset: InsettableShape {\n        @usableFromInline\n        var amount: CGFloat\n    \n        @inlinable\n        init(amount: CGFloat) {\n            self.amount = amount\n        }\n\n        @usableFromInline\n        nonisolated func path(in rect: CGRect) -> Path {\n            Circle().path(in: rect.insetBy(dx: amount, dy: amount))\n        }'),
+    # a layout's children's gestures keep the gesture graph's clock (as mergeViewInputs does),
+    # so their deadlines pass (a double tap failing lets the single tap through)
+    ('SwiftUICore/Event/Responder/DefaultLayoutViewResponder.swift',
+     '''            var childInputs = inputs
+            childInputs.viewInputs = self.inputs
+            childInputs.copyCaches()''',
+     '''            var childInputs = inputs
+            let gestureTime = childInputs.viewInputs.time
+            childInputs.viewInputs = self.inputs
+            childInputs.viewInputs.time = gestureTime
+            childInputs.copyCaches()'''),
     # FINCH_SWIFTUI_OBJECTS: each environment or observed object a view updates with, and its
     # fields (to see a model's state from outside an app)
     ('SwiftUICore/Data/Combine/EnvironmentObject.swift',

@@ -115,7 +115,13 @@ struct Tile: View {
         Text(name)
             .padding(4)
             .background(selection.selected == name ? Color.accentColor.opacity(0.3) : Color.clear)
-            .onTapGesture { selection.selected = name }
+            // as Font Book's tiles: a double click opens, a click selects, a command-click adds
+            .gesture(TapGesture(count: 2).onEnded { fputs("tile open \(name)\n", stderr) }
+                .exclusively(before: TapGesture().onEnded {
+                    fputs("tile select \(name)\n", stderr)
+                    selection.selected = name
+                }))
+            .simultaneousGesture(TapGesture().modifiers(.command).onEnded { fputs("tile add \(name)\n", stderr) })
     }
 }
 
