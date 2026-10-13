@@ -119,11 +119,11 @@ struct Tile: View {
             .opacity(0.95)
             .background(selection.selected == name ? Color.accentColor.opacity(0.3) : Color.clear)
             // as Font Book's tiles: a double click opens, a click selects, a command-click adds
-            .onTapGesture {
+            // as Font Book's tiles: a click selects and a double click opens, simultaneously
+            .gesture(TapGesture().onEnded {
                 fputs("tile select \(name)\n", stderr)
                 selection.selected = name
-            }
-            .highPriorityGesture(TapGesture(count: 2).onEnded { fputs("tile open \(name)\n", stderr) }, including: .all)
+            }.simultaneously(with: TapGesture(count: 2).onEnded { fputs("tile open \(name)\n", stderr) }))
             .simultaneousGesture(TapGesture().modifiers(.command).onEnded { fputs("tile add \(name)\n", stderr) })
             .onDrag { NSItemProvider(object: name as NSString) }
             .contextMenu { Button("Show \(name)") {} }
