@@ -460,8 +460,11 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
     - [x] The Swift overlay's notifications as async sequences
           (`NotificationCenter.notifications(named:)`) and the typed undo-manager and
           cookie-storage messages (2026-10-12); `swift-overlay-test` matches Apple's.
-    - [ ] Next: diffable data sources, Swift System's `FilePath` (Finch builds no
-          swift-system yet) and measurement format styles, among others
+    - [x] Swift System (2026-10-12): swift-system 1.8.1 built as Apple's
+          `libswiftSystem` (every one of its exports, two through Finch's compatibility
+          entry points), and Foundation's `FilePath`/`URL` conversions;
+          `swift-overlay-test` matches Apple's.
+    - [ ] Next: diffable data sources and measurement format styles, among others
           ([`APPS.md`](APPS.md)). Later: a Spotlight-style index
           for metadata queries, a version store for NSFileVersion, lexical classes for
           the tagger, and the AppleScript language.

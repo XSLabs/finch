@@ -21,6 +21,10 @@
 #                os_signpost (swift-5.2.5) and its C helpers, the logging API
 #                adapted from swift-6.3.1's open prototype (stdlib/private/
 #                OSLog), Logger/OSSignposter/locks/workgroups written by Finch.
+#   System       swift-system 1.8.1 (Apache 2.0 with the Runtime Library
+#                Exception), built as Apple builds its libswiftSystem (module
+#                System, Darwin availability), and overlays/System's two
+#                entry points older apps import.
 #   XPC, UniformTypeIdentifiers, OSLog, QuartzCore, CoreImage
 #                Finch's own code (overlays/<Module>), over Finch's libxpc and
 #                frameworks.
@@ -63,6 +67,14 @@ OLD54="${SRC}/swift-darwin-overlays-5.4"
 SWIFT_SRC="${SRC}/swift"   # swift-6.3.1-RELEASE, from userland/swift/build.sh
 fetch_swift swift-5.2.5-RELEASE "${OLD52}"
 fetch_swift swift-5.4-RELEASE "${OLD54}"
+SYSTEM_TAG=1.8.1
+SYSTEM_SRC="${SRC}/swift-system"
+if [[ "$(git -C "${SYSTEM_SRC}" describe --tags 2>/dev/null || true)" != "${SYSTEM_TAG}" ]]; then
+    log "fetching swift-system ${SYSTEM_TAG}"
+    rm -rf "${SYSTEM_SRC}"
+    git -c advice.detachedHead=false clone -q --depth 1 --branch "${SYSTEM_TAG}" \
+        https://github.com/apple/swift-system.git "${SYSTEM_SRC}"
+fi
 for p in objc4 libdispatch; do
     [[ -d "${SRC}/${p}" ]] || { echo "missing build/src/${p}: run tools/fetch-src.sh ${p}" >&2; exit 1; }
 done
@@ -245,6 +257,22 @@ shim() {
 }
 shim _errno 1; shim _math 1; shim _stdio 2; shim _time 2; shim sys_time 2; shim _signal 3; shim unistd 3
 
+# --- System: swift-system, as Apple's libswiftSystem (FilePath, FileDescriptor,
+# Errno, ...). Its availability macros take Apple's OS versions (Package.swift's
+# osAvailability, its ABI-stable build); CSystem's shims are compiled in.
+SYSTEM_AVAILABILITY=()
+for v in "0.0.1:macOS 11.0" "0.0.2:macOS 12.0" "0.0.3:macOS 12.3" "1.1.0:macOS 12.3" "1.1.1:macOS 14.4" \
+         "1.2.0:macOS 14.4" "1.2.1:macOS 14.4" "1.3.0:macOS 14.4" "1.3.1:macOS 14.4" "1.3.2:macOS 14.4" \
+         "1.4.0:macOS 14.4" "1.7.0:macOS 27.0" "199:macOS 9999"; do
+    SYSTEM_AVAILABILITY+=(-enable-experimental-feature
+        "AvailabilityMacro=System ${v%%:*}:${v#*:}, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999")
+done
+CFLAGS_SAVED=("${CFLAGS[@]}"); CFLAGS+=(-I "${SYSTEM_SRC}/Sources/CSystem/include")
+overlay System 75 1 $(find "${SYSTEM_SRC}/Sources/System" -name '*.swift' | sort) "${HERE}/System/SystemCompat.swift" \
+    --no-force-load -D SYSTEM_PACKAGE_DARWIN -enable-experimental-feature Lifetimes "${SYSTEM_AVAILABILITY[@]}" \
+    -I "${SYSTEM_SRC}/Sources/CSystem/include" -- "${SYSTEM_SRC}/Sources/CSystem/shims.c"
+CFLAGS=("${CFLAGS_SAVED[@]}")
+
 # --- XPC: Finch's (overlays/XPC) over Finch's libxpc ---------------------------
 overlay XPC 128.100.15 1 "${HERE}"/XPC/*.swift
 
@@ -270,3 +298,6 @@ cp "${SWIFT_SRC}/LICENSE.txt" "${notice}/SWIFT-LICENSE.txt"
 python3 "${FINCH_ROOT}/tools/collect-notices.py" \
     'Apple libdispatch-1542.100.32 Dispatch Swift overlay' "${notice}/SOURCE-NOTICES.txt" \
     "${D}"/{Block,Data,Dispatch,IO,Private,Queue,Source,Time}.swift "${D}/Dispatch.mm"
+notice="${ROOT}/usr/share/finch/licenses/swift-system-${SYSTEM_TAG}"
+mkdir -p "${notice}"
+cp "${SYSTEM_SRC}/LICENSE.txt" "${notice}/"

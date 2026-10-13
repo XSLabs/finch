@@ -9,6 +9,7 @@ import AppKit
 import Dispatch
 import Foundation
 import os
+import System
 
 setvbuf(stdout, nil, _IOLBF, 0)
 
@@ -214,6 +215,30 @@ show("undo message name", UndoManager.DidUndoChangeMessage.name.rawValue)
 show("checkpoint name", UndoManager.CheckpointMessage.name.rawValue)
 show("cookies message name", HTTPCookieStorage.CookiesChangedMessage.name.rawValue)
 show("discardable", UndoManager.DidCloseUndoGroupMessage(groupIsDiscardable: true).groupIsDiscardable)
+
+// MARK: Swift System (libswiftSystem) and Foundation's FilePath(URL)
+print("== system")
+let fp = FilePath(URL(fileURLWithPath: "/tmp/finch dir/report.final.txt"))!
+show("filepath", fp)
+show("components", fp.components.map { $0.string })
+show("stem/extension", "\(fp.stem ?? "-") \(fp.extension ?? "-")")
+show("parent", fp.removingLastComponent())
+show("lexical", FilePath("/a/./b/../c//d").lexicallyNormalized())
+show("not file", FilePath(URL(string: "https://example.com/x")!) == nil)
+show("url back", URL(FilePath("/usr/lib"))!.path)
+let tmpPath = FilePath(NSTemporaryDirectory()).appending("finch-system-\(getpid()).txt")
+do {
+    let fd = try FileDescriptor.open(tmpPath, .readWrite, options: [.create, .truncate], permissions: .ownerReadWrite)
+    _ = try fd.writeAll("hello system".utf8)
+    try fd.seek(offset: 0, from: .start)
+    var buffer = [UInt8](repeating: 0, count: 64)
+    let n = try buffer.withUnsafeMutableBytes { try fd.read(into: $0) }
+    show("read back", String(decoding: buffer[..<n], as: UTF8.self))
+    try fd.close()
+    _ = unlink(tmpPath.string)
+} catch { show("file error", error) }
+do { _ = try FileDescriptor.open("/nonexistent/x", .readOnly) } catch let e as Errno { show("errno", "\(e.rawValue) \(e)") }
+show("permissions", FilePermissions(rawValue: 0o644))
 
 // MARK: os
 print("== os")

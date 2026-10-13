@@ -34,7 +34,8 @@ AppKit and the window server draw in Fieldwork, Finch's own design language
 (`docs/design/FIELDWORK.md`), from a theme file of tokens; the Classic theme keeps
 Aqua-compatible values for apps that need them and for the comparison tests.
 Combine is open code (OpenCombine with Finch's additions) built to Apple's ABI
-(`docs/design/COMBINE.md`). SwiftUI is built from OpenSwiftUI, renamed to Apple's
+(`docs/design/COMBINE.md`), as is Swift System (swift-system, all of Apple's
+`libswiftSystem` exports). SwiftUI is built from OpenSwiftUI, renamed to Apple's
 modules, on Compute's attribute graph and the Swift runtime's Observation (apps'
 `@Observable` types work with it); an unmodified SwiftUI app built with Xcode draws
 its window on Finch's frameworks (`docs/design/SWIFTUI.md`); the frameworks it links that Apple keeps closed are Finch's own:
@@ -141,7 +142,7 @@ block-beta
         icu["libicucore<br/>ICU-76142.4.7"]
         objc["libobjc (objc4)"]
         autolayout["CoreAutoLayout (private)<br/>constraints, anchors, VFL,<br/>Cassowary solver"]
-        swift["Swift 6.3.1 runtimes<br/>Darwin overlays,<br/>Foundation and AppKit Swift<br/>(diffable data sources,<br/>suggestions, invalidation);<br/>Combine (OpenCombine + Finch)"]
+        swift["Swift 6.3.1 runtimes<br/>Darwin overlays,<br/>Foundation and AppKit Swift<br/>(diffable data sources,<br/>suggestions, invalidation);<br/>Combine (OpenCombine + Finch);<br/>Swift System (swift-system)"]
         iokit["IOKit.framework<br/>(IOKitUser)"]
         gcore["GCoreFramework<br/>(gcore, on Finch Foundation)"]
         sysconfig["SystemConfiguration<br/>preferences and network reads;<br/>shared store via Finch configd;<br/>manual IPv4 and DNS apply"]
