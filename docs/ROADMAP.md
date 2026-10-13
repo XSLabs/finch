@@ -549,9 +549,14 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           formats keep it; String.LocalizationValue keeps a literal key's %, as Apple's.
           Controls in a toolbar take its forms, as Apple's: labels hidden, toggles as
           icon buttons; and labelsHidden() hides Finch's controls' labels (toggles,
-          pickers, sliders, colour pickers). Still to do: the toolbar's segmented picker
-          is wider than its slot, samples and the font detail
-          view, installing and validating fonts; menu commands' `@Environment` values.
+          pickers, sliders, colour pickers). Gestures: a modifiers gesture needs its
+          keys held (a plain click no longer fires Font Book's command-click), and a
+          layout's children's gestures keep the gesture clock, so a double tap's deadline
+          passes and the single tap it held back goes through. CF's preferred languages
+          are never empty (Font Book's specimen view took the first). Still to do:
+          opening a family from the grid, the toolbar's segmented picker is wider than
+          its slot, the font detail view, installing and validating fonts; menu
+          commands' `@Environment` values.
     - [ ] Next: measurement format styles, AppKit's private classes apps link
           (NSTokenAttachment, NSTouchDevice, NSButtonGroupTouchBarItem, ...), among others
           ([`APPS.md`](APPS.md)). Later: a Spotlight-style index
