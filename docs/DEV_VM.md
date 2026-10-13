@@ -207,6 +207,20 @@ tools/vm/with-vm-lock.sh expect tools/vm/smoke.exp \
 
 An uncaught exception prints its first throw call stack, as on macOS.
 
+Other switches for an AppKit app (they work on the host too):
+
+- `FINCH_PROFILE_MAIN=SECONDS[,COUNT]`: after that long, samples the main thread COUNT
+  times (100) 20 ms apart and prints the functions seen, most frequent first (inclusive,
+  then leaf), and how long five blocks sent to the main queue waited. For an app that is
+  busy rather than blocked.
+- `FINCH_DUMP_THREADS=SECONDS`: every thread's stack, once.
+- `FINCH_DUMP_VIEWS=SECONDS`: each window's view tree, with buttons' titles, images and
+  actions.
+- `FINCH_SWIFTUI_WARNINGS=1`: SwiftUI's runtime warnings on stderr.
+- `FINCH_LOG_PRIVATE=1`: the process's log messages keep their private values (in
+  `log show` and on stderr), for errors an app logs privately.
+- `FINCH_LOG_BACKTRACE=TEXT`: the stack of every log message whose format contains TEXT.
+
 ## Console output
 The serial console drops bytes 0x80–0x9F, so 4-byte UTF-8 characters (emoji)
 look garbled in `smoke.exp` logs, though the program wrote the right bytes.

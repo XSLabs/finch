@@ -485,6 +485,13 @@ take_matching(NSEventMask mask, BOOL dequeue)
 #pragma mark - Running
 
 - (BOOL)isRunning { return _a.running; }
+/* SPI SwiftUI calls as an app starts (through its private-API shims): launch is complete
+   when the app finishes launching, and the rest change nothing in Finch's AppKit. */
+- (void)markAppLaunchComplete {}
+- (void)_setAlwaysCallDelegateBeforeSidebandUpdaters:(BOOL)flag {}
+- (void)_setAlwaysInstallWindowTabItems:(BOOL)flag {}
+- (void)_setUsingModernDocuments:(BOOL)flag {}
+
 - (BOOL)isActive { return _a.active; }
 
 /* FINCH_DUMP_VIEWS=SECONDS prints every window's views once, that long after launch (to see
@@ -508,9 +515,148 @@ dump_view(NSView *v, int depth)
         dump_view(sub, depth + 1);
 }
 
+/* FINCH_DUMP_THREADS=SECONDS prints every thread's stack once, that long after launch (to
+   see what an app is waiting on): each thread's frame-pointer chain, named with dladdr. */
+static void
+dump_threads(void)
+{
+    thread_act_array_t threads;
+    mach_msg_type_number_t count;
+    if (task_threads(mach_task_self(), &threads, &count) != KERN_SUCCESS)
+        return;
+    thread_t me = mach_thread_self();
+    for (mach_msg_type_number_t i = 0; i < count; i++) {
+        fprintf(stderr, "thread %u%s\n", i, threads[i] == me ? " (dumping)" : "");
+        if (threads[i] == me)
+            continue;
+        thread_suspend(threads[i]);
+        arm_thread_state64_t st;
+        mach_msg_type_number_t n = ARM_THREAD_STATE64_COUNT;
+        if (thread_get_state(threads[i], ARM_THREAD_STATE64, (thread_state_t)&st, &n) == KERN_SUCCESS) {
+            uintptr_t pcs[40];
+            int depth = 0;
+            pcs[depth++] = (uintptr_t)__darwin_arm_thread_state64_get_pc(st);
+            pcs[depth++] = (uintptr_t)__darwin_arm_thread_state64_get_lr(st);
+            uintptr_t fp = (uintptr_t)__darwin_arm_thread_state64_get_fp(st);
+            while (fp && depth < 40 && !(fp & 7)) {
+                uintptr_t *frame = (uintptr_t *)fp;
+                uintptr_t next = frame[0], lr = frame[1] & 0x0000000fffffffffULL;
+                if (!lr || next <= fp)
+                    break;
+                pcs[depth++] = lr;
+                fp = next;
+            }
+            for (int k = 0; k < depth; k++) {
+                Dl_info info;
+                uintptr_t pc = pcs[k] & 0x0000000fffffffffULL;
+                if (dladdr((void *)pc, &info) && info.dli_sname)
+                    fprintf(stderr, "  %2d %s %s + %lu\n", k, strrchr(info.dli_fname, '/') ? strrchr(info.dli_fname, '/') + 1 : info.dli_fname,
+                            info.dli_sname, (unsigned long)(pc - (uintptr_t)info.dli_saddr));
+                else if (dladdr((void *)pc, &info))
+                    fprintf(stderr, "  %2d %s + 0x%lx\n", k, strrchr(info.dli_fname, '/') ? strrchr(info.dli_fname, '/') + 1 : info.dli_fname,
+                            (unsigned long)(pc - (uintptr_t)info.dli_fbase));
+                else
+                    fprintf(stderr, "  %2d 0x%lx\n", k, (unsigned long)pc);
+            }
+        }
+        thread_resume(threads[i]);
+    }
+}
+
+/* FINCH_PROFILE_MAIN=SECONDS[,COUNT] samples the main thread's stack COUNT times (100 by
+   default), 20 ms apart, starting that long after launch, and prints the functions seen,
+   the most often first: where a busy main thread spends its time. */
+static void
+sample_main_thread(thread_t main, int samples)
+{
+    NSCountedSet *seen = [NSCountedSet set];
+    NSCountedSet *leaves = [NSCountedSet set];
+    for (int s = 0; s < samples; s++) {
+        usleep(20000);
+        thread_suspend(main);
+        arm_thread_state64_t st;
+        mach_msg_type_number_t n = ARM_THREAD_STATE64_COUNT;
+        uintptr_t pcs[64];
+        int depth = 0;
+        if (thread_get_state(main, ARM_THREAD_STATE64, (thread_state_t)&st, &n) == KERN_SUCCESS) {
+            pcs[depth++] = (uintptr_t)__darwin_arm_thread_state64_get_pc(st);
+            uintptr_t fp = (uintptr_t)__darwin_arm_thread_state64_get_fp(st);
+            while (fp && depth < 64 && !(fp & 7)) {
+                uintptr_t *frame = (uintptr_t *)fp;
+                uintptr_t next = frame[0], lr = frame[1] & 0x0000000fffffffffULL;
+                if (!lr || next <= fp)
+                    break;
+                pcs[depth++] = lr;
+                fp = next;
+            }
+        }
+        thread_resume(main);
+        NSMutableSet *once = [NSMutableSet set];
+        for (int k = 0; k < depth; k++) {
+            Dl_info info;
+            uintptr_t pc = pcs[k] & 0x0000000fffffffffULL;
+            NSString *name;
+            if (dladdr((void *)pc, &info) && info.dli_sname)
+                name = [NSString stringWithFormat:@"%s %s", strrchr(info.dli_fname, '/') ? strrchr(info.dli_fname, '/') + 1 : info.dli_fname, info.dli_sname];
+            else if (dladdr((void *)pc, &info))
+                name = [NSString stringWithFormat:@"%s + 0x%lx", strrchr(info.dli_fname, '/') ? strrchr(info.dli_fname, '/') + 1 : info.dli_fname,
+                                                  (unsigned long)(pc - (uintptr_t)info.dli_fbase)];
+            else
+                name = [NSString stringWithFormat:@"0x%lx", (unsigned long)pc];
+            if (k == 0)
+                [leaves addObject:name];
+            if (![once containsObject:name]) {
+                [once addObject:name];
+                [seen addObject:name];
+            }
+        }
+    }
+    /* how long a block sent to the main queue waits */
+    for (int i = 0; i < 5; i++) {
+        uint64_t sent = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+        dispatch_semaphore_t done = dispatch_semaphore_create(0);
+        __block uint64_t ran = 0;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            ran = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+            dispatch_semaphore_signal(done);
+        });
+        if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)))
+            fprintf(stderr, "main queue: no answer in 5 s\n");
+        else
+            fprintf(stderr, "main queue: %.1f ms\n", (ran - sent) / 1e6);
+    }
+    for (NSCountedSet *set in @[ seen, leaves ]) {
+        fprintf(stderr, set == seen ? "main thread, %d samples (inclusive):\n" : "leaf functions:\n", samples);
+        NSArray *sorted = [[set allObjects] sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
+            NSUInteger x = [set countForObject:a], y = [set countForObject:b];
+            return x > y ? NSOrderedAscending : x < y ? NSOrderedDescending : NSOrderedSame;
+        }];
+        for (NSUInteger i = 0; i < sorted.count && i < 60; i++)
+            fprintf(stderr, "  %4lu %s\n", (unsigned long)[set countForObject:sorted[i]], [sorted[i] UTF8String]);
+    }
+}
+
 static void
 schedule_view_dump(void)
 {
+    const char *sampleEnv = getenv("FINCH_PROFILE_MAIN");
+    if (sampleEnv) {
+        thread_t main = mach_thread_self();
+        const char *comma = strchr(sampleEnv, ',');
+        int samples = comma ? atoi(comma + 1) : 100;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(atof(sampleEnv) * NSEC_PER_SEC)),
+                       dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^{
+                           @autoreleasepool {
+                               sample_main_thread(main, samples > 0 ? samples : 100);
+                           }
+                       });
+    }
+    const char *threadsEnv = getenv("FINCH_DUMP_THREADS");
+    if (threadsEnv)
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(atof(threadsEnv) * NSEC_PER_SEC)),
+                       dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^{
+                           dump_threads();
+                       });
     const char *env = getenv("FINCH_DUMP_VIEWS");
     if (!env)
         return;

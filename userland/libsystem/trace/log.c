@@ -269,9 +269,39 @@ static uint8_t message_ttl(struct finch_log *l, uint8_t type)
 	unsigned shift = type == 1 ? 16 : type == 2 ? 24 : 8;
 	return (uint8_t)(o >> shift);
 }
+/* FINCH_LOG_BACKTRACE=TEXT prints, to stderr, the stack of every message whose format
+   contains TEXT (to find which code logs a message). */
+static void backtrace_if_asked(const char *format)
+{
+	static const char *wanted = (const char *)-1;
+	if (wanted == (const char *)-1)
+		wanted = getenv("FINCH_LOG_BACKTRACE");
+	if (!wanted || !format || !strstr(format, wanted))
+		return;
+	fprintf(stderr, "log backtrace: %s\n", format);
+	uintptr_t fp = (uintptr_t)__builtin_frame_address(0);
+	for (int depth = 0; fp && !(fp & 7) && depth < 40; depth++) {
+		uintptr_t *frame = (uintptr_t *)fp;
+		uintptr_t next = frame[0], pc = frame[1] & 0x0000000fffffffffULL;
+		if (!pc || next <= fp)
+			break;
+		Dl_info info;
+		if (dladdr((void *)pc, &info) && info.dli_fname) {
+			const char *name = strrchr(info.dli_fname, '/') ? strrchr(info.dli_fname, '/') + 1 : info.dli_fname;
+			if (info.dli_sname)
+				fprintf(stderr, "  %2d %s %s + %lu\n", depth, name, info.dli_sname,
+				    (unsigned long)(pc - (uintptr_t)info.dli_saddr));
+			else
+				fprintf(stderr, "  %2d %s + 0x%lx\n", depth, name,
+				    (unsigned long)(pc - (uintptr_t)info.dli_fbase));
+		}
+		fp = next;
+	}
+}
 void finch_log_send(struct finch_log *l, uint8_t type, const struct finch_log_pack *p,
     const uint8_t *data, size_t size, bool force)
 {
+	backtrace_if_asked(p ? p->format : NULL);
 	if (!l)
 		l = &_os_log_default;
 	if (!force && !os_log_type_enabled(l, type))

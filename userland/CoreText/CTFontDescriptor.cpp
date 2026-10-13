@@ -4,6 +4,8 @@
  * from the font it names, when that font can be found.
  */
 #include "CTInternal.h"
+#include <Block.h>
+#include <dispatch/dispatch.h>
 
 struct __CTFontDescriptor {
     CTRuntimeBase base;
@@ -222,5 +224,46 @@ bool
 CTFontDescriptorMatchFontDescriptorsWithProgressHandler(CFArrayRef descriptors, CFSetRef mandatoryAttributes,
                                                         CTFontDescriptorProgressHandler progressBlock)
 {
-    return false;
+    /* Matching against the fonts on the system (there's nothing to download): on another
+       queue, as Apple's is, the handler hears it begin, each descriptor's matches, and the end. */
+    if (!descriptors || !progressBlock)
+        return false;
+    CFArrayRef ds = CFArrayCreateCopy(NULL, descriptors);
+    CFSetRef mandatory = mandatoryAttributes ? CFSetCreateCopy(NULL, mandatoryAttributes) : NULL;
+    CTFontDescriptorProgressHandler handler = (CTFontDescriptorProgressHandler)Block_copy(progressBlock);
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        CFMutableArrayRef all = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+        auto params = [&](CFTypeRef source, CFArrayRef result) {
+            CFMutableDictionaryRef d =
+                CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+            CFDictionarySetValue(d, kCTFontDescriptorMatchingDescriptors, ds);
+            if (source)
+                CFDictionarySetValue(d, kCTFontDescriptorMatchingSourceDescriptor, source);
+            if (result)
+                CFDictionarySetValue(d, kCTFontDescriptorMatchingResult, result);
+            return d;
+        };
+        CFDictionaryRef p = params(NULL, NULL);
+        bool go = handler(kCTFontDescriptorMatchingDidBegin, p);
+        CFRelease(p);
+        for (CFIndex i = 0; go && i < CFArrayGetCount(ds); i++) {
+            CTFontDescriptorRef d = (CTFontDescriptorRef)CFArrayGetValueAtIndex(ds, i);
+            CFArrayRef m = CTFontDescriptorCreateMatchingFontDescriptors(d, mandatory);
+            CFArrayRef found = m ? m : CFArrayCreate(NULL, NULL, 0, &kCFTypeArrayCallBacks);
+            CFArrayAppendArray(all, found, CFRangeMake(0, CFArrayGetCount(found)));
+            p = params(d, found);
+            go = handler(CFArrayGetCount(found) ? kCTFontDescriptorMatchingDidMatch : kCTFontDescriptorMatchingDidFailWithError, p);
+            CFRelease(p);
+            CFRelease(found);
+        }
+        p = params(NULL, all);
+        handler(kCTFontDescriptorMatchingDidFinish, p);
+        CFRelease(p);
+        CFRelease(all);
+        CFRelease(ds);
+        if (mandatory)
+            CFRelease(mandatory);
+        Block_release(handler);
+    });
+    return true;
 }

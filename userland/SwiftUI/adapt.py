@@ -343,6 +343,45 @@ extension Optional {'''),
         updateSeed = GraphHost.currentHost.data.$updateSeed
         lastSeed = .max
         hasLogged = false'''),
+    # runtime warnings (Finch's log can't show their private text): also to stderr with
+    # FINCH_SWIFTUI_WARNINGS set
+    ('SwiftUICore/Log/Logging.swift',
+     '''    package static func externalWarning(_ message: String) {
+        #if OPENSWIFTUI_SWIFT_LOG''',
+     '''    package static func externalWarning(_ message: String) {
+        if getenv("FINCH_SWIFTUI_WARNINGS") != nil {
+            fputs("SwiftUI: \\(message)\\n", stderr)
+        }
+        #if OPENSWIFTUI_SWIFT_LOG'''),
+    # named images and symbols without CoreUI: AppKit's (the bundle's image, or Finch's symbol
+    # artwork), drawn from their CGImage at twice their size; symbols are templates
+    ('SwiftUICore/View/Image/NamedImage.swift',
+     '''            #endif
+            return resolveError(in: context.environment)
+        }''',
+     '''            #endif
+            var platformScale: Double = 1
+            var platformTemplate = false
+            if let cg = name.withCString({ _FinchPlatformImageCreate($0, location.bundle.map { Unmanaged.passUnretained($0).toOpaque() },
+                                                                       &platformScale, &platformTemplate) })?.takeRetainedValue() {
+                return Image.Resolved(
+                    image: GraphicsImage(
+                        contents: .cgImage(cg),
+                        scale: platformScale,
+                        unrotatedPixelSize: CGSize(width: cg.width, height: cg.height),
+                        orientation: .up,
+                        isTemplate: platformTemplate
+                    ),
+                    decorative: decorative,
+                    label: label
+                )
+            }
+            return resolveError(in: context.environment)
+        }'''),
+    ('SwiftUICore/View/Image/NamedImage.swift', 'public import Foundation\n',
+     'public import Foundation\n\n/* (userland/SwiftUI/stubs.c) */\n@_silgen_name("_FinchPlatformImageCreate")\n'
+     'func _FinchPlatformImageCreate(_ name: UnsafePointer<CChar>, _ bundle: UnsafeMutableRawPointer?, _ scale: UnsafeMutablePointer<Double>,'
+     ' _ isTemplate: UnsafeMutablePointer<Bool>) -> Unmanaged<CGImage>?\n'),
     # PresentedWindowContent is Finch's, generic as Apple's is (Finch/SwiftUI/ScenesAndModifiers.swift)
     ('SwiftUI/Modifier/ViewModifier/PresentedSceneValueInputModifier.swift',
      '// TODO\npublic struct PresentedWindowContent {}\n', ''),

@@ -11,6 +11,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+/* FINCH_LOG_PRIVATE=1 leaves private values in a process's messages (for debugging an
+   app whose errors are logged privately). */
+static bool
+show_private(void)
+{
+	static int show = -1;
+	if (show < 0)
+		show = getenv("FINCH_LOG_PRIVATE") != NULL;
+	return show;
+}
 #include <ctype.h>
 extern bool finch_log_object_is_public(void *);
 extern char *finch_log_describe_object(void *);
@@ -264,8 +275,8 @@ static char *compose(const char *format, const uint8_t *data, size_t size, int s
 			if (!argument(&r, &v))
 				goto missing;
 		}
-		if ((v.flags & 1) || annotation(meta, "private") ||
-		    (type == 'P' && !(v.flags & 2))) {
+		if (!show_private() && ((v.flags & 1) || annotation(meta, "private") ||
+		    (type == 'P' && !(v.flags & 2)))) {
 			string(&out, "<private>");
 			continue;
 		}
@@ -315,7 +326,7 @@ static char *compose(const char *format, const uint8_t *data, size_t size, int s
 		}
 		if (type == '@') {
 			void *object = (void *)(uintptr_t)v.value;
-			if (!(v.flags & 2) && !finch_log_object_is_public(object))
+			if (!show_private() && !(v.flags & 2) && !finch_log_object_is_public(object))
 				string(&out, "<private>");
 			else {
 				char *description = finch_log_describe_object(object);
@@ -414,6 +425,8 @@ int finch_log_flatten(const uint8_t *data, size_t size, int saved_errno, struct 
 	struct record v;
 	int count = -1;
 	while (argument(&r, &v)) {
+		if (show_private() && v.type != 1 && v.type != 6)
+			v.flags = (uint8_t)((v.flags & ~1) | 2);
 		uint8_t head[2] = {(uint8_t)(v.type << 4 | v.flags), v.size};
 		uint64_t value = v.value;
 		if (v.type == 1) {

@@ -35,6 +35,12 @@ changed(CALayer *layer)
 - (void)_finchDrawContent:(CGContextRef)cg;
 @end
 
+void FinchLayerDrawContentsImage(CALayer *layer, CGContextRef cg, CGRect r, CGImageRef image); /* CAPrivate2.m */
+
+@interface CALayer (FinchSwiftUIProperties)
+- (BOOL)allowsHitTesting; /* CAPrivate2.m */
+@end
+
 @implementation CALayer {
     CGRect _bounds;
     CGPoint _position, _anchorPoint;
@@ -515,7 +521,7 @@ between(CALayer *from, CALayer *to)
 /* p is in the superlayer's coordinates, as Core Animation's. */
 - (CALayer *)hitTest:(CGPoint)p
 {
-    if (_f.hidden)
+    if (_f.hidden || ![self allowsHitTesting])
         return nil;
     CGPoint local = CGPointApplyAffineTransform(p, CGAffineTransformInvert(to_super(self)));
     if (_f.masksToBounds && ![self containsPoint:local])
@@ -884,8 +890,17 @@ rounded(CGRect r, CGFloat radius)
     }
     if (_opacity < 1)
         CGContextSetAlpha(cg, _opacity);
-    CGContextBeginTransparencyLayer(cg, NULL);
-    CGContextSetShadowWithColor(cg, CGSizeZero, 0, NULL);
+    /* A layer composites as a group only when it has to: partly transparent, casting a
+       shadow, or masked. Otherwise it draws straight through (a group for every layer made
+       each redraw of a layer-heavy window, SwiftUI's above all, cost a full blit per layer). */
+    BOOL group = _opacity < 1 || (_shadowOpacity > 0 && _shadowColor) || _mask;
+    if (group) {
+        if ((_f.masksToBounds || !_sublayers.count) && !(_shadowOpacity > 0 && _shadowColor))
+            CGContextBeginTransparencyLayerWithRect(cg, _bounds, NULL);
+        else
+            CGContextBeginTransparencyLayer(cg, NULL);
+        CGContextSetShadowWithColor(cg, CGSizeZero, 0, NULL);
+    }
     CGPathRef shape = _cornerRadius > 0 ? rounded(_bounds, _cornerRadius) : CGPathCreateWithRect(_bounds, NULL);
     if (_backgroundColor) {
         CGContextAddPath(cg, shape);
@@ -907,7 +922,7 @@ rounded(CGRect r, CGFloat radius)
             CGContextTranslateCTM(cg, 0, CGRectGetMinY(r) + CGRectGetMaxY(r));
             CGContextScaleCTM(cg, 1, -1);
         }
-        CGContextDrawImage(cg, r, image);
+        FinchLayerDrawContentsImage(self, cg, r, image);
         CGContextRestoreGState(cg);
     } else if (_contents && [_contents respondsToSelector:@selector(CGImageForProposedRect:context:hints:)]) {
         CGRect r = _bounds;
@@ -950,7 +965,8 @@ rounded(CGRect r, CGFloat radius)
         CGContextEndTransparencyLayer(cg);
         CGContextRestoreGState(cg);
     }
-    CGContextEndTransparencyLayer(cg);
+    if (group)
+        CGContextEndTransparencyLayer(cg);
     CGContextRestoreGState(cg);
 }
 

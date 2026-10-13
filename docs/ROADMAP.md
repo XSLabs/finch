@@ -527,7 +527,16 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           catalogs); CarbonCore's mapped resource-file calls (no resource forks yet);
           NSToolbar's inline title width; NSFileManager's trash; NSLocale's language names;
           AppKit keeps a layout engine alive while resizing its window re-enters layout.
-          Still to do: the font grid and samples, installing and validating fonts.
+          Then (2026-10-13): SwiftUI's named and symbol images without CoreUI (AppKit's
+          images, drawn at twice their size; symbols as tinted templates), with Core
+          Animation's contents properties (swizzle, multiply colour, scaling, EDR);
+          a layer composites as a group only when it must (transparent, shadowed or
+          masked), which made redrawing a SwiftUI window about three times cheaper;
+          NSFileManager's private user-home domain (0x10000); the font-matching progress
+          call; NSParagraphStyle's and NSAttributedString's private text calls; switches
+          for finding a stalled app (`docs/DEV_VM.md`). Still to do: the font grid (it
+          stays on its spinner after the fonts load: the cause isn't found yet), samples,
+          installing and validating fonts; menu commands' `@Environment` values.
     - [ ] Next: measurement format styles, AppKit's private classes apps link
           (NSTokenAttachment, NSTouchDevice, NSButtonGroupTouchBarItem, ...), among others
           ([`APPS.md`](APPS.md)). Later: a Spotlight-style index

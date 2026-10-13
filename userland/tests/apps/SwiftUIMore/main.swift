@@ -32,6 +32,37 @@ final class MoreModel {
     var count = 0
 }
 
+/// Loads as Font Book's model does: off the main actor, then publishes on it.
+@Observable
+final class Loader {
+    var isLoading = true
+    var items: [String] = []
+
+    @MainActor
+    func load() async {
+        let found = await Task.detached { () -> [String] in
+            try? await Task.sleep(for: .milliseconds(300))
+            return ["Inter", "Liberation Sans"]
+        }.value
+        items = found
+        isLoading = false
+    }
+}
+
+struct LoaderView: View {
+    @State private var loader = Loader()
+    var body: some View {
+        Group {
+            if loader.isLoading {
+                ProgressView()
+            } else {
+                Text("Loaded: " + loader.items.joined(separator: ", "))
+            }
+        }
+        .task { await loader.load() }
+    }
+}
+
 struct MoreCommands: Commands {
     @Environment(\.openWindow) private var openWindow
     @FocusedValue(\.moreCount) private var count
@@ -70,6 +101,12 @@ struct More: View {
                 }
                 .frame(width: 160, height: 40)
                 LabeledContent("Search", value: search.isEmpty ? "(none)" : search)
+                LoaderView()
+                HStack {
+                    Label("Favourites", systemImage: "star.fill")
+                    Image(systemName: "folder").foregroundStyle(.blue)
+                    Image(systemName: "gearshape")
+                }
             }
             .padding()
             .tabItem { Text("First") }

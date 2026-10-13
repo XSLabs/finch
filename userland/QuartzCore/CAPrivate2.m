@@ -10,6 +10,7 @@
  * snapshots of the screen can't be taken.
  */
 #import <QuartzCore/QuartzCore.h>
+#import <objc/runtime.h>
 
 #define CA_EXPORT __attribute__((visibility("default")))
 
@@ -356,3 +357,110 @@ static NSHashTable *all_contexts(void)
 }
 
 @end
+
+/* Layer properties SwiftUI sets (through its private-API shims): kept with the layer.
+   Hit testing honours allowsHitTesting; the rest don't change Finch's drawing yet. */
+static const char k_compositing, k_group_blending, k_layout_on_geometry, k_update_mask, k_shadow_bounds, k_no_hit_testing;
+
+static NSNumber *layer_value(CALayer *l, const void *key) { return objc_getAssociatedObject(l, key); }
+static void set_layer_value(CALayer *l, const void *key, NSNumber *v) { objc_setAssociatedObject(l, key, v, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+
+@implementation CALayer (FinchSwiftUIProperties)
+- (BOOL)allowsDisplayCompositing { NSNumber *v = layer_value(self, &k_compositing); return v ? v.boolValue : YES; }
+- (void)setAllowsDisplayCompositing:(BOOL)f { set_layer_value(self, &k_compositing, @(f)); }
+- (BOOL)hasBeenCommitted { return YES; }
+- (BOOL)allowsGroupBlending { NSNumber *v = layer_value(self, &k_group_blending); return v ? v.boolValue : YES; }
+- (void)setAllowsGroupBlending:(BOOL)f { set_layer_value(self, &k_group_blending, @(f)); }
+- (BOOL)needsLayoutOnGeometryChange { NSNumber *v = layer_value(self, &k_layout_on_geometry); return v ? v.boolValue : YES; }
+- (void)setNeedsLayoutOnGeometryChange:(BOOL)f { set_layer_value(self, &k_layout_on_geometry, @(f)); }
+- (uint32_t)disableUpdateMask { return layer_value(self, &k_update_mask).unsignedIntValue; }
+- (void)setDisableUpdateMask:(uint32_t)m { set_layer_value(self, &k_update_mask, @(m)); }
+- (BOOL)shadowPathIsBounds { return layer_value(self, &k_shadow_bounds).boolValue; }
+- (void)setShadowPathIsBounds:(BOOL)f { set_layer_value(self, &k_shadow_bounds, @(f)); }
+- (BOOL)allowsHitTesting { return !layer_value(self, &k_no_hit_testing).boolValue; }
+- (void)setAllowsHitTesting:(BOOL)f { set_layer_value(self, &k_no_hit_testing, f ? nil : @YES); }
+@end
+
+/* A colour matrix (5 x 4 floats) as an NSValue. */
+typedef struct CAColorMatrix {
+    float m11, m12, m13, m14, m15;
+    float m21, m22, m23, m24, m25;
+    float m31, m32, m33, m34, m35;
+    float m41, m42, m43, m44, m45;
+} CAColorMatrix;
+
+@implementation NSValue (FinchCAColorMatrix)
++ (NSValue *)valueWithCAColorMatrix:(CAColorMatrix)m { return [NSValue valueWithBytes:&m objCType:@encode(CAColorMatrix)]; }
+- (CAColorMatrix)CAColorMatrixValue
+{
+    CAColorMatrix m;
+    memset(&m, 0, sizeof m);
+    if (strcmp([self objCType], @encode(CAColorMatrix)) == 0)
+        [self getValue:&m size:sizeof m];
+    return m;
+}
+@end
+
+/* Contents' private properties (SwiftUI's images set them): a swizzle (AAAA draws the alpha
+   alone, as a mask), a colour to multiply the contents by (a template's tint), scaling
+   (stretch or repeat; Finch stretches) and EDR headroom (Finch draws standard range). */
+static const char k_swizzle, k_multiply, k_scaling, k_edr, k_wants_edr;
+
+@implementation CALayer (FinchContentsProperties)
+- (NSString *)contentsSwizzle { return objc_getAssociatedObject(self, &k_swizzle); }
+- (void)setContentsSwizzle:(NSString *)s
+{
+    objc_setAssociatedObject(self, &k_swizzle, s, OBJC_ASSOCIATION_COPY_NONATOMIC);
+    [self setNeedsDisplay];
+}
+- (CGColorRef)contentsMultiplyColor { return (__bridge CGColorRef)objc_getAssociatedObject(self, &k_multiply); }
+- (void)setContentsMultiplyColor:(CGColorRef)c
+{
+    objc_setAssociatedObject(self, &k_multiply, (__bridge id)c, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [self setNeedsDisplay];
+}
+- (NSString *)contentsScaling { return objc_getAssociatedObject(self, &k_scaling) ?: @"stretch"; }
+- (void)setContentsScaling:(NSString *)s { objc_setAssociatedObject(self, &k_scaling, s, OBJC_ASSOCIATION_COPY_NONATOMIC); }
+- (CGFloat)contentsMaximumDesiredEDR { NSNumber *v = objc_getAssociatedObject(self, &k_edr); return v ? v.doubleValue : 1; }
+- (void)setContentsMaximumDesiredEDR:(CGFloat)v { objc_setAssociatedObject(self, &k_edr, @(v), OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+- (BOOL)wantsExtendedDynamicRangeContent { return [objc_getAssociatedObject(self, &k_wants_edr) boolValue]; }
+- (void)setWantsExtendedDynamicRangeContent:(BOOL)f { objc_setAssociatedObject(self, &k_wants_edr, @(f), OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+@end
+
+/* Draws a layer's image contents as its contents properties say (CALayer.m). */
+void
+FinchLayerDrawContentsImage(CALayer *layer, CGContextRef cg, CGRect r, CGImageRef image)
+{
+    CGColorRef multiply = [layer contentsMultiplyColor];
+    BOOL alphaOnly = [[layer contentsSwizzle] isEqualToString:@"AAAA"];
+    if (alphaOnly || multiply) {
+        /* tint off screen: the image, then the colour over it keeping the image's alpha
+           (source-in), or multiplied by it and cut back to the image's alpha */
+        size_t w = CGImageGetWidth(image), h = CGImageGetHeight(image);
+        CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+        CGContextRef off = CGBitmapContextCreate(NULL, w, h, 8, 0, space, (CGBitmapInfo)kCGImageAlphaPremultipliedLast);
+        CGColorSpaceRelease(space);
+        if (off) {
+            CGRect all = CGRectMake(0, 0, w, h);
+            CGContextDrawImage(off, all, image);
+            CGContextSetBlendMode(off, alphaOnly ? kCGBlendModeSourceIn : kCGBlendModeMultiply);
+            if (multiply)
+                CGContextSetFillColorWithColor(off, multiply);
+            else
+                CGContextSetRGBFillColor(off, 1, 1, 1, 1);
+            CGContextFillRect(off, all);
+            if (!alphaOnly) {
+                CGContextSetBlendMode(off, kCGBlendModeDestinationIn);
+                CGContextDrawImage(off, all, image);
+            }
+            CGImageRef tinted = CGBitmapContextCreateImage(off);
+            CGContextRelease(off);
+            if (tinted) {
+                CGContextDrawImage(cg, r, tinted);
+                CGImageRelease(tinted);
+                return;
+            }
+        }
+    }
+    CGContextDrawImage(cg, r, image);
+}

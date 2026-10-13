@@ -131,3 +131,28 @@ word_range(NSString *s, NSUInteger index)
 }
 
 @end
+
+/* SPI SwiftUI's text uses: a substring with its fonts scaled, and whether the string ends a
+   paragraph. */
+@implementation NSAttributedString (FinchUIFoundationPrivate)
+- (NSAttributedString *)_ui_attributedSubstringFromRange:(NSRange)range scaledByScaleFactor:(CGFloat)factor
+{
+    NSMutableAttributedString *m = [[[self attributedSubstringFromRange:range] mutableCopy] autorelease];
+    if (factor != 1 && factor > 0)
+        [m enumerateAttribute:NSFontAttributeName inRange:NSMakeRange(0, m.length) options:0
+                   usingBlock:^(id font, NSRange r, BOOL *stop) {
+                       if (font)
+                           [m addAttribute:NSFontAttributeName value:[font fontWithSize:[font pointSize] * factor] range:r];
+                   }];
+    return m;
+}
+
+- (BOOL)isEmptyOrTerminatedByParagraphSeparator
+{
+    NSString *s = self.string;
+    if (!s.length)
+        return YES;
+    unichar c = [s characterAtIndex:s.length - 1];
+    return c == '\n' || c == '\r' || c == 0x2029 || c == 0x85;
+}
+@end

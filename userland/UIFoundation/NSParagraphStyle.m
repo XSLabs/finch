@@ -8,6 +8,7 @@
  * reorders (centre 1, right 2); writing directions are stored one higher
  * (natural -1 as 0).
  */
+#import <objc/runtime.h>
 #import "UIFoundationInternal.h"
 
 static NSInteger
@@ -831,7 +832,34 @@ NSTextAlignmentFromCTTextAlignment(CTTextAlignment a)
     }
 }
 
-/* Apple's private setter (TextEdit calls it); Finch keeps the style's alignment. */
+/* Apple's private paragraph properties (TextEdit and SwiftUI set them): kept with the style;
+   Finch's layout doesn't use them yet. */
+static const char k_composition, k_fully, k_horizontal, k_spans, k_secondary;
+
+static NSInteger
+private_int(id style, const void *key)
+{
+    return [objc_getAssociatedObject(style, key) integerValue];
+}
+
+static void
+set_private_int(id style, const void *key, NSInteger v)
+{
+    objc_setAssociatedObject(style, key, @(v), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+@implementation NSParagraphStyle (FinchPrivateProperties)
+- (NSInteger)compositionLanguage { return private_int(self, &k_composition); }
+- (BOOL)fullyJustified { return private_int(self, &k_fully) != 0; }
+- (NSInteger)horizontalAlignment { return private_int(self, &k_horizontal); }
+- (BOOL)spansAllLines { return private_int(self, &k_spans) != 0; }
+- (NSLineBreakMode)secondaryLineBreakMode { return (NSLineBreakMode)private_int(self, &k_secondary); }
+@end
+
 @implementation NSMutableParagraphStyle (FinchHorizontalAlignment)
-- (void)setHorizontalAlignment:(NSInteger)a {}
+- (void)setHorizontalAlignment:(NSInteger)a { set_private_int(self, &k_horizontal, a); }
+- (void)setCompositionLanguage:(NSInteger)l { set_private_int(self, &k_composition, l); }
+- (void)setFullyJustified:(BOOL)f { set_private_int(self, &k_fully, f); }
+- (void)setSpansAllLines:(BOOL)f { set_private_int(self, &k_spans, f); }
+- (void)setSecondaryLineBreakMode:(NSLineBreakMode)m { set_private_int(self, &k_secondary, m); }
 @end

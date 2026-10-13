@@ -602,6 +602,10 @@ NSSearchPathForDirectoriesInDomains(NSSearchPathDirectory directory, NSSearchPat
 {
     NSMutableArray *paths = [NSMutableArray array];
     char path[PATH_MAX];
+    /* 0x10000, a private mask (Font Book's library of collections uses it), is the user's
+       own home outside any sandbox container: with no containers, the user domain */
+    if (domainMask & 0x10000)
+        domainMask = (domainMask & ~(NSSearchPathDomainMask)0x10000) | NSUserDomainMask;
     sysdir_search_path_enumeration_state st =
         sysdir_start_search_path_enumeration((sysdir_search_path_directory_t)directory, (sysdir_search_path_domain_mask_t)domainMask);
     while ((st = sysdir_get_next_search_path_enumeration(st, path)) != 0) {
