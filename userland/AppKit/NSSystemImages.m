@@ -1174,6 +1174,16 @@ symbol_glyphs(void)
         add(@"stop", 13, 13, @"stop", ^(CGFloat w, CGFloat h, BOOL f) {
             shape(f, [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(1.5, 1.5, w - 3, h - 3) xRadius:2 yRadius:2]);
         });
+        /* a hammer: a head across the top, a handle down and to the left */
+        add(@"hammer", 18, 17, @"build", ^(CGFloat w, CGFloat h, BOOL f) {
+            POLY(YES, f, w * 0.30, h - 1.5, w * 0.70, h - 1.5, w - 1.5, h - 4.5, w - 1.5, h - 7, w * 0.30, h - 7);
+            POLY(YES, f, w * 0.50, h - 7, w * 0.62, h - 7, w * 0.30, 1.5, w * 0.18, 1.5);
+        });
+        /* a window with its bottom third (a pane) marked */
+        add(@"rectangle.bottomthird.inset", 18, 14, @"pane", ^(CGFloat w, CGFloat h, BOOL f) {
+            rrect(1.5, 1, w - 3, h - 2, 2, NO);
+            rrect(3.5, 3, w - 7, (h - 6) / 3, 1, f);
+        });
         add(@"backward", 18, 12, @"rewind", ^(CGFloat w, CGFloat h, BOOL f) {
             POLY(YES, f, w / 2, 1.5, 1.5, h / 2, w / 2, h - 1.5);
             POLY(YES, f, w - 1.5, 1.5, w / 2, h / 2, w - 1.5, h - 1.5);

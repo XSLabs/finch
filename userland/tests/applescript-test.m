@@ -96,6 +96,7 @@ source_forms(void)
         @"set x to {1,2 , 3}\nif x contains 2 then\nset y to x\nend\n",
         @"on double(n)\nreturn n*2\nend\nrepeat with i from 1 to 3\nset z to double(i) -- twice\nend\n",
         @"tell application \"Finder\"\nset n to 1\nend\n(* done *)\n",
+        @"\n-- top\n\non greet(who)\nreturn \"hi \" & who -- greeting\nend\n\n\ngreet(\"x\")\nrepeat with i from 1 thru 2\nend\n",
         @"try\nerror \"a\" number 3\non error m number n\nset q to {m,n}\nend try\nset r to {name:\"x\", age:3}\n",
     ];
     for (NSString *src in srcs) {

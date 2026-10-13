@@ -160,7 +160,10 @@
         [alert runModal];
 }
 
-- (BOOL)compileScript:(id)sender withUndo:(BOOL)undo
+- (BOOL)compileScript:(id)sender withUndo:(BOOL)undo { return [self compileScript:sender withUndo:undo withErrorDisplay:YES]; }
+
+/* (Script Editor compiles quietly before saving) */
+- (BOOL)compileScript:(id)sender withUndo:(BOOL)undo withErrorDisplay:(BOOL)display
 {
     if (_script && !self._isDirty && _script.isCompiled)
         return YES;
@@ -170,7 +173,8 @@
     BOOL ok = [s compileAndReturnError:&info];
     [self setIsCompiling:NO];
     if (!ok) {
-        [self _presentErrorInfo:info];
+        if (display)
+            [self _presentErrorInfo:info];
         return NO;
     }
     NSString *before = scriptView.string;

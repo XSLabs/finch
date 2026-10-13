@@ -61,6 +61,7 @@ NSDictionary *FinchOSAErrorInfo(ComponentInstance ci, OSAError err);
 @interface OSAScriptController (Finch)
 - (OSAScript *)scriptFromSource;
 - (BOOL)compileScript:(id)sender withUndo:(BOOL)undo;
+- (BOOL)compileScript:(id)sender withUndo:(BOOL)undo withErrorDisplay:(BOOL)display;
 - (NSAppleEventDescriptor *)runScriptReturningResult:(id)sender;
 - (BOOL)isRunning;
 - (BOOL)isStopped;

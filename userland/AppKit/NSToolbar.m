@@ -104,17 +104,42 @@ const CGFloat FinchToolbarHeight = 34;
 - (NSString *)toolTip { return _toolTip; }
 - (void)setToolTip:(NSString *)t { [_toolTip autorelease]; _toolTip = [t copy]; }
 - (NSImage *)image { return _image; }
-- (void)setImage:(NSImage *)i { [_image autorelease]; _image = [i retain]; [_toolbar _finchChanged]; }
+/* With a control for its view, the item passes its image, action, target and state on to it,
+   as Apple's does (Script Editor's toolbar buttons get their symbols this way). */
+- (void)setImage:(NSImage *)i
+{
+    [_image autorelease];
+    _image = [i retain];
+    if ([_view respondsToSelector:@selector(setImage:)])
+        [(id)_view setImage:i];
+    [_toolbar _finchChanged];
+}
 - (NSView *)view { return _view; }
 - (void)setView:(NSView *)v { [_view autorelease]; _view = [v retain]; [_toolbar _finchChanged]; }
 - (id)target { return _target; }
-- (void)setTarget:(id)t { _target = t; }
+- (void)setTarget:(id)t
+{
+    _target = t;
+    if ([_view isKindOfClass:[NSControl class]])
+        [(NSControl *)_view setTarget:t];
+}
 - (SEL)action { return _action; }
-- (void)setAction:(SEL)a { _action = a; }
+- (void)setAction:(SEL)a
+{
+    _action = a;
+    if ([_view isKindOfClass:[NSControl class]])
+        [(NSControl *)_view setAction:a];
+}
 - (NSInteger)tag { return _tag; }
 - (void)setTag:(NSInteger)t { _tag = t; }
 - (BOOL)isEnabled { return _enabled; }
-- (void)setEnabled:(BOOL)f { _enabled = f; [_toolbar _finchChanged]; }
+- (void)setEnabled:(BOOL)f
+{
+    _enabled = f;
+    if ([_view isKindOfClass:[NSControl class]])
+        [(NSControl *)_view setEnabled:f];
+    [_toolbar _finchChanged];
+}
 - (BOOL)autovalidates { return _autovalidates; }
 - (void)setAutovalidates:(BOOL)f { _autovalidates = f; }
 - (BOOL)isBordered { return _bordered; }

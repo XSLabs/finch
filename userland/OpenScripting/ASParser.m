@@ -634,7 +634,8 @@ init_tables(void)
         if ([self accept:@"from"]) {
             n.name = @"range";
             n.args[@"from"] = [self parseExpr];
-            [self expect:@"to"];
+            if (![self accept:@"thru"] && ![self accept:@"through"])
+                [self expect:@"to"];
             n.args[@"to"] = [self parseExpr];
             if ([self accept:@"by"])
                 n.args[@"by"] = [self parseExpr];
@@ -1418,6 +1419,38 @@ gap_text(NSString *src, NSUInteger a, NSUInteger b, BOOL *continued)
     return [[g substringFromIndex:i] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
+/* The text between two lines' terms, line by line: the first part ends the line before
+   (a comment there goes on that line), whole lines in between are kept (blank, or a
+   comment, indented), and the last part starts the next line (returned, a comment before
+   its first term; at the end of the script it's a line of its own). */
+static NSString *
+emit_gap(NSString *src, NSUInteger from, NSUInteger to, NSMutableArray<NSString *> *out, NSUInteger depth, BOOL atEnd)
+{
+    NSString *g = [src substringWithRange:NSMakeRange(from, to - from)];
+    g = [[g stringByReplacingOccurrencesOfString:@"\r\n" withString:@"\n"] stringByReplacingOccurrencesOfString:@"\r" withString:@"\n"];
+    NSArray<NSString *> *parts = [g componentsSeparatedByString:@"\n"];
+    NSCharacterSet *ws = [NSCharacterSet whitespaceCharacterSet];
+    NSString *indent = [@"" stringByPaddingToLength:depth withString:@"\t" startingAtIndex:0];
+    NSString *lead = nil;
+    for (NSUInteger i = 0; i < parts.count; i++) {
+        NSString *p = [parts[i] stringByTrimmingCharactersInSet:ws];
+        BOOL firstPart = i == 0, lastPart = i == parts.count - 1;
+        if (firstPart && out.count && (parts.count > 1 || !atEnd)) {
+            if (p.length)
+                out[out.count - 1] = [NSString stringWithFormat:@"%@ %@", out.lastObject, p];
+            continue;
+        }
+        if (lastPart && !atEnd) {
+            lead = p.length ? p : nil;
+            continue;
+        }
+        if (lastPart && !p.length)
+            continue;
+        [out addObject:p.length ? [indent stringByAppendingString:p] : @""];
+    }
+    return lead;
+}
+
 NSString *
 ASFormatSource(NSString *source)
 {
@@ -1433,12 +1466,7 @@ ASFormatSource(NSString *source)
         while (t < toks.count && toks[t]->type != T_NL && toks[t]->type != T_EOF)
             t++;
         NSArray<ASToken *> *line = [toks subarrayWithRange:NSMakeRange(first, t - first)];
-        /* blank lines (and the newlines between) */
         if (!line.count) {
-            NSString *c = t < toks.count ? gap_text(source, last, toks[t]->range.location, NULL) : nil;
-            if (t < toks.count)
-                last = NSMaxRange(toks[t]->range);
-            [out addObject:c ? [NSString stringWithFormat:@"%@%@", [@"" stringByPaddingToLength:blocks.count withString:@"\t" startingAtIndex:0], c] : @""];
             t++;
             continue;
         }
@@ -1446,15 +1474,13 @@ ASFormatSource(NSString *source)
         NSString *w1 = line.count > 1 && line[1]->type == T_WORD ? line[1]->lower : @"";
         BOOL closes = [w0 isEqualToString:@"end"], reopens = [w0 isEqualToString:@"else"] || ([w0 isEqualToString:@"on"] && [w1 isEqualToString:@"error"]);
         NSUInteger depth = blocks.count - ((closes || reopens) && blocks.count ? 1 : 0);
+        /* what lies between the previous line and this one: its trailing comment, blank
+           lines and comment lines, and a comment before this line's first term */
+        NSString *lead = emit_gap(source, last, line[0]->range.location, out, depth, NO);
         NSMutableString *l = [NSMutableString string];
         [l appendString:[@"" stringByPaddingToLength:depth withString:@"\t" startingAtIndex:0]];
-        /* a leading comment between the previous line and this one */
-        NSString *lead = gap_text(source, last, line[0]->range.location, NULL);
-        if (lead) {
-            [l appendString:lead];
-            [out addObject:l];
-            l = [NSMutableString stringWithString:[@"" stringByPaddingToLength:depth withString:@"\t" startingAtIndex:0]];
-        }
+        if (lead)
+            [l appendFormat:@"%@ ", lead];
         BOOL property = [w0 isEqualToString:@"property"] || [w0 isEqualToString:@"prop"];
         BOOL unary = NO;
         for (NSUInteger i = 0; i < line.count; i++) {
@@ -1485,20 +1511,13 @@ ASFormatSource(NSString *source)
                 unary = !p || (p->type == T_OP && ![p->text isEqualToString:@")"] && ![p->text isEqualToString:@"}"]) ||
                         (p->type == T_WORD && !p->barred && [language_keywords() containsObject:p->lower]);
             }
-            [l appendString:token_text(source, k)];
+            /* (a repeat's range reads "from a to b") */
+            if ([w0 isEqualToString:@"repeat"] && k->type == T_WORD && ([k->lower isEqualToString:@"thru"] || [k->lower isEqualToString:@"through"]))
+                [l appendString:@"to"];
+            else
+                [l appendString:token_text(source, k)];
         }
         last = NSMaxRange(line.lastObject->range);
-        /* a comment ending the line */
-        NSUInteger next = t < toks.count ? toks[t]->range.location : source.length;
-        if (t < toks.count && toks[t]->type == T_EOF)
-            next = source.length;
-        NSString *trail = next > last ? gap_text(source, last, next, NULL) : nil;
-        if (trail)
-            [l appendFormat:@" %@", trail];
-        if (t < toks.count && toks[t]->type == T_NL)
-            last = NSMaxRange(toks[t]->range);
-        else
-            last = next;
         /* blocks */
         if (closes) {
             NSString *b = blocks.lastObject;
@@ -1532,10 +1551,9 @@ ASFormatSource(NSString *source)
         [out addObject:l];
         t++;
     }
-    /* a comment after the last statement */
-    NSString *tail = last < source.length ? gap_text(source, last, source.length, NULL) : nil;
-    if (tail)
-        [out addObject:[NSString stringWithFormat:@"%@%@", [@"" stringByPaddingToLength:blocks.count withString:@"\t" startingAtIndex:0], tail]];
+    /* comments after the last statement */
+    if (last < source.length)
+        emit_gap(source, last, source.length, out, blocks.count, YES);
     while (out.count && !out.lastObject.length)
         [out removeLastObject];
     unichar end = source.length ? [source characterAtIndex:source.length - 1] : 0;

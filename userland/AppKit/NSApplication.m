@@ -498,6 +498,12 @@ dump_view(NSView *v, int depth)
             NSStringFromRect(f).UTF8String, NSStringFromRect(b).UTF8String, NSStringFromRect(inWindow).UTF8String,
             [v isHidden] ? " hidden" : "", [v isOpaque] ? " opaque" : "", [v isFlipped] ? " flipped" : "",
             [v wantsLayer] ? " layer" : "");
+    if ([v isKindOfClass:[NSButton class]]) {
+        NSButton *b = (NSButton *)v;
+        fprintf(stderr, "%*s  title \"%s\" image %s position %ld bezel %ld action %s\n", depth * 2, "", [[b title] UTF8String],
+                [b image] ? NSStringFromSize([[b image] size]).UTF8String : "none", (long)[b imagePosition], (long)[b bezelStyle],
+                [b action] ? sel_getName([b action]) : "-");
+    }
     for (NSView *sub in [v subviews])
         dump_view(sub, depth + 1);
 }

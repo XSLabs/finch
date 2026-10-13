@@ -506,7 +506,9 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           results. Along the way, AppKit: a layout manager's replaced text storage reaches
           its text views, and a split view's collapsed pane stays out of Auto Layout (its
           contents had pushed Script Editor's window ever wider); Verdana maps to Liberation
-          Sans. Still to do: Script Editor's toolbar images, telling applications (Apple
+          Sans; toolbar items pass their image, action, target and state on to a control
+          view, as Apple's do (Script Editor's toolbar buttons); hammer and
+          rectangle.bottomthird.inset symbols. Still to do: telling applications (Apple
           event terminology and sending), reading scripts Apple's AppleScript compiled
           ("FasdUAS"), applets, recording, AppleScriptObjC.
     - [ ] Next: measurement format styles, AppKit's private classes apps link

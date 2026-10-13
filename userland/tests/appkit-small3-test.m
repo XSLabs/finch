@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
 /*
  * AppKit's smaller classes apps link: toolbar items (menu, separator, tracking
- * separator), titlebar and split-view accessory controllers, table row actions, text
+ * separator; an item passing its image, action, target and state to its control), titlebar and split-view accessory controllers, table row actions, text
  * attachment cells and view providers, activity-item previews, the scrubber, the speech
  * synthesizer, and the constants they come with; compared with Apple's.
  */
@@ -38,6 +38,21 @@ main(void)
         printf("tracking separator: %s split %d divider %ld\n", t.itemIdentifier.UTF8String, t.splitView == split, (long)t.dividerIndex);
         t.dividerIndex = 0;
         printf("  divider now %ld\n", (long)t.dividerIndex);
+        NSToolbarItem *bi = [[NSToolbarItem alloc] initWithItemIdentifier:@"button"];
+        NSButton *button = [NSButton buttonWithTitle:@"Button" target:nil action:nil];
+        bi.view = button;
+        bi.image = [NSImage imageWithSystemSymbolName:@"play.fill" accessibilityDescription:nil];
+        bi.action = @selector(terminate:);
+        bi.target = NSApp;
+        bi.enabled = NO;
+        printf("item with a button: image %d position %ld action %s target %d enabled %d title '%s'\n", button.image != nil,
+            (long)button.imagePosition, button.action ? sel_getName(button.action) : "-", button.target == NSApp, button.enabled,
+            button.title.UTF8String);
+        NSButton *later = [NSButton buttonWithTitle:@"Later" target:nil action:nil];
+        NSToolbarItem *li = [[NSToolbarItem alloc] initWithItemIdentifier:@"later"];
+        li.action = @selector(terminate:);
+        li.view = later;
+        printf("  a view set afterwards: action %s\n", later.action ? sel_getName(later.action) : "-");
         NSToolbarItem *sep = [[NSClassFromString(@"NSSeparatorToolbarItem") alloc] initWithItemIdentifier:@"NSToolbarSeparatorItem"];
         printf("separator item: %s %s\n", NSStringFromClass([sep class]).UTF8String, sep.itemIdentifier.UTF8String);
 
