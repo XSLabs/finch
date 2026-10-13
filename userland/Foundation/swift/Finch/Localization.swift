@@ -108,8 +108,11 @@ extension String {
             case int, uint, float, double, object
         }
 
+        /// A key as it is: no arguments, so a % in it is the table's (a format the caller
+        /// fills, as Font Book's "style-count %lld"), as Apple's. Only an interpolation's
+        /// literal text escapes its %.
         public init(_ value: String) {
-            key = value.replacingOccurrences(of: "%", with: "%%")
+            key = value
             arguments = []
         }
 
@@ -233,7 +236,8 @@ extension String {
                 case .attributed(let a): return String(a.characters) as NSString
                 }
             }
-            if args.isEmpty && !format.contains("%") { return format }
+            // without arguments the text is as the table has it, as Apple's (unformatted)
+            if args.isEmpty && (replacements != nil || arguments.isEmpty) { return format }
             return String(format: format, locale: locale, arguments: args)
         }
     }

@@ -14,6 +14,18 @@ struct Node: Identifiable {
 @main
 struct SwiftUIMoreApp: App {
     @StateObject private var library = Library()
+
+    init() {
+        // MORE_LOCTEST=bundle-path: how that bundle's plural strings localize here
+        if let path = ProcessInfo.processInfo.environment["MORE_LOCTEST"], let b = Bundle(path: path) {
+            let raw = b.localizedString(forKey: "style-count %lld", value: nil, table: nil)
+            func print(_ items: Any...) { fputs(items.map { "\($0)" }.joined(separator: " ") + "\n", stderr) }
+            print("loctest localizations:", b.localizations, "preferred:", b.preferredLocalizations,
+                  "current:", Locale.current.identifier, Locale.preferredLanguages)
+            print("loctest raw:", raw, "format:", String(format: raw, 4 as Int64))
+            print("loctest localized:", String(localized: "style-count \(4)", bundle: b))
+        }
+    }
     var body: some Scene {
         WindowGroup("SwiftUI More") {
             More()
@@ -165,6 +177,9 @@ struct More: View {
                 LabeledContent("Search", value: search.isEmpty ? "(none)" : search)
                 LoaderView()
                 LibraryView()
+                if let path = ProcessInfo.processInfo.environment["MORE_LOCTEST"], let b = Bundle(path: path) {
+                    Text("style-count \(4)", bundle: b)
+                }
                 TileGrid()
                 HStack {
                     Label("Favourites", systemImage: "star.fill")

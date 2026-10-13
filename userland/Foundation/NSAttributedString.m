@@ -560,7 +560,7 @@ edit_runs(NSMutableAttributedString *self, NSRange range, void (^edit)(NSMutable
                         locale:(NSLocale *)locale arguments:(va_list)arguments
 {
     NSString *f = [format string];
-    NSString *out = [[[NSString alloc] initWithFormat:f locale:locale arguments:arguments] autorelease];
+    NSString *out = [[[NSString alloc] initWithFormat:FinchLocalizedFormatOf(format) locale:locale arguments:arguments] autorelease];
     NSRange first = [f rangeOfString:@"%"];
     while (first.location != NSNotFound && first.location + 1 < [f length] && [f characterAtIndex:first.location + 1] == '%')
         first = [f rangeOfString:@"%" options:0 range:NSMakeRange(first.location + 2, [f length] - first.location - 2)];

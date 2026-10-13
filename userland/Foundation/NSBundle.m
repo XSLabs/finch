@@ -278,8 +278,11 @@ extern CFStringRef CFBundleCopyLocalizedStringForLocalization(CFBundleRef bundle
         return [self localizedStringForKey:key value:value table:tableName];
     if (!key)
         return value ? value : @"";
-    return [(id)CFBundleCopyLocalizedStringForLocalization(_cf, (CFStringRef)key, (CFStringRef)value, (CFStringRef)tableName,
+    id s = [(id)CFBundleCopyLocalizedStringForLocalization(_cf, (CFStringRef)key, (CFStringRef)value, (CFStringRef)tableName,
                                                            (CFStringRef)localization) autorelease];
+    if ([s isKindOfClass:[NSString class]])
+        return s;
+    return FinchLocalizedStringFromEntry(s, localization) ?: (value ?: key);
 }
 
 - (NSAttributedString *)localizedAttributedStringForKey:(NSString *)key value:(NSString *)value table:(NSString *)tableName
@@ -287,7 +290,9 @@ extern CFStringRef CFBundleCopyLocalizedStringForLocalization(CFBundleRef bundle
 {
     NSString *s = [self localizedStringForKey:key value:value table:tableName localization:localization];
     NSAttributedString *a = _FinchAttributedStringFromInlineMarkdown(s);
-    return a ? [a autorelease] : [[[NSAttributedString alloc] initWithString:s] autorelease];
+    a = a ? [a autorelease] : [[[NSAttributedString alloc] initWithString:s] autorelease];
+    FinchAttachLocalizedFormat(a, s); /* a plural format's rules, for formatting it */
+    return a;
 }
 
 /* The localized string read as inline Markdown, as Apple's does; plain text if it doesn't parse. */
@@ -295,13 +300,19 @@ extern CFStringRef CFBundleCopyLocalizedStringForLocalization(CFBundleRef bundle
 {
     NSString *s = [self localizedStringForKey:key value:value table:tableName];
     NSAttributedString *a = _FinchAttributedStringFromInlineMarkdown(s);
-    return a ? [a autorelease] : [[[NSAttributedString alloc] initWithString:s] autorelease];
+    a = a ? [a autorelease] : [[[NSAttributedString alloc] initWithString:s] autorelease];
+    FinchAttachLocalizedFormat(a, s); /* a plural format's rules, for formatting it */
+    return a;
 }
 
 - (NSString *)localizedStringForKey:(NSString *)key value:(NSString *)value table:(NSString *)tableName
 {
     if (!key) return value ? value : @"";
-    return [(id)CFBundleCopyLocalizedString(_cf, (CFStringRef)key, (CFStringRef)value, (CFStringRef)tableName) autorelease];
+    id s = [(id)CFBundleCopyLocalizedString(_cf, (CFStringRef)key, (CFStringRef)value, (CFStringRef)tableName) autorelease];
+    if ([s isKindOfClass:[NSString class]])
+        return s;
+    /* a plural entry (a dictionary): a string that formats by its rules */
+    return FinchLocalizedStringFromEntry(s, [[self preferredLocalizations] firstObject]) ?: (value ?: key);
 }
 
 /* Every string in a table for a localization (nil: the preferred one), as Apple's gives

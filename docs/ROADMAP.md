@@ -542,8 +542,12 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           popovers) inherits the presenter's environment objects and the app's own
           environment keys; safe-area insets in lists; focusable views draw their content;
           inset rounded rectangles, capsules, ellipses and circles; lazy grids in a scroll
-          view; NSFont's lineHeight. Still to do: the plural "%lld styles" strings
-          (stringsdict), the toolbar's overlapping size label, samples and the font detail
+          view; NSFont's lineHeight. Then plural strings: a table entry with plural rules
+          (stringsdict, in .stringsdict or .loctable) comes back as __NSLocalizedString,
+          and formatting it picks each variable's variant by ICU's plural rules (Apple's
+          open-source CF parses %#@variable@ but has no engine for it); attributed
+          formats keep it; String.LocalizationValue keeps a literal key's %, as Apple's.
+          Still to do: the toolbar's overlapping size label, samples and the font detail
           view, installing and validating fonts; menu commands' `@Environment` values.
     - [ ] Next: measurement format styles, AppKit's private classes apps link
           (NSTokenAttachment, NSTouchDevice, NSButtonGroupTouchBarItem, ...), among others

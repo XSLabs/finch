@@ -28,6 +28,13 @@ CFDictionaryRef FinchFormatOptions(id locale);
  * object's -description (a CFBoolean is "1", not CF's "true"). */
 __attribute__((visibility("hidden")))
 CFStringRef FinchCreateWithFormat(CFDictionaryRef options, CFStringRef format, va_list args);
+/* Localized strings with plural rules (NSStringsDict.m) */
+CFStringRef FinchExpandLocalizedFormat(CFStringRef format, va_list args);
+#ifdef __OBJC__
+NSString *FinchLocalizedStringFromEntry(id entry, NSString *language);
+void FinchAttachLocalizedFormat(NSAttributedString *attributed, NSString *format);
+NSString *FinchLocalizedFormatOf(NSAttributedString *attributed);
+#endif
 
 /* Parse a decimal number in `s` from `start` (NSDecimal.m): the index after
  * it, or NSNotFound if there are no digits there. */

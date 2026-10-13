@@ -91,6 +91,7 @@ copy_description(void *object, const void *options)
 CFStringRef
 FinchCreateWithFormat(CFDictionaryRef options, CFStringRef format, va_list args)
 {
+    format = FinchExpandLocalizedFormat(format, args); /* plural (stringsdict) formats */
     return _CFStringCreateWithFormatAndArgumentsAux2(NULL, copy_description, NULL, options, format, args);
 }
 

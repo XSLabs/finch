@@ -167,7 +167,15 @@
 @implementation NSString (NSStringForSwiftFoundation)
 - (const char *)_fastCStringContents:(BOOL)nullTerminationRequired
 {
-    return CFStringGetCStringPtr((CFStringRef)self, kCFStringEncodingASCII);
+    /* CF answers for its own strings; for any other NSString it asks the string again,
+       which lands here: then there are no fast contents (NULL), as for Apple's subclasses */
+    static __thread BOOL asking;
+    if (asking)
+        return NULL;
+    asking = YES;
+    const char *p = CFStringGetCStringPtr((CFStringRef)self, kCFStringEncodingASCII);
+    asking = NO;
+    return p;
 }
 @end
 
