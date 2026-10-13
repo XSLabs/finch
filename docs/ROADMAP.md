@@ -556,8 +556,13 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           are never empty (Font Book's specimen view took the first). AppKit drains an
           autorelease pool on each pass of the main run loop, as Apple's does; before,
           everything a minute of drawing autoreleased piled up until the next event, which
-          then took seconds to release it. Still to do: opening a family from the grid
-          (clicks reach its tiles but don't select them), the toolbar's segmented picker is wider than
+          then took seconds to release it. Still to do: selecting and opening a family
+          from the grid. Font Book's tiles have no gestures of their own: one tap gesture
+          over the grid takes the click, and the tile under it is found from frames the
+          tiles report (scrollViewContentFrameTracker) against the scroll view's visible
+          rect. Finch's ScrollView hosts its content in a graph of its own, so those frames
+          and the click don't share a coordinate space, and the children's gestures aren't
+          the grid's. The fix is scroll content in the same graph, as Apple's; the toolbar's segmented picker is wider than
           its slot, the font detail view, installing and validating fonts; menu
           commands' `@Environment` values.
     - [ ] Next: measurement format styles, AppKit's private classes apps link
