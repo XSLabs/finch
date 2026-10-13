@@ -186,7 +186,11 @@ struct _FinchAnyFormStyle: @unchecked Sendable {
 
     @MainActor
     init<S: FormStyle>(_ style: S) {
-        body = { configuration in MainActor.assumeIsolated { AnyView(style.makeBody(configuration: configuration)) } }
+        body = { configuration in
+            AnyView(_FinchStyleView(style: style, configuration: configuration) { style, configuration in
+                MainActor.assumeIsolated { AnyView(style.makeBody(configuration: configuration)) }
+            })
+        }
     }
 }
 

@@ -401,13 +401,17 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
   - [ ] TextEdit, its whole scope checked in the VM: new, type, format, save, close,
         reopen, revert, find, rulers, tables, print to PDF, autosave and versions
         (NSFileVersion is missing).
-  - [ ] Calculator: needs Finch's own CalculateUI, SwiftData, TipKit, AppIntents and
-        Network, and 101 more SwiftUI symbols (`tools/check-imports.py`). Calculate, its
-        engine, is Finch's (2026-10-13): an expression tree edited key by key as Apple's
-        is (exponents, roots and functions as sub-expressions, implicit parentheses,
-        delete reopening what it closed), RPN and programmer modes, text expressions and
-        unit conversions. Key sequences compared against Apple's give the same text,
-        tokens and results; Finch computes in doubles where Apple keeps 34 decimal digits.
+  - [ ] Calculator: runs in QEMU (2026-10-13). Every import resolves to Finch's
+        frameworks (`tools/check-imports.py`): its engine, Calculate (an expression tree
+        edited key by key as Apple's is, RPN and programmer modes, text expressions and
+        unit conversions; key sequences compared against Apple's give the same text,
+        tokens and results, though Finch computes in doubles where Apple keeps 34 decimal
+        digits), CalculateUI, SwiftData, TipKit and AppIntents (SwiftData and TipKit
+        match Apple's in host comparisons), and 93 more SwiftUI symbols (Grid, picker
+        content, window styles and levels, asset-catalogue colours and images). The
+        window opens with its keypad and display. Open: the bottom row is clipped, the
+        Mode picker overlaps the display, and typing a calculation leaves the display
+        at zero.
   - [x] Drop-in check: `tools/app-sweep.py` runs the import check over every app and the
         frameworks it carries, and ranks what's missing by apps blocked. Apple's apps are
         recorded in [`docs/APPS.md`](APPS.md) (2026-10-12: 11 of 65 have every import;

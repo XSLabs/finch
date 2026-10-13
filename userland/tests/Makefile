@@ -935,3 +935,16 @@ $(OUT)/finch-calculate-test: calculate-test.swift ../Calculate/include/Calculate
 	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -O -F $(OUT)/calculate-module -o $@ $< \
 	    -Xlinker -F../../build/root/System/Library/PrivateFrameworks -framework Calculate
 	codesign -f -s - -i org.finch.test.calculate $@
+
+# SwiftData and TipKit: run against Apple's frameworks and Finch's.
+all: $(OUT)/finch-swiftdata-test $(OUT)/finch-tipkit-test
+$(OUT)/finch-swiftdata-test: swiftdata-test.swift
+	@mkdir -p $(OUT)
+	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -O -o $@ $<
+	codesign -f -s - -i org.finch.test.swiftdata $@
+$(OUT)/finch-tipkit-test: tipkit-test.swift
+	@mkdir -p $(OUT)
+	cp tipkit-test.swift $(OUT)/main.swift
+	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -O -o $@ $(OUT)/main.swift
+	rm -f $(OUT)/main.swift
+	codesign -f -s - -i org.finch.test.tipkit $@

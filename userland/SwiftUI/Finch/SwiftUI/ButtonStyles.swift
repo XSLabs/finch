@@ -16,7 +16,7 @@ struct _FinchAnyButtonStyle: @unchecked Sendable {
     let body: (PrimitiveButtonStyleConfiguration) -> AnyView
 
     init<S: PrimitiveButtonStyle>(primitive style: S) {
-        body = { AnyView(style.makeBody(configuration: $0)) }
+        body = { AnyView(_FinchStyleView(style: style, configuration: $0) { $0.makeBody(configuration: $1) }) }
     }
 
     init<S: ButtonStyle>(_ style: S) {
@@ -68,9 +68,15 @@ struct _FinchButtonStyleHost<Style: ButtonStyle>: View {
     var style: Style
     var configuration: PrimitiveButtonStyleConfiguration
     @State private var isPressed = false
+    @Environment(\.self) private var environment
 
     var body: some View {
-        style.makeBody(configuration: ButtonStyleConfiguration(isPressed: isPressed, role: configuration.role))
+        // the style's own environment properties read the button's environment
+        EnvironmentValues._finchReading(environment) {
+            _FinchStyleView(style: style, configuration: ButtonStyleConfiguration(isPressed: isPressed, role: configuration.role)) {
+            $0.makeBody(configuration: $1)
+        }
+        }
             .viewAlias(ButtonStyleConfiguration.Label.self) { configuration.label }
             .overlay(_FinchPressTracker(isPressed: $isPressed, action: configuration.trigger))
     }

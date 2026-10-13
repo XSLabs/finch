@@ -28,7 +28,15 @@ enum _FinchWindows {
     static func open(_ item: SceneList.Item) -> NSWindowController {
         Update.begin()
         defer { Update.end() }
-        let hostingVC = NSHostingController(rootView: item.value.view.rootEnvironment())
+        // The scene stores app values, including environment objects, separately from its view.
+        let rootView = item.value.view
+            ._finchInheriting(item.environment)
+            .rootEnvironment()
+        let hostingVC = NSHostingController(rootView: rootView)
+        let initialSize = initialContentSize(for: hostingVC)
+        hostingVC.preferredContentSize = initialSize
+        hostingVC.view.setFrameSize(initialSize)
+        dumpViewSize("initial preferred", initialSize)
         let windowVC = WindowController(hostingVC)
         let title: String
         if case let .windowGroup(configuration) = item.value, let text = configuration.title {
@@ -37,14 +45,30 @@ enum _FinchWindows {
             title = currentAppName()
         }
         windowVC.window?.title = title
+        if let window = windowVC.window { _FinchWindowOptions.current.apply(to: window) }
+        if shouldDumpViewSizing {
+            dumpWindowSizing("pre-show", hostingVC: hostingVC, window: windowVC.window, preferred: initialSize,
+                             fitting: hostingVC.view.fittingSize)
+        }
         windowVC.showWindow(nil)
         // the window at its content's size, centered (a window opened later doesn't take it
         // from its controller by itself)
         if let window = windowVC.window {
             let size = hostingVC.view.fittingSize
-            if size.width > 0, size.height > 0, window.contentRect(forFrameRect: window.frame).size != size {
+            dumpWindowSizing("post-show", hostingVC: hostingVC, window: window, preferred: initialSize, fitting: size)
+            if size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0,
+               window.contentRect(forFrameRect: window.frame).size != size {
                 window.setContentSize(size)
                 window.center()
+            }
+            dumpWindowSizing("post-size", hostingVC: hostingVC, window: window, preferred: initialSize, fitting: size)
+            if shouldDumpViewSizing {
+                let measured = hostingVC.host.sizeThatFits(_ProposedSize(width: window.contentView?.bounds.width, height: nil))
+                dumpViewSize("post-show measured at window width", measured)
+                DispatchQueue.main.async {
+                    let measured = hostingVC.host.sizeThatFits(_ProposedSize(width: window.contentView?.bounds.width, height: nil))
+                    dumpViewSize("next-turn measured at window width", measured)
+                }
             }
         }
         // and again: showing the window titles it after its controller
@@ -52,6 +76,58 @@ enum _FinchWindows {
         open.removeAll { $0.controller.window?.isVisible != true }
         open.append((item.id, windowVC))
         return windowVC
+    }
+
+    /// Gives AppKit a finite starting size before it asks the hosting view for its intrinsic size.
+    private static func initialContentSize<Content: View>(for hostingVC: NSHostingController<Content>) -> NSSize {
+        let visibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? .zero
+        let proposalWidth = visibleFrame.width.isFinite && visibleFrame.width > 0
+            ? min(500, visibleFrame.width)
+            : 500
+        let proposalHeight = visibleFrame.height.isFinite && visibleFrame.height > 0
+            ? min(600, visibleFrame.height)
+            : 600
+        let natural = hostingVC.host.sizeThatFits(_ProposedSize(width: proposalWidth, height: nil))
+        dumpViewSize("natural", natural)
+        if natural.width.isFinite, natural.width > 0, natural.height.isFinite, natural.height > 0 {
+            return NSSize(width: natural.width, height: natural.height)
+        }
+
+        // Some flexible roots have no natural height. Measure them again inside a finite viewport.
+        let viewport = hostingVC.host.sizeThatFits(_ProposedSize(width: proposalWidth, height: proposalHeight))
+        dumpViewSize("viewport", viewport)
+        let width = viewport.width.isFinite && viewport.width > 0 ? viewport.width : proposalWidth
+        let height = viewport.height.isFinite && viewport.height > 0 ? viewport.height : proposalHeight
+        return NSSize(width: width, height: height)
+    }
+
+    private static var shouldDumpViewSizing: Bool {
+        ProcessInfo.processInfo.environment["FINCH_DUMP_VIEWS"] == "1"
+    }
+
+    private static func dumpViewSize(_ label: String, _ size: NSSize) {
+        guard shouldDumpViewSizing else { return }
+        writeSizeTrace("FINCH_DUMP_VIEWS \(label): \(String(describing: size))")
+    }
+
+    private static func writeSizeTrace(_ message: String) {
+        FileHandle.standardError.write(Data((message + "\n").utf8))
+    }
+
+    private static func dumpWindowSizing<Content: View>(
+        _ label: String,
+        hostingVC: NSHostingController<Content>,
+        window: NSWindow?,
+        preferred: NSSize,
+        fitting: NSSize
+    ) {
+        guard shouldDumpViewSizing else { return }
+        let frameSize = window.map { String(describing: $0.frame.size) } ?? "nil"
+        let contentSize = window.map { String(describing: $0.contentRect(forFrameRect: $0.frame).size) } ?? "nil"
+        writeSizeTrace("FINCH_DUMP_VIEWS \(label): preferred=\(String(describing: preferred)) " +
+              "frame=\(frameSize) content=\(contentSize) " +
+              "view=\(String(describing: hostingVC.view.frame.size)) " +
+              "fitting=\(String(describing: fitting))")
     }
 
     /// The window the app opens as it launches: its first window scene's.

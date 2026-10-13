@@ -867,7 +867,7 @@ check_chrome(NSWindow *w, NSRect *last)
         [_frameView addSubview:view positioned:NSWindowBelow relativeTo:nil];  /* under the title bar and toolbar */
         [view setNextResponder:self];
         if (_firstResponder == old && old)
-            _firstResponder = self;
+            [self _finchResetFirstResponder];
     }
     [_frameView setNeedsDisplay:YES];
 }
@@ -919,22 +919,31 @@ check_chrome(NSWindow *w, NSRect *last)
     NSResponder *old = _firstResponder;
     if (old && old != self && ![old resignFirstResponder])
         return NO;
-    _firstResponder = self;
-    if (!responder || responder == self)
+    [self willChangeValueForKey:@"firstResponder"];
+    @try {
+        _firstResponder = self;
+        if (!responder || responder == self)
+            return YES;
+        if ([responder isKindOfClass:[NSView class]] && [(NSView *)responder window] != self)
+            return YES;
+        if (![responder becomeFirstResponder])
+            return NO;
+        /* Unless becoming first responder handed it on (a text field to its field editor). */
+        if (_firstResponder == self)
+            _firstResponder = responder;
         return YES;
-    if ([responder isKindOfClass:[NSView class]] && [(NSView *)responder window] != self)
-        return YES;
-    if (![responder becomeFirstResponder])
-        return NO;
-    /* Unless becoming first responder handed it on (a text field to its field editor). */
-    if (_firstResponder == self)
-        _firstResponder = responder;
-    return YES;
+    } @finally {
+        [self didChangeValueForKey:@"firstResponder"];
+    }
 }
 
 - (void)_finchResetFirstResponder
 {
+    if (_firstResponder == self)
+        return;
+    [self willChangeValueForKey:@"firstResponder"];
     _firstResponder = self;
+    [self didChangeValueForKey:@"firstResponder"];
 }
 
 - (void)selectNextKeyView:(id)sender
@@ -1025,8 +1034,8 @@ check_chrome(NSWindow *w, NSRect *last)
 {
     NSRect content = [self contentRectForFrameRect:_frame];
     _style = style;
-    _frame = [self frameRectForContentRect:content];
-    [self setFrame:_frame display:YES];
+    NSRect frame = [self frameRectForContentRect:content];
+    [self setFrame:frame display:YES];
     [self _finchToolbarChangedFrom:chrome_height(self)];  /* the toolbar's row and the title bar overlay */
     chrome_changed(self);
 }
@@ -1982,8 +1991,10 @@ track(NSView *view, NSPoint inWindow, NSEvent *event, NSInteger window, BOOL inW
     unichar c = [chars characterAtIndex:0];
     if (c != '\t' && c != 0x19)
         return NO;
-    if ([_firstResponder isKindOfClass:[NSView class]] && [_firstResponder respondsToSelector:@selector(insertText:)] &&
-        ![_firstResponder isKindOfClass:FINCH_CLASS(NSControl)])
+    /* NSResponder supplies insertText:, so that selector cannot distinguish
+     * an editor from an ordinary focusable view. */
+    if ([_firstResponder isKindOfClass:FINCH_CLASS(NSTextView)] ||
+        [_firstResponder conformsToProtocol:@protocol(NSTextInputClient)])
         return NO;  /* a text view takes its tabs */
     if (c == 0x19 || ([event modifierFlags] & NSEventModifierFlagShift))
         [self selectPreviousKeyView:self];

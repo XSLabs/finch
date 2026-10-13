@@ -4,7 +4,8 @@
 # (_sl_dlopen), PerformanceAnalysis (operation marks), ConfigurationProfiles (a
 # notification name), UIKitMacHelper (no Catalyst delegate), ChronoServices (timeline
 # reloads), UserManagement (no personas) and AppSupport (bitmap files, log flushing, no
-# city database, no radios). Each file's comment says what it does.
+# city database, no radios) and TextInputUI (empty: apps link it and use nothing). Each
+# file's comment says what it does.
 #   userland/SmallPrivate/build.sh -> build/root/System/Library/PrivateFrameworks/<name>.framework
 set -euo pipefail
 FINCH_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -22,3 +23,4 @@ OBJC_ARC=1 "$B" $P/UserManagement.framework/Versions/A/UserManagement 1 1 com.ap
     -- -framework Foundation
 OBJC_ARC=1 "$B" $P/AppSupport.framework/Versions/A/AppSupport 1 1 com.apple.AppSupport 1.0 "${HERE}/AppSupport.m" \
     -- -framework Foundation -framework ImageIO -framework CoreGraphics
+"$B" $P/TextInputUI.framework/Versions/A/TextInputUI 1 1 com.apple.TextInputUI 1.0 "${HERE}/TextInputUI.c"

@@ -143,6 +143,13 @@ steps=(
     "MagnifierSupport|userland/MagnifierSupport/build.sh"
     # Calculate (private): Calculator's engine (keys, evaluation, units)
     "Calculate|userland/Calculate/build.sh"
+    # what Calculator links besides: CalculateUI (private: its expression views), SwiftData,
+    # TipKit, AppIntents, AXCoreUtilities (private)
+    "CalculateUI|userland/CalculateUI/build.sh"
+    "SwiftData|userland/SwiftData/build.sh"
+    "TipKit|userland/TipKit/build.sh"
+    "AppIntents|userland/AppIntents/build.sh"
+    "AXCoreUtilities|userland/AXCoreUtilities/build.sh"
     # Network (the path monitor) and MobileAsset (empty asset catalogs): what Font Book links besides
     "Network|userland/Network/build.sh"
     "MobileAsset|userland/MobileAsset/build.sh"

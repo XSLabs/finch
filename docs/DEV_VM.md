@@ -213,7 +213,8 @@ Other switches for an AppKit app (they work on the host too):
   times (100) 20 ms apart and prints the functions seen, most frequent first (inclusive,
   then leaf), and how long five blocks sent to the main queue waited. For an app that is
   busy rather than blocked.
-- `FINCH_DUMP_THREADS=SECONDS`: every thread's stack, once.
+- `FINCH_DUMP_THREADS=SECONDS`: every thread's stack, once (timed from when AppKit loads).
+- `FINCH_TRACE_EXIT=1`: the stack of whatever calls exit().
 - `FINCH_DUMP_VIEWS=SECONDS`: each window's view tree, with buttons' titles, images and
   actions.
 - `FINCH_SWIFTUI_WARNINGS=1`: SwiftUI's runtime warnings on stderr.

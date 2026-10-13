@@ -79,7 +79,7 @@ struct _FinchDefaultGroupBoxStyle: GroupBoxStyle {
 struct _FinchAnyGroupBoxStyle {
     let body: (GroupBoxStyleConfiguration) -> AnyView
     init<S: GroupBoxStyle>(_ style: S) {
-        body = { AnyView(style.makeBody(configuration: $0)) }
+        body = { AnyView(_FinchStyleView(style: style, configuration: $0) { $0.makeBody(configuration: $1) }) }
     }
 }
 

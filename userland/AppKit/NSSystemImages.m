@@ -1075,6 +1075,34 @@ symbol_glyphs(void)
         add(@"minus", 14, 4, @"remove", ^(CGFloat w, CGFloat h, BOOL f) { line(1.5, h / 2, w - 1.5, h / 2); });
         add(@"xmark", 12, 12, @"close", ^(CGFloat w, CGFloat h, BOOL f) { cross(w / 2, h / 2, w / 2 - 1.5); });
         alias(@"multiply", @"xmark");
+        add(@"equal", 13, 8, nil, ^(CGFloat w, CGFloat h, BOOL f) {
+            line(1.5, 1.5, w - 1.5, 1.5);
+            line(1.5, h - 1.5, w - 1.5, h - 1.5);
+        });
+        add(@"divide", 15, 12, nil, ^(CGFloat w, CGFloat h, BOOL f) {
+            line(1.5, h / 2, w - 1.5, h / 2);
+            [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(w / 2 - 1, 0, 2, 2)] fill];
+            [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(w / 2 - 1, h - 2, 2, 2)] fill];
+        });
+        add(@"percent", 16, 15, nil, ^(CGFloat w, CGFloat h, BOOL f) {
+            line(3, 1.5, w - 3, h - 1.5);
+            shape(NO, [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(1, h - 6, 4, 4)]);
+            shape(NO, [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(w - 5, 2, 4, 4)]);
+        });
+        add(@"plusminus", 12, 13, @"plus or minus", ^(CGFloat w, CGFloat h, BOOL f) {
+            plus(w / 2, h - 4, 3.5);
+            line(2, 1.5, w - 2, 1.5);
+        });
+        add(@"plus.forwardslash.minus", 17, 14, nil, ^(CGFloat w, CGFloat h, BOOL f) {
+            plus(4, h - 4, 2.5);
+            line(5, 1.5, w - 5, h - 1.5);
+            line(w - 6, 4, w - 1, 4);
+        });
+        add(@"delete.left", 17, 14, @"delete", ^(CGFloat w, CGFloat h, BOOL f) {
+            POLY(YES, NO, 1, h / 2, 6, h - 1.5, w - 1.5, h - 1.5, w - 1.5, 1.5, 6, 1.5);
+            cross(w * 0.64, h / 2, 2.5);
+        });
+        alias(@"delete.backward", @"delete.left");
         add(@"checkmark", 14, 13, @"checkmark", ^(CGFloat w, CGFloat h, BOOL f) { POLY(NO, NO, 1.5, h * 0.48, w * 0.38, 1.5, w - 1.5, h - 1.5); });
         add(@"exclamationmark", 4, 14, @"alert", ^(CGFloat w, CGFloat h, BOOL f) {
             line(w / 2, h * 0.38, w / 2, h - 1.5);

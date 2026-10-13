@@ -15,7 +15,8 @@ main(void)
 {
     @autoreleasepool {
         NSArray *names = @[@"star", @"star.fill", @"heart.fill", @"xmark", @"xmark.circle.fill", @"checkmark.circle", @"info.circle",
-                           @"plus.circle.fill", @"trash", @"trash.fill", @"folder.badge.plus", @"eye.slash", @"speaker.slash.fill",
+                           @"plus.circle.fill", @"equal", @"divide", @"percent", @"plusminus", @"plus.forwardslash.minus", @"delete.left", @"delete.backward",
+                           @"trash", @"trash.fill", @"folder.badge.plus", @"eye.slash", @"speaker.slash.fill",
                            @"gearshape.2", @"person.crop.circle.fill", @"square.and.arrow.up", @"magnifyingglass", @"chevron.right",
                            @"doc", @"doc.badge.gearshape", @"calculator", @"arrow.clockwise", @"play.fill", @"pause.circle.fill", @"lock.fill", @"printer", @"film",
                            @"nonexistent.symbol", @"", @"star.fill.fill"];

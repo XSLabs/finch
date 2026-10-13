@@ -9,6 +9,8 @@
  * mode asked for until a matching event is queued; windows that need it
  * are redrawn before the run loop waits, as on macOS.
  */
+#include <execinfo.h>
+#include <pthread.h>
 #import "NSMenu_Finch.h"
 #import "NSStoryboard_Finch.h"
 #include <dlfcn.h>
@@ -677,27 +679,74 @@ sample_main_thread(thread_t main, int samples)
     }
 }
 
+/* FINCH_TRACE_EXIT=1: the stack of whatever ends the process with exit(), on stderr. */
+static void
+trace_exit(void)
+{
+    void *frames[64];
+    int n = backtrace(frames, 64);
+    fprintf(stderr, "exit, from:\n");
+    for (int i = 1; i < n; i++) {
+        Dl_info info;
+        if (dladdr(frames[i], &info) && info.dli_fname)
+            fprintf(stderr, "  %2d %s %s + %ld\n", i, strrchr(info.dli_fname, '/') ? strrchr(info.dli_fname, '/') + 1 : info.dli_fname,
+                    info.dli_sname ?: "?", (long)((char *)frames[i] - (char *)(info.dli_saddr ?: info.dli_fbase)));
+        else
+            fprintf(stderr, "  %2d %p\n", i, frames[i]);
+    }
+}
+
+/* The thread and main-thread sampling switches start as AppKit loads (on the main thread),
+   so they see an app that never gets as far as launching. */
+static thread_t sampledMainThread;
+
+/* On a thread of their own, not dispatch's: they still run when every dispatch worker is
+   blocked (a deadlock is what they're often for). */
+static void *
+thread_sampling(void *arg)
+{
+    const char *sampleEnv = getenv("FINCH_PROFILE_MAIN");
+    const char *threadsEnv = getenv("FINCH_DUMP_THREADS");
+    double sampleAt = sampleEnv ? atof(sampleEnv) : -1, dumpAt = threadsEnv ? atof(threadsEnv) : -1;
+    double now = 0;
+    for (int step = 0; step < 2; step++) {
+        double next = sampleAt >= 0 && (dumpAt < 0 || sampleAt <= dumpAt) ? sampleAt : dumpAt;
+        if (next < 0)
+            break;
+        if (next > now)
+            usleep((useconds_t)((next - now) * 1e6));
+        now = next;
+        if (next == sampleAt) {
+            const char *comma = strchr(sampleEnv, ',');
+            int samples = comma ? atoi(comma + 1) : 100;
+            @autoreleasepool {
+                sample_main_thread(sampledMainThread, samples > 0 ? samples : 100);
+            }
+            sampleAt = -1;
+        } else {
+            dump_threads();
+            dumpAt = -1;
+        }
+    }
+    return NULL;
+}
+
+__attribute__((constructor)) static void
+schedule_thread_sampling(void)
+{
+    if (getenv("FINCH_PROFILE_MAIN") || getenv("FINCH_DUMP_THREADS")) {
+        sampledMainThread = mach_thread_self();
+        pthread_t t;
+        pthread_create(&t, NULL, thread_sampling, NULL);
+        pthread_detach(t);
+    }
+    if (getenv("FINCH_TRACE_EXIT"))
+        atexit(trace_exit);
+}
+
 static void
 schedule_view_dump(void)
 {
-    const char *sampleEnv = getenv("FINCH_PROFILE_MAIN");
-    if (sampleEnv) {
-        thread_t main = mach_thread_self();
-        const char *comma = strchr(sampleEnv, ',');
-        int samples = comma ? atoi(comma + 1) : 100;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(atof(sampleEnv) * NSEC_PER_SEC)),
-                       dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^{
-                           @autoreleasepool {
-                               sample_main_thread(main, samples > 0 ? samples : 100);
-                           }
-                       });
-    }
-    const char *threadsEnv = getenv("FINCH_DUMP_THREADS");
-    if (threadsEnv)
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(atof(threadsEnv) * NSEC_PER_SEC)),
-                       dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^{
-                           dump_threads();
-                       });
     const char *env = getenv("FINCH_DUMP_VIEWS");
     if (!env)
         return;

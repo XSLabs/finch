@@ -41,6 +41,128 @@ KINDS = [
 
 # (file, upstream code, Finch's): fixes to upstream code
 FIXES = [
+    # which environment lacks an object: its keys, in the failure (FINCH_ENV_OBJECT_DEBUG=1)
+    ('SwiftUICore/Data/Combine/Environment+Objects.swift',
+     '''#else
+import Combine
+#endif
+''',
+     '''#else
+import Combine
+#endif
+import Darwin
+'''),
+    ('SwiftUICore/Data/Combine/Environment+Objects.swift',
+     '''            guard let object = self[key] else {
+                preconditionFailure(''',
+     '''            guard let object = self[key] else {
+                if getenv("FINCH_ENV_OBJECT_DEBUG") != nil {
+                    var names: [String] = []
+                    plist.elements?.forEach(filter: BloomFilter()) { element, _ in
+                        names.append(String(reflecting: element.takeUnretainedValue().keyType))
+                    }
+                    fputs("environment without \\(ObjectType.self): \\(names.joined(separator: ", "))\\n", stderr)
+                }
+                preconditionFailure('''),
+    # an @Environment property read outside a view's graph (Finch reads menu commands' content
+    # so) reads `EnvironmentValues()`: while Finch reads them, that's the scene's environment
+    ('SwiftUICore/Data/Environment/EnvironmentValues.swift',
+     '''    public init() {
+        _plist = PropertyList()
+        tracker = nil
+        CoreGlue2.shared.configureEmptyEnvironment(&self)
+    }''',
+     '''    public init() {
+        if let unbound = EnvironmentValues._finchUnbound {
+            self = unbound
+            return
+        }
+        _plist = PropertyList()
+        tracker = nil
+        CoreGlue2.shared.configureEmptyEnvironment(&self)
+    }
+
+    /// What an environment property outside any view's graph reads, while Finch reads content
+    /// so (on the main thread).
+    package nonisolated(unsafe) static var _finchUnbound: EnvironmentValues?
+
+    /// Runs `body` with environment properties outside a graph (a style's) reading `environment`.
+    package static func _finchReading<T>(_ environment: EnvironmentValues, _ body: () -> T) -> T {
+        let previous = _finchUnbound
+        _finchUnbound = environment
+        defer { _finchUnbound = previous }
+        return body()
+    }'''),
+    # Xcode's asset symbols (Color(.accent), Image(.icon)): the resource's name and bundle, read
+    # from Finch's DeveloperToolsSupport (the SDK's interface doesn't show them)
+    ('SwiftUICore/Graphic/Color/NamedColor.swift',
+     '''    public init(_ resource: ColorResource) {
+        _openSwiftUIUnimplementedFailure()
+    }''',
+     '''    public init(_ resource: ColorResource) {
+        let (name, bundle) = _finchNamedResource(resource)
+        self.init(provider: _FinchAssetColor(name: name ?? "", bundle: bundle))
+    }
+}
+
+import CoreGraphics
+import Foundation
+
+/// A colour from an asset catalogue, as AppKit has it (+[NSColor colorNamed:bundle:], reached
+/// through the Objective-C runtime: AppKit's Swift overlay imports SwiftUICore), in the light
+/// or dark appearance the environment's colour scheme calls for.
+private struct _FinchAssetColor: ColorProvider {
+    var name: String
+    var bundle: Bundle?
+
+    var nsColor: AnyObject? {
+        guard let cls = NSClassFromString("NSColor") as? NSObject.Type else { return nil }
+        let sel = NSSelectorFromString("colorNamed:bundle:")
+        guard cls.responds(to: sel) else { return nil }
+        return cls.perform(sel, with: name, with: bundle ?? Bundle.main)?.takeUnretainedValue()
+    }
+
+    func resolve(in environment: EnvironmentValues) -> Color.Resolved {
+        guard let color = nsColor as? NSObject,
+              let appearanceClass = NSClassFromString("NSAppearance") as? NSObject.Type else { return .clear }
+        let named = environment.colorScheme == .dark ? "NSAppearanceNameDarkAqua" : "NSAppearanceNameAqua"
+        let appearance = appearanceClass.perform(NSSelectorFromString("appearanceNamed:"), with: named)?.takeUnretainedValue()
+        let current = appearanceClass.perform(NSSelectorFromString("currentAppearance"))?.takeUnretainedValue()
+        _ = appearanceClass.perform(NSSelectorFromString("setCurrentAppearance:"), with: appearance)
+        defer { _ = appearanceClass.perform(NSSelectorFromString("setCurrentAppearance:"), with: current) }
+        guard let cg = color.perform(NSSelectorFromString("CGColor"))?.takeUnretainedValue() else { return .clear }
+        return Color.Resolved(failableCGColor: cg as! CGColor) ?? .clear
+    }
+
+    var kitColor: AnyObject? { nsColor }
+
+    var colorDescription: String { "Asset(\\(name))" }'''),
+    ('SwiftUICore/View/Image/NamedImage.swift',
+     '''    public init(_ resource: ImageResource) {
+        _openSwiftUIUnimplementedFailure()
+    }
+}''',
+     '''    public init(_ resource: ImageResource) {
+        let (name, bundle) = _finchNamedResource(resource)
+        self.init(name ?? "", bundle: bundle)
+    }
+}
+
+/// A resource's asset name and bundle, found in its stored properties.
+package func _finchNamedResource(_ resource: Any) -> (String?, Bundle?) {
+    var name: String?
+    var bundle: Bundle?
+    func visit(_ value: Any, depth: Int) {
+        guard depth < 6 else { return }
+        for child in Mirror(reflecting: value).children {
+            if child.label == "name", let s = child.value as? String { name = s }
+            if child.label == "bundle", let b = child.value as? Bundle { bundle = b }
+            visit(child.value, depth: depth + 1)
+        }
+    }
+    visit(resource, depth: 0)
+    return (name, bundle)
+}'''),
     # the storage type's metadata accessor was called through a C function pointer made from
     # its address, which isn't signed on arm64e: ask for the type through a generic instead
     ('SwiftUICore/Runtime/ConditionalMetadata.swift',
@@ -351,28 +473,258 @@ extension _InsetViewModifier: Sendable {}''',
 extension _InsetViewModifier: Sendable {}
 
 extension _InsetViewModifier: UnaryViewModifier {}'''),
-    # focusable views draw their content (Finch doesn't track SwiftUI focus or draw its ring yet)
+    # create a SwiftUI responder and an AppKit focus anchor for focusable views
     ('SwiftUI/Event/Focus/Focusable.swift',
-     '''        body: @escaping (_Graph, _ViewInputs) -> _ViewOutputs
-    ) -> _ViewOutputs {
-        #if os(macOS)
+     '''if !modifier.isFocusable || focusDisabled {
+                        viewGraph?[FocusViewGraph.self]?.pointee.needsFocusUpdate = true''',
+     '''if !modifier.isFocusable || !isEnabled || focusDisabled {
+                        viewGraph?[FocusViewGraph.self]?.pointee.needsFocusUpdate = true'''),
+    ('SwiftUI/Event/Focus/Focusable.swift',
+     '''        #if os(macOS)
         _openSwiftUIUnimplementedFailure()
         #else
         _openSwiftUIUnimplementedFailure()
         #endif
     }
-}
-
-@available(*, unavailable)
-extension _FocusableModifier: Sendable {}''',
-     '''        body: @escaping (_Graph, _ViewInputs) -> _ViewOutputs
-    ) -> _ViewOutputs {
-        body(_Graph(), inputs)
+}''',
+     '''        var newInputs = inputs
+        newInputs.preferences.requiresViewResponders = true
+        newInputs.transform = Attribute(FocusCoordinateSpaceTransform(
+            transform: inputs.transform,
+            position: inputs.animatedPosition()
+        ))
+        let options = Attribute(ResolvedOptions(
+            modifier: modifier.value,
+            environment: inputs.environment
+        ))
+        let item = Attribute(UpdateViewFocusItem(
+            modifier: modifier.value,
+            options: options,
+            inputs: newInputs
+        ))
+        let responder = FocusableViewResponder(inputs: newInputs)
+        let isEnabled = Attribute(value: !newInputs.archivedView.isArchived && !newInputs[UsingGraphicsRenderer.self])
+        let focusEffect = Attribute(UpdateFocusEffectView(
+            isEnabled: isEnabled,
+            responder: responder
+        ))
+        var outputs = makeSecondaryLayerView(
+            secondaryLayer: focusEffect,
+            alignment: Attribute(value: Alignment.center),
+            inputs: newInputs,
+            body: body,
+            flipOrder: false
+        )
+        let responderFilter = Attribute(UpdateFocusableViewResponder(
+            inputs: newInputs,
+            outputs: outputs,
+            item: item,
+            responder: responder
+        ))
+        outputs.preferences.viewResponders = responderFilter
+        return outputs
     }
 }
 
 @available(*, unavailable)
 extension _FocusableModifier: Sendable {}'''),
+    ('SwiftUI/Event/Focus/Focusable.swift',
+     '''private class FocusableViewResponder: DefaultLayoutViewResponder, FocusResponder {''',
+     '''class FocusableViewResponder: DefaultLayoutViewResponder, FocusResponder {'''),
+    ('SwiftUI/Event/Focus/Focusable.swift',
+     '''    @Attribute var geometry: ContentResponderHelper<TrivialContentResponder>
+    @Attribute var children: [ViewResponder]
+    @Attribute var isEnabled: Bool''',
+     '''    @Attribute var size: ViewSize
+    @Attribute var position: ViewOrigin
+    @Attribute var transform: ViewTransform
+    @Attribute var children: [ViewResponder]
+    @Attribute var isEnabled: Bool
+    @Attribute var focusDisabled: Bool'''),
+    ('SwiftUI/Event/Focus/Focusable.swift',
+     '''        item: Attribute<FocusItem.ViewItem>,
+        geometry: Attribute<ContentResponderHelper<TrivialContentResponder>>,
+        responder: FocusableViewResponder
+    ) {
+        _item = item
+        _geometry = geometry
+        _children = outputs.viewResponders()
+        _isEnabled = inputs.base.isEnabled''',
+     '''        item: Attribute<FocusItem.ViewItem>,
+        responder: FocusableViewResponder
+    ) {
+        _item = item
+        _size = inputs.animatedSize()
+        _position = inputs.animatedPosition()
+        _transform = inputs.transform
+        _children = outputs.viewResponders()
+        _isEnabled = inputs.base.isEnabled
+        _focusDisabled = inputs.base.focusDisabled'''),
+    ('SwiftUI/Event/Focus/Focusable.swift',
+     '''        let (geometry, geometryChanged) = $geometry.changedValue()
+        let (isEnabled, isEnabledChanged) = $isEnabled.changedValue()
+        responder.baseItem = item''',
+     '''        let (size, sizeChanged) = $size.changedValue()
+        let (position, positionChanged) = $position.changedValue()
+        let (transform, transformChanged) = $transform.changedValue()
+        let (isEnabled, isEnabledChanged) = $isEnabled.changedValue()
+        let (focusDisabled, focusDisabledChanged) = $focusDisabled.changedValue()
+        responder.baseItem = item'''),
+    ('SwiftUI/Event/Focus/Focusable.swift',
+     '''        if geometryChanged || !hasValue {
+            responder.geometry = geometry
+        }
+        if isEnabledChanged || !hasValue {
+            responder.isEnabled = isEnabled
+        }''',
+     '''        responder.geometry.update(
+            data: (value: TrivialContentResponder(), changed: !hasValue),
+            size: (value: size, changed: sizeChanged),
+            position: (value: position, changed: positionChanged),
+            transform: (value: transform, changed: transformChanged),
+            parent: responder
+        )
+        if isEnabledChanged || !hasValue {
+            responder.isEnabled = isEnabled
+        }
+        if focusDisabledChanged || !hasValue {
+            responder.isFocusDisabled = focusDisabled
+        }'''),
+    ('SwiftUI/Event/Focus/FocusEffectView.swift',
+     '''        let view = _FocusRingView(responder: responder)''',
+     '''        let view = FinchFocusKeyView(responder: responder)'''),
+    ('SwiftUI/Event/Focus/FocusBridge.swift',
+     '''    var flags: Flags
+
+    #if os(macOS)''',
+     '''    var flags: Flags
+
+    #if os(macOS)
+    weak var finchHost: (any PlatformView & FocusBridgeProvider & FocusHost)?
+    #endif
+
+    #if os(macOS)'''),
+    ('SwiftUI/Event/Focus/FocusBridge.swift',
+     '''    init() {
+        _openSwiftUIUnimplementedFailure()
+    }''',
+     '''    init() {
+        #if os(macOS)
+        flags = [.canAcceptFocus]
+        #else
+        _openSwiftUIUnimplementedFailure()
+        #endif
+    }'''),
+    ('SwiftUI/Event/Focus/FocusBridge.swift',
+     '''    var host: (PlatformView & FocusBridgeProvider & FocusHost)? {
+        _openSwiftUIUnimplementedFailure()
+    }''',
+     '''    var host: (PlatformView & FocusBridgeProvider & FocusHost)? {
+        #if os(macOS)
+        finchHost
+        #else
+        _openSwiftUIUnimplementedFailure()
+        #endif
+    }'''),
+    ('SwiftUI/Event/Focus/FocusBridge.swift',
+     '''    func moveFocus(to item: FocusItem, designatedPlatformResponder: PlatformView?) {
+        _openSwiftUIUnimplementedFailure()
+    }''',
+     '''    func moveFocus(to item: FocusItem, designatedPlatformResponder: PlatformView?) {
+        #if os(macOS)
+        FinchFocusBridgeSupport.moveFocus(self, to: item, designatedPlatformResponder: designatedPlatformResponder)
+        #else
+        _openSwiftUIUnimplementedFailure()
+        #endif
+    }'''),
+    ('SwiftUI/Event/Focus/FocusNavigator.swift',
+     '''    func defaultFocusItem(for responder: any BaseFocusResponder) -> FocusItem? {
+        _openSwiftUIUnimplementedFailure()
+    }''',
+     '''    func defaultFocusItem(for responder: any BaseFocusResponder) -> FocusItem? {
+        FinchFocusBridgeSupport.defaultFocusItem(for: responder)
+    }'''),
+    ('SwiftUI/Event/Platform/AppKit/NSViewResponder.swift',
+     '''    var isEnabled: Bool {
+        _openSwiftUIUnreachableCode()
+    }''',
+     '''    var isEnabled: Bool {
+        platformViewIsEnabled
+    }'''),
+    ('SwiftUI/Event/Focus/FocusState.swift',
+     '''        var outputs = body(_Graph(), inputs)
+        guard inputs.preferences.requiresViewResponders else {
+            return outputs
+        }
+        let responder = FocusStateBindingResponder(inputs: inputs)''',
+     '''        var newInputs = inputs
+        newInputs.preferences.requiresViewResponders = true
+        var outputs = body(_Graph(), newInputs)
+        let responder = FocusStateBindingResponder(inputs: newInputs)'''),
+    ('SwiftUI/Event/Focus/FocusState.swift',
+     '''            inputs: inputs,
+            outputs: outputs,
+            responder: responder
+        ))
+        let list = Attribute(ListItemFilter(
+            modifier: modifier.value,
+            responder: responder,
+            focusItem: .init(inputs.focusedItem),
+            focusBridge: inputs.base.focusBridge,
+            focusScopes: inputs.base.focusScopes,''',
+     '''            inputs: newInputs,
+            outputs: outputs,
+            responder: responder
+        ))
+        let list = Attribute(ListItemFilter(
+            modifier: modifier.value,
+            responder: responder,
+            focusItem: .init(newInputs.focusedItem),
+            focusBridge: newInputs.base.focusBridge,
+            focusScopes: newInputs.base.focusScopes,'''),
+    ('SwiftUI/Event/Focus/FocusState.swift',
+     '''            inputs: inputs.preferences,
+            key: FocusStoreList.Key.self,''',
+     '''            inputs: newInputs.preferences,
+            key: FocusStoreList.Key.self,'''),
+    ('SwiftUI/Integration/Hosting/AppKit/View/NSHostingView.swift',
+     '''        if let environmentOverride {
+            environment.plist.override(with: environmentOverride.plist)
+        }
+        viewGraph.setEnvironment(environment)''',
+     '''        if let environmentOverride {
+            environment.plist.override(with: environmentOverride.plist)
+        }
+        environment.focusBridge = focusBridge
+        viewGraph.setEnvironment(environment)'''),
+    ('SwiftUI/Integration/Hosting/AppKit/View/NSHostingView.swift',
+     '''    package func `as`<T>(_ type: T.Type) -> T? {
+        if ViewGraphRenderDelegate.self == T.self {''',
+     '''    package func `as`<T>(_ type: T.Type) -> T? {
+        if FocusHost.self == T.self {
+            return unsafeBitCast(self as any FocusHost, to: T.self)
+        } else if FocusBridgeProvider.self == T.self {
+            return unsafeBitCast(self as any FocusBridgeProvider, to: T.self)
+        } else if ViewGraphRenderDelegate.self == T.self {'''),
+    ('SwiftUI/Integration/Hosting/AppKit/View/NSHostingView.swift',
+     '''    final override public var isFlipped: Bool { true }
+''',
+     '''    final override public var isFlipped: Bool { true }
+
+    open override func mouseDown(with event: NSEvent) {
+        finchFocusOnMouseDown(at: convert(event.locationInWindow, from: nil))
+        super.mouseDown(with: event)
+    }
+'''),
+    ('SwiftUI/Integration/Hosting/AppKit/View/NSHostingView.swift',
+     '''    package var focusedResponder: ResponderNode? {
+        // TODO: Return focusBridge.focusedItem?.responder when FocusBridge is available.
+        _openSwiftUIUnimplementedWarning()
+        return nil
+    }''',
+     '''    package var focusedResponder: ResponderNode? {
+        finchCurrentFocusedResponder
+    }'''),
     # inset shapes: the shape in the inset rect, its corners less the inset
     ('SwiftUICore/Shape/InsettableShape.swift',
      'extension RoundedRectangle: InsettableShape {\n    @inlinable\n    public func inset(by amount: CGFloat) -> some InsettableShape {\n        _Inset(base: self, amount: amount)\n    }\n\n    @usableFromInline\n    @frozen\n    struct _Inset: InsettableShape {\n        @usableFromInline\n        var base: RoundedRectangle\n        \n        @usableFromInline\n        var amount: CGFloat\n    \n        @inlinable\n        init(base: RoundedRectangle, amount: CGFloat) {\n            (self.base, self.amount) = (base, amount)\n        }\n\n        @usableFromInline\n        nonisolated func path(in rect: CGRect) -> Path {\n            _openSwiftUIUnimplementedFailure()\n        }',
@@ -461,6 +813,33 @@ extension _FocusableModifier: Sendable {}'''),
      'public var openSwiftUI: OpenSwiftUIAttributes.Type', 'public var swiftUI: OpenSwiftUIAttributes.Type'),
     ('SwiftUICore/View/Text/AttributedString/Text+AttributedString.swift',
      'including: \\.openSwiftUI', 'including: \\.swiftUI'),
+    # unbounded axes have no intrinsic size to send to AppKit
+    ('SwiftUI/Integration/Hosting/AppKit/View/NSHostingView.swift',
+     '''        var size = idealSize()
+        let pixelLength = convertFromBacking(CGSize(width: 1, height: 1))
+        size.width = size.width.rounded(.up, toMultipleOf: pixelLength.width)
+        size.height = size.height.rounded(.up, toMultipleOf: pixelLength.height)''',
+     '''        var size = intrinsicSizeForAppKit(from: idealSize())'''),
+    ('SwiftUI/Integration/Hosting/AppKit/View/NSHostingView.swift',
+     '''    private func _layoutSizeThatFits(_ size: CGSize, fixedAxes: UInt) -> CGSize {''',
+     '''    private func intrinsicSizeForAppKit(from size: CGSize) -> CGSize {
+        let pixelLength = convertFromBacking(CGSize(width: 1, height: 1))
+        func metric(_ value: CGFloat, pixelLength: CGFloat) -> CGFloat {
+            guard value.isFinite else { return NSView.noIntrinsicMetric }
+            let rounded = value.rounded(.up, toMultipleOf: pixelLength)
+            return rounded.isFinite ? rounded : NSView.noIntrinsicMetric
+        }
+        return CGSize(
+            width: metric(size.width, pixelLength: pixelLength.width),
+            height: metric(size.height, pixelLength: pixelLength.height)
+        )
+    }
+
+    private func _layoutSizeThatFits(_ size: CGSize, fixedAxes: UInt) -> CGSize {'''),
+    ('SwiftUI/Integration/Hosting/AppKit/View/NSHostingView.swift',
+     '''        let pixelLength = convertFromBacking(CGSize(width: 1, height: 1))
+        let result = fittingSize.rounded(.up, toMultipleOf: pixelLength.width)''',
+     '''        let result = intrinsicSizeForAppKit(from: fittingSize)'''),
 ]
 
 

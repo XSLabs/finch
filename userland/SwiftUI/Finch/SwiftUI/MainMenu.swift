@@ -303,6 +303,10 @@ enum _FinchMainMenu {
     }
 
     static func install() {
+        // the commands' content reads the scene's environment (its objects, for one)
+        let previous = EnvironmentValues._finchUnbound
+        EnvironmentValues._finchUnbound = AppGraph.shared?.rootSceneList?.items.first?.environment
+        defer { EnvironmentValues._finchUnbound = previous }
         let appName = currentAppName()
         var menus = standardMenus(appName: appName)
         var extraMenus: [(Text, [_FinchMenuItem])] = []

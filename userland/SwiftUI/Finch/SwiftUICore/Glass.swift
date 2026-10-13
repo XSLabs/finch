@@ -65,3 +65,44 @@ extension View {
         }
     }
 }
+
+/// How glass appears and goes. Finch's glass doesn't animate between shapes: every
+/// transition shows and hides it as it is.
+@available(OpenSwiftUI_v7_0, *)
+public struct GlassEffectTransition: Sendable {
+    enum Kind { case matchedGeometry, materialize, identity }
+    var kind: Kind
+
+    public static var matchedGeometry: GlassEffectTransition { GlassEffectTransition(kind: .matchedGeometry) }
+    public static var materialize: GlassEffectTransition { GlassEffectTransition(kind: .materialize) }
+    public static var identity: GlassEffectTransition { GlassEffectTransition(kind: .identity) }
+}
+
+@available(OpenSwiftUI_v7_0, *)
+extension View {
+    nonisolated public func glassEffectTransition(_ transition: GlassEffectTransition) -> some View {
+        self
+    }
+}
+
+/// Glass shapes drawn together. Finch's don't merge, so the container is its content.
+@available(OpenSwiftUI_v7_0, *)
+@MainActor
+@preconcurrency
+public struct GlassEffectContainer<Content>: View where Content: View {
+    var spacing: CGFloat?
+    var content: Content
+
+    public init(spacing: CGFloat? = nil, @ViewBuilder content: () -> Content) {
+        self.spacing = spacing
+        self.content = content()
+    }
+
+    public var body: some View {
+        content
+    }
+}
+
+/// Whether the system's newer design (Liquid Glass) is in use: in Finch, it is.
+@available(OpenSwiftUI_v7_0, *)
+public struct Solarium {}

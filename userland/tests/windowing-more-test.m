@@ -10,6 +10,26 @@
  */
 #import <AppKit/AppKit.h>
 
+@interface FocusTarget : NSView
+@property BOOL refuseResign;
+@end
+@implementation FocusTarget
+- (BOOL)acceptsFirstResponder { return YES; }
+- (BOOL)resignFirstResponder { return !self.refuseResign; }
+@end
+
+@interface FocusObserver : NSObject
+@property NSUInteger changes;
+@property (weak) NSResponder *lastResponder;
+@end
+@implementation FocusObserver
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+    self.changes++;
+    self.lastResponder = [object firstResponder];
+}
+@end
+
 @interface LogAnimator : NSObject <NSViewControllerPresentationAnimator>
 @property NSMutableArray *log;
 @end
@@ -86,6 +106,52 @@ main(void)
                                                         backing:NSBackingStoreBuffered
                                                           defer:YES];
         printf("title bar %d close box %d; borderless %d %d\n", w.hasTitleBar, w.hasCloseBox, plain.hasTitleBar, plain.hasCloseBox);
+        printf("window style frame follows window: %d", NSEqualSizes(w.frame.size, w.contentView.superview.frame.size));
+        w.styleMask |= NSWindowStyleMaskFullSizeContentView;
+        printf(" -> %d", NSEqualSizes(w.frame.size, w.contentView.superview.frame.size));
+        w.styleMask &= ~NSWindowStyleMaskFullSizeContentView;
+        printf(" -> %d\n", NSEqualSizes(w.frame.size, w.contentView.superview.frame.size));
+        FocusTarget *first = [FocusTarget new], *second = [FocusTarget new];
+        [w.contentView addSubview:first];
+        [w.contentView addSubview:second];
+        FocusObserver *focus = [FocusObserver new];
+        [w addObserver:focus forKeyPath:@"firstResponder" options:NSKeyValueObservingOptionNew context:NULL];
+        [w makeFirstResponder:first];
+        BOOL notifiedFirst = focus.changes > 0 && focus.lastResponder == first;
+        focus.changes = 0;
+        first.refuseResign = YES;
+        BOOL refused = ![w makeFirstResponder:second] && focus.changes == 0 && w.firstResponder == first;
+        first.refuseResign = NO;
+        [w makeFirstResponder:second];
+        BOOL notifiedSecond = focus.changes > 0 && focus.lastResponder == second;
+        focus.changes = 0;
+        [w makeFirstResponder:nil];
+        BOOL notifiedWindow = focus.changes > 0 && focus.lastResponder == w;
+        printf("focus observer: first %d refused %d second %d window %d\n", notifiedFirst, refused, notifiedSecond, notifiedWindow);
+        [w removeObserver:focus forKeyPath:@"firstResponder"];
+        first.nextKeyView = second;
+        second.nextKeyView = first;
+        [w makeFirstResponder:first];
+        NSEvent *tab = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0
+            timestamp:0 windowNumber:w.windowNumber context:nil characters:@"\t" charactersIgnoringModifiers:@"\t"
+            isARepeat:NO keyCode:48];
+        NSEvent *backtab = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift
+            timestamp:0 windowNumber:w.windowNumber context:nil characters:@"\x19" charactersIgnoringModifiers:@"\x19"
+            isARepeat:NO keyCode:48];
+        [w sendEvent:tab];
+        BOOL forward = w.firstResponder == second;
+        [w sendEvent:backtab];
+        printf("plain view tab: forward %d backward %d\n", forward, w.firstResponder == first);
+        NSTextView *editor = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 80, 40)];
+        [w.contentView addSubview:editor];
+        editor.nextKeyView = first;
+        [w makeFirstResponder:editor];
+        [w sendEvent:tab];
+        printf("text view tab: stayed %d inserted %d\n", w.firstResponder == editor, [editor.string isEqualToString:@"\t"]);
+        [w makeFirstResponder:nil];
+        [editor removeFromSuperview];
+        [first removeFromSuperview];
+        [second removeFromSuperview];
         printf("content border: %g auto %d\n", [w contentBorderThicknessForEdge:NSRectEdgeMinY],
             [w autorecalculatesContentBorderThicknessForEdge:NSRectEdgeMinY]);
         [w setContentBorderThickness:32 forEdge:NSRectEdgeMinY];
