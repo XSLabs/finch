@@ -923,3 +923,15 @@ $(OUT)/finch-audiounit-effects-test: audiounit-effects-test.c
 $(OUT)/finch-audiounit-test: audiounit-test.c
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework AudioToolbox -framework CoreFoundation
+
+# Calculate (Calculator's engine): compiled against Finch's interface (its header and
+# swiftinterface, from userland/Calculate/build.sh), run against Apple's and Finch's.
+all: $(OUT)/finch-calculate-test
+$(OUT)/finch-calculate-test: calculate-test.swift ../Calculate/include/Calculate.h ../../build/obj/Calculate/Calculate.swiftinterface
+	@mkdir -p $(OUT)/calculate-module/Calculate.framework/Headers $(OUT)/calculate-module/Calculate.framework/Modules/Calculate.swiftmodule
+	cp ../Calculate/include/Calculate.h $(OUT)/calculate-module/Calculate.framework/Headers/
+	printf 'framework module Calculate {\n  umbrella header "Calculate.h"\n  export *\n}\n' > $(OUT)/calculate-module/Calculate.framework/Modules/module.modulemap
+	cp ../../build/obj/Calculate/Calculate.swiftinterface $(OUT)/calculate-module/Calculate.framework/Modules/Calculate.swiftmodule/arm64e-apple-macos.swiftinterface
+	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -O -F $(OUT)/calculate-module -o $@ $< \
+	    -Xlinker -F../../build/root/System/Library/PrivateFrameworks -framework Calculate
+	codesign -f -s - -i org.finch.test.calculate $@

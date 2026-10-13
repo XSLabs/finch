@@ -5,7 +5,9 @@
 # build/root/System/Library/Frameworks/NAME.framework (Versions/A) against Finch's frameworks.
 #
 #   tools/build-swift-framework.sh NAME CURRENT-VERSION source.swift|source.m... [-- link flags]
-#   (FINCH_PRIVATE_FRAMEWORK=1 builds it into PrivateFrameworks, as Apple's private ones are)
+#   (FINCH_PRIVATE_FRAMEWORK=1 builds it into PrivateFrameworks, as Apple's private ones are;
+#   FINCH_FRAMEWORK_INCLUDE=DIR finds the framework's clang module there, for a framework the
+#   SDK has no headers for; FINCH_OBJC_ARC=1 compiles the Objective-C with ARC)
 #
 # Objective-C sources (.m, manual retain/release) are compiled into the same framework, and
 # the Swift imports the framework's clang module (the SDK's headers) as its underlying
@@ -31,16 +33,22 @@ log "compiling ${NAME}"
 rm -rf "${OBJ}" && mkdir -p "${OBJ}"
 objects=("${OBJ}/${NAME}-swift.o")
 underlying=()
+includes=() swift_includes=() arc=-fno-objc-arc
+if [[ -n "${FINCH_FRAMEWORK_INCLUDE:-}" ]]; then
+    includes=(-I "${FINCH_FRAMEWORK_INCLUDE}")
+    swift_includes=(-I "${FINCH_FRAMEWORK_INCLUDE}" -Xcc -I"${FINCH_FRAMEWORK_INCLUDE}")
+fi
+[[ "${FINCH_OBJC_ARC:-}" == 1 ]] && arc=-fobjc-arc
 for m in ${objc[@]+"${objc[@]}"}; do
     o="${OBJ}/$(basename "${m%.m}").o"
-    xcrun clang -arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -Os -g -fno-objc-arc -fobjc-exceptions \
+    xcrun clang -arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -Os -g "${arc}" -fobjc-exceptions ${includes[@]+"${includes[@]}"} \
         -fblocks -Wall -Wextra -Werror -Wno-unused-parameter -Wno-objc-designated-initializers \
         -Wno-objc-property-implementation -c "${m}" -o "${o}"
     objects+=("${o}")
     underlying=(-import-underlying-module)
 done
 "$(xcrun -f swiftc)" -c -wmo -module-name "${NAME}" -parse-as-library -enable-library-evolution \
-    -target arm64e-apple-macos26.0 -sdk "${SDKROOT}" -swift-version 5 -O ${underlying[@]+"${underlying[@]}"} \
+    -target arm64e-apple-macos26.0 -sdk "${SDKROOT}" -swift-version 5 -O ${underlying[@]+"${underlying[@]}"} ${swift_includes[@]+"${swift_includes[@]}"} \
     "${sources[@]}" -o "${OBJ}/${NAME}-swift.o" -emit-module-interface-path "${OBJ}/${NAME}.swiftinterface"
 
 log "linking"

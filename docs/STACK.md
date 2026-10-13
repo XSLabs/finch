@@ -278,6 +278,7 @@ flowchart LR
     openglfw["OpenGL<br/>(CGL, GLU)"]:::finch
     mesalib["Mesa libGL<br/>(OSMesa, softpipe)"]:::upstream
     devicefw["FeatureFlags,<br/>libMobileGestalt,<br/>libDiagnosticMessagesClient"]:::finch
+    calculatefw["Calculate (Calculator's<br/>engine: keys, RPN,<br/>programmer, units)"]:::finch
     skylight["SkyLight"]:::finch
     secfound["SecurityFoundation"]:::finch
     btui["IOBluetoothUI"]:::finch
@@ -360,6 +361,7 @@ flowchart LR
     avfaudio --> coremediafw
     devicefw --> cf
     devicefw --> iokit
+    calculatefw --> ffound
     skylight --> cgfw
     secfound --> security
     secfound --> ffound

@@ -141,6 +141,8 @@ steps=(
     "AppleSRP|userland/AppleSRP/build.sh"
     # MagnifierSupport (private): Finch's Magnifier, in SwiftUI (needs userland/SwiftUI/build.sh)
     "MagnifierSupport|userland/MagnifierSupport/build.sh"
+    # Calculate (private): Calculator's engine (keys, evaluation, units)
+    "Calculate|userland/Calculate/build.sh"
     # Network (the path monitor) and MobileAsset (empty asset catalogs): what Font Book links besides
     "Network|userland/Network/build.sh"
     "MobileAsset|userland/MobileAsset/build.sh"
