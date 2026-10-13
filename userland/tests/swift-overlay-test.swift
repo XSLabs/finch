@@ -189,6 +189,32 @@ Task {
 done.wait()
 show("async", taskResult)
 
+// MARK: Notifications as an async sequence, and typed messages
+print("== notifications")
+let pingCenter = NotificationCenter()
+let pinged = Notification.Name("org.finch.test.ping")
+let sequence = pingCenter.notifications(named: pinged)
+pingCenter.post(name: pinged, object: nil, userInfo: ["n": 1])
+pingCenter.post(name: pinged, object: nil, userInfo: ["n": 2])
+let gotSemaphore = DispatchSemaphore(value: 0)
+nonisolated(unsafe) var got: [Int] = []
+Task {
+    var count = 0
+    for await n in sequence {
+        got.append(n.userInfo?["n"] as? Int ?? -1)
+        count += 1
+        if count == 3 { break }
+    }
+    gotSemaphore.signal()
+}
+DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { pingCenter.post(name: pinged, object: nil, userInfo: ["n": 3]) }
+gotSemaphore.wait()
+show("sequence", got)
+show("undo message name", UndoManager.DidUndoChangeMessage.name.rawValue)
+show("checkpoint name", UndoManager.CheckpointMessage.name.rawValue)
+show("cookies message name", HTTPCookieStorage.CookiesChangedMessage.name.rawValue)
+show("discardable", UndoManager.DidCloseUndoGroupMessage(groupIsDiscardable: true).groupIsDiscardable)
+
 // MARK: os
 print("== os")
 let logger = Logger(subsystem: "org.finch.test", category: "overlay")

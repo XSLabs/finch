@@ -457,8 +457,12 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           (on time); NSAppleScript (fails: no AppleScript yet); 220 more of Apple's
           constants; "UTC" names the GMT zone as on macOS. `foundation-more-test` matches
           Apple's.
-    - [ ] Next: diffable data sources and the Swift overlays' async notification
-          sequences, among others ([`APPS.md`](APPS.md)). Later: a Spotlight-style index
+    - [x] The Swift overlay's notifications as async sequences
+          (`NotificationCenter.notifications(named:)`) and the typed undo-manager and
+          cookie-storage messages (2026-10-12); `swift-overlay-test` matches Apple's.
+    - [ ] Next: diffable data sources, Swift System's `FilePath` (Finch builds no
+          swift-system yet) and measurement format styles, among others
+          ([`APPS.md`](APPS.md)). Later: a Spotlight-style index
           for metadata queries, a version store for NSFileVersion, lexical classes for
           the tagger, and the AppleScript language.
     - [ ] Every class and method the public headers declare, as Apple's answers them:
