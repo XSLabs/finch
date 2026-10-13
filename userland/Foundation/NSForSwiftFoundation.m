@@ -137,12 +137,23 @@
 @end
 
 @implementation NSURL (NSURLForSwiftFoundation)
++ (NSURL *)fileURLWithPathComponents:(NSArray<NSString *> *)components
+{
+    return [components count] ? [NSURL fileURLWithPath:[NSString pathWithComponents:components]] : nil;
+}
 - (CFURLRef)_cfurl { return (CFURLRef)self; }
 - (NSURL *)_trueSelf { return self; }
 - (NSString *)_parameterString { return nil; }
 @end
 
 @implementation NSLocale (NSLocaleForSwiftFoundation)
+
+/* SPI: a language's name in this locale ("fr" -> "French"); the context (sentence or list
+   position) changes nothing for Finch's names. */
+- (NSString *)localizedStringForLanguage:(NSString *)language context:(NSUInteger)context
+{
+    return language ? [self displayNameForKey:NSLocaleIdentifier value:language] : nil;
+}
 + (NSArray<NSString *> *)systemLanguages { return @[ @"en" ]; }
 - (NSString *)localizedStringForCurrencySymbol:(NSString *)currencySymbol
 {

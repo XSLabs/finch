@@ -442,6 +442,14 @@ decode_size(NSCoder *coder, NSString *key)
 - (NSToolbarSizeMode)sizeMode { return _sizeMode; }
 - (void)setSizeMode:(NSToolbarSizeMode)m { _sizeMode = m; }
 - (BOOL)allowsUserCustomization { return _allowsUserCustomization; }
+
+/* The narrowest a window title shown in the toolbar may get (Finch keeps titles in the
+   title bar, so it's only remembered). */
+- (CGFloat)minimumInlineWindowTitleWidth { return [objc_getAssociatedObject(self, @selector(minimumInlineWindowTitleWidth)) doubleValue]; }
+- (void)setMinimumInlineWindowTitleWidth:(CGFloat)width
+{
+    objc_setAssociatedObject(self, @selector(minimumInlineWindowTitleWidth), @(width), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 - (void)setAllowsUserCustomization:(BOOL)f { _allowsUserCustomization = f; }
 - (BOOL)allowsExtensionItems { return _allowsExtensionItems; }
 - (void)setAllowsExtensionItems:(BOOL)f { _allowsExtensionItems = f; }

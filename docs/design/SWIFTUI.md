@@ -313,3 +313,18 @@ QuartzCore draws layers through CoreGraphics, and AppKit is Finch's own.
   - ScrollViewReader scrolls Lists too: a list's rows report where they are by their
     explicit id (their ForEach element's, or `id(_:)`), and its in-graph clip scroll takes
     the reader's scrollTo like a scroll view.
+
+- 2026-10-13: Font Book's SwiftUI. 179 symbols it imports are Finch's now (Finch/SwiftUI/
+  Containers.swift, ScenesAndModifiers.swift, Canvas.swift, OutlineGroup.swift,
+  DropDelegate.swift, FileDocument.swift, SceneStorageProperty.swift, Search.swift;
+  Finch/SwiftUICore/Canvas.swift). Lessons for the ABI:
+  - A primitive view (Body == Never) needs `_makeView`, `_makeViewList` and `_viewListCount`
+    (UnaryView and PrimitiveView give the last two), or a container's view list asks for its body.
+  - A conformance's witness table (`WP`) is exported only from the protocol's module, so
+    `_AlignmentWritingModifier` moves into SwiftUICore (adapt.py's MOVED), as Apple's did.
+  - Upstream's attribute scope was still `OpenSwiftUIAttributes`: Apple's is `SwiftUIAttributes`.
+  - SwiftUICore extensions of `EnvironmentValues` mangle as SwiftUICore's; Apple's
+    `symbolVariableValueMode` is SwiftUI's (an extension there), so Finch's is too.
+  - Observation tracking and update-cycle detectors asked for the view graph; in a scene's
+    body (an @Observable model, onChange) the current graph is the app's.
+

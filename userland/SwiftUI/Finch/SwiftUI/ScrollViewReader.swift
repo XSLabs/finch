@@ -36,6 +36,13 @@ final class _FinchScrollReaderBox {
             }
         }
     }
+
+    /// Scrolls the first scroll view to show a rectangle of its content.
+    @MainActor
+    func scrollTo(rect: CGRect, anchor: UnitPoint?) {
+        scrollViews.removeAll { $0() == nil }
+        scrollViews.first?()?.scroll(toShow: rect, anchor: anchor)
+    }
 }
 
 private struct _FinchScrollReaderKey: EnvironmentKey {

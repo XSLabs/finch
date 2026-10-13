@@ -405,6 +405,26 @@ remove_tree(const char *path)
 
 - (BOOL)removeItemAtURL:(NSURL *)url error:(NSError **)error { return [self removeItemAtPath:[url path] error:error]; }
 
+/* Moves the item into the user's Trash (~/.Trash), under a name not already there
+   ("name 2.ext" and so on), as the Finder does. */
+- (BOOL)trashItemAtURL:(NSURL *)url resultingItemURL:(NSURL **)outResultingURL error:(NSError **)error
+{
+    NSString *trash = [NSHomeDirectory() stringByAppendingPathComponent:@".Trash"];
+    [self createDirectoryAtPath:trash withIntermediateDirectories:YES attributes:nil error:NULL];
+    NSString *name = [[url path] lastPathComponent];
+    NSString *base = [name stringByDeletingPathExtension], *ext = [name pathExtension];
+    NSString *dest = [trash stringByAppendingPathComponent:name];
+    for (int i = 2; [self fileExistsAtPath:dest]; i++) {
+        NSString *n = [NSString stringWithFormat:@"%@ %d", base, i];
+        dest = [trash stringByAppendingPathComponent:[ext length] ? [n stringByAppendingPathExtension:ext] : n];
+    }
+    if (![self moveItemAtPath:[url path] toPath:dest error:error])
+        return NO;
+    if (outResultingURL)
+        *outResultingURL = [NSURL fileURLWithPath:dest];
+    return YES;
+}
+
 - (BOOL)moveItemAtPath:(NSString *)src toPath:(NSString *)dst error:(NSError **)error
 {
     if ([self fileExistsAtPath:dst]) {

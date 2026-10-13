@@ -511,6 +511,23 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           rectangle.bottomthird.inset symbols. Still to do: telling applications (Apple
           event terminology and sending), reading scripts Apple's AppleScript compiled
           ("FasdUAS"), applets, recording, AppleScriptObjC.
+    - [x] Font Book runs (2026-10-13): its window, sidebar (fonts, languages, collections)
+          and toolbar; the font grid still loads slowly. SwiftUI gained what it calls (Settings
+          scenes, sidebar commands, group boxes and their styles, tab views, colour pickers,
+          help buttons, canvases drawing through CoreGraphics, text renderers, outline groups
+          and hierarchical lists, scene storage, search fields in the toolbar, inspectors,
+          drop delegates, file documents and exporters, presented-value window groups,
+          navigation split view styles, slider marks, and smaller modifiers and values;
+          `userland/tests/apps/SwiftUIMore` shows them), and: an @Observable model or onChange
+          in a scene's body runs in the app's graph; collapsed split panes stay out of
+          layout. CoreText has NSFontCollection (moved from AppKit, as Apple's is; CoreText's
+          collection calls take one) and the private calls font managers make (samples,
+          names by ID, glyph strings, visibility, validation). New: ATS with libFontRegistry,
+          FontServices with libFontParser, Network (the path monitor), MobileAsset (empty
+          catalogs); CarbonCore's mapped resource-file calls (no resource forks yet);
+          NSToolbar's inline title width; NSFileManager's trash; NSLocale's language names;
+          AppKit keeps a layout engine alive while resizing its window re-enters layout.
+          Still to do: the font grid and samples, installing and validating fonts.
     - [ ] Next: measurement format styles, AppKit's private classes apps link
           (NSTokenAttachment, NSTouchDevice, NSButtonGroupTouchBarItem, ...), among others
           ([`APPS.md`](APPS.md)). Later: a Spotlight-style index

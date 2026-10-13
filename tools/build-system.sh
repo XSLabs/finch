@@ -115,6 +115,8 @@ steps=(
     "ColorSync|userland/ColorSync/build.sh"
     "HIServices|userland/HIServices/build.sh"
     "PrintCore|userland/PrintCore/build.sh"
+    # ATS (font validation keys, libFontRegistry) and FontServices (libFontParser): for font managers
+    "ATS|userland/ATS/build.sh"
     "SystemAdministration|userland/SystemAdministration/build.sh"
     # IconServices (private): icons for apps, files and types
     "IconServices|userland/IconServices/build.sh"
@@ -139,6 +141,9 @@ steps=(
     "AppleSRP|userland/AppleSRP/build.sh"
     # MagnifierSupport (private): Finch's Magnifier, in SwiftUI (needs userland/SwiftUI/build.sh)
     "MagnifierSupport|userland/MagnifierSupport/build.sh"
+    # Network (the path monitor) and MobileAsset (empty asset catalogs): what Font Book links besides
+    "Network|userland/Network/build.sh"
+    "MobileAsset|userland/MobileAsset/build.sh"
     # libswiftFoundation, libswiftAppKit, libswiftCoreGraphics: re-exports, for older Swift apps
     "swift-framework-shims|userland/swift/framework-shims.sh"
     # What Terminal links besides: Carbon (HIToolbox, and OpenScripting: Finch's AppleScript

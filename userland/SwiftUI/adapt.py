@@ -24,6 +24,12 @@ REPLACED = [
     'SwiftUI/App/Commands/CommandGroup.swift',   # Finch's MainMenu.swift
 ]
 
+# (from, to): upstream files that belong in the other module, as Apple's declarations are
+# (a conformance's witness table is exported only from the protocol's own module)
+MOVED = [
+    ('SwiftUI/Layout/Alignment/AlignmentWritingModifier.swift', 'SwiftUICore/Layout/Alignment/AlignmentWritingModifier.swift'),
+]
+
 # (file, upstream declaration, Apple's): the kind and frozenness of Apple's declarations, which
 # decide every mangled name and how values are passed
 KINDS = [
@@ -296,6 +302,55 @@ private func conditionalStorageType(_ t: any Any.Type, _ f: any Any.Type) -> any
 }
 
 extension Optional {'''),
+    # GraphicsContext's storage: Finch's draws into a CoreGraphics context (Canvas,
+    # withCGContext; Finch/SwiftUICore/Canvas.swift)
+    ('SwiftUICore/Graphic/GraphicsContext.swift',
+     '''    @usableFromInline
+    final class Storage {
+        
+    }''',
+     '''    @usableFromInline
+    final class Storage {
+        var cgContext: CGContext?
+        var environment: EnvironmentValues
+
+        init(cgContext: CGContext?, environment: EnvironmentValues) {
+            self.cgContext = cgContext
+            self.environment = environment
+        }
+    }'''),
+    # an @Observable model read in a scene's body (the app graph, not a view graph) is tracked
+    # by its own graph host
+    ('SwiftUICore/Data/Observation/ObservationUtils.swift',
+     'let weakViewGraph = WeakUncheckedSendable(ViewGraph.current)', 'let weakViewGraph = WeakUncheckedSendable(GraphHost.currentHost)'),
+    # the update cycle detectors (scenes' onChange too) count the updates of whichever graph
+    # they're in
+    ('SwiftUICore/Log/CycleDetector.swift',
+     '''    package init() {
+        updateSeed = ViewGraph.current.data.$updateSeed
+        lastSeed = .max
+        ttl = .zero''',
+     '''    package init() {
+        updateSeed = GraphHost.currentHost.data.$updateSeed
+        lastSeed = .max
+        ttl = .zero'''),
+    ('SwiftUICore/Log/CycleDetector.swift',
+     '''    package init() {
+        updateSeed = ViewGraph.current.data.$updateSeed
+        lastSeed = .max
+        hasLogged = false''',
+     '''    package init() {
+        updateSeed = GraphHost.currentHost.data.$updateSeed
+        lastSeed = .max
+        hasLogged = false'''),
+    # PresentedWindowContent is Finch's, generic as Apple's is (Finch/SwiftUI/ScenesAndModifiers.swift)
+    ('SwiftUI/Modifier/ViewModifier/PresentedSceneValueInputModifier.swift',
+     '// TODO\npublic struct PresentedWindowContent {}\n', ''),
+    # the attribute scope is Apple's SwiftUIAttributes (AttributeScopes.swiftUI)
+    ('SwiftUICore/View/Text/AttributedString/Text+AttributedString.swift',
+     'public var openSwiftUI: OpenSwiftUIAttributes.Type', 'public var swiftUI: OpenSwiftUIAttributes.Type'),
+    ('SwiftUICore/View/Text/AttributedString/Text+AttributedString.swift',
+     'including: \\.openSwiftUI', 'including: \\.swiftUI'),
 ]
 
 
@@ -334,6 +389,12 @@ def main():
                 shutil.copy(os.path.join(finch, module, f), dest)
     for rel in REPLACED:
         os.remove(os.path.join(src, rel))
+    for old, new in MOVED:
+        t = open(os.path.join(src, old)).read()
+        t = t.replace('@_spi(ForOpenSwiftUIOnly)\npublic import SwiftUICore\n', '')
+        os.makedirs(os.path.dirname(os.path.join(src, new)), exist_ok=True)
+        open(os.path.join(src, new), 'w').write(t)
+        os.remove(os.path.join(src, old))
     # kinds Apple's declarations have (the kind is part of every mangled name)
     for rel, old, new in KINDS + FIXES:
         path = os.path.join(src, rel)
@@ -348,6 +409,8 @@ def main():
             t = open(path, encoding='utf-8', errors='surrogateescape').read()
             # mangled names in strings (@_silgen_name, protocol descriptor lookups) name the modules too
             u = t.replace('15OpenSwiftUICore', '11SwiftUICore').replace('11OpenSwiftUI', '7SwiftUI')
+            # Apple's attribute scope (and its key path)
+            u = u.replace('OpenSwiftUIAttributes', 'SwiftUIAttributes').replace('self.openSwiftUI.fontModifiers', 'self.swiftUI.fontModifiers')
             if f.endswith(('.swift', '.modulemap')):
                 u = MODULE.sub(rename, u)
             if f.endswith('.swift') and (os.sep + 'SwiftUI' in dirpath):

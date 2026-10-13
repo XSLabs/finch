@@ -27,7 +27,7 @@ for dep in "${REEXPORTS[@]}"; do
     [[ -f "${ROOT}/System/Library/Frameworks/${dep}.framework/${dep}" ]] || { echo "build ${dep} first" >&2; exit 1; }
 done
 # subframeworks, inside this one (userland/HIServices)
-SUBFRAMEWORKS=(HIServices PrintCore)
+SUBFRAMEWORKS=(HIServices PrintCore ATS)
 SUBLIBS=()
 for sub in "${SUBFRAMEWORKS[@]}"; do
     lib="${FW}/Versions/A/Frameworks/${sub}.framework/Versions/A/${sub}"

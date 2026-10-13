@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
 /*
- * NSFontCollection and NSMutableFontCollection: a set of fonts named by query
- * descriptors (and fonts to leave out), matched through CoreText's font collections.
+ * NSFontCollection and NSMutableFontCollection, in CoreText as Apple's are: a set of fonts
+ * named by query descriptors (and fonts to leave out), matched through CoreText's font
+ * collections. Descriptors are CTFontDescriptors, which are UIFoundation's NSFontDescriptors.
  *
  * Named collections, as Apple's:
  *   - com.apple.AllFonts      every font;
@@ -17,8 +18,23 @@
  * the same name, as on macOS, which keeps "Fixed Width" and the like there too. Showing, hiding
  * and renaming post NSFontCollectionDidChangeNotification with Apple's keys.
  */
-#import <AppKit/AppKit.h>
+#import <Foundation/Foundation.h>
+#import <AppKit/NSFontCollection.h>
+#import <AppKit/NSFontDescriptor.h>
 #import <CoreText/CoreText.h>
+
+/* a descriptor for attributes (CoreText's, which is an NSFontDescriptor) */
+static id
+descriptor_with(NSDictionary *attributes)
+{
+    return CFBridgingRelease(CTFontDescriptorCreateWithAttributes((__bridge CFDictionaryRef)attributes));
+}
+
+static BOOL
+is_descriptor(id d)
+{
+    return d && CFGetTypeID((__bridge CFTypeRef)d) == CTFontDescriptorGetTypeID();
+}
 
 NSString *const NSFontCollectionDidChangeNotification = @"NSFontCollectionDidChange";
 NSString *const NSFontCollectionActionKey = @"NSFontCollectionAction";
@@ -51,12 +67,6 @@ NSString *const NSFontCollectionDisallowAutoActivationOption = @"NSCTFontCollect
     return self;
 }
 
-- (void)dealloc
-{
-    [_query release];
-    [_exclusion release];
-    [super dealloc];
-}
 
 + (BOOL)supportsSecureCoding { return YES; }
 
@@ -73,7 +83,7 @@ NSString *const NSFontCollectionDisallowAutoActivationOption = @"NSCTFontCollect
 
 - (instancetype)initWithCoder:(NSCoder *)c
 {
-    NSSet *classes = [NSSet setWithObjects:[NSArray class], [NSFontDescriptor class], nil];
+    NSSet *classes = [NSSet setWithObjects:[NSArray class], NSClassFromString(@"NSFontDescriptor") ?: [NSObject class], nil];
     return [self _initWithQuery:[c decodeObjectOfClasses:classes forKey:@"NSFontCollectionQueryDescriptors"]
                       exclusion:[c decodeObjectOfClasses:classes forKey:@"NSFontCollectionExclusionDescriptors"]];
 }
@@ -88,12 +98,12 @@ NSString *const NSFontCollectionDisallowAutoActivationOption = @"NSCTFontCollect
 
 + (NSFontCollection *)fontCollectionWithDescriptors:(NSArray *)queryDescriptors
 {
-    return [[[self alloc] _initWithQuery:queryDescriptors ?: @[] exclusion:nil] autorelease];
+    return [[self alloc] _initWithQuery:queryDescriptors ?: @[] exclusion:nil];
 }
 
 + (NSFontCollection *)fontCollectionWithAllAvailableDescriptors
 {
-    return [[[self alloc] _initWithQuery:nil exclusion:nil] autorelease];
+    return [[self alloc] _initWithQuery:nil exclusion:nil];
 }
 
 + (NSFontCollection *)fontCollectionWithLocale:(NSLocale *)locale
@@ -101,7 +111,7 @@ NSString *const NSFontCollectionDisallowAutoActivationOption = @"NSCTFontCollect
     NSString *lang = [locale objectForKey:NSLocaleLanguageCode];
     if (!lang)
         return nil;
-    NSFontDescriptor *d = [NSFontDescriptor fontDescriptorWithFontAttributes:@{(id)kCTFontLanguagesAttribute : @[ lang ]}];
+    NSFontDescriptor *d = descriptor_with(@{(id)kCTFontLanguagesAttribute : @[ lang ]});
     return [self fontCollectionWithDescriptors:@[ d ]];
 }
 
@@ -110,7 +120,7 @@ families(NSArray *names)
 {
     NSMutableArray *a = [NSMutableArray array];
     for (NSString *n in names)
-        [a addObject:[NSFontDescriptor fontDescriptorWithFontAttributes:@{NSFontFamilyAttribute : n}]];
+        [a addObject:descriptor_with(@{(id)kCTFontFamilyNameAttribute : n})];
     return a;
 }
 
@@ -122,9 +132,9 @@ builtin_query(NSString *name, BOOL *found)
     if ([name isEqualToString:NSFontCollectionAllFonts])
         return nil;
     if ([name isEqualToString:@"Fixed Width"])
-        return @[ [NSFontDescriptor fontDescriptorWithFontAttributes:@{
-            NSFontTraitsAttribute : @{NSFontSymbolicTrait : @(NSFontDescriptorTraitMonoSpace)}
-        }] ];
+        return @[ descriptor_with(@{
+            (id)kCTFontTraitsAttribute : @{(id)kCTFontSymbolicTrait : @(kCTFontMonoSpaceTrait)}
+        }) ];
     if ([name isEqualToString:@"PDF"])
         return families(@[ @"Courier", @"Helvetica", @"Times", @"Symbol", @"Zapf Dingbats" ]);
     if ([name isEqualToString:@"Web"])
@@ -135,9 +145,8 @@ builtin_query(NSString *name, BOOL *found)
             URLByAppendingPathComponent:@"Fonts"];
         NSMutableArray *a = [NSMutableArray array];
         for (NSURL *u in [[NSFileManager defaultManager] contentsOfDirectoryAtURL:dir includingPropertiesForKeys:nil options:0 error:NULL]) {
-            NSArray *ds = (NSArray *)CTFontManagerCreateFontDescriptorsFromURL((CFURLRef)u);
+            NSArray *ds = CFBridgingRelease(CTFontManagerCreateFontDescriptorsFromURL((__bridge CFURLRef)u));
             [a addObjectsFromArray:ds];
-            [ds release];
         }
         return a;
     }
@@ -177,7 +186,7 @@ read_collection(NSURL *url)
     NSData *data = [NSData dataWithContentsOfURL:url];
     if (!data)
         return nil;
-    NSKeyedUnarchiver *u = [[[NSKeyedUnarchiver alloc] initForReadingFromData:data error:NULL] autorelease];
+    NSKeyedUnarchiver *u = [[NSKeyedUnarchiver alloc] initForReadingFromData:data error:NULL];
     u.requiresSecureCoding = NO;
     NSDictionary *d = [u decodeObjectForKey:@"NSFontCollectionDictionary"];
     return [d isKindOfClass:[NSDictionary class]] ? d : nil;
@@ -187,12 +196,12 @@ static BOOL
 write_collection(NSFontCollection *c, NSString *name, NSURL *url)
 {
     NSMutableDictionary *d = [NSMutableDictionary dictionary];
-    d[@"NSFontCollectionFontDescriptors"] = [[(c.queryDescriptors ?: @[]) mutableCopy] autorelease];
+    d[@"NSFontCollectionFontDescriptors"] = [(c.queryDescriptors ?: @[]) mutableCopy];
     if (c.exclusionDescriptors.count)
-        d[@"NSFontCollectionExclusionDescriptors"] = [[c.exclusionDescriptors mutableCopy] autorelease];
+        d[@"NSFontCollectionExclusionDescriptors"] = [c.exclusionDescriptors mutableCopy];
     d[@"NSFontCollectionAttributes"] = [NSMutableDictionary dictionaryWithObjectsAndKeys:name, @"NSFontCollectionName",
                                                                                          url.lastPathComponent, @"NSFontCollectionFileName", nil];
-    NSKeyedArchiver *a = [[[NSKeyedArchiver alloc] initRequiringSecureCoding:NO] autorelease];
+    NSKeyedArchiver *a = [[NSKeyedArchiver alloc] initRequiringSecureCoding:NO];
     [a encodeObject:d forKey:@"NSFontCollectionDictionary"];
     [a finishEncoding];
     return [a.encodedData writeToURL:url atomically:YES];
@@ -205,7 +214,7 @@ descriptors_in(id a)
         return nil;
     NSMutableArray *out = [NSMutableArray array];
     for (id d in a)
-        if ([d isKindOfClass:[NSFontDescriptor class]])
+        if (is_descriptor(d))
             [out addObject:d];
     return out;
 }
@@ -216,15 +225,15 @@ stored(Class cls, NSString *name, NSFontCollectionVisibility v)
     if (v & NSFontCollectionVisibilityProcess) {
         NSFontCollection *c = process_collections()[name];
         if (c)
-            return [[[cls alloc] _initWithQuery:c->_query exclusion:c->_exclusion] autorelease];
+            return [[cls alloc] _initWithQuery:c->_query exclusion:c->_exclusion];
     }
     for (NSFontCollectionVisibility vis = NSFontCollectionVisibilityUser; vis <= NSFontCollectionVisibilityComputer; vis <<= 1) {
         if (!(v & vis))
             continue;
         NSDictionary *d = read_collection(collection_file(name, vis));
         if (d)
-            return [[[cls alloc] _initWithQuery:descriptors_in(d[@"NSFontCollectionFontDescriptors"]) ?: @[]
-                                      exclusion:descriptors_in(d[@"NSFontCollectionExclusionDescriptors"])] autorelease];
+            return [[cls alloc] _initWithQuery:descriptors_in(d[@"NSFontCollectionFontDescriptors"]) ?: @[]
+                                     exclusion:descriptors_in(d[@"NSFontCollectionExclusionDescriptors"])];
     }
     return nil;
 }
@@ -243,10 +252,10 @@ stored(Class cls, NSString *name, NSFontCollectionVisibility v)
     if (c)
         return c;
     if ([name isEqualToString:NSFontCollectionFavorites] || [name isEqualToString:NSFontCollectionRecentlyUsed])
-        return [[[self alloc] _initWithQuery:@[] exclusion:nil] autorelease];
+        return [[self alloc] _initWithQuery:@[] exclusion:nil];
     BOOL found;
     NSArray *query = builtin_query(name, &found);
-    return found ? [[[self alloc] _initWithQuery:query exclusion:nil] autorelease] : nil;
+    return found ? [[self alloc] _initWithQuery:query exclusion:nil] : nil;
 }
 
 + (NSArray *)allFontCollectionNames
@@ -286,7 +295,7 @@ fail(NSError **error, NSInteger code, NSString *name)
     if (!collection || !name.length)
         return fail(error, NSFileWriteInvalidFileNameError, name);
     if (visibility & NSFontCollectionVisibilityProcess)
-        process_collections()[name] = [[collection copy] autorelease];
+        process_collections()[name] = [collection copy];
     for (NSFontCollectionVisibility vis = NSFontCollectionVisibilityUser; vis <= NSFontCollectionVisibilityComputer; vis <<= 1) {
         if (!(visibility & vis))
             continue;
@@ -337,7 +346,7 @@ fail(NSError **error, NSInteger code, NSString *name)
 {
     if (!_query)
         return CTFontCollectionCreateFromAvailableFonts(NULL);
-    return CTFontCollectionCreateWithFontDescriptors((CFArrayRef)_query, NULL);
+    return CTFontCollectionCreateWithFontDescriptors((__bridge CFArrayRef)_query, NULL);
 }
 
 /* Matching fonts, less the excluded ones (a font is excluded when every attribute an
@@ -349,28 +358,30 @@ fail(NSError **error, NSInteger code, NSString *name)
     CTFontCollectionRef c = [self _ctCollection];
     if (!c)
         return @[];
-    CFArrayRef found = family ? CTFontCollectionCreateMatchingFontDescriptorsForFamily(c, (CFStringRef)family, (CFDictionaryRef)options)
-                              : CTFontCollectionCreateMatchingFontDescriptorsWithOptions(c, (CFDictionaryRef)options);
+    CFArrayRef found = family ? CTFontCollectionCreateMatchingFontDescriptorsForFamily(c, (__bridge CFStringRef)family, (__bridge CFDictionaryRef)options)
+                              : CTFontCollectionCreateMatchingFontDescriptorsWithOptions(c, (__bridge CFDictionaryRef)options);
     CFRelease(c);
     NSMutableArray *result = [NSMutableArray array];
     NSMutableSet *seen = [NSMutableSet set];
-    for (NSFontDescriptor *d in (NSArray *)found) {
+    for (id d in (__bridge NSArray *)found) {
+        CTFontDescriptorRef cd = (__bridge CTFontDescriptorRef)d;
+        NSString *ps = CFBridgingRelease(CTFontDescriptorCopyAttribute(cd, kCTFontNameAttribute));
         BOOL excluded = NO;
-        for (NSFontDescriptor *x in _exclusion) {
-            NSDictionary *xa = x.fontAttributes;
+        for (id x in _exclusion) {
+            NSDictionary *xa = CFBridgingRelease(CTFontDescriptorCopyAttributes((__bridge CTFontDescriptorRef)x));
             BOOL all = xa.count > 0;
-            for (NSString *k in xa)
-                if (![[d objectForKey:k] isEqual:xa[k]] &&
-                    !([k isEqualToString:NSFontNameAttribute] && [d.postscriptName isEqualToString:xa[k]])) {
+            for (NSString *k in xa) {
+                id value = CFBridgingRelease(CTFontDescriptorCopyAttribute(cd, (__bridge CFStringRef)k));
+                if (![value isEqual:xa[k]] && !([k isEqualToString:(id)kCTFontNameAttribute] && [ps isEqualToString:xa[k]])) {
                     all = NO;
                     break;
                 }
+            }
             if (all) {
                 excluded = YES;
                 break;
             }
         }
-        NSString *ps = d.postscriptName ?: [d objectForKey:NSFontNameAttribute];
         if (excluded || (ps && [seen containsObject:ps]))
             continue;
         if (ps)
@@ -418,13 +429,11 @@ fail(NSError **error, NSInteger code, NSString *name)
 
 - (void)setQueryDescriptors:(NSArray *)q
 {
-    [_query autorelease];
-    _query = [q copy] ?: [@[] retain];
+    _query = [q copy] ?: @[];
 }
 
 - (void)setExclusionDescriptors:(NSArray *)x
 {
-    [_exclusion autorelease];
     _exclusion = [x copy];
 }
 
@@ -432,14 +441,14 @@ fail(NSError **error, NSInteger code, NSString *name)
 {
     self.queryDescriptors = [(_query ?: @[]) arrayByAddingObjectsFromArray:descriptors];
     /* added fonts are no longer excluded */
-    NSMutableArray *x = [[_exclusion mutableCopy] autorelease];
+    NSMutableArray *x = [_exclusion mutableCopy];
     [x removeObjectsInArray:descriptors];
     self.exclusionDescriptors = x;
 }
 
 - (void)removeQueryForDescriptors:(NSArray *)descriptors
 {
-    NSMutableArray *q = [[_query mutableCopy] autorelease];
+    NSMutableArray *q = [_query mutableCopy];
     NSUInteger before = q.count;
     [q removeObjectsInArray:descriptors];
     self.queryDescriptors = q;

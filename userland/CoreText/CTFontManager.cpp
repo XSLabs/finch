@@ -4,6 +4,8 @@
  * (by URL, data or CGFont), and listing and matching the fonts available.
  */
 #include "CTRegistry.h"
+#include <objc/message.h>
+#include <objc/runtime.h>
 #include <algorithm>
 #include <set>
 
@@ -313,6 +315,7 @@ struct __CTFontCollection {
     CTRuntimeBase base;
     CFArrayRef query;      /* descriptors to match, or NULL for all fonts */
     CFArrayRef exclusions;
+    CFDictionaryRef attributes; /* (private) the collection's own attributes: its name and the like */
 };
 
 static void
@@ -323,6 +326,8 @@ collection_finalize(CFTypeRef cf)
         CFRelease(c->query);
     if (c->exclusions)
         CFRelease(c->exclusions);
+    if (c->attributes)
+        CFRelease(c->attributes);
 }
 
 static const CTRuntimeClass collection_class = {
@@ -363,8 +368,42 @@ CTFontCollectionCreateMutableCopy(CTFontCollectionRef original)
     return (CTMutableFontCollectionRef)c;
 }
 
-CFArrayRef CTFontCollectionCopyQueryDescriptors(CTFontCollectionRef c) { return c && c->query ? (CFArrayRef)CFRetain(c->query) : NULL; }
-CFArrayRef CTFontCollectionCopyExclusionDescriptors(CTFontCollectionRef c) { return c && c->exclusions ? (CFArrayRef)CFRetain(c->exclusions) : NULL; }
+/* (private) a collection's attributes, as Font Book keeps them */
+extern "C" CFDictionaryRef CTFontCollectionCopyAttributes(CTFontCollectionRef c);
+extern "C" void CTFontCollectionSetAttributes(CTFontCollectionRef c, CFDictionaryRef attributes);
+
+static const char attributes_key = 0;
+
+CFDictionaryRef
+CTFontCollectionCopyAttributes(CTFontCollectionRef c)
+{
+    if (c && CFGetTypeID(c) != CTFontCollectionGetTypeID()) {
+        id a = objc_getAssociatedObject((id)c, &attributes_key);
+        return a ? (CFDictionaryRef)CFRetain((CFTypeRef)a) : CFDictionaryCreate(NULL, NULL, NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    }
+    return c && c->attributes ? (CFDictionaryRef)CFRetain(c->attributes) : CFDictionaryCreate(NULL, NULL, NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+}
+
+void
+CTFontCollectionSetAttributes(CTFontCollectionRef c, CFDictionaryRef attributes)
+{
+    if (!c)
+        return;
+    if (CFGetTypeID(c) != CTFontCollectionGetTypeID()) {
+        CFDictionaryRef copy = attributes ? CFDictionaryCreateCopy(NULL, attributes) : NULL;
+        objc_setAssociatedObject((id)c, &attributes_key, (id)copy, OBJC_ASSOCIATION_RETAIN);
+        if (copy)
+            CFRelease(copy);
+        return;
+    }
+    struct __CTFontCollection *m = (struct __CTFontCollection *)c;
+    if (m->attributes)
+        CFRelease(m->attributes);
+    m->attributes = attributes ? CFDictionaryCreateCopy(NULL, attributes) : NULL;
+}
+
+static CFArrayRef CTFontCollectionCopyQueryDescriptors_impl(CTFontCollectionRef c) { return c && c->query ? (CFArrayRef)CFRetain(c->query) : NULL; }
+static CFArrayRef CTFontCollectionCopyExclusionDescriptors_impl(CTFontCollectionRef c) { return c && c->exclusions ? (CFArrayRef)CFRetain(c->exclusions) : NULL; }
 
 void
 CTFontCollectionSetQueryDescriptors(CTMutableFontCollectionRef c, CFArrayRef q)
@@ -434,8 +473,8 @@ matches(const CTInstalledFont &f, CTFontDescriptorRef d)
     return ok;
 }
 
-CFArrayRef
-CTFontCollectionCreateMatchingFontDescriptors(CTFontCollectionRef c)
+static CFArrayRef
+CTFontCollectionCreateMatchingFontDescriptors_impl(CTFontCollectionRef c)
 {
     if (!c)
         return NULL;
@@ -463,8 +502,8 @@ CTFontCollectionCreateMatchingFontDescriptors(CTFontCollectionRef c)
     return out;
 }
 
-CFArrayRef
-CTFontCollectionCreateMatchingFontDescriptorsWithOptions(CTFontCollectionRef c, CFDictionaryRef options)
+static CFArrayRef
+CTFontCollectionCreateMatchingFontDescriptorsWithOptions_impl(CTFontCollectionRef c, CFDictionaryRef options)
 {
     return CTFontCollectionCreateMatchingFontDescriptors(c);
 }
@@ -483,8 +522,8 @@ CTFontCollectionCreateMatchingFontDescriptorsSortedWithCallback(CTFontCollection
     return m;
 }
 
-CFArrayRef
-CTFontCollectionCreateMatchingFontDescriptorsForFamily(CTFontCollectionRef c, CFStringRef familyName, CFDictionaryRef options)
+static CFArrayRef
+CTFontCollectionCreateMatchingFontDescriptorsForFamily_impl(CTFontCollectionRef c, CFStringRef familyName, CFDictionaryRef options)
 {
     CFDictionaryRef attrs = CFDictionaryCreate(NULL, (const void **)&kCTFontFamilyNameAttribute, (const void **)&familyName,
                                                1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
@@ -496,8 +535,8 @@ CTFontCollectionCreateMatchingFontDescriptorsForFamily(CTFontCollectionRef c, CF
     return out;
 }
 
-CFArrayRef
-CTFontCollectionCopyFontAttribute(CTFontCollectionRef c, CFStringRef attributeName, CTFontCollectionCopyOptions options)
+static CFArrayRef
+CTFontCollectionCopyFontAttribute_impl(CTFontCollectionRef c, CFStringRef attributeName, CTFontCollectionCopyOptions options)
 {
     CFArrayRef descs = CTFontCollectionCreateMatchingFontDescriptors(c);
     CFMutableArrayRef out = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
@@ -513,8 +552,102 @@ CTFontCollectionCopyFontAttribute(CTFontCollectionRef c, CFStringRef attributeNa
     return out;
 }
 
+static CFArrayRef
+CTFontCollectionCopyFontAttributes_impl(CTFontCollectionRef c, CFSetRef attributeNames, CTFontCollectionCopyOptions options)
+{
+    return CFArrayCreate(NULL, NULL, 0, &kCFTypeArrayCallBacks);
+}
+
+#pragma mark - Finch's NSFontCollections
+
+/* Apple's NSFontCollection is a CTFontCollection; Finch's is an Objective-C object, so the
+   calls that read a collection take one by asking it for its CoreText collection. */
+static CTFontCollectionRef
+as_ct(CTFontCollectionRef c, CTFontCollectionRef *owned)
+{
+    *owned = NULL;
+    if (!c || CFGetTypeID(c) == CTFontCollectionGetTypeID())
+        return c;
+    SEL s = sel_registerName("_ctCollection");
+    if (!class_respondsToSelector(object_getClass((id)c), s))
+        return NULL;
+    *owned = ((CTFontCollectionRef(*)(const void *, SEL))objc_msgSend)(c, s);
+    return *owned;
+}
+
+CFArrayRef
+CTFontCollectionCreateMatchingFontDescriptors(CTFontCollectionRef c)
+{
+    CTFontCollectionRef owned;
+    c = as_ct(c, &owned);
+    CFArrayRef r = c ? CTFontCollectionCreateMatchingFontDescriptors_impl(c) : NULL;
+    if (owned)
+        CFRelease(owned);
+    return r;
+}
+
+CFArrayRef
+CTFontCollectionCreateMatchingFontDescriptorsWithOptions(CTFontCollectionRef c, CFDictionaryRef options)
+{
+    CTFontCollectionRef owned;
+    c = as_ct(c, &owned);
+    CFArrayRef r = c ? CTFontCollectionCreateMatchingFontDescriptorsWithOptions_impl(c, options) : NULL;
+    if (owned)
+        CFRelease(owned);
+    return r;
+}
+
+CFArrayRef
+CTFontCollectionCreateMatchingFontDescriptorsForFamily(CTFontCollectionRef c, CFStringRef familyName, CFDictionaryRef options)
+{
+    CTFontCollectionRef owned;
+    c = as_ct(c, &owned);
+    CFArrayRef r = c ? CTFontCollectionCreateMatchingFontDescriptorsForFamily_impl(c, familyName, options) : NULL;
+    if (owned)
+        CFRelease(owned);
+    return r;
+}
+
+CFArrayRef
+CTFontCollectionCopyFontAttribute(CTFontCollectionRef c, CFStringRef attributeName, CTFontCollectionCopyOptions options)
+{
+    CTFontCollectionRef owned;
+    c = as_ct(c, &owned);
+    CFArrayRef r = c ? CTFontCollectionCopyFontAttribute_impl(c, attributeName, options) : NULL;
+    if (owned)
+        CFRelease(owned);
+    return r;
+}
+
 CFArrayRef
 CTFontCollectionCopyFontAttributes(CTFontCollectionRef c, CFSetRef attributeNames, CTFontCollectionCopyOptions options)
 {
-    return CFArrayCreate(NULL, NULL, 0, &kCFTypeArrayCallBacks);
+    CTFontCollectionRef owned;
+    c = as_ct(c, &owned);
+    CFArrayRef r = c ? CTFontCollectionCopyFontAttributes_impl(c, attributeNames, options) : NULL;
+    if (owned)
+        CFRelease(owned);
+    return r;
+}
+
+CFArrayRef
+CTFontCollectionCopyQueryDescriptors(CTFontCollectionRef c)
+{
+    CTFontCollectionRef owned;
+    c = as_ct(c, &owned);
+    CFArrayRef r = c ? CTFontCollectionCopyQueryDescriptors_impl(c) : NULL;
+    if (owned)
+        CFRelease(owned);
+    return r;
+}
+
+CFArrayRef
+CTFontCollectionCopyExclusionDescriptors(CTFontCollectionRef c)
+{
+    CTFontCollectionRef owned;
+    c = as_ct(c, &owned);
+    CFArrayRef r = c ? CTFontCollectionCopyExclusionDescriptors_impl(c) : NULL;
+    if (owned)
+        CFRelease(owned);
+    return r;
 }

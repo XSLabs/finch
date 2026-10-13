@@ -1290,3 +1290,52 @@ void (InvokeFNSubscriptionUPP)(FNMessage message, OptionBits flags, void *refcon
 {
     userUPP(message, flags, refcon, subscription);
 }
+
+#pragma mark - Mapped resource files
+
+/*
+ * The mapped resource-file calls font managers use to read old font suitcases. Finch
+ * doesn't read resource forks, so a file has no resource map: opening one finds none,
+ * and there are no resources to count or get.
+ */
+OSErr
+FSOpenResourceFileMapped(const FSRef *ref, UniCharCount forkNameLength, const UniChar *forkName, SInt8 permissions,
+                         FSIORefNum *refNum, void **mapped)
+{
+    if (refNum)
+        *refNum = 0;
+    if (mapped)
+        *mapped = NULL;
+    return -192; /* resNotFound */
+}
+
+OSErr
+GetForkPhysicalInfo(FSIORefNum forkRefNum, SInt64 *offset, SInt64 *length)
+{
+    if (offset)
+        *offset = 0;
+    if (length)
+        *length = 0;
+    return -50; /* paramErr */
+}
+
+OSErr
+RMNewMappedRefFromMappedFork(const void *mapped, SInt64 length, void **mappedRef)
+{
+    if (mappedRef)
+        *mappedRef = NULL;
+    return -192;
+}
+
+SInt16 RMGetResourceCount(void *mappedRef, ResType type) { return 0; }
+
+OSErr
+RMGetIndexedResource(void *mappedRef, ResType type, SInt16 index, const void **data, SInt16 *resID, void *name)
+{
+    if (data)
+        *data = NULL;
+    return -192;
+}
+
+SInt32 RMGetResourceSize(void *mappedRef, const void *data) { return 0; }
+OSErr RMDisposeMappedFileRef(void *mappedRef) { return 0; }

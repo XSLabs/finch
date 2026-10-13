@@ -3,3 +3,8 @@ _kCT*
 _$s*
 _OBJC_CLASS_$_CTAdaptiveImageGlyph
 _OBJC_METACLASS_$_CTAdaptiveImageGlyph
+_NSFontCollection*
+_OBJC_CLASS_$_NSFontCollection
+_OBJC_METACLASS_$_NSFontCollection
+_OBJC_CLASS_$_NSMutableFontCollection
+_OBJC_METACLASS_$_NSMutableFontCollection

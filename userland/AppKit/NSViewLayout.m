@@ -1086,8 +1086,12 @@ resize_window_if_needed(FinchLayoutEngine *e)
     NSSize size = [window contentRectForFrameRect:[window frame]].size;
     if (fabs(w - size.width) < 1e-6 && fabs(h - size.height) < 1e-6)
         return;
+    /* resizing lays the window out again, which may replace this engine: keep it (and its
+       solver) until this pass is done with it */
+    [[e retain] autorelease];
     [window setContentSize:NSMakeSize(w, h)];
-    update_root_size(e);
+    if (state(root)->engine == e)
+        update_root_size(e);
 }
 
 static void lay_out_tree(NSView *view, NSView *root, int depth);
