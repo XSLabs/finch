@@ -384,12 +384,15 @@ CTFontCollectionSetExclusionDescriptors(CTMutableFontCollectionRef c, CFArrayRef
     m->exclusions = e ? CFArrayCreateCopy(NULL, e) : NULL;
 }
 
-/* Does an installed font satisfy a query descriptor (by name or family)? */
+/* Does an installed font satisfy a query descriptor (by name, family, symbolic traits
+   and languages)? The font itself is opened only for traits and languages. */
 static bool
 matches(const CTInstalledFont &f, CTFontDescriptorRef d)
 {
     CFStringRef name = (CFStringRef)CTFontDescriptorCopyAttribute(d, kCTFontNameAttribute);
     CFStringRef family = (CFStringRef)CTFontDescriptorCopyAttribute(d, kCTFontFamilyNameAttribute);
+    CFDictionaryRef traits = (CFDictionaryRef)CTFontDescriptorCopyAttribute(d, kCTFontTraitsAttribute);
+    CFArrayRef languages = (CFArrayRef)CTFontDescriptorCopyAttribute(d, kCTFontLanguagesAttribute);
     char buf[512];
     bool ok = true;
     if (name) {
@@ -400,6 +403,34 @@ matches(const CTInstalledFont &f, CTFontDescriptorRef d)
         ok &= CFStringGetCString(family, buf, sizeof buf, kCFStringEncodingUTF8) && f.family == buf;
         CFRelease(family);
     }
+    uint32_t want = 0;
+    if (traits && CFGetTypeID(traits) == CFDictionaryGetTypeID()) {
+        CFNumberRef n = (CFNumberRef)CFDictionaryGetValue(traits, kCTFontSymbolicTrait);
+        if (n && CFGetTypeID(n) == CFNumberGetTypeID())
+            CFNumberGetValue(n, kCFNumberSInt32Type, &want);
+        want &= 0xFFFF; /* the class bits aren't a mask */
+    }
+    bool wantLanguages = languages && CFGetTypeID(languages) == CFArrayGetTypeID() && CFArrayGetCount(languages);
+    if (ok && (want || wantLanguages)) {
+        CFStringRef ps = CFStringCreateWithCString(NULL, f.postscript.c_str(), kCFStringEncodingUTF8);
+        CTFontRef font = CTFontCreateWithName(ps, 12, NULL);
+        CFRelease(ps);
+        if (want)
+            ok &= font && (CTFontGetSymbolicTraits(font) & want) == want;
+        if (ok && wantLanguages) {
+            CFArrayRef have = font ? CTFontCopySupportedLanguages(font) : NULL;
+            for (CFIndex i = 0; ok && i < CFArrayGetCount(languages); i++)
+                ok &= have && CFArrayContainsValue(have, CFRangeMake(0, CFArrayGetCount(have)), CFArrayGetValueAtIndex(languages, i));
+            if (have)
+                CFRelease(have);
+        }
+        if (font)
+            CFRelease(font);
+    }
+    if (traits)
+        CFRelease(traits);
+    if (languages)
+        CFRelease(languages);
     return ok;
 }
 

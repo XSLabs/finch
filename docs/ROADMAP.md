@@ -464,7 +464,14 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           `libswiftSystem` (every one of its exports, two through Finch's compatibility
           entry points), and Foundation's `FilePath`/`URL` conversions;
           `swift-overlay-test` matches Apple's.
-    - [ ] Next: diffable data sources and measurement format styles, among others
+    - [x] AppKit's value classes (2026-10-12): the Objective-C diffable data source
+          snapshot and collection view data source (Apple's exceptions included), menu
+          item badges, pressure and tint configurations, compression options, scroll edge
+          effect styles, NSPDFInfo and NSPDFPanel, NSCIImageRep, and NSFontCollection
+          (reading and writing macOS's own .collection files; CoreText's collections now
+          match symbolic traits and languages); `appkit-values-test` matches Apple's.
+    - [ ] Next: measurement format styles, AppKit's private classes apps link
+          (NSTokenAttachment, NSTouchDevice, NSButtonGroupTouchBarItem, ...), among others
           ([`APPS.md`](APPS.md)). Later: a Spotlight-style index
           for metadata queries, a version store for NSFileVersion, lexical classes for
           the tagger, and the AppleScript language.

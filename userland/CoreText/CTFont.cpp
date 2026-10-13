@@ -579,8 +579,9 @@ CTFontGetSymbolicTraits(CTFontRef f)
     size_t len;
     const uint8_t *head = CTFontTable(f, 'head', &len);
     uint16_t mac_style = head && len >= 46 ? ct_be16(head + 44) : 0;
-    const uint8_t *os2 = CTFontTable(f, 'OS/2', &len);
-    uint16_t sel = os2 && len >= 64 ? ct_be16(os2 + 62) : 0;
+    size_t os2len;
+    const uint8_t *os2 = CTFontTable(f, 'OS/2', &os2len);
+    uint16_t sel = os2 && os2len >= 64 ? ct_be16(os2 + 62) : 0;
     if ((mac_style & 2) || (sel & 1))
         t |= kCTFontTraitItalic;
     if ((mac_style & 1) || (sel & 0x20))
@@ -588,7 +589,7 @@ CTFontGetSymbolicTraits(CTFontRef f)
     const uint8_t *post = CTFontTable(f, 'post', &len);
     if (post && len >= 16 && ct_be32(post + 12))
         t |= kCTFontTraitMonoSpace;
-    if (os2 && len >= 8) {
+    if (os2 && os2len >= 8) {
         uint16_t width = ct_be16(os2 + 6);
         if (width && width < 5)
             t |= kCTFontTraitCondensed;
