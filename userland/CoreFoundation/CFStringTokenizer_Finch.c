@@ -12,9 +12,9 @@
  *     include the separator, as sentences' do.
  *   - A token's type says whether it has numbers, non-letters, or is CJK.
  *
- * Latin transcriptions, sub-tokens and language guessing aren't provided:
- * CopyCurrentTokenAttribute returns NULL, GetCurrentSubTokens 0, and
- * CopyBestStringLanguage the system's first language (or NULL).
+ * Latin transcriptions and sub-tokens aren't provided: CopyCurrentTokenAttribute
+ * returns NULL and GetCurrentSubTokens 0. CopyBestStringLanguage guesses from the
+ * script, and for Latin text from each language's common words and letters.
  */
 
 #include "CFInternal.h"
@@ -45,6 +45,7 @@ enum {
     kCFStringTokenizerTokenIsCJWordMask = 1UL << 5,
 };
 #include <stdlib.h>
+#include <string.h>
 
 struct __CFStringTokenizer {
     CFRuntimeBase base;
@@ -280,14 +281,197 @@ CFStringTokenizerGetCurrentSubTokens(CFStringTokenizerRef tokenizer, CFRange *ra
     return 0;
 }
 
+/* Language guessing: Finch's own, by script and, for Latin text, by the common short words
+   of each language and the letters only some languages use. */
+
+enum { S_LATIN, S_CYRILLIC, S_GREEK, S_HEBREW, S_ARABIC, S_HANGUL, S_KANA, S_HAN, S_THAI, S_DEVANAGARI,
+       S_ARMENIAN, S_GEORGIAN, S_BENGALI, S_TAMIL, S_COUNT };
+
+static int
+script_of(UniChar c)
+{
+    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= 0xC0 && c <= 0x24F && c != 0xD7 && c != 0xF7) ||
+        (c >= 0x1E00 && c <= 0x1EFF))
+        return S_LATIN;
+    if (c >= 0x400 && c <= 0x52F)
+        return S_CYRILLIC;
+    if ((c >= 0x370 && c <= 0x3FF) || (c >= 0x1F00 && c <= 0x1FFF))
+        return S_GREEK;
+    if (c >= 0x530 && c <= 0x58F)
+        return S_ARMENIAN;
+    if (c >= 0x590 && c <= 0x5FF)
+        return S_HEBREW;
+    if ((c >= 0x600 && c <= 0x6FF) || (c >= 0x750 && c <= 0x77F) || (c >= 0xFB50 && c <= 0xFEFF))
+        return S_ARABIC;
+    if (c >= 0x900 && c <= 0x97F)
+        return S_DEVANAGARI;
+    if (c >= 0x980 && c <= 0x9FF)
+        return S_BENGALI;
+    if (c >= 0xB80 && c <= 0xBFF)
+        return S_TAMIL;
+    if (c >= 0xE00 && c <= 0xE7F)
+        return S_THAI;
+    if (c >= 0x10A0 && c <= 0x10FF)
+        return S_GEORGIAN;
+    if ((c >= 0x1100 && c <= 0x11FF) || (c >= 0x3130 && c <= 0x318F) || (c >= 0xAC00 && c <= 0xD7AF))
+        return S_HANGUL;
+    if (c >= 0x3040 && c <= 0x30FF)
+        return S_KANA;
+    if ((c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF) || (c >= 0xF900 && c <= 0xFAFF))
+        return S_HAN;
+    return -1;
+}
+
+static int
+has_any(const UniChar *s, CFIndex n, const char *utf8)
+{
+    CFStringRef set = CFStringCreateWithCString(kCFAllocatorSystemDefault, utf8, kCFStringEncodingUTF8);
+    CFIndex m = CFStringGetLength(set);
+    int found = 0;
+    for (CFIndex i = 0; i < n && !found; i++)
+        for (CFIndex j = 0; j < m; j++)
+            if (s[i] == CFStringGetCharacterAtIndex(set, j)) {
+                found = 1;
+                break;
+            }
+    CFRelease(set);
+    return found;
+}
+
+/* Latin-script languages: their commonest short words, and letters that point to them. */
+static const struct latin_language {
+    const char *code, *words, *letters;
+} latin[] = {
+    {"en", " the and of to is in it that you was for are with this have not be on at but they what all we can "
+           "my your how hello today yes no or from by an as do if so up out there one "
+           "about will would ", ""},
+    {"fr", " le la les de des du et est un une que qui pas dans pour sur au aux ce il elle nous vous je tu "
+           "bonjour avec mais tout comment ", "àâæçèêëîïôœùûÿ"},
+    {"de", " der die das und ist nicht ein eine ich du sie er es wir mit von zu den dem auf für wie auch "
+           "guten heute ihnen ", "äöüß"},
+    {"es", " el la los las de del y que es en un una por para con no se lo como pero estoy hola muy está "
+           "estás ", "ñ¿¡áéíóú"},
+    {"it", " il lo la gli le di che è e un una per non con sono come ciao oggi della anche questo stai ",
+           "àèéìòù"},
+    {"pt", " o a os as de do da dos das e que não um uma para com por como você está olá hoje em ",
+           "ãõçáâêéíóú"},
+    {"nl", " de het een en van is dat niet ik je hoe met op te zijn wat voor hallo gaat vandaag ", ""},
+    {"sv", " och att det som en är på för med jag inte har till av ett hej hur ", "åäö"},
+    {"da", " og at det som en er på for med jeg ikke har til af et hej hvordan ", "æøå"},
+    {"nb", " og at det som en er på for med jeg ikke har til av et hei hvordan ", "æøå"},
+    {"fi", " ja on ei se että hän mitä kuin minä sinä tämä mutta hei miten ", "äö"},
+    {"pl", " i w nie na to że się jest z do jak co ale czy tak ", "ąćęłńóśźż"},
+    {"cs", " a je to že se na v ne jak co ale jsem ", "čďěňřšťůž"},
+    {"tr", " ve bir bu da de ne için ile çok ama nasıl merhaba ", "çğıöşü"},
+    {"ro", " și în de la nu că un o este pe cu ce ", "ăâîșțşţ"},
+    {"hu", " a az és hogy nem egy is van meg de ", "áéíóöőúüű"},
+    {"vi", " và là của có không một những người được trong ", "ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ"},
+    {"id", " dan yang di ini itu dengan tidak untuk dari ada saya apa ", ""},
+};
+
+static CFStringRef
+latin_language(const UniChar *s, CFIndex n)
+{
+    enum { N = sizeof latin / sizeof latin[0] };
+    double score[N] = {0};
+    CFIndex i = 0;
+    while (i < n) {
+        while (i < n && script_of(s[i]) != S_LATIN)
+            i++;
+        CFIndex start = i;
+        while (i < n && script_of(s[i]) == S_LATIN)
+            i++;
+        if (i == start)
+            break;
+        /* parts of addresses (a@b.com) aren't words of any language */
+        if ((start > 0 && (s[start - 1] == '.' || s[start - 1] == '@')) || (i < n && s[i] == '@'))
+            continue;
+        /* " word " in UTF-8, lowercased */
+        CFStringRef w = CFStringCreateWithCharacters(kCFAllocatorSystemDefault, s + start, i - start);
+        CFMutableStringRef lw = CFStringCreateMutableCopy(kCFAllocatorSystemDefault, 0, w);
+        CFStringLowercase(lw, NULL);
+        char buf[64] = " ";
+        if (CFStringGetCString(lw, buf + 1, sizeof buf - 2, kCFStringEncodingUTF8)) {
+            strcat(buf, " ");
+            for (int k = 0; k < N; k++)
+                if (strstr(latin[k].words, buf))
+                    score[k] += i - start == 1 ? 0.25 : 1; /* "a", "e", "i" say little */
+        }
+        CFRelease(lw);
+        CFRelease(w);
+    }
+    for (int k = 0; k < N; k++) {
+        if (!latin[k].letters[0])
+            continue;
+        CFStringRef set = CFStringCreateWithCString(kCFAllocatorSystemDefault, latin[k].letters, kCFStringEncodingUTF8);
+        CFIndex m = CFStringGetLength(set);
+        for (CFIndex j = 0; j < n; j++) {
+            UniChar c = s[j] >= 'A' && s[j] <= 'Z' ? s[j] + 32 : (s[j] >= 0xC0 && s[j] <= 0xDE && s[j] != 0xD7) ? s[j] + 32 : s[j];
+            for (CFIndex x = 0; x < m; x++)
+                if (c == CFStringGetCharacterAtIndex(set, x))
+                    score[k] += 0.5;
+        }
+        CFRelease(set);
+    }
+    int best = 0;
+    for (int k = 1; k < N; k++)
+        if (score[k] > score[best])
+            best = k;
+    return CFStringCreateWithCString(kCFAllocatorSystemDefault, latin[best].code, kCFStringEncodingUTF8);
+}
+
 CFStringRef
 CFStringTokenizerCopyBestStringLanguage(CFStringRef string, CFRange range)
 {
-    CFArrayRef langs = CFLocaleCopyPreferredLanguages();
-    CFStringRef best = NULL;
-    if (langs && CFArrayGetCount(langs))
-        best = CFRetain(CFArrayGetValueAtIndex(langs, 0));
-    if (langs)
-        CFRelease(langs);
-    return best;
+    if (!string || range.length <= 0)
+        return NULL;
+    UniChar *s = malloc(range.length * sizeof(UniChar));
+    CFStringGetCharacters(string, range, s);
+    CFIndex count[S_COUNT] = {0}, letters = 0;
+    for (CFIndex i = 0; i < range.length; i++) {
+        int sc = script_of(s[i]);
+        if (sc >= 0) {
+            count[sc]++;
+            letters++;
+        }
+    }
+    const char *lang = NULL;
+    CFStringRef result = NULL;
+    if (letters >= 2) {
+        int top = 0;
+        for (int k = 1; k < S_COUNT; k++)
+            if (count[k] > count[top])
+                top = k;
+        if (count[S_KANA] && (top == S_HAN || top == S_KANA))
+            top = S_KANA;
+        switch (top) {
+        case S_LATIN:
+            result = latin_language(s, range.length);
+            break;
+        case S_CYRILLIC:
+            lang = has_any(s, range.length, "іїєґІЇЄҐ") ? "uk" : has_any(s, range.length, "ђћџљњјЂЋЏЉЊЈ") ? "sr" : "ru";
+            break;
+        case S_GREEK: lang = "el"; break;
+        case S_HEBREW: lang = "he"; break;
+        case S_ARABIC:
+            lang = has_any(s, range.length, "ٹڈڑںے") ? "ur" : has_any(s, range.length, "پچژگ") ? "fa" : "ar";
+            break;
+        case S_HANGUL: lang = "ko"; break;
+        case S_KANA: lang = "ja"; break;
+        case S_HAN:
+            /* Characters written one way in traditional Chinese and another in simplified. */
+            lang = has_any(s, range.length, "們這來個為說對時會國學語經過還開關體電話問題東車長門見") ? "zh-Hant" : "zh-Hans";
+            break;
+        case S_THAI: lang = "th"; break;
+        case S_DEVANAGARI: lang = "hi"; break;
+        case S_ARMENIAN: lang = "hy"; break;
+        case S_GEORGIAN: lang = "ka"; break;
+        case S_BENGALI: lang = "bn"; break;
+        case S_TAMIL: lang = "ta"; break;
+        }
+    }
+    free(s);
+    if (lang)
+        result = CFStringCreateWithCString(kCFAllocatorSystemDefault, lang, kCFStringEncodingUTF8);
+    return result;
 }

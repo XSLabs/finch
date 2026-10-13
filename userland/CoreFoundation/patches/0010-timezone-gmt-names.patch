@@ -1,0 +1,34 @@
+CFTimeZone.c: "UTC", "GMT" and their offset forms ("UTC+0", "GMT+5:30") are fixed
+time zones, as in Apple's CoreFoundation, so +[NSTimeZone timeZoneWithName:@"UTC"] is
+GMT (Greenwich Mean Time) as on macOS, not the zoneinfo file named UTC.
+
+diff --git a/Sources/CoreFoundation/CFTimeZone.c b/Sources/CoreFoundation/CFTimeZone.c
+index 931664b..8992289 100644
+--- a/Sources/CoreFoundation/CFTimeZone.c
++++ b/Sources/CoreFoundation/CFTimeZone.c
+@@ -1171,6 +1171,12 @@ Boolean _CFTimeZoneInit(CFTimeZoneRef timeZone, CFStringRef name, CFDataRef data
+         return _CFTimeZoneInitInternal(timeZone, name, data);
+     }
+ 
++    // Finch: fixed zones for "UTC", "GMT" and their offset forms, as CFTimeZoneCreateWithName.
++    int32_t gmtOffset = __tryParseGMTName(name);
++    if (-1 != gmtOffset) {
++        return _CFTimeZoneInitWithTimeIntervalFromGMT(timeZone, gmtOffset);
++    }
++
+     CFIndex len = CFStringGetLength(name);
+     if (6 == len || 8 == len) {
+         UniChar buffer[8];
+@@ -1391,6 +1397,12 @@ CFTimeZoneRef CFTimeZoneCreateWithName(CFAllocatorRef allocator, CFStringRef nam
+ 	return (CFTimeZoneRef)CFRetain(result);
+     }
+     __CFTimeZoneUnlockGlobal();
++    // Finch: as Apple's CF, "UTC", "GMT" and their offset forms ("UTC+5:30") are fixed
++    // zones, named as such ("GMT" for no offset).
++    int32_t gmtOffset = __tryParseGMTName(name);
++    if (-1 != gmtOffset) {
++        return CFTimeZoneCreateWithTimeIntervalFromGMT(allocator, gmtOffset);
++    }
+     CFIndex len = CFStringGetLength(name);
+     if (6 == len || 8 == len) {
+ 	UniChar buffer[8];

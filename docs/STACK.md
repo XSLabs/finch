@@ -6,7 +6,7 @@ These diagrams are updated in every commit that changes the stack, and
 `tools/render-stack.sh` checks that they render.
 
 **As of 2026-10-12:** nothing Finch builds links a closed library
-(`tools/check-closed.py`). Finch's own Foundation covers about 130 of Apple's
+(`tools/check-closed.py`). Finch's own Foundation covers about 140 of Apple's
 classes, on a CoreFoundation that dispatches to Objective-C objects as Apple's
 does (`docs/design/FOUNDATION.md`); its NSXMLParser and NSXMLDocument read
 with Apple's libxml2, built by Finch. Finch's CoreGraphics has begun, over Skia
@@ -132,7 +132,7 @@ block-beta
     block:L5
         columns 4
         t5["Foundation layer"]
-        foundation["Foundation<br/>strings, numbers, decimals, threads,<br/>files, bundles, formatters, queues,<br/>KVC/KVO, JSON, archiving, regexes,<br/>attributed strings, map/hash tables,<br/>undo, proxies, transforms,<br/>file handles, pipes, tasks,<br/>predicates, progress, file wrappers,<br/>units and measurements, XML parsing,<br/>list, relative-date and name formatters,<br/>item providers, URL resource values,<br/>NSXPCConnection, URL loading (HTTP/1.1,<br/>TLS via OpenSSL, cache, cookies,<br/>custom protocols)"]
+        foundation["Foundation<br/>strings, numbers, decimals, threads,<br/>files, bundles, formatters, queues,<br/>KVC/KVO, JSON, archiving, regexes,<br/>attributed strings, map/hash tables,<br/>undo, proxies, transforms,<br/>file handles, pipes, tasks,<br/>predicates, progress, file wrappers,<br/>units and measurements, XML parsing,<br/>list, relative-date, interval and name formatters,<br/>linguistic tagging, metadata queries,<br/>item providers, URL resource values,<br/>NSXPCConnection, URL loading (HTTP/1.1,<br/>TLS via OpenSSL, cache, cookies,<br/>custom protocols)"]
         uti["UniformTypeIdentifiers<br/>UTType, declared and<br/>dynamic types"]
         cfnetwork["CFNetwork<br/>HTTP messages and streams,<br/>socket streams (TLS via OpenSSL),<br/>CFHost, Bonjour (dns_sd),<br/>proxies, FTP"]
         cf["CoreFoundation<br/>swift-corelibs CF + Finch ObjC:<br/>toll-free dispatch, collections,<br/>ordered sets, NSCache, NSData, NSDate,<br/>NSURL, locales, calendars, defaults,<br/>run loops, attributed strings,<br/>streams, Mach ports, notifications;<br/>bundle languages and .loctable files"]

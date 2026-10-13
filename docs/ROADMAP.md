@@ -448,12 +448,22 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           Apple's 400-day cap) and NSHTTPCookieStorage (matching, replacement, persistence
           per app); URL loading sends and keeps cookies through the session's storage;
           `cookies-test` matches Apple's, a round trip included.
-    - [ ] Next: ubiquitous key-value storage, diffable data
-          sources and the Swift overlays' async notification sequences, among others
-          ([`APPS.md`](APPS.md)).
+    - [x] Foundation's remaining service classes (2026-10-12): NSDateIntervalFormatter over
+          ICU's interval formats; NSOrthography and NSLinguisticTagger (token types,
+          sentences, paragraphs, languages and scripts by rule; CoreFoundation's
+          tokenizer now guesses languages); NSFileVersion (the current version);
+          NSMetadataItem and NSMetadataQuery (file-system attributes, queries walk their
+          scopes); NSUbiquitousKeyValueStore kept per app on the Mac; NSBackgroundActivityScheduler
+          (on time); NSAppleScript (fails: no AppleScript yet); 220 more of Apple's
+          constants; "UTC" names the GMT zone as on macOS. `foundation-more-test` matches
+          Apple's.
+    - [ ] Next: diffable data sources and the Swift overlays' async notification
+          sequences, among others ([`APPS.md`](APPS.md)). Later: a Spotlight-style index
+          for metadata queries, a version store for NSFileVersion, lexical classes for
+          the tagger, and the AppleScript language.
     - [ ] Every class and method the public headers declare, as Apple's answers them:
-          `tools/api-audit.sh` lists what Finch lacks. 2026-10-12: Foundation 61 classes
-          and 140 methods (from 67 and 225), AppKit 48 classes and 115 methods (from 50 and 562).
+          `tools/api-audit.sh` lists what Finch lacks. 2026-10-12: Foundation 48 classes
+          and 136 methods (from 67 and 225), AppKit 48 classes and 115 methods (from 50 and 562).
     - [x] Foundation, first audit batch: collection searches, tests with options,
           sorted keys and removals; KVC's set and ordered-set proxies (changes now reach
           the object; set mutations report the objects changed, as Apple's) and its
