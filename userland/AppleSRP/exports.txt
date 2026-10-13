@@ -1,0 +1,11 @@
+_SRP6a_client_method
+_SRP_new
+_SRP_free
+_SRP_set_username
+_SRP_set_params
+_SRP_set_auth_password
+_SRP_gen_pub
+_SRP_compute_key
+_SRP_respond
+_SRP_verify
+_cstr_free

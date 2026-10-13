@@ -134,6 +134,9 @@ steps=(
     # OSAnalytics (private): diagnostic reports; ConsoleKit (private): what Console is built on
     "OSAnalytics|userland/OSAnalytics/build.sh"
     "ConsoleKit|userland/ConsoleKit/build.sh"
+    # AOSKit (private): iCloud account calls, with no account; AppleSRP (private): SRP-6a client
+    "AOSKit|userland/AOSKit/build.sh"
+    "AppleSRP|userland/AppleSRP/build.sh"
     # MagnifierSupport (private): Finch's Magnifier, in SwiftUI (needs userland/SwiftUI/build.sh)
     "MagnifierSupport|userland/MagnifierSupport/build.sh"
     # libswiftFoundation, libswiftAppKit, libswiftCoreGraphics: re-exports, for older Swift apps

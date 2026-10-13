@@ -6,6 +6,7 @@
 #import "AppKit_Finch.h"
 
 @interface NSView (Finch)
+- (BOOL)_finchHasBackingLayer; /* a layer made by -makeBackingLayer, its delegate the view */
 - (void)_finchDeliverGestureEvent:(NSEvent *)event selector:(SEL)selector;
 - (void)_finchSetSuperview:(NSView *)superview;
 - (void)_finchSetWindow:(NSWindow *)window;

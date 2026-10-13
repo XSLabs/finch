@@ -12,6 +12,7 @@
  */
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
+#include <ctype.h>
 
 /* NSImage, which is AppKit's: asked for through this, without linking AppKit. */
 @interface NSObject (FinchContentsImage)
@@ -208,6 +209,179 @@ changed(CALayer *layer)
 }
 
 + (BOOL)needsDisplayForKey:(NSString *)key { return NO; }
+
+/* As Core Animation's: a subclass's @dynamic properties get accessors on first use, their
+   values kept with the layer's other values (any key may be set), a change redisplaying
+   the layer when +needsDisplayForKey: says so. */
+static objc_property_t
+dynamic_property(Class cls, SEL sel, BOOL *setter, NSString **key)
+{
+    const char *name = sel_getName(sel);
+    size_t n = strlen(name);
+    *setter = n > 4 && !strncmp(name, "set", 3) && name[n - 1] == ':' && strchr(name, ':') == name + n - 1;
+    char prop[256];
+    if (*setter) {
+        if (n - 4 >= sizeof prop)
+            return NULL;
+        memcpy(prop, name + 3, n - 4);
+        prop[n - 4] = 0;
+        prop[0] = (char)tolower(prop[0]);
+    } else {
+        if (strchr(name, ':') || n >= sizeof prop)
+            return NULL;
+        strcpy(prop, name);
+    }
+    for (Class c = cls; c && c != [CALayer class]; c = class_getSuperclass(c)) {
+        unsigned count = 0;
+        objc_property_t *props = class_copyPropertyList(c, &count);
+        objc_property_t found = NULL;
+        for (unsigned i = 0; i < count && !found; i++) {
+            const char *pn = property_getName(props[i]);
+            char *custom = property_copyAttributeValue(props[i], *setter ? "S" : "G");
+            BOOL match = custom ? !strcmp(custom, name) : !strcmp(pn, prop);
+            free(custom);
+            char *dyn = property_copyAttributeValue(props[i], "D");
+            if (match && dyn) {
+                found = props[i];
+                *key = [NSString stringWithUTF8String:pn];
+            }
+            free(dyn);
+        }
+        free(props);
+        if (found)
+            return found;
+    }
+    return NULL;
+}
+
++ (BOOL)resolveInstanceMethod:(SEL)sel
+{
+    BOOL setter;
+    NSString *key = nil;
+    objc_property_t p = dynamic_property(self, sel, &setter, &key);
+    if (!p)
+        return [super resolveInstanceMethod:sel];
+    char *t = property_copyAttributeValue(p, "T");
+    char type = t ? t[0] : '@';
+    BOOL isRect = t && !strncmp(t, "{CGRect=", 8), isPoint = t && !strncmp(t, "{CGPoint=", 9), isSize = t && !strncmp(t, "{CGSize=", 8);
+    BOOL isTransform = t && !strncmp(t, "{CATransform3D=", 15);
+    free(t);
+    key = [key copy];
+    Class cls = self;
+    void (^changed)(CALayer *) = ^(CALayer *layer) {
+        if ([[layer class] needsDisplayForKey:key])
+            [layer setNeedsDisplay];
+    };
+    id block = nil;
+    char types[64];
+    switch (type) {
+    case '@':
+    case '^': /* CGColorRef, CGPathRef, CGImageRef: kept as objects */
+    case '#':
+        if (setter) {
+            block = ^(CALayer *layer, id v) {
+                [layer setValue:v forUndefinedKey:key];
+                changed(layer);
+            };
+            snprintf(types, sizeof types, "v@:@");
+        } else {
+            block = ^id(CALayer *layer) { return [layer valueForUndefinedKey:key]; };
+            snprintf(types, sizeof types, "@@:");
+        }
+        break;
+    case 'B':
+    case 'c':
+    case 'C':
+        if (setter) {
+            block = ^(CALayer *layer, BOOL v) {
+                [layer setValue:@(v) forUndefinedKey:key];
+                changed(layer);
+            };
+            snprintf(types, sizeof types, "v@:B");
+        } else {
+            block = ^BOOL(CALayer *layer) { return [[layer valueForUndefinedKey:key] boolValue]; };
+            snprintf(types, sizeof types, "B@:");
+        }
+        break;
+    case 'd':
+    case 'f':
+        if (type == 'f') {
+            if (setter) {
+                block = ^(CALayer *layer, float v) {
+                    [layer setValue:@(v) forUndefinedKey:key];
+                    changed(layer);
+                };
+                snprintf(types, sizeof types, "v@:f");
+            } else {
+                block = ^float(CALayer *layer) { return [[layer valueForUndefinedKey:key] floatValue]; };
+                snprintf(types, sizeof types, "f@:");
+            }
+        } else if (setter) {
+            block = ^(CALayer *layer, double v) {
+                [layer setValue:@(v) forUndefinedKey:key];
+                changed(layer);
+            };
+            snprintf(types, sizeof types, "v@:d");
+        } else {
+            block = ^double(CALayer *layer) { return [[layer valueForUndefinedKey:key] doubleValue]; };
+            snprintf(types, sizeof types, "d@:");
+        }
+        break;
+    case 'q':
+    case 'Q':
+    case 'i':
+    case 'I':
+    case 'l':
+    case 'L':
+        if (setter) {
+            block = ^(CALayer *layer, long long v) {
+                [layer setValue:@(v) forUndefinedKey:key];
+                changed(layer);
+            };
+            snprintf(types, sizeof types, "v@:q");
+        } else {
+            block = ^long long(CALayer *layer) { return [[layer valueForUndefinedKey:key] longLongValue]; };
+            snprintf(types, sizeof types, "q@:");
+        }
+        break;
+    case '{':
+        if (isRect) {
+            block = setter ? (id) ^ (CALayer * layer, CGRect v) {
+                [layer setValue:[NSValue valueWithBytes:&v objCType:@encode(CGRect)] forUndefinedKey:key];
+                changed(layer);
+            } : (id) ^ CGRect(CALayer * layer) {
+                CGRect r = CGRectZero;
+                [[layer valueForUndefinedKey:key] getValue:&r];
+                return r;
+            };
+            snprintf(types, sizeof types, setter ? "v@:%s" : "%s@:", @encode(CGRect));
+        } else if (isPoint || isSize) {
+            block = setter ? (id) ^ (CALayer * layer, CGPoint v) {
+                [layer setValue:[NSValue valueWithBytes:&v objCType:@encode(CGPoint)] forUndefinedKey:key];
+                changed(layer);
+            } : (id) ^ CGPoint(CALayer * layer) {
+                CGPoint pt = CGPointZero;
+                [[layer valueForUndefinedKey:key] getValue:&pt];
+                return pt;
+            };
+            snprintf(types, sizeof types, setter ? "v@:%s" : "%s@:", @encode(CGPoint));
+        } else if (isTransform) {
+            block = setter ? (id) ^ (CALayer * layer, CATransform3D v) {
+                [layer setValue:[NSValue valueWithCATransform3D:v] forUndefinedKey:key];
+                changed(layer);
+            } : (id) ^ CATransform3D(CALayer * layer) {
+                NSValue *v = [layer valueForUndefinedKey:key];
+                return v ? [v CATransform3DValue] : CATransform3DIdentity;
+            };
+            snprintf(types, sizeof types, setter ? "v@:%s" : "%s@:", @encode(CATransform3D));
+        }
+        break;
+    }
+    if (!block)
+        return [super resolveInstanceMethod:sel];
+    class_addMethod(cls, sel, imp_implementationWithBlock(block), types);
+    return YES;
+}
 - (BOOL)shouldArchiveValueForKey:(NSString *)key { return YES; }
 
 /* As Core Animation's: any key may be set and read back. */
@@ -268,6 +442,11 @@ to_super(CALayer *l)
     CGAffineTransform t = CGAffineTransformMakeTranslation(-l->_bounds.origin.x - ax, -l->_bounds.origin.y - ay);
     t = CGAffineTransformConcat(t, CATransform3DGetAffineTransform(l->_transform));
     t = CGAffineTransformConcat(t, CGAffineTransformMakeTranslation(l->_position.x, l->_position.y));
+    /* a geometry-flipped superlayer puts its sublayers y down, flipped within its bounds */
+    if (l->_superlayer && l->_superlayer->_f.geometryFlipped) {
+        CGRect b = l->_superlayer->_bounds;
+        t = CGAffineTransformConcat(t, CGAffineTransformMake(1, 0, 0, -1, 0, CGRectGetMinY(b) + CGRectGetMaxY(b)));
+    }
     if (l->_superlayer && !CATransform3DIsIdentity(l->_superlayer->_sublayerTransform)) {
         CALayer *s = l->_superlayer;
         CGFloat sx = s->_bounds.origin.x + s->_bounds.size.width * s->_anchorPoint.x;

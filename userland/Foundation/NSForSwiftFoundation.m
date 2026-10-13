@@ -59,6 +59,16 @@
 
 @implementation _NSLocaleBridge
 - (instancetype)initWithLocaleIdentifier:(NSString *)string { return self; }
+/* What CoreFoundation's locale functions ask an Objective-C locale (CFLocale.c): a Swift
+   locale has no preference overrides for CF to apply, and its case handling is the
+   identifier's. */
+- (NSDictionary *)_prefs { return nil; }
+- (BOOL)_doesNotRequireSpecialCaseHandling
+{
+    NSString *lang = [[self localeIdentifier] componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"_-@"]].firstObject;
+    return ![@[ @"tr", @"az", @"lt", @"el", @"nl" ] containsObject:lang ?: @""];
+}
+- (void)_setDoesNotRequireSpecialCaseHandling:(BOOL)flag {}
 @end
 
 @implementation _NSTimeZoneBridge

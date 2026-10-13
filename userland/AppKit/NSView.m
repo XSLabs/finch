@@ -370,6 +370,8 @@ did_move_to_window(NSView *view, NSWindow *window)
 - (void)setWantsExtendedDynamicRangeOpenGLSurface:(BOOL)flag { _f.extendedRangeGL = flag; }
 
 - (BOOL)wantsLayer { return _f.wantsLayer; }
+- (BOOL)_finchHasBackingLayer { return _layer && _f.layerBacked && [_layer delegate] == (id)self; }
+
 - (void)setWantsLayer:(BOOL)flag
 {
     _f.wantsLayer = flag;
@@ -1379,7 +1381,9 @@ render_layer(NSView *view, CGContextRef cg, NSRect r, CGAffineTransform base)
     CGContextConcatCTM(cg, base);
     CGContextClipToRect(cg, NSRectToCGRect(r));
     /* in the view's own space, as a window shows it: in a flipped view, the layer's drawing
-       origin is the view's top left, as on macOS */
+       origin is the view's top left, as on macOS. (Apple's AppKit instead flips the backing
+       layer's geometry, so its contentsAreFlipped is YES; Finch's SwiftUI and layer drawing
+       still expect this arrangement.) */
     [layer layoutIfNeeded];
     [layer renderInContext:cg];
     CGContextRestoreGState(cg);

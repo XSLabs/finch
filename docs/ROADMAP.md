@@ -486,6 +486,13 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           computer's name for NSHost. In the VM, finch-app-test can read the system apps'
           crashes, and FINCH_HOST_APPS_DEBUG re-signs host apps' copies for full backtraces.
           Still to do: the column headers under the toolbar, log archives (Apple's tracev3).
+    - [x] AirPort Utility runs (2026-10-13): Finch's AppleSRP (the SRP-6a client with
+          libsrp's API, RFC 5054 over OpenSSL) and AOSKit (iCloud account calls, no account).
+          Core Animation gained a subclass's @dynamic layer properties (stored with the
+          layer's values) and sublayer geometry flipping. Still to do: its window opens
+          partly below the screen, and text a layer draws in a flipped view is upside down
+          (Apple's AppKit flips a backing layer's geometry; Finch's SwiftUI expects it not
+          to yet).
     - [ ] Next: measurement format styles, AppKit's private classes apps link
           (NSTokenAttachment, NSTouchDevice, NSButtonGroupTouchBarItem, ...), among others
           ([`APPS.md`](APPS.md)). Later: a Spotlight-style index
