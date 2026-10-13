@@ -1,0 +1,22 @@
+diff --git a/Sources/FoundationEssentials/Locale/Locale_Cache.swift b/Sources/FoundationEssentials/Locale/Locale_Cache.swift
+--- a/Sources/FoundationEssentials/Locale/Locale_Cache.swift
++++ b/Sources/FoundationEssentials/Locale/Locale_Cache.swift
+@@ -273,9 +273,17 @@
+             languages = CFPreferencesCopyAppValue("AppleLanguages" as CFString, kCFPreferencesCurrentApplication) as? [String] ?? []
+         }
+ 
+-        return languages.compactMap {
++        let canonical = languages.compactMap {
+             Locale.canonicalLanguageIdentifier(from: $0)
+         }
++        // Finch: never empty, as Apple's: without AppleLanguages, the AppleLocale preference's
++        // language, else English (apps take the first; Font Book's specimen view does).
++        if canonical.isEmpty {
++            let locale = CFPreferencesCopyAppValue("AppleLocale" as CFString, kCFPreferencesCurrentApplication) as? String
++            let language = locale.map { Locale.canonicalLanguageIdentifier(from: $0) }
++            return [language.flatMap { $0.isEmpty || $0 == "root" ? nil : $0 } ?? "en"]
++        }
++        return canonical
+     }
+ 
+     func preferredLocale() -> String? {

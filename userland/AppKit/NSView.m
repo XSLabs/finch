@@ -33,6 +33,7 @@ static char layer_owner_key;
     NSInteger _tag;
     NSRect _dirty;       /* in bounds coordinates; empty when clean */
     CGFloat _frameRotation, _boundsRotation;
+    CGAffineTransform *_frameTransform;  /* setFrameTransform:'s, about the frame's origin; NULL: none */
     NSString *_toolTip;
     NSView *_nextKeyView, *_previousKeyView;  /* not retained */
     NSMutableArray *_trackingAreas;
@@ -91,6 +92,7 @@ static char layer_owner_key;
 
 - (void)dealloc
 {
+    free(_frameTransform);
     FinchLayoutViewDealloc(self);
     [_finchLayout release];
     for (NSView *v in _subviews) {
@@ -503,6 +505,22 @@ static char layout_direction_key;
 - (NSRect)bounds { return _bounds; }
 - (CGFloat)frameRotation { return _frameRotation; }
 - (void)setFrameRotation:(CGFloat)angle { _frameRotation = angle; }
+/* Private, as Apple's (SwiftUI's display list sets it): a transform of the view's frame,
+   about its origin, in drawing, hit testing and coordinate conversion. */
+- (CGAffineTransform)frameTransform { return _frameTransform ? *_frameTransform : CGAffineTransformIdentity; }
+- (void)setFrameTransform:(CGAffineTransform)transform
+{
+    if (CGAffineTransformIsIdentity(transform)) {
+        free(_frameTransform);
+        _frameTransform = NULL;
+    } else {
+        if (!_frameTransform)
+            _frameTransform = malloc(sizeof *_frameTransform);
+        *_frameTransform = transform;
+    }
+    [[self superview] setNeedsDisplayInRect:[self frame]];
+    [self setNeedsDisplay:YES];
+}
 - (CGFloat)frameCenterRotation { return _frameRotation; }
 - (void)setFrameCenterRotation:(CGFloat)angle { _frameRotation = angle; }
 - (CGFloat)boundsRotation { return _boundsRotation; }
@@ -708,11 +726,21 @@ to_superview(NSView *v)
     CGFloat sx = v->_bounds.size.width != 0 ? v->_frame.size.width / v->_bounds.size.width : 1;
     CGFloat sy = v->_bounds.size.height != 0 ? v->_frame.size.height / v->_bounds.size.height : 1;
     BOOL superFlipped = v->_superview ? [v->_superview isFlipped] : NO;
+    CGAffineTransform t;
     if ([v isFlipped] == superFlipped)
-        return CGAffineTransformMake(sx, 0, 0, sy, v->_frame.origin.x - v->_bounds.origin.x * sx,
-                                     v->_frame.origin.y - v->_bounds.origin.y * sy);
-    return CGAffineTransformMake(sx, 0, 0, -sy, v->_frame.origin.x - v->_bounds.origin.x * sx,
-                                 v->_frame.origin.y + v->_frame.size.height + v->_bounds.origin.y * sy);
+        t = CGAffineTransformMake(sx, 0, 0, sy, v->_frame.origin.x - v->_bounds.origin.x * sx,
+                                  v->_frame.origin.y - v->_bounds.origin.y * sy);
+    else
+        t = CGAffineTransformMake(sx, 0, 0, -sy, v->_frame.origin.x - v->_bounds.origin.x * sx,
+                                  v->_frame.origin.y + v->_frame.size.height + v->_bounds.origin.y * sy);
+    if (v->_frameTransform) {
+        /* the frame transform, about the frame's origin */
+        CGPoint o = v->_frame.origin;
+        t = CGAffineTransformConcat(t, CGAffineTransformMakeTranslation(-o.x, -o.y));
+        t = CGAffineTransformConcat(t, *v->_frameTransform);
+        t = CGAffineTransformConcat(t, CGAffineTransformMakeTranslation(o.x, o.y));
+    }
+    return t;
 }
 
 /* From this view's bounds to window coordinates (the root's superview space). */
