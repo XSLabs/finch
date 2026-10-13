@@ -220,6 +220,8 @@ steps=(
     "libsystem-finch|make -s -C userland/libsystem"
     "libm|make -s -C userland/libm"
     "Security|userland/Security/build.sh"
+    "securityd|userland/securityd/build.sh"
+    "pam-keychain|make -s -C userland/pam keychain"
     "SecurityFoundation|userland/SecurityFoundation/build.sh"
     # DiskArbitration's client and daemon, from Apple's source.
     "DiskArbitration|userland/DiskArbitration/build.sh"

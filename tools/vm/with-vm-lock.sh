@@ -9,7 +9,25 @@ set -euo pipefail
 lock=/tmp/finch-vm.lock
 until mkdir "$lock" 2>/dev/null; do
     # a lock left by a process that has gone
-    if [[ -f "$lock/pid" ]] && ! kill -0 "$(cat "$lock/pid")" 2>/dev/null; then
+    # A sandbox can deny process checks even while the owner is alive. Only
+    # "no such process" proves that it is safe to remove an old lock.
+    if [[ -f "$lock/pid" ]] && python3 - "$lock/pid" <<'PY'
+import os
+import sys
+
+try:
+    with open(sys.argv[1]) as source:
+        pid = int(source.read().strip())
+    if pid <= 0:
+        sys.exit(1)
+    os.kill(pid, 0)
+except ProcessLookupError:
+    sys.exit(0)
+except (OSError, ValueError):
+    pass
+sys.exit(1)
+PY
+    then
         rm -rf "$lock"
         continue
     fi

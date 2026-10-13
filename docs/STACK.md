@@ -84,7 +84,12 @@ bridges, built from pinned Swift Foundation and Swift Collections sources.
 The Darwin Swift overlays and AppKit's first Swift extensions build alongside it.
 Security supplies keys, certificates, web and caller-root trust checks, file keychains,
 code-signature checks and Secure Transport (TLS) over OpenSSL. Web roots come from
-a pinned Mozilla bundle; keychain encryption and shared authorization remain open.
+a pinned Mozilla bundle. New file keychains encrypt their contents and require a
+password; process-local locking, unsafe-path refusal, changed-file rejection and
+concurrent saves pass focused host and QEMU checks (2026-10-13). The per-user
+keychain service also passes a QEMU check in which a second app reads an unlocked
+keychain and locks out the first app. Login password integration and shared
+authorization remain open.
 SystemConfiguration reads local preferences and network state. Finch configd
 shares store values and sends change callbacks between processes; user access
 checks pass in QEMU. Settings watches recover after service restart; saved files
@@ -93,10 +98,14 @@ and accepts client sessions. Apple's open-source FAT tools and basic mount/fsck
 dispatchers now build. Manual loopback IPv4 and DNS apply pass in QEMU, including repeat apply.
 Failed requests try to remove only newly added addresses; full undo remains open.
 Local account tools share password checks with PAM and OpenDirectory; correct,
-wrong and locked passwords pass in a private QEMU test folder.
+wrong and locked passwords pass in a private QEMU test folder. The real login
+program also passes wrong-password refusal, user identity, home and logout checks
+under a temporary setup shell (2026-10-13). A separate image now also passes
+normal startup, password refusal, user login and return to login after logout.
 The install archive records file owners, permissions and hashes and passes
 required-library checks. Reboot persistence, broader network setup, real disk
-mounting, full console login, and the keychain and authorization services remain unfinished (`docs/design/SECURITY.md`).
+mounting, first-user setup, login password integration with the keychain, and the
+authorization service remain unfinished (`docs/design/SECURITY.md`).
 
 Image Capture's frameworks are Finch's own
 (`docs/design/IMAGECAPTURE.md`): ImageCaptureCore's browser finds no cameras or

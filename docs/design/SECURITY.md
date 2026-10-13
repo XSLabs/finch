@@ -31,11 +31,26 @@ The file keychain stores items across calls and processes, with file locks and
 duplicate checks. Its path is walked without following links (except the system's
 /tmp and /var aliases); every folder on the way must belong to the user or root and
 not be writable by others (a sticky temporary folder excepted), and the file must be
-the user's own regular file, mode 0600, with one link and a sane size. It is **not
-encrypted** yet: the authenticated-encryption format (`SecKeychainCrypto.c`,
-PBKDF2-SHA256 and AES-GCM) is written and tested on its own but not used by the file
-keychain. Lock and unlock calls currently do not protect stored items. Authorization
-rules run inside the calling process; there is no shared authorization service
+the user's own regular file, mode 0600, with one link and a sane size. New files
+require a password and encrypt the complete item list with PBKDF2-SHA256 and
+AES-256-GCM (`SecKeychainCrypto.c`). Each save writes a private temporary file and
+replaces the old file after syncing it. A stable lock file keeps concurrent saves
+from overwriting each other's changes.
+
+In a Finch guest, a per-user `securityd` owns the unlocked keys and handles keychain
+requests. It checks the caller's user ID from the kernel before reading the request.
+Two apps in the same user session share an unlock, and locking from either app
+blocks reads from both. The QEMU service check also covers item references,
+wrong passwords and malformed requests (2026-10-13). Host-only checks retain a
+local file backend: a fresh process starts locked and a fork clears inherited keys.
+Locking handles aliases of the same file in both paths. Older plaintext files are
+refused and left unchanged; migration, a password dialog and automatic unlock at
+login remain open. Focused host and QEMU checks pass for password rejection,
+locked reads and writes, changed-file rejection, alias locking, concurrent saves,
+file permissions and unsafe paths (2026-10-13). Filename-case checks pass on both
+systems. These checks use dummy secrets in private temporary folders.
+
+Authorization rules run inside the calling process; there is no shared authorization service
 or password dialog. Code checks read signatures and validate file hashes,
 resources and CMS signatures. Requirement parsing and trust serialization also
 exist. These checks do not establish an Apple signing identity or enforce an
@@ -58,11 +73,19 @@ values do not enable it. Set `FINCH_DEV_CONSOLE=0` when testing normal login wit
 `tools/vm/run.sh`.
 
 The parser checks and both QEMU boot paths passed on 2026-10-11. The login check
-proved that an unknown account returns to the login prompt. It did not prove a
-successful account login. The development image's file ownership still prevents
-its PAM stack from being used as a release test. Locked system accounts are in
-the install payload; a first-user setup flow and a full console login remain
-unfinished.
+proved that an unknown account returns to the login prompt. On 2026-10-13,
+`tools/vm/account-console-smoke.exp` also passed a real password login. It copies
+the account files and PAM modules onto temporary guest filesystems, sets and
+checks their release ownership and modes, and starts `/usr/bin/login` under
+the development setup shell. A wrong password is refused. The right password
+opens UID 6000, GID 20 in its own writable home, starts its per-user service
+domain, and runs its shell profile. Logout exits login successfully and returns
+to the setup shell. No host account or disk image account is changed.
+
+The image builder now rejects stale PAM policies before replacing the VM image.
+The test also checks the guest's exact Finch login rules before setup. Locked
+system accounts are in the install payload. First-user setup and normal boot
+returning to a fresh login prompt after logout remain unfinished.
 
 `accountctl` can now create a local account or change its password in an
 explicitly named account folder. It has no default destination and prompts for
@@ -84,6 +107,11 @@ root-owned folder, creates a test account with the shared account library, then
 checks passwords from inside that folder. It keeps the normal PAM file-permission
 checks and removes the folder afterward. `tools/vm/test-accounts.sh` repeats these
 checks in a disposable guest.
+The separate `login-init-smoke.exp` check now boots with the development root
+console disabled. It rejects a wrong password, verifies the logged-in user's
+identity and home, and proves that logout starts a fresh login prompt
+(QEMU, 2026-10-13). Its account exists only in guest memory; first-user setup
+and accounts that survive reboot remain open.
 The ordinary user password-change path still needs a
 privileged service; `accountctl` itself does not run with extra permissions.
 

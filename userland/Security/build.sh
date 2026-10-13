@@ -10,6 +10,7 @@
 #   - Resources/authorization.plist, Apple's authorization rights database
 # Certificates, keys, trust and CMS use OpenSSL 3.5.9, from Finch's corecrypto
 # build (build/obj/corecrypto-openssl), linked statically with its symbols hidden.
+# The keychain client also uses Finch's libxpc to reach the per-user service.
 #
 # Linked as Apple ships it: install name, current version 61901.100.255.
 #   FINCH_OUTPUT_ROOT / FINCH_OBJ_DIR override build/root and build/obj/Security.
@@ -62,6 +63,7 @@ mkdir -p "$FW/Versions/A/Resources/en.lproj"
     -current_version 61901.100.255 -compatibility_version 1 \
     "${objects[@]}" "$OPENSSL/libssl.a" "$OPENSSL/libcrypto.a" \
     -F"$FINCH_ROOT/build/root/System/Library/Frameworks" -framework CoreFoundation -lbsm \
+    -L"$FINCH_ROOT/build/userland/libxpc" -lxpc \
     -Wl,-exported_symbols_list,"$HERE/exports.txt" -Wl,-no_warn_inits \
     -o "$FW/Versions/A/Security"
 ln -sfn A "$FW/Versions/Current"

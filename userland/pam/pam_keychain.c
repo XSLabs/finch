@@ -1,0 +1,116 @@
+/* SPDX-License-Identifier: MIT OR Apache-2.0 */
+
+#ifndef OPENPAM
+#define OPENPAM
+#endif
+
+#include <Security/Security.h>
+#include <security/pam_appl.h>
+#include <security/openpam.h>
+#include <security/pam_modules.h>
+
+#include <limits.h>
+#include <pwd.h>
+#include <stdint.h>
+#include <unistd.h>
+
+#include "pam_keychain_data.h"
+
+#ifndef PAM_EXTERN
+#define PAM_EXTERN
+#endif
+
+static void
+unlockOrCreateDefaultKeychain(const struct finch_pam_keychain_password *secret)
+{
+	SecKeychainRef defaultKeychain = NULL;
+	SecKeychainRef keychain = NULL;
+	char path[PATH_MAX];
+	UInt32 pathLength = sizeof(path);
+	OSStatus status;
+
+	if (!secret || !secret->length || secret->length > UINT32_MAX)
+		return;
+	status = SecKeychainCopyDefault(&defaultKeychain);
+	if (status != errSecSuccess || !defaultKeychain)
+		goto done;
+	status = SecKeychainGetPath(defaultKeychain, &pathLength, path);
+	if (status != errSecSuccess || path[0] != '/')
+		goto done;
+
+	status = SecKeychainOpen(path, &keychain);
+	if (status == errSecNoSuchKeychain) {
+		status = SecKeychainCreate(path, (UInt32)secret->length, secret->value,
+		    false, NULL, &keychain);
+		if (status == errSecDuplicateKeychain) {
+			status = SecKeychainOpen(path, &keychain);
+			if (status == errSecSuccess && keychain)
+				(void)SecKeychainUnlock(keychain, (UInt32)secret->length,
+				    secret->value, true);
+		}
+	} else if (status == errSecSuccess && keychain) {
+		/* A wrong password leaves an existing keychain locked and untouched. */
+		(void)SecKeychainUnlock(keychain, (UInt32)secret->length,
+		    secret->value, true);
+	}
+
+done:
+	if (keychain)
+		CFRelease(keychain);
+	if (defaultKeychain)
+		CFRelease(defaultKeychain);
+}
+
+PAM_EXTERN int
+pam_sm_open_session(pam_handle_t *pamh, int flags, int argc,
+	const char *argv[])
+{
+	const struct finch_pam_keychain_password *secret = NULL;
+	const char *username = NULL;
+	struct passwd *account;
+	uid_t targetUID;
+	uid_t originalEUID;
+	int clearStatus;
+	int pam_err;
+	(void)flags;
+	(void)argc;
+	(void)argv;
+
+	pam_err = finch_pam_keychain_password_get(pamh, &secret);
+	if (pam_err != PAM_SUCCESS || !secret)
+		goto skip;
+	if ((pam_err = pam_get_user(pamh, &username, NULL)) != PAM_SUCCESS ||
+	    !username || (account = getpwnam(username)) == NULL ||
+	    account->pw_uid == 0 || account->pw_uid != secret->uid)
+		goto skip;
+	targetUID = account->pw_uid;
+
+	/* Only the root-owned console login path needs a temporary UID switch. */
+	originalEUID = geteuid();
+	if (getuid() != 0 || originalEUID != 0)
+		goto skip;
+	if (seteuid(targetUID) != 0)
+		goto skip;
+	unlockOrCreateDefaultKeychain(secret);
+	clearStatus = finch_pam_keychain_password_clear(pamh);
+	if (seteuid(originalEUID) != 0 || clearStatus != PAM_SUCCESS)
+		return PAM_SYSTEM_ERR;
+	return PAM_SUCCESS;
+
+skip:
+	return finch_pam_keychain_password_clear(pamh) == PAM_SUCCESS ?
+	    PAM_SUCCESS : PAM_SYSTEM_ERR;
+}
+
+PAM_EXTERN int
+pam_sm_close_session(pam_handle_t *pamh, int flags, int argc,
+	const char *argv[])
+{
+	(void)flags;
+	(void)argc;
+	(void)argv;
+	(void)finch_pam_keychain_password_clear(pamh);
+	return PAM_SUCCESS;
+}
+
+PAM_MODULE_ENTRY("pam_keychain");

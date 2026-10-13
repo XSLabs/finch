@@ -1,0 +1,175 @@
+#!/usr/bin/expect -f
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Prove normal finch-init login accepts a disposable account and respawns login.
+# Use --relogin between command groups to check another login in the same boot.
+set timeout 300
+log_user 1
+set send_slow {8 0.03}
+set root [file normalize [file dirname [info script]]/../..]
+set env(FINCH_INIT) 1
+set env(FINCH_DEV_CONSOLE) 0
+set env(BOOT_ARGS_EXTRA) finch_login_test=1
+set env(RAMDISK) [file join $root build vm-login-test ramdisk.dmg]
+set env(TC) [file join $root build vm-login-test ramdisk.tc]
+
+set login_prompt {(?:^|\r\n)login: }
+set password_prompt {Password:[[:blank:]]*$}
+set test_rc_error_pattern {login-test rc: [^\r\n]*}
+set test_helper_error_pattern {finch-login-test-account: [^\r\n]*}
+set test_rc_exit_pattern {(?:^|[\r\n])finch-init: /etc/finch/rc exited with status ([0-9]+)(?:[\r\n]|$)}
+set user_prompt {FINCH_LOGIN_USER> }
+set username finchconsole
+set test_password "Finch local password test 2026"
+set wrong_password "Finch wrong password test 2026"
+set login_sessions [list [list]]
+foreach argument $argv {
+    if {$argument eq "--relogin"} {
+        lappend login_sessions [list]
+    } else {
+        set commands [lindex $login_sessions end]
+        lappend commands $argument
+        lset login_sessions end $commands
+    }
+}
+
+proc stop_vm {} {
+    catch {send -- "\x01x"}
+    catch {expect eof}
+}
+
+proc fail {message} {
+    puts "\n### $message"
+    stop_vm
+    exit 1
+}
+
+if {![file isfile $env(RAMDISK)] || ![file isfile $env(TC)]} {
+    fail "prepare the separate login-test image before running this check"
+}
+
+spawn $root/tools/vm/run.sh
+expect {
+    -exact "FINCH_LOGIN_TEST_FIXTURE_READY" {}
+    -re $test_rc_error_pattern { fail "test-only rc failed: $expect_out(0,string)" }
+    -re $test_helper_error_pattern { fail "test account helper failed: $expect_out(0,string)" }
+    -re $test_rc_exit_pattern { fail "test-only rc exited with status $expect_out(1,string)" }
+    -re $login_prompt { fail "login appeared before the test fixture was ready" }
+    "development root console enabled" { fail "development console was enabled" }
+    "panic" { fail "guest panicked during boot" }
+    eof { fail "guest exited before the test fixture was ready" }
+    timeout { fail "test-only rc did not prepare the login fixture" }
+}
+expect {
+    -re $login_prompt {}
+    -re $test_rc_error_pattern { fail "test-only rc failed: $expect_out(0,string)" }
+    -re $test_helper_error_pattern { fail "test account helper failed: $expect_out(0,string)" }
+    -re $test_rc_exit_pattern { fail "test-only rc exited with status $expect_out(1,string)" }
+    "development root console enabled" { fail "development console was enabled" }
+    "panic" { fail "guest panicked before login started" }
+    eof { fail "guest exited before the login prompt appeared" }
+    timeout { fail "normal finch-init login did not start" }
+}
+
+send -s -- "$username\r"
+expect {
+    -re $password_prompt {}
+    -re $login_prompt { fail "login did not find the prepared account" }
+    eof { fail "guest exited before asking for a password" }
+    timeout { fail "login did not ask for a password" }
+}
+send -s -- "$wrong_password\r"
+expect {
+    "Login incorrect" {}
+    "FINCH_LOGIN_PROFILE_READY" { fail "login accepted the wrong password" }
+    eof { fail "guest exited during the wrong-password check" }
+    timeout { fail "login did not reject the wrong password" }
+}
+expect {
+    -re $login_prompt {}
+    "FINCH_LOGIN_PROFILE_READY" { fail "wrong password opened the user shell" }
+    eof { fail "guest exited after refusing the wrong password" }
+    timeout { fail "wrong password did not return to the login prompt" }
+}
+
+set command_index 0
+foreach user_commands $login_sessions {
+    send -s -- "$username\r"
+    expect {
+        -re $password_prompt {}
+        -re $login_prompt { fail "login did not find the account after retry" }
+        eof { fail "guest exited before the correct-password prompt" }
+        timeout { fail "login did not ask for the correct password" }
+    }
+    send -s -- "$test_password\r"
+    expect {
+        -exact "FINCH_LOGIN_PROFILE_READY" {}
+        "Login incorrect" { fail "login refused the correct password" }
+        -re $login_prompt { fail "correct password returned to login" }
+        eof { fail "guest exited during the successful login" }
+        timeout { fail "correct password did not start the user's shell" }
+    }
+    expect {
+        -exact $user_prompt {}
+        -re $login_prompt { fail "user shell returned to login before its prompt" }
+        eof { fail "guest exited after the user profile started" }
+        timeout { fail "user shell prompt did not appear" }
+    }
+
+    send -s -- {if [ "$(id -u)" = 6000 ] && [ "$(id -g)" = 20 ] && [ "$HOME" = "/private/var/rw/Users/finchconsole" ] && [ "$PWD" = "/private/var/rw/Users/finchconsole" ] && [ "$SHELL" = "/bin/sh" ] && [ -w "$HOME" ]; then printf 'FINCH_LOGIN_IDENTITY_OK\n'; else printf 'FINCH_LOGIN_IDENTITY_BAD\n'; fi}
+    send -s -- "\r"
+    expect {
+        -re {(?:^|[\r\n])FINCH_LOGIN_IDENTITY_OK(?:[\r\n]|$)} {}
+        -re {(?:^|[\r\n])FINCH_LOGIN_IDENTITY_BAD(?:[\r\n]|$)} { fail "login opened a shell with the wrong identity or home" }
+        -exact $user_prompt { fail "could not verify the logged-in user's identity" }
+        -re $login_prompt { fail "user shell returned to login during identity check" }
+        eof { fail "guest exited during the identity check" }
+        timeout { fail "identity check did not finish in the user shell" }
+    }
+    expect {
+        -exact $user_prompt {}
+        -re $login_prompt { fail "user shell exited during the identity check" }
+        eof { fail "guest exited after the identity check" }
+        timeout { fail "user shell prompt did not return after the identity check" }
+    }
+
+    foreach user_command $user_commands {
+        incr command_index
+        if {$user_command eq "" || [regexp {[\r\n]} $user_command]} {
+            fail "each optional guest command must be a non-empty single line"
+        }
+        set command_marker "FINCH_LOGIN_COMMAND_${command_index}"
+        set command_result_pattern [format {(?:^|[\r\n])%s:([0-9]+)(?:[\r\n]|$)} $command_marker]
+        set status_command [format {; finch_login_command_status=$?; printf '%s:%%s\n' "$finch_login_command_status"} $command_marker]
+        send -s -- "${user_command}${status_command}\r"
+        expect {
+            -re $command_result_pattern {
+                set command_status $expect_out(1,string)
+                if {$command_status ne "0"} {
+                    fail "guest command $command_index exited with status $command_status"
+                }
+            }
+            -re $login_prompt { fail "guest command $command_index ended the user shell" }
+            eof { fail "guest exited while running command $command_index" }
+            timeout { fail "guest command $command_index did not report its result" }
+        }
+        expect {
+            -exact $user_prompt {}
+            -re $login_prompt { fail "guest command $command_index returned to login" }
+            eof { fail "guest exited after command $command_index" }
+            timeout { fail "user prompt did not return after command $command_index" }
+        }
+    }
+
+    send -s -- "exit\r"
+    expect {
+        -re $login_prompt {}
+        -exact $user_prompt { fail "logout left the user shell open" }
+        "FINCH_LOGIN_PROFILE_READY" { fail "logout started another user shell" }
+        eof { fail "guest exited instead of showing a fresh login prompt" }
+        timeout { fail "finch-init did not start a fresh login after logout" }
+    }
+}
+
+puts "normal finch-init login refused the wrong password, opened the UID 6000 shell, and showed a fresh login prompt after logout"
+stop_vm
+exit 0

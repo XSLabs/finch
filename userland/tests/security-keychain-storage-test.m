@@ -14,6 +14,7 @@
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 static int failures;
+static const char password[] = "finch-storage-test-dummy-password";
 
 static void
 checkStatus(const char *name, OSStatus actual, OSStatus expected)
@@ -80,13 +81,21 @@ readSecret(SecKeychainRef keychain, OSStatus *status)
 }
 
 static BOOL
+sameCanonicalPath(const char *left, const char *right)
+{
+	char canonicalLeft[PATH_MAX], canonicalRight[PATH_MAX];
+	return left && right && *right && realpath(left, canonicalLeft) &&
+	    realpath(right, canonicalRight) && !strcmp(canonicalLeft, canonicalRight);
+}
+
+static BOOL
 hasFinchSecurity(void)
 {
 	Dl_info info = {0};
-	BOOL frameworkPath = dladdr((const void *)SecKeychainCreate, &info) && info.dli_fname &&
-	    (strstr(info.dli_fname, "/System/Library/Finch/") ||
-	    strstr(info.dli_fname, "/build/root/System/Library/Frameworks/Security.framework/"));
-	return frameworkPath || access(
+	const char *expectedImage = getenv("FINCH_TEST_SECURITY_IMAGE");
+	BOOL privateImage = dladdr((const void *)SecKeychainCreate, &info) &&
+	    sameCanonicalPath(info.dli_fname, expectedImage);
+	return privateImage || access(
 	    "/System/Library/Finch/LaunchDaemons/com.apple.SystemConfiguration.configd.plist", F_OK) == 0;
 }
 
@@ -100,7 +109,7 @@ main(void)
 	}
 	puts("Security source: Finch");
 	SecKeychainRef invalidPath = NULL;
-	checkStatus("empty path", SecKeychainCreate("", 0, NULL, false, NULL, &invalidPath), errSecParam);
+	checkStatus("empty path", SecKeychainCreate("", sizeof(password) - 1, password, false, NULL, &invalidPath), errSecParam);
 	checkFlag("empty path returned no keychain", invalidPath == NULL);
 	const char badUTF8[] = { (char)0xff, 0 };
 	checkStatus("invalid UTF-8 path", SecKeychainOpen(badUTF8, &invalidPath), errSecParam);
@@ -122,7 +131,7 @@ main(void)
 	if (n < 0 || (size_t)n >= sizeof(keychainPath))
 		return 1;
 	SecKeychainRef keychain = NULL;
-	OSStatus status = SecKeychainCreate(keychainPath, 0, NULL, false, NULL, &keychain);
+	OSStatus status = SecKeychainCreate(keychainPath, sizeof(password) - 1, password, false, NULL, &keychain);
 	checkStatus("create", status, errSecSuccess);
 	checkFlag("create returned a keychain", keychain != NULL);
 	if (status != errSecSuccess || !keychain) {
@@ -167,7 +176,7 @@ main(void)
 
 	NSData *beforeDuplicate = [NSData dataWithContentsOfFile:[NSString stringWithUTF8String:keychainPath]];
 	SecKeychainRef duplicate = NULL;
-	status = SecKeychainCreate(keychainPath, 0, NULL, false, NULL, &duplicate);
+	status = SecKeychainCreate(keychainPath, sizeof(password) - 1, password, false, NULL, &duplicate);
 	checkStatus("create existing keychain", status, errSecDuplicateKeychain);
 	checkFlag("duplicate create returned no keychain", duplicate == NULL);
 	NSData *afterDuplicate = [NSData dataWithContentsOfFile:[NSString stringWithUTF8String:keychainPath]];
@@ -175,6 +184,7 @@ main(void)
 	if (duplicate)
 		CFRelease(duplicate);
 
+	checkStatus("lock before reopen", SecKeychainLock(keychain), errSecSuccess);
 	CFRelease(keychain);
 	keychain = NULL;
 	status = SecKeychainOpen(keychainPath, &keychain);
@@ -187,6 +197,7 @@ main(void)
 		printf("failures: %d\n", failures);
 		return 1;
 	}
+	checkStatus("unlock after reopen", SecKeychainUnlock(keychain, sizeof(password) - 1, password, false), errSecSuccess);
 	value = readSecret(keychain, &status);
 	checkStatus("read after reopen", status, errSecSuccess);
 	checkFlag("saved secret survived reopen", [value isEqualToString:@"second dummy secret"]);
@@ -217,7 +228,7 @@ main(void)
 	checkFlag("invalid open returned no keychain", invalid == NULL);
 	if (invalid)
 		CFRelease(invalid);
-	status = SecKeychainCreate(keychainPath, 0, NULL, false, NULL, &invalid);
+	status = SecKeychainCreate(keychainPath, sizeof(password) - 1, password, false, NULL, &invalid);
 	checkStatus("create over malformed file", status, errSecInvalidKeychain);
 	checkFlag("invalid create returned no keychain", invalid == NULL);
 	if (invalid)
@@ -249,7 +260,7 @@ main(void)
 	status = SecKeychainOpen(linkPath, &rejected);
 	checkStatus("open symlink", status, errSecInvalidKeychain);
 	checkFlag("symlink open returned no keychain", rejected == NULL);
-	status = SecKeychainCreate(linkPath, 0, NULL, false, NULL, &rejected);
+	status = SecKeychainCreate(linkPath, sizeof(password) - 1, password, false, NULL, &rejected);
 	checkStatus("create over symlink", status, errSecInvalidKeychain);
 	checkFlag("symlink create returned no keychain", rejected == NULL);
 	checkFlag("symlink target stayed untouched", [[NSData dataWithContentsOfFile:[NSString stringWithUTF8String:victimPath]]
@@ -259,7 +270,7 @@ main(void)
 	status = SecKeychainOpen(fifoPath, &rejected);
 	checkStatus("open FIFO without waiting", status, errSecInvalidKeychain);
 	checkFlag("FIFO open returned no keychain", rejected == NULL);
-	status = SecKeychainCreate(fifoPath, 0, NULL, false, NULL, &rejected);
+	status = SecKeychainCreate(fifoPath, sizeof(password) - 1, password, false, NULL, &rejected);
 	checkStatus("create over FIFO without waiting", status, errSecInvalidKeychain);
 	checkFlag("FIFO create returned no keychain", rejected == NULL);
 	checkFlag("FIFO stayed in place", lstat(fifoPath, &directoryInfo) == 0 && S_ISFIFO(directoryInfo.st_mode));
@@ -271,7 +282,7 @@ main(void)
 	checkStatus("open hard-linked file", status, errSecInvalidKeychain);
 	checkFlag("hard-link open returned no keychain", rejected == NULL);
 	rejected = NULL;
-	status = SecKeychainCreate(hardPath, 0, NULL, false, NULL, &rejected);
+	status = SecKeychainCreate(hardPath, sizeof(password) - 1, password, false, NULL, &rejected);
 	checkStatus("create over hard-linked file", status, errSecInvalidKeychain);
 	checkFlag("hard-link create returned no keychain", rejected == NULL);
 	checkFlag("hard-linked contents stayed untouched", [[NSData dataWithContentsOfFile:[NSString stringWithUTF8String:hardSourcePath]]
@@ -281,13 +292,13 @@ main(void)
 	checkFlag("open permissions on fixture", chmod(permissivePath, 0644) == 0);
 	status = SecKeychainOpen(permissivePath, &rejected);
 	checkStatus("open permissive file", status, errSecInvalidKeychain);
-	status = SecKeychainCreate(permissivePath, 0, NULL, false, NULL, &rejected);
+	status = SecKeychainCreate(permissivePath, sizeof(password) - 1, password, false, NULL, &rejected);
 	checkStatus("create over permissive file", status, errSecInvalidKeychain);
 	checkFlag("permissive file stayed untouched", [[NSData dataWithContentsOfFile:[NSString stringWithUTF8String:permissivePath]]
 	    isEqualToData:[NSData dataWithBytes:victim length:sizeof(victim) - 1]]);
 
 	checkFlag("make existing empty file", writeFile(emptyPath, "", 0, 0600));
-	status = SecKeychainCreate(emptyPath, 0, NULL, false, NULL, &rejected);
+	status = SecKeychainCreate(emptyPath, sizeof(password) - 1, password, false, NULL, &rejected);
 	checkStatus("create over empty file", status, errSecInvalidKeychain);
 	status = SecKeychainOpen(emptyPath, &rejected);
 	checkStatus("open empty file", status, errSecInvalidKeychain);
@@ -302,7 +313,7 @@ main(void)
 	checkFlag("make oversized file", oversizedFixture);
 	status = SecKeychainOpen(oversizedPath, &rejected);
 	checkStatus("open oversized file", status, errSecInvalidKeychain);
-	status = SecKeychainCreate(oversizedPath, 0, NULL, false, NULL, &rejected);
+	status = SecKeychainCreate(oversizedPath, sizeof(password) - 1, password, false, NULL, &rejected);
 	checkStatus("create over oversized file", status, errSecInvalidKeychain);
 	struct stat oversizedInfo;
 	checkFlag("oversized file stayed in place", stat(oversizedPath, &oversizedInfo) == 0 &&
@@ -310,7 +321,7 @@ main(void)
 
 	/* (a folder others may write in; a 0755 one, like Apple's ~/Library/Keychains, is fine) */
 	checkFlag("make public parent", mkdir(parentPath, 0755) == 0 && chmod(parentPath, 0777) == 0);
-	status = SecKeychainCreate(childPath, 0, NULL, false, NULL, &rejected);
+	status = SecKeychainCreate(childPath, sizeof(password) - 1, password, false, NULL, &rejected);
 	checkStatus("create under public folder", status, errSecNoAccessForItem);
 	checkFlag("public parent got no keychain", access(childPath, F_OK) < 0 && errno == ENOENT);
 
@@ -319,7 +330,7 @@ main(void)
 	char deletePath[PATH_MAX];
 	snprintf(deletePath, sizeof(deletePath), "%s/delete.keychain", directory);
 	SecKeychainRef deleted = NULL;
-	status = SecKeychainCreate(deletePath, 0, NULL, false, NULL, &deleted);
+	status = SecKeychainCreate(deletePath, sizeof(password) - 1, password, false, NULL, &deleted);
 	checkStatus("create delete fixture", status, errSecSuccess);
 	if (status == errSecSuccess && deleted) {
 		status = SecKeychainDelete(deleted);
@@ -346,7 +357,10 @@ main(void)
 	unlink(oversizedPath);
 	unlink(deletePath);
 	rmdir(parentPath);
-	rmdir(directory);
+	char lockPath[PATH_MAX];
+	snprintf(lockPath, sizeof(lockPath), "%s/.finch-keychain.lock", directory);
+	unlink(lockPath);
+	checkFlag("remove test folder", rmdir(directory) == 0);
 
 	printf("failures: %d\n", failures);
 	return failures ? 1 : 0;

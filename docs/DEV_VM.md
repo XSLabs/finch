@@ -236,6 +236,23 @@ To try one of Finch's test apps in the VM, give `FINCH_HOST_APPS` its path:
 `FINCH_HOST_APPS="$PWD/build/userland/apps/SwiftUIMore.app," tools/vm/mkramdisk.sh`.
 
 ## Console output
+To check real password login with a disposable guest account, run
+`tools/vm/with-vm-lock.sh expect tools/vm/account-console-smoke.exp`.
+It checks the image's Finch login rules, stages root-owned account and PAM files
+in guest memory, rejects a wrong password, verifies the logged-in user's identity
+and home, and checks logout. This passed on 2026-10-13. It starts login under the
+development setup shell. It does not change host accounts or save the test account
+in the image.
+
+For normal startup, first run `tools/vm/prepare-login-test-image.sh` under the VM
+lock, then run `tools/vm/with-vm-lock.sh expect tools/vm/login-init-smoke.exp`.
+The separate image uses Finch's release account files in guest memory. It checks
+wrong-password refusal, user identity and home, and a fresh login prompt after
+logout. This passed in QEMU on 2026-10-13. Optional command arguments run inside
+that user session and fail the check on a nonzero exit. The shared keychain service
+check also passed there; `tools/vm/test-keychain.sh` prepares the copy and runs the
+keychain checks in that session.
+
 The serial console drops bytes 0x80–0x9F, so 4-byte UTF-8 characters (emoji)
 look garbled in `smoke.exp` logs, though the program wrote the right bytes.
 Pipe output through `od -An -tx1` to check what a program actually wrote.

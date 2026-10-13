@@ -18,6 +18,15 @@ die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 ROOT="${FINCH_ROOT}/build/root"
 
+# An Apple source build can replace Finch's login rules with rules for missing modules.
+# Catch that before replacing the last usable VM image.
+if [[ -f "${ROOT}/usr/lib/pam/pam_unix.so.2" ]]; then
+    for policy in "${FINCH_ROOT}"/userland/pam/pam.d/*; do
+        cmp -s "${policy}" "${ROOT}/private/etc/pam.d/$(basename "${policy}")" || \
+            die "stale Finch PAM policy; run make -C userland/pam before building the VM image"
+    done
+fi
+
 mkdir -p "${OUT}"
 # An interrupted build can leave the previous image attached; copying over
 # it then makes the APFS resize below fail. Detach it first.

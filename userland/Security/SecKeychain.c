@@ -1,21 +1,27 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
 /*
- * Finch's keychain: SecItem and the SecKeychain calls over a file store.
+ * Finch's keychain: SecItem and SecKeychain calls over an encrypted file store.
  *
- * There is no securityd and no encryption yet (docs/design/SECURITY.md). A
- * keychain is a binary property list, readable only by its owner (0600 in a
- * 0700 directory), holding each item's attributes (under Apple's attribute
- * keys: acct, svce, labl, ...) and its secret (v_Data). The default keychain
- * is ~/Library/Keychains/login.keychain-finch. Every call reads the file
- * under an flock(2), so processes see each other's changes. Items behave as
- * on macOS's file keychains: the same primary keys (errSecDuplicateItem), the
- * same match and return rules, errSecItemNotFound when nothing matches.
+ * A keychain stores an authenticated-encrypted binary property list. In a
+ * Finch guest, the per-user security service owns unlocked keys and item
+ * operations; outside Finch, tests use the same file store directly. The file
+ * is readable only by its owner (0600 in a 0700 directory), and holds each
+ * item's attributes (under Apple's keys: acct, svce, labl, ...) and secret
+ * (v_Data). The default keychain is ~/Library/Keychains/login.keychain-finch.
+ * Calls use stable directory locks so processes see each other's changes.
+ * Items follow macOS's matching and duplicate rules.
  */
 #include "SecInternal.h"
+#include "SecKeychainCrypto.h"
+#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+#include "SecKeychainServiceClient.h"
+#include "SecKeychainServiceWire.h"
+#endif
 #include <Security/SecKeychainSearch.h>
 #include <dispatch/dispatch.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <openssl/crypto.h>
 #include <pthread.h>
 #include <pwd.h>
 #include <stdatomic.h>
@@ -86,11 +92,19 @@ SEC_DEFINE_TYPE(SecKeychainItemGetTypeID, "SecKeychainItem", itemFree, itemEqual
 
 static CFStringRef homeDirectory(void)
 {
+#ifdef FINCH_KEYCHAIN_SERVICE_BACKEND
+	/* The service account, not a caller's environment, owns the default store. */
+	struct passwd *pw = getpwuid(geteuid());
+	const char *home = pw ? pw->pw_dir : NULL;
+	if (!home || home[0] != '/')
+		return NULL;
+#else
 	const char *home = getenv("HOME");
 	if (!home || !*home) {
 		struct passwd *pw = getpwuid(getuid());
 		home = pw ? pw->pw_dir : "/var/root";
 	}
+#endif
 	return CFStringCreateWithCString(NULL, home, kCFStringEncodingUTF8);
 }
 
@@ -125,9 +139,95 @@ static SecKeychainRef keychainCreate(CFStringRef path)
 	return (SecKeychainRef)k;
 }
 
+SEC_HIDDEN SecKeychainRef
+_FinchKeychainCreateLocalReference(CFStringRef path)
+{
+	return keychainCreate(path);
+}
+
+static CFMutableDictionaryRef newServiceRequest(void)
+{
+	return CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+	    &kCFTypeDictionaryValueCallBacks);
+}
+
+#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+static bool keychainServiceActive(void)
+{
+	return _FinchKeychainServiceRequired();
+}
+
+static OSStatus keychainServiceCall(CFStringRef operation, CFTypeRef request,
+	CFTypeRef *response)
+{
+	if (response)
+		*response = NULL;
+	CFPropertyListRef wireRequest = request ? _FinchKeychainWireEncode(request) : NULL;
+	if (request && !wireRequest)
+		return errSecUnimplemented;
+	CFPropertyListRef wireResponse = NULL;
+	OSStatus status = _FinchKeychainServiceCall(operation, wireRequest, response ? &wireResponse : NULL);
+	if (wireRequest)
+		CFRelease(wireRequest);
+	if (!status && response) {
+		CFTypeRef value = _FinchKeychainWireDecode(wireResponse, true);
+		if (!value)
+			status = errSecInternalComponent;
+		else
+			*response = value;
+	}
+	if (wireResponse)
+		CFRelease(wireResponse);
+	return status;
+}
+
+static OSStatus serviceItemCall(CFStringRef operation, CFDictionaryRef query,
+	CFDictionaryRef attributes, CFTypeRef *result)
+{
+	CFMutableDictionaryRef request = newServiceRequest();
+	if (!request)
+		return errSecAllocate;
+	if (query)
+		CFDictionarySetValue(request, CFSTR("query"), query);
+	if (attributes)
+		CFDictionarySetValue(request, CFSTR("attributes"), attributes);
+	if (result)
+		CFDictionarySetValue(request, CFSTR("returnResult"), kCFBooleanTrue);
+	CFTypeRef response = NULL;
+	OSStatus status = keychainServiceCall(operation, request, result ? &response : NULL);
+	CFRelease(request);
+	if (!status && result)
+		*result = response;
+	else if (response)
+		CFRelease(response);
+	return status;
+}
+#else
+static bool keychainServiceActive(void)
+{
+	return false;
+}
+#endif
+
 static SecKeychainRef defaultKeychain(void)
 {
+#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+	if (keychainServiceActive()) {
+		CFPropertyListRef path = NULL;
+		OSStatus status = _FinchKeychainServiceCall(CFSTR("keychain.default-path"), NULL, &path);
+		if (status || !isType(path, CFStringGetTypeID())) {
+			if (path)
+				CFRelease(path);
+			return NULL;
+		}
+		SecKeychainRef keychain = keychainCreate((CFStringRef)path);
+		CFRelease(path);
+		return keychain;
+	}
+#endif
 	CFStringRef home = homeDirectory();
+	if (!home)
+		return NULL;
 	CFStringRef p = CFStringCreateWithFormat(NULL, NULL, CFSTR("%@/Library/Keychains/login.keychain-finch"), home);
 	SecKeychainRef k = keychainCreate(p);
 	CFRelease(p);
@@ -144,11 +244,156 @@ static bool pathOf(SecKeychainRef kc, char *buf, size_t size)
 
 typedef struct {
 	int fd;
+	int lockFD;
+	int parentFD;
+	char path[PATH_MAX];
+	char cachePath[PATH_MAX];
+	char leaf[NAME_MAX + 1];
 	CFMutableDictionaryRef db;
 	CFMutableArrayRef items;
 	bool dirty;
 	bool created;
+	bool hasKey;
+	uint8_t salt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES];
+	uint8_t key[SEC_KEYCHAIN_CRYPTO_KEY_BYTES];
 } Store;
+
+typedef struct KeyEntry {
+	char path[PATH_MAX];
+	uint8_t salt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES];
+	uint8_t key[SEC_KEYCHAIN_CRYPTO_KEY_BYTES];
+	bool valid;
+	struct KeyEntry *next;
+} KeyEntry;
+
+static KeyEntry *keyEntries;
+static pthread_mutex_t keyEntriesLock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_once_t keyEntriesOnce = PTHREAD_ONCE_INIT;
+static pid_t keyEntriesPID;
+
+static void keyEntriesForkPrepare(void)
+{
+	pthread_mutex_lock(&keyEntriesLock);
+}
+
+static void keyEntriesForkParent(void)
+{
+	pthread_mutex_unlock(&keyEntriesLock);
+}
+
+static void keyEntriesForkChild(void)
+{
+	for (KeyEntry *entry = keyEntries; entry; entry = entry->next) {
+		OPENSSL_cleanse(entry->salt, sizeof(entry->salt));
+		OPENSSL_cleanse(entry->key, sizeof(entry->key));
+		entry->valid = false;
+	}
+	keyEntriesPID = getpid();
+	pthread_mutex_unlock(&keyEntriesLock);
+}
+
+static void keyEntriesInitialize(void)
+{
+	keyEntriesPID = getpid();
+	(void)pthread_atfork(keyEntriesForkPrepare, keyEntriesForkParent, keyEntriesForkChild);
+}
+
+static void keyEntriesClearAfterFork(void)
+{
+	if (keyEntriesPID == getpid())
+		return;
+	for (KeyEntry *entry = keyEntries; entry; entry = entry->next) {
+		OPENSSL_cleanse(entry->salt, sizeof(entry->salt));
+		OPENSSL_cleanse(entry->key, sizeof(entry->key));
+		entry->valid = false;
+	}
+	keyEntriesPID = getpid();
+}
+
+static bool keychainPath(SecKeychainRef kc, char path[PATH_MAX])
+{
+	return isType(kc, SecKeychainGetTypeID()) && pathOf(kc, path, PATH_MAX);
+}
+
+static bool keyCacheCopy(const char *cachePath,
+	uint8_t salt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES],
+	uint8_t key[SEC_KEYCHAIN_CRYPTO_KEY_BYTES])
+{
+	if (!cachePath || !*cachePath)
+		return false;
+	pthread_once(&keyEntriesOnce, keyEntriesInitialize);
+	pthread_mutex_lock(&keyEntriesLock);
+	keyEntriesClearAfterFork();
+	bool found = false;
+	for (KeyEntry *entry = keyEntries; entry; entry = entry->next)
+		if (entry->valid && !strcmp(entry->path, cachePath)) {
+			memcpy(salt, entry->salt, sizeof(entry->salt));
+			memcpy(key, entry->key, sizeof(entry->key));
+			found = true;
+			break;
+		}
+	pthread_mutex_unlock(&keyEntriesLock);
+	return found;
+}
+
+static bool keyCacheMatchesSalt(const char *cachePath,
+	const uint8_t expectedSalt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES])
+{
+	uint8_t salt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES];
+	uint8_t key[SEC_KEYCHAIN_CRYPTO_KEY_BYTES];
+	bool found = keyCacheCopy(cachePath, salt, key);
+	if (found)
+		found = CRYPTO_memcmp(salt, expectedSalt, sizeof(salt)) == 0;
+	OPENSSL_cleanse(salt, sizeof(salt));
+	OPENSSL_cleanse(key, sizeof(key));
+	return found;
+}
+
+static OSStatus keyCacheSet(const char *cachePath,
+	const uint8_t salt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES],
+	const uint8_t key[SEC_KEYCHAIN_CRYPTO_KEY_BYTES])
+{
+	if (!cachePath || !*cachePath || strlen(cachePath) >= PATH_MAX)
+		return errSecInvalidKeychain;
+	pthread_once(&keyEntriesOnce, keyEntriesInitialize);
+	KeyEntry *fresh = calloc(1, sizeof(*fresh));
+	if (!fresh)
+		return errSecAllocate;
+	strlcpy(fresh->path, cachePath, sizeof(fresh->path));
+	memcpy(fresh->salt, salt, sizeof(fresh->salt));
+	memcpy(fresh->key, key, sizeof(fresh->key));
+	fresh->valid = true;
+	pthread_mutex_lock(&keyEntriesLock);
+	keyEntriesClearAfterFork();
+	for (KeyEntry *entry = keyEntries; entry; entry = entry->next)
+		if (!strcmp(entry->path, cachePath)) {
+			memcpy(entry->salt, salt, sizeof(entry->salt));
+			memcpy(entry->key, key, sizeof(entry->key));
+			entry->valid = true;
+			pthread_mutex_unlock(&keyEntriesLock);
+			OPENSSL_cleanse(fresh, sizeof(*fresh));
+			free(fresh);
+			return 0;
+		}
+	fresh->next = keyEntries;
+	keyEntries = fresh;
+	pthread_mutex_unlock(&keyEntriesLock);
+	return 0;
+}
+
+static void keyCacheClearPath(const char *cachePath)
+{
+	pthread_once(&keyEntriesOnce, keyEntriesInitialize);
+	pthread_mutex_lock(&keyEntriesLock);
+	keyEntriesClearAfterFork();
+	for (KeyEntry *entry = keyEntries; entry; entry = entry->next)
+		if (!cachePath || !strcmp(entry->path, cachePath)) {
+			OPENSSL_cleanse(entry->salt, sizeof(entry->salt));
+			OPENSSL_cleanse(entry->key, sizeof(entry->key));
+			entry->valid = false;
+		}
+	pthread_mutex_unlock(&keyEntriesLock);
+}
 
 /* The file contains secrets, so never trust a keychain path just because
  * open(2) succeeded. Resolve only the known macOS /tmp and /var aliases,
@@ -225,7 +470,7 @@ static OSStatus checkDirectory(int fd, const char *path, bool *created, bool pri
 }
 
 static OSStatus openParentDirectory(const char *path, bool create, int *parentFD,
-	char leaf[NAME_MAX + 1])
+	char leaf[NAME_MAX + 1], char cachePath[PATH_MAX])
 {
 	if (!path || path[0] != '/' || !parentFD || !leaf)
 		return errSecParam;
@@ -320,6 +565,15 @@ static OSStatus openParentDirectory(const char *path, bool create, int *parentFD
 			break;
 		cursor = nextSlash + 1;
 	}
+	if (cachePath) {
+		int n = !strcmp(current, "/") ?
+		    snprintf(cachePath, PATH_MAX, "/%s", leaf) :
+		    snprintf(cachePath, PATH_MAX, "%s/%s", current, leaf);
+		if (n < 0 || n >= PATH_MAX) {
+			close(fd);
+			return errSecParam;
+		}
+	}
 	*parentFD = fd;
 	return 0;
 }
@@ -375,126 +629,408 @@ static OSStatus openKeychainFile(int parentFD, const char *leaf, bool write,
 	return 0;
 }
 
-/* Opens a keychain file, locked. create: make it if missing (the default
- * keychain is made on first write). */
-static OSStatus storeOpen(SecKeychainRef kc, bool write, bool create, Store *s)
+/* The caller may have used different letter case for a path on a
+ * case-insensitive volume. Ask the already-checked file descriptor for the
+ * spelling the file system uses, so all such paths share one cache entry. */
+static OSStatus cacheIdentityForFile(int fd, char cachePath[PATH_MAX],
+	char leaf[NAME_MAX + 1])
 {
-	char path[PATH_MAX];
-	memset(s, 0, sizeof(*s));
-	s->fd = -1;
-	if (!pathOf(kc, path, sizeof(path)))
-		return errSecParam;
-	int parentFD = -1;
-	char leaf[NAME_MAX + 1];
-	OSStatus err = openParentDirectory(path, create, &parentFD, leaf);
-	if (err)
-		return err;
-	err = openKeychainFile(parentFD, leaf, write, create, &s->fd, &s->created);
-	close(parentFD);
-	if (err)
-		return err;
-	if (flock(s->fd, write ? LOCK_EX : LOCK_SH) < 0) {
-		close(s->fd);
-		s->fd = -1;
-		return errSecIO;
-	}
-	struct stat st;
-	err = checkKeychainFile(s->fd, &st);
-	if (err) {
-		close(s->fd);
-		s->fd = -1;
-		return err;
-	}
-	if (st.st_size < 0 || st.st_size > 64 * 1024 * 1024) {
-		close(s->fd);
-		s->fd = -1;
+	if (fcntl(fd, F_GETPATH, cachePath) < 0 || cachePath[0] != '/' ||
+	    !memchr(cachePath, '\0', PATH_MAX))
 		return errSecInvalidKeychain;
-	}
-	if (st.st_size > 0) {
-		CFMutableDataRef d = CFDataCreateMutable(NULL, (CFIndex)st.st_size);
-		if (!d) {
-			close(s->fd);
-			s->fd = -1;
-			return errSecAllocate;
-		}
-		CFDataSetLength(d, (CFIndex)st.st_size);
-		UInt8 *bytes = CFDataGetMutableBytePtr(d);
-		if (!bytes) {
-			CFRelease(d);
-			close(s->fd);
-			s->fd = -1;
-			return errSecAllocate;
-		}
-		size_t wanted = (size_t)st.st_size, offset = 0;
-		while (offset < wanted) {
-			ssize_t n = pread(s->fd, bytes + offset, wanted - offset, (off_t)offset);
-			if (n < 0 && errno == EINTR)
-				continue;
-			if (n <= 0)
-				break;
-			offset += (size_t)n;
-		}
-		CFPropertyListRef p = offset == wanted
-		    ? CFPropertyListCreateWithData(NULL, d, kCFPropertyListMutableContainersAndLeaves, NULL, NULL)
-		    : NULL;
-		CFRelease(d);
-		if (!p || !isType(p, CFDictionaryGetTypeID()) ||
-		    !isType(CFDictionaryGetValue(p, CFSTR("items")), CFArrayGetTypeID())) {
-			if (p)
-				CFRelease(p);
-			close(s->fd);
-			s->fd = -1;
-			return errSecInvalidKeychain;
-		}
-		s->db = (CFMutableDictionaryRef)p;
-		s->items = (CFMutableArrayRef)CFDictionaryGetValue(s->db, CFSTR("items"));
-	} else if (s->created) {
-		s->db = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-		s->items = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
-		if (!s->db || !s->items) {
-			if (s->db)
-				CFRelease(s->db);
-			if (s->items)
-				CFRelease(s->items);
-			close(s->fd);
-			s->fd = -1;
-			return errSecAllocate;
-		}
-		CFDictionarySetValue(s->db, CFSTR("items"), s->items);
-		CFRelease(s->items);
-		int v = 1;
-		CFNumberRef n = CFNumberCreate(NULL, kCFNumberIntType, &v);
-		CFDictionarySetValue(s->db, CFSTR("version"), n);
-		CFRelease(n);
-		s->dirty = write;
-	} else {
-		close(s->fd);
-		s->fd = -1;
+	const char *name = strrchr(cachePath, '/') + 1;
+	if (!*name || strlen(name) > NAME_MAX)
 		return errSecInvalidKeychain;
-	}
+	if (leaf && strlcpy(leaf, name, NAME_MAX + 1) >= NAME_MAX + 1)
+		return errSecInvalidKeychain;
 	return 0;
 }
 
-static OSStatus storeClose(Store *s)
+static void keyCacheClearKeychain(SecKeychainRef kc)
 {
-	OSStatus st = 0;
-	if (s->fd >= 0 && s->dirty) {
-		CFDataRef d = CFPropertyListCreateData(NULL, s->db, kCFPropertyListBinaryFormat_v1_0, 0, NULL);
-		if (!d || ftruncate(s->fd, 0) < 0 ||
-		    pwrite(s->fd, CFDataGetBytePtr(d), CFDataGetLength(d), 0) != CFDataGetLength(d))
-			st = errSecIO;
-		else
-			fsync(s->fd);
-		if (d)
-			CFRelease(d);
+	char path[PATH_MAX], cachePath[PATH_MAX], leaf[NAME_MAX + 1];
+	int parentFD = -1, fd = -1;
+	bool created = false;
+	OSStatus err = 0;
+	if (!keychainPath(kc, path) ||
+	    (err = openParentDirectory(path, false, &parentFD, leaf, cachePath)) != 0 ||
+	    (err = openKeychainFile(parentFD, leaf, false, false, &fd, &created)) != 0 ||
+	    (err = cacheIdentityForFile(fd, cachePath, NULL)) != 0) {
+		/* A changed folder or unavailable file identity must not turn a
+		 * successful lock into a no-op. Forget every cached key instead. */
+		if (fd >= 0)
+			close(fd);
+		if (parentFD >= 0)
+			close(parentFD);
+		keyCacheClearPath(NULL);
+		return;
 	}
+	close(fd);
+	close(parentFD);
+	keyCacheClearPath(cachePath);
+}
+
+#define KEYCHAIN_LOCK_NAME ".finch-keychain.lock"
+#define KEYCHAIN_MAX_FILE_BYTES (SEC_KEYCHAIN_CRYPTO_HEADER_BYTES + \
+	SEC_KEYCHAIN_CRYPTO_MAX_PLAINTEXT_BYTES + SEC_KEYCHAIN_CRYPTO_TAG_BYTES)
+
+static atomic_ulong temporaryFileNumber = 1;
+
+static void storeDispose(Store *s)
+{
 	if (s->db)
 		CFRelease(s->db);
 	if (s->fd >= 0)
 		close(s->fd);
-	s->fd = -1;
+	if (s->lockFD >= 0) {
+		(void)flock(s->lockFD, LOCK_UN);
+		close(s->lockFD);
+	}
+	if (s->parentFD >= 0)
+		close(s->parentFD);
+	OPENSSL_cleanse(s->salt, sizeof(s->salt));
+	OPENSSL_cleanse(s->key, sizeof(s->key));
+	s->fd = s->lockFD = s->parentFD = -1;
 	s->db = NULL;
-	return st;
+	s->items = NULL;
+	s->hasKey = false;
+}
+
+/* The sidecar lock stays in the directory while encrypted data files are
+ * replaced. Locking the data inode itself would let another process miss the
+ * lock after rename and overwrite a newer item list. */
+static OSStatus openSidecarLock(int parentFD, int *fdOut)
+{
+	*fdOut = -1;
+	int fd = openat(parentFD, KEYCHAIN_LOCK_NAME,
+	    O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+	bool created = fd >= 0;
+	if (fd < 0 && errno == EEXIST)
+		fd = openat(parentFD, KEYCHAIN_LOCK_NAME,
+		    O_RDWR | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+	if (fd < 0)
+		return pathError(errno);
+	struct stat st;
+	OSStatus err = 0;
+	if (fstat(fd, &st) < 0)
+		err = errSecIO;
+	else if (created && fchmod(fd, 0600) < 0)
+		err = errSecIO;
+	if (!err)
+		err = checkKeychainFile(fd, &st);
+	if (!err && st.st_size != 0)
+		err = errSecInvalidKeychain;
+	if (err) {
+		close(fd);
+		return err;
+	}
+	*fdOut = fd;
+	return 0;
+}
+
+static void removeCreatedFile(Store *s);
+
+static OSStatus storeAcquire(SecKeychainRef kc, bool write, bool createParent,
+	bool createFile, Store *s)
+{
+	memset(s, 0, sizeof(*s));
+	s->fd = s->lockFD = s->parentFD = -1;
+	if (!keychainPath(kc, s->path))
+		return errSecInvalidKeychain;
+	OSStatus err = openParentDirectory(s->path, createParent, &s->parentFD,
+	    s->leaf, s->cachePath);
+	if (err)
+		return err;
+	err = openSidecarLock(s->parentFD, &s->lockFD);
+	if (err) {
+		storeDispose(s);
+		return err;
+	}
+	if (flock(s->lockFD, write ? LOCK_EX : LOCK_SH) < 0) {
+		storeDispose(s);
+		return errSecIO;
+	}
+	err = openKeychainFile(s->parentFD, s->leaf, write, createFile, &s->fd, &s->created);
+	if (!err)
+		err = cacheIdentityForFile(s->fd, s->cachePath, s->leaf);
+	if (err) {
+		removeCreatedFile(s);
+		storeDispose(s);
+		return err;
+	}
+	return 0;
+}
+
+static OSStatus readEnvelope(Store *s, uint8_t **bytesOut, size_t *lengthOut)
+{
+	*bytesOut = NULL;
+	*lengthOut = 0;
+	struct stat st;
+	OSStatus err = checkKeychainFile(s->fd, &st);
+	if (err)
+		return err;
+	if (st.st_size < 0 || (uint64_t)st.st_size > KEYCHAIN_MAX_FILE_BYTES)
+		return errSecInvalidKeychain;
+	size_t length = (size_t)st.st_size;
+	uint8_t *bytes = malloc(length ? length : 1);
+	if (!bytes)
+		return errSecAllocate;
+	size_t offset = 0;
+	while (offset < length) {
+		ssize_t count = pread(s->fd, bytes + offset, length - offset, (off_t)offset);
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0) {
+			free(bytes);
+			return errSecIO;
+		}
+		offset += (size_t)count;
+	}
+	*bytesOut = bytes;
+	*lengthOut = length;
+	return 0;
+}
+
+static OSStatus inspectEnvelope(Store *s, uint8_t **bytesOut, size_t *lengthOut,
+	uint8_t salt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES], size_t *plaintextLength)
+{
+	uint8_t *bytes = NULL;
+	size_t length = 0;
+	OSStatus err = readEnvelope(s, &bytes, &length);
+	if (err)
+		return err;
+	SecKeychainCryptoStatus crypto = finch_keychain_crypto_inspect(bytes, length,
+	    salt, plaintextLength);
+	if (crypto != SEC_KEYCHAIN_CRYPTO_OK) {
+		free(bytes);
+		return crypto == SEC_KEYCHAIN_CRYPTO_NO_MEMORY ? errSecAllocate : errSecInvalidKeychain;
+	}
+	if (bytesOut)
+		*bytesOut = bytes;
+	else
+		free(bytes);
+	if (lengthOut)
+		*lengthOut = length;
+	return 0;
+}
+
+static OSStatus parseDatabase(const uint8_t *bytes, size_t length, Store *s)
+{
+	if (length > LONG_MAX)
+		return errSecInvalidKeychain;
+	CFDataRef data = CFDataCreate(NULL, bytes, (CFIndex)length);
+	if (!data)
+		return errSecAllocate;
+	CFPropertyListRef plist = CFPropertyListCreateWithData(NULL, data,
+	    kCFPropertyListMutableContainersAndLeaves, NULL, NULL);
+	CFRelease(data);
+	if (!plist || !isType(plist, CFDictionaryGetTypeID()) ||
+	    !isType(CFDictionaryGetValue(plist, CFSTR("items")), CFArrayGetTypeID())) {
+		if (plist)
+			CFRelease(plist);
+		return errSecInvalidKeychain;
+	}
+	s->db = (CFMutableDictionaryRef)plist;
+	s->items = (CFMutableArrayRef)CFDictionaryGetValue(s->db, CFSTR("items"));
+	return 0;
+}
+
+static OSStatus storeOpen(SecKeychainRef kc, bool write, Store *s)
+{
+	OSStatus err = storeAcquire(kc, write, false, false, s);
+	if (err)
+		return err;
+	uint8_t *envelope = NULL;
+	size_t envelopeLength = 0, plaintextLength = 0;
+	uint8_t inspectedSalt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES];
+	err = inspectEnvelope(s, &envelope, &envelopeLength, inspectedSalt, &plaintextLength);
+	OPENSSL_cleanse(inspectedSalt, sizeof(inspectedSalt));
+	if (err) {
+		storeDispose(s);
+		return err;
+	}
+	if (!keyCacheCopy(s->cachePath, s->salt, s->key)) {
+		free(envelope);
+		storeDispose(s);
+		return errSecInteractionNotAllowed;
+	}
+	s->hasKey = true;
+	uint8_t *plaintext = NULL;
+	size_t openedLength = 0;
+	SecKeychainCryptoStatus crypto = finch_keychain_crypto_open_with_key(envelope,
+	    envelopeLength, s->salt, s->key, &plaintext, &openedLength);
+	free(envelope);
+	if (crypto != SEC_KEYCHAIN_CRYPTO_OK) {
+		storeDispose(s);
+		if (crypto == SEC_KEYCHAIN_CRYPTO_AUTH_FAILED)
+			return errSecAuthFailed;
+		if (crypto == SEC_KEYCHAIN_CRYPTO_NO_MEMORY)
+			return errSecAllocate;
+		return errSecInvalidKeychain;
+	}
+	err = parseDatabase(plaintext, openedLength, s);
+	finch_keychain_crypto_clear_free(plaintext, openedLength);
+	if (err)
+		storeDispose(s);
+	return err;
+}
+
+static OSStatus writeAll(int fd, const uint8_t *bytes, size_t length)
+{
+	size_t offset = 0;
+	while (offset < length) {
+		ssize_t count = write(fd, bytes + offset, length - offset);
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0)
+			return errSecIO;
+		offset += (size_t)count;
+	}
+	return 0;
+}
+
+static OSStatus replaceEnvelope(Store *s, const uint8_t *bytes, size_t length)
+{
+	char temporary[NAME_MAX + 1];
+	int fd = -1;
+	for (unsigned attempt = 0; attempt < 32; attempt++) {
+		unsigned long serial = atomic_fetch_add(&temporaryFileNumber, 1);
+		int n = snprintf(temporary, sizeof(temporary), ".finch-keychain-%ld-%lu.tmp",
+		    (long)getpid(), serial);
+		if (n < 0 || (size_t)n >= sizeof(temporary))
+			return errSecIO;
+		fd = openat(s->parentFD, temporary,
+		    O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+		if (fd >= 0 || errno != EEXIST)
+			break;
+	}
+	if (fd < 0)
+		return pathError(errno);
+	OSStatus err = 0;
+	struct stat tempInfo;
+	if (fstat(fd, &tempInfo) < 0)
+		err = errSecIO;
+	else if (!S_ISREG(tempInfo.st_mode) || tempInfo.st_uid != geteuid() ||
+	    tempInfo.st_nlink != 1 || fchmod(fd, 0600) < 0)
+		err = errSecInvalidKeychain;
+	if (!err)
+		err = writeAll(fd, bytes, length);
+	if (!err && fsync(fd) < 0)
+		err = errSecIO;
+	if (!err) {
+		struct stat opened, current;
+		err = checkKeychainFile(s->fd, &opened);
+		if (!err && fstatat(s->parentFD, s->leaf, &current, AT_SYMLINK_NOFOLLOW) < 0)
+			err = errno == ENOENT ? errSecNoSuchKeychain : errSecIO;
+		else if (!err && (!S_ISREG(current.st_mode) || current.st_uid != geteuid() ||
+		    current.st_nlink != 1 || (current.st_mode & 07777) != 0600 ||
+		    current.st_dev != opened.st_dev || current.st_ino != opened.st_ino))
+			err = errSecInvalidKeychain;
+	}
+	if (!err && renameat(s->parentFD, temporary, s->parentFD, s->leaf) < 0)
+		err = pathError(errno);
+	if (!err) {
+		int oldFD = s->fd;
+		s->fd = fd;
+		fd = -1;
+		(void)close(oldFD);
+	}
+	if (!err && fsync(s->parentFD) < 0)
+		err = errSecIO;
+	if (fd >= 0)
+		(void)close(fd);
+	if (err)
+		(void)unlinkat(s->parentFD, temporary, 0);
+	return err;
+}
+
+static OSStatus storeCommit(Store *s)
+{
+	if (!s->dirty)
+		return 0;
+	if (!s->hasKey || !s->db)
+		return errSecInteractionNotAllowed;
+	CFDataRef data = CFPropertyListCreateData(NULL, s->db,
+	    kCFPropertyListBinaryFormat_v1_0, 0, NULL);
+	if (!data)
+		return errSecAllocate;
+	uint8_t *envelope = NULL;
+	size_t envelopeLength = 0;
+	SecKeychainCryptoStatus crypto = finch_keychain_crypto_seal(s->key, s->salt,
+	    CFDataGetBytePtr(data), (size_t)CFDataGetLength(data),
+	    &envelope, &envelopeLength);
+	CFRelease(data);
+	if (crypto != SEC_KEYCHAIN_CRYPTO_OK) {
+		if (crypto == SEC_KEYCHAIN_CRYPTO_NO_MEMORY)
+			return errSecAllocate;
+		return crypto == SEC_KEYCHAIN_CRYPTO_INVALID_ARGUMENT ? errSecParam : errSecIO;
+	}
+	OSStatus err = replaceEnvelope(s, envelope, envelopeLength);
+	finch_keychain_crypto_clear_free(envelope, envelopeLength);
+	if (!err)
+		s->dirty = false;
+	return err;
+}
+
+static OSStatus storeClose(Store *s)
+{
+	OSStatus err = storeCommit(s);
+	storeDispose(s);
+	return err;
+}
+
+static OSStatus storeInspect(SecKeychainRef kc,
+	uint8_t saltOut[SEC_KEYCHAIN_CRYPTO_SALT_BYTES], char cachePathOut[PATH_MAX])
+{
+	Store s;
+	OSStatus err = storeAcquire(kc, false, false, false, &s);
+	if (err)
+		return err;
+	if (cachePathOut)
+		strlcpy(cachePathOut, s.cachePath, PATH_MAX);
+	uint8_t salt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES];
+	size_t plaintextLength = 0;
+	err = inspectEnvelope(&s, NULL, NULL, salt, &plaintextLength);
+	if (!err && saltOut)
+		memcpy(saltOut, salt, sizeof(salt));
+	OPENSSL_cleanse(salt, sizeof(salt));
+	storeDispose(&s);
+	return err;
+}
+
+static OSStatus createEmptyDatabase(Store *s)
+{
+	s->db = CFDictionaryCreateMutable(NULL, 0,
+	    &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	CFMutableArrayRef items = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+	if (!s->db || !items) {
+		if (items)
+			CFRelease(items);
+		return errSecAllocate;
+	}
+	CFDictionarySetValue(s->db, CFSTR("items"), items);
+	s->items = (CFMutableArrayRef)CFDictionaryGetValue(s->db, CFSTR("items"));
+	CFRelease(items);
+	int version = 1;
+	CFNumberRef number = CFNumberCreate(NULL, kCFNumberIntType, &version);
+	if (!number) {
+		return errSecAllocate;
+	}
+	CFDictionarySetValue(s->db, CFSTR("version"), number);
+	CFRelease(number);
+	return 0;
+}
+
+static void removeCreatedFile(Store *s)
+{
+	if (!s->created || s->fd < 0)
+		return;
+	struct stat opened, current;
+	if (fstat(s->fd, &opened) == 0 &&
+	    fstatat(s->parentFD, s->leaf, &current, AT_SYMLINK_NOFOLLOW) == 0 &&
+	    S_ISREG(current.st_mode) && current.st_uid == geteuid() && current.st_nlink == 1 &&
+	    current.st_dev == opened.st_dev && current.st_ino == opened.st_ino)
+		(void)unlinkat(s->parentFD, s->leaf, 0);
 }
 
 static int64_t nextID(Store *s)
@@ -602,12 +1138,36 @@ OSStatus SecKeychainGetUserInteractionAllowed(Boolean *state)
 {
 	if (!state)
 		return errSecParam;
+	#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+	if (keychainServiceActive()) {
+		CFTypeRef value = NULL;
+		OSStatus status = _FinchKeychainServiceCall(CFSTR("keychain.interaction-get"), NULL, &value);
+		if (!status && isType(value, CFBooleanGetTypeID()))
+			*state = CFBooleanGetValue(value);
+		else if (!status)
+			status = errSecInternalComponent;
+		if (value)
+			CFRelease(value);
+		return status;
+	}
+	#endif
 	*state = atomic_load(&interactionAllowed);
 	return 0;
 }
 
 OSStatus SecKeychainSetUserInteractionAllowed(Boolean state)
 {
+	#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+	if (keychainServiceActive()) {
+		CFMutableDictionaryRef request = newServiceRequest();
+		if (!request)
+			return errSecAllocate;
+		CFDictionarySetValue(request, CFSTR("allowed"), state ? kCFBooleanTrue : kCFBooleanFalse);
+		OSStatus status = keychainServiceCall(CFSTR("keychain.interaction-set"), request, NULL);
+		CFRelease(request);
+		return status;
+	}
+	#endif
 	atomic_store(&interactionAllowed, state);
 	return 0;
 }
@@ -618,6 +1178,44 @@ OSStatus SecKeychainCreate(const char *pathName, UInt32 passwordLength, const vo
 	if (!pathName || !keychain)
 		return errSecParam;
 	*keychain = NULL;
+	if (!password || passwordLength == 0)
+		return errSecPassphraseRequired;
+	if (passwordLength > SEC_KEYCHAIN_CRYPTO_MAX_PASSWORD_BYTES)
+		return errSecParam;
+#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+	if (keychainServiceActive()) {
+		if (!*pathName)
+			return errSecParam;
+		CFStringRef path = CFStringCreateWithBytes(NULL, (const UInt8 *)pathName,
+		    (CFIndex)strlen(pathName), kCFStringEncodingUTF8, false);
+		if (!path)
+			return errSecParam;
+		CFDataRef passwordData = CFDataCreate(NULL, password, passwordLength);
+		CFMutableDictionaryRef request = newServiceRequest();
+		if (!passwordData || !request) {
+			CFRelease(path);
+			if (passwordData) CFRelease(passwordData);
+			if (request) CFRelease(request);
+			return errSecAllocate;
+		}
+		CFDictionarySetValue(request, CFSTR("path"), path);
+		CFDictionarySetValue(request, CFSTR("password"), passwordData);
+		CFTypeRef response = NULL;
+		OSStatus status = keychainServiceCall(CFSTR("keychain.create"), request, &response);
+		if (!status && isType(response, SecKeychainGetTypeID()))
+			*keychain = (SecKeychainRef)response;
+		else {
+			if (response)
+				CFRelease(response);
+			if (!status)
+				status = errSecInternalComponent;
+		}
+		CFRelease(request);
+		CFRelease(passwordData);
+		CFRelease(path);
+		return status;
+	}
+#endif
 	CFStringRef path = absolutePath(pathName);
 	if (!path)
 		return errSecParam;
@@ -625,14 +1223,43 @@ OSStatus SecKeychainCreate(const char *pathName, UInt32 passwordLength, const vo
 	CFRelease(path);
 	if (!kc)
 		return errSecAllocate;
-	Store s;
-	OSStatus st = storeOpen(kc, true, true, &s);
-	bool created = st == 0 && s.created;
-	if (st == 0) {
-		st = storeClose(&s);
-		if (st == 0 && !created)
-			st = errSecDuplicateKeychain;
+	uint8_t salt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES];
+	uint8_t key[SEC_KEYCHAIN_CRYPTO_KEY_BYTES];
+	SecKeychainCryptoStatus crypto = finch_keychain_crypto_create_key(password,
+	    passwordLength, salt, key);
+	if (crypto != SEC_KEYCHAIN_CRYPTO_OK) {
+		CFRelease(kc);
+		OPENSSL_cleanse(salt, sizeof(salt));
+		OPENSSL_cleanse(key, sizeof(key));
+		return crypto == SEC_KEYCHAIN_CRYPTO_NO_MEMORY ? errSecAllocate : errSecIO;
 	}
+	Store s;
+	OSStatus st = storeAcquire(kc, true, true, true, &s);
+	if (!st && !s.created) {
+		uint8_t existingSalt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES];
+		size_t plaintextLength = 0;
+		st = inspectEnvelope(&s, NULL, NULL, existingSalt, &plaintextLength);
+		OPENSSL_cleanse(existingSalt, sizeof(existingSalt));
+		if (!st)
+			st = errSecDuplicateKeychain;
+		storeDispose(&s);
+	} else if (!st) {
+		memcpy(s.salt, salt, sizeof(s.salt));
+		memcpy(s.key, key, sizeof(s.key));
+		s.hasKey = true;
+		st = createEmptyDatabase(&s);
+		if (!st) {
+			s.dirty = true;
+			st = storeCommit(&s);
+		}
+		if (!st)
+			st = keyCacheSet(s.cachePath, salt, key);
+		if (st)
+			removeCreatedFile(&s);
+		storeDispose(&s);
+	}
+	OPENSSL_cleanse(salt, sizeof(salt));
+	OPENSSL_cleanse(key, sizeof(key));
 	if (st) {
 		CFRelease(kc);
 		return st;
@@ -647,6 +1274,36 @@ OSStatus SecKeychainOpen(const char *pathName, SecKeychainRef *keychain)
 	if (!pathName || !keychain)
 		return errSecParam;
 	*keychain = NULL;
+#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+	if (keychainServiceActive()) {
+		if (!*pathName)
+			return errSecParam;
+		CFStringRef path = CFStringCreateWithBytes(NULL, (const UInt8 *)pathName,
+		    (CFIndex)strlen(pathName), kCFStringEncodingUTF8, false);
+		if (!path)
+			return errSecParam;
+		CFMutableDictionaryRef request = newServiceRequest();
+		if (!request) {
+			CFRelease(path);
+			if (request) CFRelease(request);
+			return errSecAllocate;
+		}
+		CFDictionarySetValue(request, CFSTR("path"), path);
+		CFTypeRef response = NULL;
+		OSStatus status = keychainServiceCall(CFSTR("keychain.open"), request, &response);
+		if (!status && isType(response, SecKeychainGetTypeID()))
+			*keychain = (SecKeychainRef)response;
+		else {
+			if (response)
+				CFRelease(response);
+			if (!status)
+				status = errSecInternalComponent;
+		}
+		CFRelease(request);
+		CFRelease(path);
+		return status;
+	}
+#endif
 	CFStringRef path = absolutePath(pathName);
 	if (!path)
 		return errSecParam;
@@ -654,10 +1311,7 @@ OSStatus SecKeychainOpen(const char *pathName, SecKeychainRef *keychain)
 	CFRelease(path);
 	if (!kc)
 		return errSecAllocate;
-	Store s;
-	OSStatus st = storeOpen(kc, false, false, &s);
-	if (!st)
-		st = storeClose(&s);
+	OSStatus st = storeInspect(kc, NULL, NULL);
 	if (st) {
 		CFRelease(kc);
 		return st;
@@ -670,6 +1324,20 @@ OSStatus SecKeychainDelete(SecKeychainRef keychainOrArray)
 {
 	if (!keychainOrArray)
 		return errSecInvalidKeychain;
+#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+	if (keychainServiceActive()) {
+		if (!isType(keychainOrArray, SecKeychainGetTypeID()) &&
+		    !isType(keychainOrArray, CFArrayGetTypeID()))
+			return errSecInvalidKeychain;
+		CFMutableDictionaryRef request = newServiceRequest();
+		if (!request)
+			return errSecAllocate;
+		CFDictionarySetValue(request, CFSTR("keychain"), keychainOrArray);
+		OSStatus status = keychainServiceCall(CFSTR("keychain.delete"), request, NULL);
+		CFRelease(request);
+		return status;
+	}
+#endif
 	if (isType(keychainOrArray, CFArrayGetTypeID())) {
 		CFArrayRef a = (CFArrayRef)keychainOrArray;
 		for (CFIndex i = 0; i < CFArrayGetCount(a); i++) {
@@ -681,40 +1349,30 @@ OSStatus SecKeychainDelete(SecKeychainRef keychainOrArray)
 	}
 	if (!isType(keychainOrArray, SecKeychainGetTypeID()))
 		return errSecInvalidKeychain;
-	char p[PATH_MAX], leaf[NAME_MAX + 1];
-	if (!pathOf(keychainOrArray, p, sizeof(p)))
-		return errSecInvalidKeychain;
-	int parentFD = -1;
-	OSStatus st = openParentDirectory(p, false, &parentFD, leaf);
+	/* Keep the stable directory lock and validated descriptor through unlink. */
+	Store contents;
+	OSStatus st = storeAcquire((SecKeychainRef)keychainOrArray, true, false, false, &contents);
 	if (st)
 		return st;
-	/* Keep the validated file descriptor and its lock through unlink. */
-	Store contents;
-	st = storeOpen((SecKeychainRef)keychainOrArray, false, false, &contents);
-	if (st) {
-		close(parentFD);
-		return st;
-	}
-	if (flock(contents.fd, LOCK_EX) < 0) {
-		storeClose(&contents);
-		close(parentFD);
-		return errSecIO;
-	}
+	uint8_t salt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES];
+	size_t plaintextLength = 0;
+	st = inspectEnvelope(&contents, NULL, NULL, salt, &plaintextLength);
+	OPENSSL_cleanse(salt, sizeof(salt));
 	struct stat opened, current;
-	st = checkKeychainFile(contents.fd, &opened);
+	if (!st)
+		st = checkKeychainFile(contents.fd, &opened);
 	if (!st &&
-	    fstatat(parentFD, leaf, &current, AT_SYMLINK_NOFOLLOW) < 0) {
+	    fstatat(contents.parentFD, contents.leaf, &current, AT_SYMLINK_NOFOLLOW) < 0) {
 		st = errno == ENOENT ? errSecNoSuchKeychain : errSecIO;
 	} else if (!st && (!S_ISREG(current.st_mode) || current.st_uid != geteuid() ||
 	    current.st_nlink != 1 || (current.st_mode & 07777) != 0600 ||
 	    current.st_dev != opened.st_dev || current.st_ino != opened.st_ino)) {
 		st = errSecInvalidKeychain;
-	} else if (!st && unlinkat(parentFD, leaf, 0) < 0)
+	} else if (!st && unlinkat(contents.parentFD, contents.leaf, 0) < 0)
 		st = pathError(errno);
-	OSStatus closeStatus = storeClose(&contents);
-	close(parentFD);
 	if (!st)
-		st = closeStatus;
+		keyCacheClearPath(contents.cachePath);
+	storeDispose(&contents);
 	if (st)
 		return st;
 	notify(kSecKeychainListChangedEvent, keychainOrArray, NULL);
@@ -726,7 +1384,7 @@ OSStatus SecKeychainCopyDefault(SecKeychainRef *keychain)
 	if (!keychain)
 		return errSecParam;
 	*keychain = defaultKeychain();
-	return 0;
+	return *keychain ? 0 : errSecNotAvailable;
 }
 
 OSStatus SecKeychainCopyDomainDefault(SecPreferencesDomain domain, SecKeychainRef *keychain)
@@ -748,10 +1406,13 @@ OSStatus SecKeychainCopySearchList(CFArrayRef *searchList)
 {
 	if (!searchList)
 		return errSecParam;
-	SecKeychainRef kc = defaultKeychain();
+	SecKeychainRef kc = NULL;
+	OSStatus status = SecKeychainCopyDefault(&kc);
+	if (status)
+		return status;
 	*searchList = CFArrayCreate(NULL, (const void **)&kc, 1, &kCFTypeArrayCallBacks);
 	CFRelease(kc);
-	return 0;
+	return *searchList ? 0 : errSecAllocate;
 }
 
 OSStatus SecKeychainCopyDomainSearchList(SecPreferencesDomain domain, CFArrayRef *searchList)
@@ -789,33 +1450,144 @@ OSStatus SecKeychainGetStatus(SecKeychainRef keychain, SecKeychainStatus *status
 	if (!status)
 		return errSecParam;
 	*status = 0;
+#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+	if (keychainServiceActive()) {
+		if (keychain && !isType(keychain, SecKeychainGetTypeID()))
+			return errSecInvalidKeychain;
+		CFMutableDictionaryRef request = newServiceRequest();
+		if (!request)
+			return errSecAllocate;
+		if (keychain)
+			CFDictionarySetValue(request, CFSTR("keychain"), keychain);
+		CFTypeRef response = NULL;
+		OSStatus result = keychainServiceCall(CFSTR("keychain.status"), request, &response);
+		if (!result && isType(response, CFNumberGetTypeID()))
+			CFNumberGetValue(response, kCFNumberSInt32Type, status);
+		else if (!result)
+			result = errSecInternalComponent;
+		if (response)
+			CFRelease(response);
+		CFRelease(request);
+		return result;
+	}
+#endif
 	SecKeychainRef kc = keychain ? (SecKeychainRef)CFRetain(keychain) : defaultKeychain();
 	if (!isType(kc, SecKeychainGetTypeID())) {
 		CFRelease(kc);
 		return errSecInvalidKeychain;
 	}
-	Store s;
-	OSStatus st = storeOpen(kc, false, false, &s);
+	uint8_t salt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES];
+	char cachePath[PATH_MAX];
+	OSStatus st = storeInspect(kc, salt, cachePath);
 	if (!st)
-		st = storeClose(&s);
+		*status = kSecReadPermStatus | kSecWritePermStatus |
+		    (keyCacheMatchesSalt(cachePath, salt) ? kSecUnlockStateStatus : 0);
+	OPENSSL_cleanse(salt, sizeof(salt));
 	CFRelease(kc);
-	if (!st)
-		*status = kSecUnlockStateStatus | kSecReadPermStatus | kSecWritePermStatus;
 	return st;
 }
 
-/* Finch's keychains aren't encrypted: locking and unlocking always succeed. */
 OSStatus SecKeychainLock(SecKeychainRef keychain)
 {
+#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+	if (keychainServiceActive()) {
+		if (keychain && !isType(keychain, SecKeychainGetTypeID()))
+			return errSecInvalidKeychain;
+		CFMutableDictionaryRef request = newServiceRequest();
+		if (!request)
+			return errSecAllocate;
+		if (keychain)
+			CFDictionarySetValue(request, CFSTR("keychain"), keychain);
+		OSStatus status = keychainServiceCall(CFSTR("keychain.lock"), request, NULL);
+		CFRelease(request);
+		return status;
+	}
+#endif
+	SecKeychainRef kc = keychain ? (SecKeychainRef)CFRetain(keychain) : defaultKeychain();
+	if (!isType(kc, SecKeychainGetTypeID())) {
+		if (kc)
+			CFRelease(kc);
+		return errSecInvalidKeychain;
+	}
+	keyCacheClearKeychain(kc);
+	CFRelease(kc);
 	return 0;
 }
 OSStatus SecKeychainLockAll(void)
 {
+#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+	if (keychainServiceActive())
+		return _FinchKeychainServiceCall(CFSTR("keychain.lock-all"), NULL, NULL);
+#endif
+	keyCacheClearPath(NULL);
 	return 0;
 }
 OSStatus SecKeychainUnlock(SecKeychainRef keychain, UInt32 passwordLength, const void *password, Boolean usePassword)
 {
-	return 0;
+	if (!password || passwordLength == 0)
+		return errSecPassphraseRequired;
+	if (passwordLength > SEC_KEYCHAIN_CRYPTO_MAX_PASSWORD_BYTES)
+		return errSecParam;
+#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+	if (keychainServiceActive()) {
+		if (keychain && !isType(keychain, SecKeychainGetTypeID()))
+			return errSecInvalidKeychain;
+		CFDataRef passwordData = CFDataCreate(NULL, password, passwordLength);
+		CFMutableDictionaryRef request = newServiceRequest();
+		if (!passwordData || !request) {
+			if (passwordData) CFRelease(passwordData);
+			if (request) CFRelease(request);
+			return errSecAllocate;
+		}
+		if (keychain)
+			CFDictionarySetValue(request, CFSTR("keychain"), keychain);
+		CFDictionarySetValue(request, CFSTR("password"), passwordData);
+		CFDictionarySetValue(request, CFSTR("usePassword"), usePassword ? kCFBooleanTrue : kCFBooleanFalse);
+		OSStatus status = keychainServiceCall(CFSTR("keychain.unlock"), request, NULL);
+		CFRelease(request);
+		CFRelease(passwordData);
+		return status;
+	}
+#endif
+	SecKeychainRef kc = keychain ? (SecKeychainRef)CFRetain(keychain) : defaultKeychain();
+	if (!isType(kc, SecKeychainGetTypeID())) {
+		if (kc)
+			CFRelease(kc);
+		return errSecInvalidKeychain;
+	}
+	Store s;
+	OSStatus err = storeAcquire(kc, false, false, false, &s);
+	uint8_t salt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES];
+	uint8_t key[SEC_KEYCHAIN_CRYPTO_KEY_BYTES];
+	uint8_t *envelope = NULL, *plaintext = NULL;
+	size_t envelopeLength = 0, plaintextLength = 0;
+	OPENSSL_cleanse(salt, sizeof(salt));
+	OPENSSL_cleanse(key, sizeof(key));
+	if (!err)
+		err = readEnvelope(&s, &envelope, &envelopeLength);
+	if (!err) {
+		SecKeychainCryptoStatus crypto = finch_keychain_crypto_unlock(envelope,
+		    envelopeLength, password, passwordLength, salt, key, &plaintext,
+		    &plaintextLength);
+		if (crypto == SEC_KEYCHAIN_CRYPTO_AUTH_FAILED)
+			err = errSecAuthFailed;
+		else if (crypto == SEC_KEYCHAIN_CRYPTO_NO_MEMORY)
+			err = errSecAllocate;
+		else if (crypto != SEC_KEYCHAIN_CRYPTO_OK)
+			err = errSecInvalidKeychain;
+	}
+	free(envelope);
+	if (!err)
+		err = parseDatabase(plaintext, plaintextLength, &s);
+	if (plaintext)
+		finch_keychain_crypto_clear_free(plaintext, plaintextLength);
+	if (!err)
+		err = keyCacheSet(s.cachePath, salt, key);
+	storeDispose(&s);
+	OPENSSL_cleanse(salt, sizeof(salt));
+	OPENSSL_cleanse(key, sizeof(key));
+	CFRelease(kc);
+	return err;
 }
 OSStatus SecKeychainGetVersion(UInt32 *returnVers)
 {
@@ -927,16 +1699,42 @@ static CFDataRef persistentRef(SecKeychainRef kc, int64_t id)
 
 static bool parsePersistentRef(CFDataRef d, SecKeychainRef *kc, int64_t *id)
 {
-	if (!isType(d, CFDataGetTypeID()) || CFDataGetLength(d) <= 12 || memcmp(CFDataGetBytePtr(d), "FNKC", 4))
+	if (!isType(d, CFDataGetTypeID()) || CFDataGetLength(d) <= 12 ||
+	    CFDataGetLength(d) - 12 >= PATH_MAX || memcmp(CFDataGetBytePtr(d), "FNKC", 4) ||
+	    memchr(CFDataGetBytePtr(d) + 12, 0, (size_t)(CFDataGetLength(d) - 12)))
 		return false;
 	memcpy(id, CFDataGetBytePtr(d) + 4, sizeof(*id));
 	CFStringRef path = CFStringCreateWithBytes(NULL, CFDataGetBytePtr(d) + 12, CFDataGetLength(d) - 12,
 	    kCFStringEncodingUTF8, false);
 	if (!path)
 		return false;
+	char nativePath[PATH_MAX];
+	if (!CFStringGetFileSystemRepresentation(path, nativePath, sizeof(nativePath)) ||
+	    nativePath[0] != '/' || strlen(nativePath) != (size_t)(CFDataGetLength(d) - 12)) {
+		CFRelease(path);
+		return false;
+	}
 	*kc = keychainCreate(path);
 	CFRelease(path);
-	return true;
+	return *kc != NULL;
+}
+
+SEC_HIDDEN SecKeychainItemRef
+_FinchKeychainCreateItemProxy(CFDataRef persistentItemRef)
+{
+	SecKeychainRef keychain = NULL;
+	int64_t id = 0;
+	if (!parsePersistentRef(persistentItemRef, &keychain, &id))
+		return NULL;
+	Item *item = (Item *)_SecCreateInstance(SecKeychainItemGetTypeID(), sizeof(*item));
+	if (!item) {
+		CFRelease(keychain);
+		return NULL;
+	}
+	item->keychain = keychain;
+	item->itemClass = CFRetain(kSecClassGenericPassword);
+	item->id = id;
+	return (SecKeychainItemRef)item;
 }
 
 static OSStatus searchInit(Search *s, CFDictionaryRef query, bool defaultAll)
@@ -1249,7 +2047,7 @@ static OSStatus forEachMatch(Search *s, bool write, CFIndex *found, ItemVisitor 
 	for (CFIndex k = 0; !stop && k < CFArrayGetCount(s->keychains); k++) {
 		SecKeychainRef kc = (SecKeychainRef)CFArrayGetValueAtIndex(s->keychains, k);
 		Store st;
-		OSStatus err = storeOpen(kc, write, false, &st);
+		OSStatus err = storeOpen(kc, write, &st);
 		if (err == errSecNoSuchKeychain)
 			continue;
 		if (err)
@@ -1287,6 +2085,10 @@ OSStatus SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result)
 		*result = NULL;
 	if (!isType(query, CFDictionaryGetTypeID()))
 		return errSecParam;
+#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+	if (keychainServiceActive())
+		return serviceItemCall(CFSTR("item.copy"), query, NULL, result);
+#endif
 	Search s;
 	OSStatus err = searchInit(&s, query, false);
 	if (err) {
@@ -1334,7 +2136,7 @@ static OSStatus addItem(SecKeychainRef kc, CFMutableDictionaryRef item, CFDictio
     SecKeychainItemRef *itemRef)
 {
 	Store st;
-	OSStatus err = storeOpen(kc, true, true, &st);
+	OSStatus err = storeOpen(kc, true, &st);
 	if (err)
 		return err;
 	if (duplicate(&st, item, 0)) {
@@ -1414,6 +2216,10 @@ OSStatus SecItemAdd(CFDictionaryRef attributes, CFTypeRef *result)
 	}
 	if (!isClass(cls))
 		return errSecParam;
+#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+	if (keychainServiceActive())
+		return serviceItemCall(CFSTR("item.add"), NULL, attributes, result);
+#endif
 	SecKeychainRef kc = NULL;
 	CFTypeRef use = CFDictionaryGetValue(attributes, kSecUseKeychain);
 	kc = isType(use, SecKeychainGetTypeID()) ? (SecKeychainRef)CFRetain(use) : defaultKeychain();
@@ -1486,6 +2292,10 @@ OSStatus SecItemUpdate(CFDictionaryRef query, CFDictionaryRef attributesToUpdate
 {
 	if (!isType(query, CFDictionaryGetTypeID()) || !isType(attributesToUpdate, CFDictionaryGetTypeID()))
 		return errSecParam;
+#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+	if (keychainServiceActive())
+		return serviceItemCall(CFSTR("item.update"), query, attributesToUpdate, NULL);
+#endif
 	Search s;
 	OSStatus err = searchInit(&s, query, true);
 	if (err) {
@@ -1532,6 +2342,10 @@ OSStatus SecItemDelete(CFDictionaryRef query)
 {
 	if (!isType(query, CFDictionaryGetTypeID()))
 		return errSecParam;
+#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+	if (keychainServiceActive())
+		return serviceItemCall(CFSTR("item.delete"), query, NULL, NULL);
+#endif
 	Search s;
 	OSStatus err = searchInit(&s, query, true);
 	if (err) {
@@ -1719,9 +2533,27 @@ static OSStatus loadItem(SecKeychainItemRef ref, CFMutableDictionaryRef *out)
 	*out = NULL;
 	if (!isType(ref, SecKeychainItemGetTypeID()))
 		return errSecInvalidItemRef;
+	if (keychainServiceActive()) {
+		CFMutableDictionaryRef query = newServiceRequest();
+		if (!query)
+			return errSecAllocate;
+		CFDictionarySetValue(query, kSecValueRef, ref);
+		CFDictionarySetValue(query, kSecReturnAttributes, kCFBooleanTrue);
+		CFDictionarySetValue(query, kSecReturnData, kCFBooleanTrue);
+		CFTypeRef result = NULL;
+		OSStatus status = SecItemCopyMatching(query, &result);
+		CFRelease(query);
+		if (!status && isType(result, CFDictionaryGetTypeID()))
+			*out = CFDictionaryCreateMutableCopy(NULL, 0, result);
+		else if (!status)
+			status = errSecInternalComponent;
+		if (result)
+			CFRelease(result);
+		return status;
+	}
 	Item *it = (Item *)ref;
 	Store st;
-	OSStatus err = storeOpen(it->keychain, false, false, &st);
+	OSStatus err = storeOpen(it->keychain, false, &st);
 	if (err)
 		return err == errSecNoSuchKeychain ? errSecInvalidItemRef : err;
 	CFIndex i = findID(&st, it->id);
@@ -1736,9 +2568,42 @@ static OSStatus modifyItem(SecKeychainItemRef ref, const SecKeychainAttributeLis
 {
 	if (!isType(ref, SecKeychainItemGetTypeID()))
 		return errSecInvalidItemRef;
+	if (keychainServiceActive()) {
+		CFMutableDictionaryRef query = newServiceRequest();
+		CFMutableDictionaryRef attributes = newServiceRequest();
+		if (!query || !attributes) {
+			if (query) CFRelease(query);
+			if (attributes) CFRelease(attributes);
+			return errSecAllocate;
+		}
+		CFDictionarySetValue(query, kSecValueRef, ref);
+		for (UInt32 a = 0; attrList && a < attrList->count; a++) {
+			CFTypeRef value = valueFromAttribute(&attrList->attr[a]);
+			if (!value)
+				continue;
+			CFStringRef key = keyForTag(attrList->attr[a].tag);
+			CFDictionarySetValue(attributes, key, value);
+			CFRelease(key);
+			CFRelease(value);
+		}
+		if (setData) {
+			CFDataRef value = CFDataCreate(NULL, data, length);
+			if (!value) {
+				CFRelease(attributes);
+				CFRelease(query);
+				return errSecAllocate;
+			}
+			CFDictionarySetValue(attributes, kSecValueData, value);
+			CFRelease(value);
+		}
+		OSStatus status = SecItemUpdate(query, attributes);
+		CFRelease(attributes);
+		CFRelease(query);
+		return status;
+	}
 	Item *it = (Item *)ref;
 	Store st;
-	OSStatus err = storeOpen(it->keychain, true, false, &st);
+	OSStatus err = storeOpen(it->keychain, true, &st);
 	if (err)
 		return err == errSecNoSuchKeychain ? errSecInvalidItemRef : err;
 	CFIndex i = findID(&st, it->id);
@@ -1900,6 +2765,22 @@ OSStatus SecKeychainItemCreateFromContent(SecItemClass itemClass, SecKeychainAtt
 	CFDataRef d = CFDataCreate(NULL, data, data ? length : 0);
 	CFDictionarySetValue(item, kSecValueData, d);
 	CFRelease(d);
+	if (keychainServiceActive()) {
+		if (keychainRef)
+			CFDictionarySetValue(item, kSecUseKeychain, keychainRef);
+		if (itemRef)
+			CFDictionarySetValue(item, kSecReturnRef, kCFBooleanTrue);
+		CFTypeRef result = NULL;
+		OSStatus status = SecItemAdd(item, itemRef ? &result : NULL);
+		if (!status && itemRef && isType(result, SecKeychainItemGetTypeID()))
+			*itemRef = (SecKeychainItemRef)result;
+		else if (!status && itemRef)
+			status = errSecInternalComponent;
+		if (result && (status || !itemRef))
+			CFRelease(result);
+		CFRelease(item);
+		return status;
+	}
 	SecKeychainRef kc = keychainRef ? (SecKeychainRef)CFRetain(keychainRef) : defaultKeychain();
 	OSStatus err = isType(kc, SecKeychainGetTypeID()) ? addItem(kc, item, NULL, NULL, itemRef) : errSecInvalidKeychain;
 	CFRelease(kc);
@@ -1911,9 +2792,18 @@ OSStatus SecKeychainItemDelete(SecKeychainItemRef itemRef)
 {
 	if (!isType(itemRef, SecKeychainItemGetTypeID()))
 		return errSecInvalidItemRef;
+	if (keychainServiceActive()) {
+		CFMutableDictionaryRef query = newServiceRequest();
+		if (!query)
+			return errSecAllocate;
+		CFDictionarySetValue(query, kSecValueRef, itemRef);
+		OSStatus status = SecItemDelete(query);
+		CFRelease(query);
+		return status;
+	}
 	Item *it = (Item *)itemRef;
 	Store st;
-	OSStatus err = storeOpen(it->keychain, true, false, &st);
+	OSStatus err = storeOpen(it->keychain, true, &st);
 	if (err)
 		return err == errSecNoSuchKeychain ? errSecInvalidItemRef : err;
 	CFIndex i = findID(&st, it->id);
@@ -1949,12 +2839,32 @@ OSStatus SecKeychainItemCopyFromPersistentReference(CFDataRef persistentItemRef,
 {
 	if (!itemRef)
 		return errSecParam;
+	*itemRef = NULL;
+	if (!isType(persistentItemRef, CFDataGetTypeID()))
+		return errSecItemNotFound;
+	if (keychainServiceActive()) {
+		CFMutableDictionaryRef query = newServiceRequest();
+		if (!query)
+			return errSecAllocate;
+		CFDictionarySetValue(query, kSecValuePersistentRef, persistentItemRef);
+		CFDictionarySetValue(query, kSecReturnRef, kCFBooleanTrue);
+		CFTypeRef result = NULL;
+		OSStatus status = SecItemCopyMatching(query, &result);
+		CFRelease(query);
+		if (!status && isType(result, SecKeychainItemGetTypeID()))
+			*itemRef = (SecKeychainItemRef)result;
+		else if (!status)
+			status = errSecInternalComponent;
+		if (result && (status || !*itemRef))
+			CFRelease(result);
+		return status;
+	}
 	SecKeychainRef kc = NULL;
 	int64_t id = 0;
 	if (!parsePersistentRef(persistentItemRef, &kc, &id))
 		return errSecItemNotFound;
 	Store st;
-	OSStatus err = storeOpen(kc, false, false, &st);
+	OSStatus err = storeOpen(kc, false, &st);
 	if (!err) {
 		CFIndex i = findID(&st, id);
 		*itemRef = i == kCFNotFound ? NULL : (SecKeychainItemRef)refFor(kc, CFArrayGetValueAtIndex(st.items, i));
@@ -1972,6 +2882,25 @@ OSStatus SecKeychainItemCreateCopy(SecKeychainItemRef itemRef, SecKeychainRef de
 	OSStatus err = loadItem(itemRef, &item);
 	if (err)
 		return err;
+	if (keychainServiceActive()) {
+		CFDictionaryRemoveValue(item, kID);
+		CFDictionaryRemoveValue(item, CFSTR("cdat"));
+		CFDictionaryRemoveValue(item, CFSTR("mdat"));
+		if (destKeychainRef)
+			CFDictionarySetValue(item, kSecUseKeychain, destKeychainRef);
+		if (itemCopy)
+			CFDictionarySetValue(item, kSecReturnRef, kCFBooleanTrue);
+		CFTypeRef result = NULL;
+		err = SecItemAdd(item, itemCopy ? &result : NULL);
+		if (!err && itemCopy && isType(result, SecKeychainItemGetTypeID()))
+			*itemCopy = (SecKeychainItemRef)result;
+		else if (!err && itemCopy)
+			err = errSecInternalComponent;
+		if (result && (err || !itemCopy))
+			CFRelease(result);
+		CFRelease(item);
+		return err;
+	}
 	CFDictionaryRemoveValue(item, kID);
 	CFDictionaryRemoveValue(item, CFSTR("cdat"));
 	SecKeychainRef kc = destKeychainRef ? (SecKeychainRef)CFRetain(destKeychainRef) : defaultKeychain();

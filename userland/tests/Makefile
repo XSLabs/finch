@@ -557,6 +557,8 @@ $(OUT)/finch-socket-test: socket-test.c
 
 clean:
 	rm -f $(OUT)/finch-keychain-crypto-test
+	rm -f $(OUT)/finch-security-keychain-encryption-test
+	rm -f $(OUT)/finch-security-keychain-service-test
 	rm -f $(OUT)/finch-security-keychain-storage-test
 	rm -f $(OUT)/finch-console-policy-test
 	rm -f $(OUT)/finch-audioconverter-test $(OUT)/finch-security-roots-test
@@ -730,6 +732,18 @@ all: $(OUT)/finch-security-keychain-storage-test
 $(OUT)/finch-security-keychain-storage-test: security-keychain-storage-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -o $@ $< -framework Security -framework Foundation
+
+# Password, locking, and concurrent encrypted keychain writes in a private folder.
+all: $(OUT)/finch-security-keychain-encryption-test
+$(OUT)/finch-security-keychain-encryption-test: security-keychain-encryption-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -o $@ $< -framework Security -framework Foundation
+
+# Shared keychain state across clients inside a Finch user session.
+all: $(OUT)/finch-security-keychain-service-test
+$(OUT)/finch-security-keychain-service-test: security-keychain-service-test.m ../Security/SecKeychainServiceProtocol.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -fblocks -DOS_OBJECT_USE_OBJC=0 -Wno-deprecated-declarations -o $@ $< -framework Security -framework Foundation
 
 # Finch's HTTPS root store and caller-selected trust anchors.
 $(OUT)/finch-security-roots-test: security-roots-test.c security-test-certs.inc

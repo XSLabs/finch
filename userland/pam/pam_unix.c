@@ -57,6 +57,8 @@
 #include <security/pam_appl.h>
 #include <security/openpam.h>
 
+#include "pam_keychain_data.h"
+
 #ifndef OPENPAM
 static char password_prompt[] = "Password:";
 #endif
@@ -82,6 +84,9 @@ pam_sm_authenticate(pam_handle_t *pamh, int flags,
 
 	(void)argc;
 	(void)argv;
+	/* A retry must never reuse a password copied by an earlier attempt. */
+	if (finch_pam_keychain_password_clear(pamh) != PAM_SUCCESS)
+		return (PAM_SYSTEM_ERR);
 
 	/* identify user */
 	if ((pam_err = pam_get_user(pamh, &user, NULL)) != PAM_SUCCESS)
@@ -124,8 +129,11 @@ pam_sm_authenticate(pam_handle_t *pamh, int flags,
 	/* Empty and locked passwords never allow a local interactive login. */
 	if (!pwd->pw_passwd || !at_password_verify(password, pwd->pw_passwd))
 		pam_err = PAM_AUTH_ERR;
-	else
+	else {
 		pam_err = PAM_SUCCESS;
+		(void)finch_pam_keychain_password_store(pamh, pwd->pw_uid,
+		    password, true);
+	}
 #ifndef OPENPAM
 	free(password);
 #endif
@@ -193,6 +201,9 @@ pam_sm_chauthtok(pam_handle_t *pamh, int flags,
 	int pam_err;
 	(void)argc;
 	(void)argv;
+	/* A changed or reset account password cannot safely unlock an old keychain. */
+	if (finch_pam_keychain_password_clear(pamh) != PAM_SUCCESS)
+		return PAM_SYSTEM_ERR;
 
 	if ((pam_err = pam_get_user(pamh, &user, NULL)) != PAM_SUCCESS)
 		return pam_err;

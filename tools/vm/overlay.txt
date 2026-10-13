@@ -234,6 +234,8 @@ userland/LaunchDaemons/com.apple.SystemConfiguration.configd.plist /System/Libra
 userland/LaunchDaemons/com.apple.diskarbitrationd.plist /System/Library/Finch/LaunchDaemons/com.apple.diskarbitrationd.plist
 build/userland/finch-audioqueue-test /usr/local/bin/finch-audioqueue-test
 build/userland/finch-security-keychain-storage-test /usr/local/bin/finch-security-keychain-storage-test
+build/userland/finch-security-keychain-encryption-test /usr/local/bin/finch-security-keychain-encryption-test
+build/userland/finch-security-keychain-service-test /usr/local/bin/finch-security-keychain-service-test
 build/userland/finch-keychain-crypto-test /usr/local/bin/finch-keychain-crypto-test
 build/userland/finch-avaudio-engine-test /usr/local/bin/finch-avaudio-engine-test
 build/userland/finch-avaudio-unit-test /usr/local/bin/finch-avaudio-unit-test

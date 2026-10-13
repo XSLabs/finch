@@ -18,6 +18,8 @@ cd "${FINCH_ROOT}"
 export FINCH_THEME=Classic
 B=build/userland
 R=build/root/System/Library
+# The private keychain tests verify the exact loaded Security image before any call.
+export FINCH_TEST_SECURITY_IMAGE="${FINCH_TRIAL:-${R}/Frameworks}/Security.framework/Security"
 # (frameworks nested in umbrellas are found by their own name, so their folders are listed too)
 FW="${FINCH_TRIAL:+${FINCH_TRIAL}:}${R}/Frameworks:${R}/PrivateFrameworks:${R}/Frameworks/Quartz.framework/Frameworks"
 FW="${FW}:${R}/Frameworks/CoreServices.framework/Versions/A/Frameworks:${R}/Frameworks/ApplicationServices.framework/Versions/A/Frameworks"
@@ -46,7 +48,7 @@ COMPARE=(
 )
 # Finch-only window-server tests and their expected output
 EXPECT=(window controls-window menu-window text-window panels-window tables-window statusbar drag-window screencapture avplayer opengl)
-FINCH_ONLY=("keychain-crypto-test|" "security-keychain-storage-test|" "security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "avaudio-services-test|" "configd-daemon-test|")
+FINCH_ONLY=("security-keychain-encryption-test|" "keychain-crypto-test|" "security-keychain-storage-test|" "security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "avaudio-services-test|" "configd-daemon-test|")
 
 want() {
     [[ $# -eq 0 || -z "${SELECTED}" ]] && return 0

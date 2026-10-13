@@ -12,10 +12,11 @@ tested. Follow-on work gets its own unchecked item rather than a "Next:" appende
 finished one, and each commit that finishes or adds work updates this file and
 `docs/STACK.md` together.
 
-## Progress saved on 2026-10-11
+## Progress saved on 2026-10-13
 
 This batch adds working software audio conversion and file handling, more system
-services, web certificate roots, local account tools and a checked install archive.
+services, web certificate roots, local account tools, encrypted keychain files and
+a checked install archive.
 Finch 1.0 is still open. The checks below cover specific parts of the system.
 
 - Audio conversion, audio files, software audio units (now with Apple's effect,
@@ -31,12 +32,19 @@ Finch 1.0 is still open. The checks below cover specific parts of the system.
   Wi-Fi and settings that survive reboot remain open.
 - Local account creation and password changes pass host and QEMU checks. Correct,
   wrong and locked passwords pass through PAM and OpenDirectory in a private
-  QEMU test folder. A full console login and first-user setup remain open.
+  QEMU test folder. The real login program also refuses a wrong password, opens
+  the right user's shell and home, and logs out in QEMU (2026-10-13). Normal boot
+  also returns to a fresh login prompt after logout in a separate test image.
+  First-user setup remains open.
 - The install archive passes file, owner, permission and required-library checks.
   Test runners now reject failed programs even when their partial output matches.
   A clean installation, signed updates and a full release test run remain open.
-- HTTPS uses pinned Mozilla roots. File keychains still store secrets without
-  encryption; keychain file-access hardening is deferred to the next batch.
+- HTTPS uses pinned Mozilla roots. New file keychains encrypt their contents and
+  require a password. Host and QEMU checks pass for locking inside one process,
+  concurrent saves, changed files and unsafe paths (2026-10-13). A per-user service
+  now shares unlocked keychains between apps; a QEMU check proves that one app's
+  lock prevents another from reading. Migration of old plaintext files and login
+  password integration remain open.
 
 ## Phase 0: Our kernel boots
 Build XNU from source and boot it on real Apple Silicon with Apple's own kexts.
@@ -257,8 +265,11 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
       Handoff and DictionaryServices remain unfinished; see [CoreServices](design/CORESERVICES.md).
 - [x] Security's supported RSA/EC keys, certificate reads, web and caller-supplied trust
       roots, file keychain and code-signature checks. Tests check signing, tampering,
-      encryption and refused trust/rights. Keychain encryption, shared authorization
-      and enforced app restrictions remain open; see [Security](design/SECURITY.md).
+      encryption and refused trust/rights. Encrypted file keychains and process-local
+      locking pass focused host and QEMU checks (2026-10-13). The per-user keychain
+      service also passes shared unlock, shared lock and item-reference checks in
+      QEMU. Login password integration, shared authorization and enforced app restrictions
+      remain open; see [Security](design/SECURITY.md).
 - [ ] CoreGraphics, CoreText, ImageIO over open renderers (`docs/design/COREGRAPHICS.md`)
   - [x] Skia (chrome/m155) builds for arm64e with FreeType and the open codecs, and
         without Apple's graphics frameworks (`userland/skia`, 2026-10-08)
@@ -1026,7 +1037,9 @@ that every app works. These release checks were missing from the Phase 5 list:
 - [ ] **Trust and access:** a maintained system certificate store, persistent key storage,
       authorization, code-signature checks and enforced app restrictions. Test refused
       access as well as allowed access. Finch now has pinned web roots, a file
-      keychain and signature checks. Keychain encryption, shared authorization,
+      keychain and signature checks. Encrypted file keychains pass focused host and
+      QEMU checks, including shared unlock and lock through a per-user service.
+      Login password integration, shared authorization,
       certificate updates and enforced app restrictions remain open.
 - [ ] **Updates:** signed update files, interrupted-download recovery, safe installation,
       rollback to a working system and preservation of user files and settings.
