@@ -9,7 +9,7 @@ import SwiftUICore
 private struct SystemSliderStyle: SliderStyle {
     func body(configuration: Slider<SliderStyleLabel, SliderStyleValueLabel>) -> some View {
         HStack(spacing: 6) {
-            configuration.label
+            _FinchControlLabel(label: configuration.label)
             if configuration.hasCustomMinMaxValueLabels {
                 configuration._minimumValueLabel
             }

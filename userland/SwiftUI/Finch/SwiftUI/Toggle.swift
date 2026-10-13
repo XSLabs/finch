@@ -12,6 +12,7 @@ import SwiftUICore
 public struct Toggle<Label>: View where Label: View {
     @Binding var toggleState: ToggleState
     var label: Label
+    @Environment(\._finchInToolbar) private var inToolbar
 
     public init(isOn: Binding<Bool>, @ViewBuilder label: () -> Label) {
         self.init(toggledOn: [isOn], label: label)
@@ -37,9 +38,21 @@ public struct Toggle<Label>: View where Label: View {
     @MainActor
     @preconcurrency
     public var body: some View {
-        HStack(spacing: 6) {
-            _FinchCheckbox(state: $toggleState).fixedSize()
-            label
+        if inToolbar {
+            // in a toolbar, as Apple's: a button showing the label's icon, shaded when on
+            Button {
+                toggleState = toggleState == .on ? .off : .on
+            } label: {
+                label.labelStyle(.iconOnly)
+            }
+            .padding(.horizontal, 5)
+            .padding(.vertical, 3)
+            .background(RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(toggleState == .on ? 0.12 : 0)))
+        } else {
+            HStack(spacing: 6) {
+                _FinchCheckbox(state: $toggleState).fixedSize()
+                _FinchControlLabel(label: label)
+            }
         }
     }
 }

@@ -443,7 +443,9 @@ final class _FinchWindowToolbar: NSObject, NSToolbarDelegate {
         }
         for (identifier, item) in regions.joined() {
             // toolbar buttons are drawn bare, as Apple's are until the pointer is over them
-            let content = AnyView(item.content.buttonStyle(.borderless)._finchInheriting(environment))
+            // and controls as Apple's are there: labels hidden, toggles as buttons
+            let content = AnyView(item.content.buttonStyle(.borderless).labelsHidden()
+                .environment(\._finchInToolbar, true)._finchInheriting(environment))
             if let controller = controllers[identifier] {
                 controller.rootView = content
             } else {
@@ -603,5 +605,29 @@ extension View {
     @available(OpenSwiftUI_v4_0, *)
     nonisolated public func navigationTitle(_ title: Binding<String>) -> some View {
         navigationTitle(Text(title.wrappedValue))
+    }
+}
+
+private struct _FinchInToolbarKey: EnvironmentKey {
+    static var defaultValue: Bool { false }
+}
+
+extension EnvironmentValues {
+    /// Whether the view is in a window's toolbar (its controls take the toolbar's forms).
+    var _finchInToolbar: Bool {
+        get { self[_FinchInToolbarKey.self] }
+        set { self[_FinchInToolbarKey.self] = newValue }
+    }
+}
+
+/// A control's label, unless `labelsHidden()` hides it.
+struct _FinchControlLabel<L: View>: View {
+    var label: L
+    @Environment(\.labelsVisibility) private var visibility
+
+    var body: some View {
+        if visibility != .hidden {
+            label
+        }
     }
 }

@@ -547,7 +547,10 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           and formatting it picks each variable's variant by ICU's plural rules (Apple's
           open-source CF parses %#@variable@ but has no engine for it); attributed
           formats keep it; String.LocalizationValue keeps a literal key's %, as Apple's.
-          Still to do: the toolbar's overlapping size label, samples and the font detail
+          Controls in a toolbar take its forms, as Apple's: labels hidden, toggles as
+          icon buttons; and labelsHidden() hides Finch's controls' labels (toggles,
+          pickers, sliders, colour pickers). Still to do: the toolbar's segmented picker
+          is wider than its slot, samples and the font detail
           view, installing and validating fonts; menu commands' `@Environment` values.
     - [ ] Next: measurement format styles, AppKit's private classes apps link
           (NSTokenAttachment, NSTouchDevice, NSButtonGroupTouchBarItem, ...), among others

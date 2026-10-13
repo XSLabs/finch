@@ -42,7 +42,7 @@ public struct Picker<Label, SelectionValue, Content>: View where Label: View, Se
     @preconcurrency
     public var body: some View {
         HStack(spacing: 6) {
-            label
+            _FinchControlLabel(label: label)
             _VariadicView.Tree(_FinchPickerRoot(selection: selection, titles: _finchOptionTitles(content))) {
                 content
             }

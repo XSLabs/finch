@@ -322,7 +322,7 @@ public struct ColorPicker<Label>: View where Label: View {
     @preconcurrency
     public var body: some View {
         HStack(spacing: 6) {
-            label
+            _FinchControlLabel(label: label)
             _FinchColorWell(color: color.wrappedValue, supportsOpacity: supportsOpacity) { color.wrappedValue = $0 }
                 .frame(width: 44, height: 23)
         }
