@@ -549,7 +549,14 @@ schedule_view_dump(void)
 - (void)_finchOpenLaunchDocuments
 {
     id d = _delegate;
-    BOOL documentApp = [[[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleDocumentTypes"] count] > 0;
+    /* As Apple's: a document app is one whose document types name a document class it has
+       (an app can declare types it only views or exports, with no NSDocument behind them). */
+    BOOL documentApp = NO;
+    for (NSDictionary *t in [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleDocumentTypes"]) {
+        NSString *cls = [t isKindOfClass:[NSDictionary class]] ? t[@"NSDocumentClass"] : nil;
+        if ([cls isKindOfClass:[NSString class]] && NSClassFromString(cls))
+            documentApp = YES;
+    }
     NSMutableArray<NSURL *> *urls = [NSMutableArray array];
     NSArray *args = [[NSProcessInfo processInfo] arguments];
     for (NSUInteger i = 1; i < [args count]; i++) {

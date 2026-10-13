@@ -470,6 +470,11 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           effect styles, NSPDFInfo and NSPDFPanel, NSCIImageRep, and NSFontCollection
           (reading and writing macOS's own .collection files; CoreText's collections now
           match symbolic traits and languages); `appkit-values-test` matches Apple's.
+    - [x] Magnifier runs (2026-10-12): Apple's Magnifier.app is a shell over the
+          private MagnifierSupport, which Finch now has as its own SwiftUI app to the same
+          ABI: the screen around the pointer enlarged (Finch has no cameras yet), with
+          zoom, follow, freeze and invert. AppKit opens an untitled document at launch only
+          when a document type names a document class, as Apple's does.
     - [ ] Next: measurement format styles, AppKit's private classes apps link
           (NSTokenAttachment, NSTouchDevice, NSButtonGroupTouchBarItem, ...), among others
           ([`APPS.md`](APPS.md)). Later: a Spotlight-style index
