@@ -632,6 +632,13 @@ page_amount(NSScrollView *self)
     [self setNeedsLayout:YES];
 }
 
+/* The window's title bar or toolbar changed: the automatic insets need working out again. */
+- (void)_finchWindowChromeDidChange
+{
+    _insetsStale = YES;
+    [self setNeedsLayout:YES];
+}
+
 - (BOOL)automaticallyAdjustsContentInsets { return _adjustsInsets; }
 - (void)setAutomaticallyAdjustsContentInsets:(BOOL)flag
 {

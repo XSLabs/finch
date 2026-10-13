@@ -383,7 +383,27 @@ fill_circle(CGContextRef cg, NSRect r, CGFloat red, CGFloat green, CGFloat blue,
 
 #pragma mark - NSWindow
 
+
+/* Scroll views under the title bar and toolbar adjust their insets to them (NSScrollView.m). */
+static void
+chrome_changed_in(NSView *v)
+{
+    if ([v respondsToSelector:@selector(_finchWindowChromeDidChange)])
+        [(id)v performSelector:@selector(_finchWindowChromeDidChange)];
+    for (NSView *sub in [v subviews])
+        chrome_changed_in(sub);
+}
+
+static void
+chrome_changed(NSWindow *w)
+{
+    NSView *c = [w contentView];
+    if (c)
+        chrome_changed_in(c);
+}
+
 @implementation NSWindow {
+    NSRect _finchLastLayoutRect; /* the contentLayoutRect the scroll views last adjusted to */
     NSRect _frame;
     NSWindowStyleMask _style;
     NSBackingStoreType _backing;
@@ -705,10 +725,23 @@ server_flags(NSWindow *w)
     [self displayIfNeeded];
 }
 
+/* Whenever the title bar and toolbar come to cover a different part of the content (a
+   toolbar filled in later, say), the scroll views under them adjust their insets. */
+static void
+check_chrome(NSWindow *w, NSRect *last)
+{
+    NSRect r = [w contentLayoutRect];
+    if (!NSEqualRects(r, *last)) {
+        *last = r;
+        chrome_changed(w);
+    }
+}
+
 - (void)displayIfNeeded
 {
     if (!_w.visible || _w.displaying)
         return;
+    check_chrome(self, &_finchLastLayoutRect);
     /* layout first, even with nothing to draw: it can resize the window (and so dirty it) */
     if (NSIsEmptyRect(_dirty)) {
         _w.displaying = YES;
@@ -976,6 +1009,7 @@ server_flags(NSWindow *w)
     _w.titleHidden = v == NSWindowTitleHidden;
     [_frameView setNeedsDisplay:YES];
     [_titlebarView setNeedsDisplay:YES];
+    chrome_changed(self);
 }
 - (BOOL)titlebarAppearsTransparent { return _w.titlebarTransparent; }
 - (void)setTitlebarAppearsTransparent:(BOOL)flag
@@ -983,6 +1017,7 @@ server_flags(NSWindow *w)
     _w.titlebarTransparent = flag;
     [_frameView setNeedsDisplay:YES];
     [_titlebarView setNeedsDisplay:YES];
+    chrome_changed(self);
 }
 - (NSWindowStyleMask)styleMask { return _style; }
 
@@ -993,6 +1028,7 @@ server_flags(NSWindow *w)
     _frame = [self frameRectForContentRect:content];
     [self setFrame:_frame display:YES];
     [self _finchToolbarChangedFrom:chrome_height(self)];  /* the toolbar's row and the title bar overlay */
+    chrome_changed(self);
 }
 
 - (id<NSWindowDelegate>)delegate { return _delegate; }
@@ -1173,6 +1209,7 @@ server_flags(NSWindow *w)
     _toolbar = [toolbar retain];
     [toolbar _finchSetWindow:self];
     [self _finchToolbarChangedFrom:before];
+    chrome_changed(self);
 }
 
 /* Showing or hiding the toolbar grows or shrinks the frame, keeping the content's size and the top edge. */

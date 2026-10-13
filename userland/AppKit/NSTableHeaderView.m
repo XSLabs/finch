@@ -218,7 +218,9 @@ FinchScrollViewTileHeader(NSScrollView *sv, NSRect inner, NSEdgeInsets rulers, B
         if ([hc documentView] != h)
             [hc setDocumentView:h];
         height = NSHeight([h frame]);
-        [hc setFrame:NSMakeRect(NSMinX(inner), NSMinY(inner), NSWidth(inner), height)];
+        /* under the scroll view's own top inset (a full-size content window's title bar and
+           toolbar), the full width, as Apple's */
+        [hc setFrame:NSMakeRect(NSMinX(inner), NSMinY(inner) + [sv contentInsets].top, NSWidth(inner), height)];
         [hc setHidden:NO];
     } else if (hc) {
         [hc removeFromSuperview];
