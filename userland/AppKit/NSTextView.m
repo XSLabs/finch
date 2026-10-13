@@ -487,6 +487,20 @@ has_text_blocks(NSTextStorage *storage)
 }
 
 - (NSTextStorage *)textStorage { return _storage; }
+
+/* (TextKit 1) the layout manager has another text storage */
+- (void)_finchTextStorageDidChange
+{
+    if (_tlm || !_lm || !_lm.textStorage || _lm.textStorage == _storage)
+        return;
+    SWAP_RETAINED(self->_storage, _lm.textStorage);
+    NSUInteger n = _storage.length;
+    NSRange sel = self.selectedRange;
+    if (NSMaxRange(sel) > n)
+        [self setSelectedRange:NSMakeRange(n, 0)];
+    [self sizeToFit];
+    [self setNeedsDisplay:YES];
+}
 - (NSTextLayoutManager *)textLayoutManager { return _tlm; }
 - (NSTextContentStorage *)textContentStorage { return _tcs; }
 

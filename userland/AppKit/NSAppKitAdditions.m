@@ -4,7 +4,8 @@
  * subclasses call through to super (found by matching the selectors apps reference
  * against Apple's AppKit): NSArray's kind filter, attribute subsets of attributed
  * strings, the window's undo actions, the preferred font names, a colour from a
- * pasteboard, the old NSTextInput methods, the zoom cursors, the window's cancel key.
+ * pasteboard, the old NSTextInput methods, the zoom cursors, the window's cancel key, and
+ * NSAppleScript's styled source.
  */
 #import <AppKit/AppKit.h>
 
@@ -218,4 +219,16 @@ zoom_cursor(BOOL zoomIn)
         [self tryToPerform:@selector(cancelOperation:) with:sender];
 }
 
+@end
+
+/* NSAppleScript's styled source, from Foundation's (which has the OSA calls) */
+@interface NSAppleScript (FinchRichText)
+- (NSAttributedString *)_finchRichTextSource;
+@end
+
+@implementation NSAppleScript (NSExtensions)
+- (NSAttributedString *)richTextSource
+{
+    return [self respondsToSelector:@selector(_finchRichTextSource)] ? [self _finchRichTextSource] : nil;
+}
 @end

@@ -441,36 +441,107 @@ ConvertFromUnicodeToText(UnicodeToTextInfo iUnicodeToTextInfo, ByteCount iUnicod
     return noErr;
 }
 
-#pragma mark - Component Manager (nothing registered)
+#pragma mark - Component Manager
 
-ComponentInstance OpenDefaultComponent(OSType componentType, OSType componentSubType) { return NULL; }
+/* One component is registered: AppleScript, as the OSA scripting component (subtype 'ascr')
+   and the generic one ('scpt'). Finch's OpenScripting implements the OSA calls and takes
+   any instance; these tokens are what clients hold. */
+static struct ComponentRecord applescript_component, generic_component;
+static struct ComponentInstanceRecord applescript_instance;
+
+static Component
+osa_component(OSType type, OSType subtype)
+{
+    if (type != 'osa ' && type != 0)
+        return NULL;
+    if (subtype == 'ascr' || subtype == 0)
+        return &applescript_component;
+    if (subtype == 'scpt')
+        return &generic_component;
+    return NULL;
+}
+
+ComponentInstance OpenDefaultComponent(OSType componentType, OSType componentSubType)
+{
+    return componentType == 'osa ' && osa_component(componentType, componentSubType) ? &applescript_instance : NULL;
+}
 OSErr OpenADefaultComponent(OSType componentType, OSType componentSubType, ComponentInstance *ci)
 {
+    ComponentInstance i = OpenDefaultComponent(componentType, componentSubType);
     if (ci)
-        *ci = NULL;
-    return invalidComponentID;
+        *ci = i;
+    return i ? noErr : invalidComponentID;
 }
-ComponentInstance OpenComponent(Component aComponent) { return NULL; }
+ComponentInstance OpenComponent(Component aComponent)
+{
+    return aComponent == &applescript_component || aComponent == &generic_component ? &applescript_instance : NULL;
+}
 OSErr OpenAComponent(Component aComponent, ComponentInstance *ci)
 {
+    ComponentInstance i = OpenComponent(aComponent);
     if (ci)
-        *ci = NULL;
-    return invalidComponentID;
+        *ci = i;
+    return i ? noErr : invalidComponentID;
 }
-OSErr CloseComponent(ComponentInstance aComponentInstance) { return invalidComponentID; }
-Component FindNextComponent(Component aComponent, ComponentDescription *looking) { return NULL; }
-long CountComponents(ComponentDescription *looking) { return 0; }
+OSErr CloseComponent(ComponentInstance aComponentInstance)
+{
+    return aComponentInstance == &applescript_instance ? noErr : invalidComponentID;
+}
+static Boolean
+component_matches(Component c, ComponentDescription *d)
+{
+    OSType sub = c == &applescript_component ? 'ascr' : 'scpt';
+    return !d || ((!d->componentType || d->componentType == 'osa ') && (!d->componentSubType || d->componentSubType == sub) &&
+                  (!d->componentManufacturer || d->componentManufacturer == 'appl'));
+}
+Component FindNextComponent(Component aComponent, ComponentDescription *looking)
+{
+    Component order[] = {&applescript_component, &generic_component};
+    int start = aComponent == NULL ? 0 : aComponent == &applescript_component ? 1 : 2;
+    for (int i = start; i < 2; i++)
+        if (component_matches(order[i], looking))
+            return order[i];
+    return NULL;
+}
+long CountComponents(ComponentDescription *looking)
+{
+    return component_matches(&applescript_component, looking) + component_matches(&generic_component, looking);
+}
 Component RegisterComponent(ComponentDescription *cd, ComponentRoutineUPP componentEntryPoint, SInt16 global,
                             Handle componentName, Handle componentInfo, Handle componentIcon)
 {
     return NULL;
 }
 OSErr UnregisterComponent(Component aComponent) { return invalidComponentID; }
-ComponentResult CallComponentCanDo(ComponentInstance ci, SInt16 ftnNumber) { return 0; }
+ComponentResult CallComponentCanDo(ComponentInstance ci, SInt16 ftnNumber) { return ci == &applescript_instance; }
+static void
+set_pstring(Handle h, const char *s)
+{
+    if (!h)
+        return;
+    size_t n = strlen(s);
+    SetHandleSize(h, (Size)n + 1);
+    if (*h) {
+        (*h)[0] = (char)n;
+        memcpy(*h + 1, s, n);
+    }
+}
 OSErr GetComponentInfo(Component aComponent, ComponentDescription *cd, Handle componentName, Handle componentInfo,
                        Handle componentIcon)
 {
-    return invalidComponentID;
+    if (aComponent != &applescript_component && aComponent != &generic_component)
+        return invalidComponentID;
+    Boolean generic = aComponent == &generic_component;
+    if (cd) {
+        cd->componentType = 'osa ';
+        cd->componentSubType = generic ? 'scpt' : 'ascr';
+        cd->componentManufacturer = 'appl';
+        cd->componentFlags = 0x01FE; /* compiling, source, coercion, sending, recording, convenience, dialects, events */
+        cd->componentFlagsMask = 0;
+    }
+    set_pstring(componentName, generic ? "Generic Scripting System" : "AppleScript");
+    set_pstring(componentInfo, generic ? "Generic Scripting System" : "AppleScript");
+    return noErr;
 }
 
 #pragma mark - Endian flippers

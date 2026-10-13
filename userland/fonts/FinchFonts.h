@@ -87,6 +87,11 @@ static const struct FinchFontAlias finch_font_aliases[] = {
     {"Helvetica Neue Bold", "LiberationSans-Bold"},
     {"Helvetica Neue Italic", "LiberationSans-Italic"},
     {"Helvetica Neue Bold Italic", "LiberationSans-BoldItalic"},
+    /* Verdana (AppleScript's source styles): Liberation Sans too */
+    {"Verdana", "LiberationSans"},
+    {"Verdana-Bold", "LiberationSans-Bold"},
+    {"Verdana-Italic", "LiberationSans-Italic"},
+    {"Verdana-BoldItalic", "LiberationSans-BoldItalic"},
     {"Arial", "LiberationSans"},
     {"ArialMT", "LiberationSans"},
     {"Arial-BoldMT", "LiberationSans-Bold"},

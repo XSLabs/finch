@@ -454,7 +454,7 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           tokenizer now guesses languages); NSFileVersion (the current version);
           NSMetadataItem and NSMetadataQuery (file-system attributes, queries walk their
           scopes); NSUbiquitousKeyValueStore kept per app on the Mac; NSBackgroundActivityScheduler
-          (on time); NSAppleScript (fails: no AppleScript yet); 220 more of Apple's
+          (on time); NSAppleScript (now runs scripts: see AppleScript below); 220 more of Apple's
           constants; "UTC" names the GMT zone as on macOS. `foundation-more-test` matches
           Apple's.
     - [x] The Swift overlay's notifications as async sequences
@@ -493,11 +493,27 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           partly below the screen, and text a layer draws in a flipped view is upside down
           (Apple's AppKit flips a backing layer's geometry; Finch's SwiftUI expects it not
           to yet).
+    - [x] AppleScript (2026-10-13, `userland/OpenScripting`, `userland/OSAKit`): Finch's own
+          parser and interpreter for AppleScript's English dialect (values, coercions,
+          references and elements, handlers, script objects, try/error, considering case,
+          text item delimiters, the standard additions) behind the Open Scripting
+          Architecture's calls in Carbon's OpenScripting (compile, execute, display, errors
+          with their source ranges, descriptors both ways, events to scripts, source styles,
+          load and store); `osascript`; NSAppleScript over them; and OSAKit (languages,
+          scripts, the script view, text storage and controller, the outline parser).
+          Compiled source is formatted and styled as Apple's is. `applescript-test`
+          matches Apple's. Script Editor runs: scripts compile, styled, and run, with their
+          results. Along the way, AppKit: a layout manager's replaced text storage reaches
+          its text views, and a split view's collapsed pane stays out of Auto Layout (its
+          contents had pushed Script Editor's window ever wider); Verdana maps to Liberation
+          Sans. Still to do: Script Editor's toolbar images, telling applications (Apple
+          event terminology and sending), reading scripts Apple's AppleScript compiled
+          ("FasdUAS"), applets, recording, AppleScriptObjC.
     - [ ] Next: measurement format styles, AppKit's private classes apps link
           (NSTokenAttachment, NSTouchDevice, NSButtonGroupTouchBarItem, ...), among others
           ([`APPS.md`](APPS.md)). Later: a Spotlight-style index
           for metadata queries, a version store for NSFileVersion, lexical classes for
-          the tagger, and the AppleScript language.
+          the tagger, and Automator (its private framework and ViewBridge).
     - [ ] Every class and method the public headers declare, as Apple's answers them:
           `tools/api-audit.sh` lists what Finch lacks. 2026-10-12: Foundation 48 classes
           and 136 methods (from 67 and 225), AppKit 48 classes and 115 methods (from 50 and 562).

@@ -279,3 +279,4 @@ build/userland/finch-system-images-test /usr/local/bin/finch-system-images-test
 build/userland/finch-quartzfilters-test /usr/local/bin/finch-quartzfilters-test
 build/userland/finch-printcore-test /usr/local/bin/finch-printcore-test
 build/userland/finch-symbols-test /usr/local/bin/finch-symbols-test
+build/userland/finch-applescript-test /usr/local/bin/finch-applescript-test

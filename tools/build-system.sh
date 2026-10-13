@@ -141,8 +141,11 @@ steps=(
     "MagnifierSupport|userland/MagnifierSupport/build.sh"
     # libswiftFoundation, libswiftAppKit, libswiftCoreGraphics: re-exports, for older Swift apps
     "swift-framework-shims|userland/swift/framework-shims.sh"
-    # What Terminal links besides: Carbon (HIToolbox), audio, analytics, data detectors
+    # What Terminal links besides: Carbon (HIToolbox, and OpenScripting: Finch's AppleScript
+    # and the OSA calls, with osascript), audio, analytics, data detectors
     "Carbon|userland/Carbon/build.sh"
+    # OSAKit: scripts, the script view and controller (Script Editor), over OpenScripting
+    "OSAKit|userland/OSAKit/build.sh"
     "CoreAudio|userland/CoreAudio/build.sh"
     "AudioToolbox|userland/AudioToolbox/build.sh"
     "CoreAnalytics|userland/CoreAnalytics/build.sh"

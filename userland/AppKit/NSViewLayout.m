@@ -787,6 +787,40 @@ refresh(NSView *view, NSView *root, BOOL *uses)
         refresh(sub, root, uses);
 }
 
+/* A split view's collapsed pane: its contents don't take part in layout (Apple's split
+   view leaves a collapsed pane's insides out, so a sidebar's minimum width doesn't push
+   the window wider). */
+static BOOL
+collapsed_pane(NSView *view)
+{
+    NSSplitView *split = (NSSplitView *)[view superview];
+    return [view isHidden] && [split isKindOfClass:[NSSplitView class]] && [split isSubviewCollapsed:view];
+}
+
+static BOOL
+inside(id item, NSView *view)
+{
+    return [item isKindOfClass:[NSView class]] && item != view && [(NSView *)item isDescendantOf:view];
+}
+
+/* a constraint (held higher up) on a view inside a collapsed pane */
+static BOOL
+in_collapsed_pane(id item)
+{
+    if (![item isKindOfClass:[NSView class]])
+        return NO;
+    for (NSView *v = [(NSView *)item superview]; v; v = [v superview])
+        if (collapsed_pane(v))
+            return YES;
+    return NO;
+}
+
+static BOOL
+collapsed_pane_member(NSLayoutConstraint *c)
+{
+    return in_collapsed_pane(c.firstItem) || in_collapsed_pane(c.secondItem);
+}
+
 /* ... then collect every active constraint, in order. */
 static void
 collect(NSView *view, NSView *root, NSMutableArray *out)
@@ -794,8 +828,15 @@ collect(NSView *view, NSView *root, NSMutableArray *out)
     if (is_nested_root(view, root))
         return;
     FinchViewLayout *s = state(view);
+    if (view != root && collapsed_pane(view)) {
+        for (NSLayoutConstraint *c in s->constraints)
+            if (!inside(c.firstItem, view) && !inside(c.secondItem, view))
+                [out addObject:c];
+        return;
+    }
     for (NSLayoutConstraint *c in s->constraints)
-        [out addObject:c];
+        if (!collapsed_pane_member(c))
+            [out addObject:c];
     for (int o = 0; o < 2; o++)
         if (s->content[o] && !s->contentInactive[o])
             [out addObject:s->content[o]];

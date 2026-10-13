@@ -271,3 +271,19 @@ IsEventInQueue(EventQueueRef inQueue, EventRef inEvent)
 {
     return false;
 }
+
+/* Script Editor asks these while a script runs. Command-period isn't watched for yet. */
+Boolean
+CheckEventQueueForUserCancel(void)
+{
+    return false;
+}
+
+/* Is this a command-key event for the character (Command-period and the like)? */
+Boolean
+IsCmdChar(const EventRecord *event, short test)
+{
+    if (!event || !(event->modifiers & cmdKey))
+        return false;
+    return (short)(event->message & charCodeMask) == test;
+}

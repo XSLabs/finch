@@ -132,6 +132,12 @@ enum { LM_ALLOWS_NONCONTIGUOUS = 1 << 7 };
     [_temporary release];
     _temporary = nil;
     [self invalidate];
+    /* text views show the new storage (replaceTextStorage:, as OSAKit's script view does) */
+    for (NSTextContainer *c in _containers) {
+        id tv = c.textView;
+        if ([tv respondsToSelector:@selector(_finchTextStorageDidChange)])
+            [tv performSelector:@selector(_finchTextStorageDidChange)];
+    }
 }
 
 /* From NSTextStorage's -addLayoutManager: and -removeLayoutManager:. */
