@@ -213,7 +213,8 @@ extension View {
     /// popover) inherits from where it is presented. Not the whole environment, which holds
     /// the presenting graph's own state.
     func _finchInheriting(_ environment: EnvironmentValues) -> some View {
-        self.environment(\.font, environment.font)
+        self.transformEnvironment(\.self) { $0._finchInheritAppValues(from: environment) }
+            .environment(\.font, environment.font)
             .environment(\.isEnabled, environment.isEnabled)
             .environment(\.colorScheme, environment.colorScheme)
             .environment(\.layoutDirection, environment.layoutDirection)

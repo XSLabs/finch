@@ -86,6 +86,86 @@ def main():
             if f == 'PassthroughSubject.swift':  # Apple's takes its subscriber __owned
                 s = s.replace('func receive<Downstream: Subscriber>(subscriber: Downstream)',
                               'func receive<Downstream: Subscriber>(subscriber: __owned Downstream)')
+            if f == 'Published.swift':  # Finch: the current value, for SwiftUI's object dumps
+                s = s.replace('''    @Box private var storage: Storage
+''', '''    @Box private var storage: Storage
+
+    /// Finch (not Apple API): the current value, for FINCH_SWIFTUI_OBJECTS dumps.
+    fileprivate var _finchDebugValue: Any {
+        switch storage {
+        case .value(let value): return value
+        case .publisher(let publisher): return publisher.subject.value
+        }
+    }
+''', 1)
+                s = s.replace('''        set {
+            switch object[keyPath: storageKeyPath].storage {
+            case .value:
+                object[keyPath: storageKeyPath].storage = .publisher(Publisher(newValue))''', '''        set {
+            if _finchCombineTrace {  // Finch: FINCH_COMBINE_TRACE shows each published change
+                var shown = String(describing: newValue)
+                if shown.count > 100 { shown = String(shown.prefix(100)) + "…" }
+                fputs("Combine: \\(EnclosingSelf.self) \\(wrappedKeyPath) = \\(shown)\\n", stderr)
+                if _finchCombineBacktrace {
+                    var frames = [UnsafeMutableRawPointer?](repeating: nil, count: 24)
+                    let n = backtrace(&frames, 24)
+                    backtrace_symbols_fd(&frames, n, 2)
+                }
+            }
+            switch object[keyPath: storageKeyPath].storage {
+            case .value:
+                object[keyPath: storageKeyPath].storage = .publisher(Publisher(newValue))''', 1)
+                s += '''
+import Darwin
+
+internal let _finchCombineTrace = getenv("FINCH_COMBINE_TRACE") != nil
+internal let _finchCombineBacktrace = getenv("FINCH_COMBINE_TRACE").map { strcmp($0, "bt") == 0 } ?? false
+
+private protocol _FinchDebugValued { var _finchDebugValue: Any { get } }
+extension Published: _FinchDebugValued {}
+
+/// Finch (not Apple API): a Published value's current value, for SwiftUI's object dumps.
+@_silgen_name("_finchCombinePublishedValue")
+public func _finchCombinePublishedValue(_ value: Any) -> Any? {
+    return (value as? _FinchDebugValued)?._finchDebugValue
+}
+'''
+            if f == 'PassthroughSubject.swift':  # Finch: FINCH_COMBINE_TRACE shows each value sent
+                s = s.replace('''    public func send(_ input: Output) {
+        lock.lock()
+        guard active else {
+            lock.unlock()
+            return
+        }
+        let downstreams = self.downstreams
+        lock.unlock()''', '''    public func send(_ input: Output) {
+        lock.lock()
+        guard active else {
+            lock.unlock()
+            if _finchCombineTrace { _finchTraceSend(self, input, "(finished)") }
+            return
+        }
+        let downstreams = self.downstreams
+        lock.unlock()
+        if _finchCombineTrace { _finchTraceSend(self, input, "") }''', 1)
+                s += '''
+import Darwin
+
+internal func _finchTraceSend(_ subject: AnyObject, _ input: Any, _ note: String) {
+    var shown = String(describing: input)
+    if shown.count > 100 { shown = String(shown.prefix(100)) + "…" }
+    fputs("Combine: \\(type(of: subject)) \\(ObjectIdentifier(subject)) send \\(shown) \\(note)\\n", stderr)
+}
+'''
+            if f == 'ObservableObject.swift':
+                s = s.replace('''    public func send() {
+        lock.lock()
+        let connections = self.connections
+        lock.unlock()''', '''    public func send() {
+        lock.lock()
+        let connections = self.connections
+        lock.unlock()
+        if _finchCombineTrace { _finchTraceSend(self, "objectWillChange to \\(connections.count)", "") }''', 1)
             if f in ('Result.Publisher.swift', 'Optional.Publisher.swift'):
                 s = flatten_ocombine(s)
             s = s.replace('.ocombine.publisher', '.publisher').replace('.OCombine.Publisher', '.Publisher')

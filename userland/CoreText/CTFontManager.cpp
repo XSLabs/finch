@@ -60,6 +60,7 @@ CTFontManagerRegisterFontsForURL(CFURLRef url, CTFontManagerScope scope, CFError
         return false;
     }
     CTFontRegistryAddGraphicsFont(f);
+    CTFontRegistrySetURL(f, url);
     CFRelease(f);
     return true;
 }
@@ -211,6 +212,7 @@ CTFontManagerCreateFontDescriptorsFromURL(CFURLRef url)
     if (!f)
         return NULL;
     CTFontRegistryAddGraphicsFont(f);
+    CTFontRegistrySetURL(f, url);
     CTFontDescriptorRef d = descriptor_for(f);
     CFRelease(f);
     CFArrayRef a = CFArrayCreate(NULL, (const void **)&d, 1, &kCFTypeArrayCallBacks);

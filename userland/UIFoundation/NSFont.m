@@ -574,6 +574,8 @@ set_user_font(NSFont *font, NSString *nameKey, NSString *sizeKey)
 
 - (CGFloat)ascender { return CTFontGetAscent(self._ctFont); }
 - (CGFloat)descender { return -CTFontGetDescent(self._ctFont); }
+/* UIFoundation's: the ascent and descent, rounded up to whole points (as UIFont's) */
+- (CGFloat)lineHeight { return ceil(self.ascender - self.descender); }
 - (CGFloat)leading { return CTFontGetLeading(self._ctFont); }
 - (CGFloat)underlinePosition { return CTFontGetUnderlinePosition(self._ctFont); }
 - (CGFloat)underlineThickness { return CTFontGetUnderlineThickness(self._ctFont); }

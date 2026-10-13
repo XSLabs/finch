@@ -13,9 +13,12 @@ struct Node: Identifiable {
 
 @main
 struct SwiftUIMoreApp: App {
+    @StateObject private var library = Library()
     var body: some Scene {
         WindowGroup("SwiftUI More") {
             More()
+                .environmentObject(library)
+                .onAppear { library.reset() }
         }
         .commands {
             SidebarCommands()
@@ -63,6 +66,65 @@ struct LoaderView: View {
     }
 }
 
+/// Font Book's library model: an ObservableObject in the environment, published from
+/// another thread.
+final class Library: ObservableObject {
+    @Published var isLoading = true
+    @Published var families: [String] = []
+
+    func reset() {
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
+            self.families = ["Inter", "Liberation Serif"]
+            self.isLoading = false
+        }
+    }
+}
+
+struct LibraryView: View {
+    @EnvironmentObject private var library: Library
+    var body: some View {
+        if library.isLoading {
+            ProgressView()
+        } else {
+            Text("Library: " + library.families.joined(separator: ", "))
+        }
+    }
+}
+
+/// Font Book's grid: tiles read an environment object, inside a lazy grid with tags.
+final class Selection: ObservableObject {
+    @Published var selected: String?
+}
+
+struct Tile: View {
+    @EnvironmentObject private var selection: Selection
+    let name: String
+    var body: some View {
+        Text(name)
+            .padding(4)
+            .background(selection.selected == name ? Color.accentColor.opacity(0.3) : Color.clear)
+            .onTapGesture { selection.selected = name }
+    }
+}
+
+/// Font Book's grid: tiles read an environment object, in a lazy grid in a scroll view (whose
+/// content Finch hosts apart, so the object must reach it).
+struct TileGrid: View {
+    @EnvironmentObject private var library: Library
+    @StateObject private var selection = Selection()
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120))]) {
+                ForEach(library.families, id: \.self) { family in
+                    Tile(name: family).tag(family)
+                }
+            }
+        }
+        .environmentObject(selection)
+        .frame(height: 40)
+    }
+}
+
 struct MoreCommands: Commands {
     @Environment(\.openWindow) private var openWindow
     @FocusedValue(\.moreCount) private var count
@@ -102,6 +164,8 @@ struct More: View {
                 .frame(width: 160, height: 40)
                 LabeledContent("Search", value: search.isEmpty ? "(none)" : search)
                 LoaderView()
+                LibraryView()
+                TileGrid()
                 HStack {
                     Label("Favourites", systemImage: "star.fill")
                     Image(systemName: "folder").foregroundStyle(.blue)

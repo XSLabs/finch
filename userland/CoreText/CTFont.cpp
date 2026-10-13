@@ -13,6 +13,7 @@
 #include FT_MULTIPLE_MASTERS_H
 #include FT_TRUETYPE_TABLES_H
 #include <hb.h>
+#include <limits.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdlib.h>
@@ -1038,6 +1039,30 @@ CTFontCopyAttribute(CTFontRef f, CFStringRef attribute)
         return CTFontCopyCharacterSet(f);
     if (CFEqual(attribute, kCTFontVariationAttribute))
         return CTFontCopyVariation(f);
+    if (CFEqual(attribute, kCTFontURLAttribute) || CFEqual(attribute, kCTFontPriorityAttribute)) {
+        CFStringRef ps = CTFontCopyPostScriptName(f);
+        CFURLRef url = ps ? CTFontRegistryCopyURL(ps) : NULL;
+        if (ps)
+            CFRelease(ps);
+        if (CFEqual(attribute, kCTFontURLAttribute) || !url)
+            return url;
+        /* Where the file is: the system's fonts, the computer's, the user's, or one an app
+           registered (as Apple's priorities rank them) */
+        char path[PATH_MAX];
+        uint32_t priority = kCTFontPriorityProcess;
+        if (CFURLGetFileSystemRepresentation(url, true, (UInt8 *)path, sizeof(path))) {
+            const char *home = getenv("HOME");
+            size_t h = home ? strlen(home) : 0;
+            if (strstr(path, "/System/Library/"))
+                priority = kCTFontPrioritySystem;
+            else if (h && !strncmp(path, home, h) && !strncmp(path + h, "/Library/Fonts/", 15))
+                priority = kCTFontPriorityUser;
+            else if (!strncmp(path, "/Library/Fonts/", 15))
+                priority = kCTFontPriorityComputer;
+        }
+        CFRelease(url);
+        return CFNumberCreate(NULL, kCFNumberSInt32Type, &priority);
+    }
     return NULL;
 }
 

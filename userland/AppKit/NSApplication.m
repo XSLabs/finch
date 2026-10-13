@@ -611,8 +611,17 @@ sample_main_thread(thread_t main, int samples)
             }
         }
     }
-    /* how long a block sent to the main queue waits */
-    for (int i = 0; i < 5; i++) {
+    for (NSCountedSet *set in @[ seen, leaves ]) {
+        fprintf(stderr, set == seen ? "main thread, %d samples (inclusive):\n" : "leaf functions:\n", samples);
+        NSArray *sorted = [[set allObjects] sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
+            NSUInteger x = [set countForObject:a], y = [set countForObject:b];
+            return x > y ? NSOrderedAscending : x < y ? NSOrderedDescending : NSOrderedSame;
+        }];
+        for (NSUInteger i = 0; i < sorted.count && i < 60; i++)
+            fprintf(stderr, "  %4lu %s\n", (unsigned long)[set countForObject:sorted[i]], [sorted[i] UTF8String]);
+    }
+    /* then how long a block sent to the main queue waits */
+    for (int i = 0; i < 3; i++) {
         uint64_t sent = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
         dispatch_semaphore_t done = dispatch_semaphore_create(0);
         __block uint64_t ran = 0;
@@ -624,15 +633,6 @@ sample_main_thread(thread_t main, int samples)
             fprintf(stderr, "main queue: no answer in 5 s\n");
         else
             fprintf(stderr, "main queue: %.1f ms\n", (ran - sent) / 1e6);
-    }
-    for (NSCountedSet *set in @[ seen, leaves ]) {
-        fprintf(stderr, set == seen ? "main thread, %d samples (inclusive):\n" : "leaf functions:\n", samples);
-        NSArray *sorted = [[set allObjects] sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
-            NSUInteger x = [set countForObject:a], y = [set countForObject:b];
-            return x > y ? NSOrderedAscending : x < y ? NSOrderedDescending : NSOrderedSame;
-        }];
-        for (NSUInteger i = 0; i < sorted.count && i < 60; i++)
-            fprintf(stderr, "  %4lu %s\n", (unsigned long)[set countForObject:sorted[i]], [sorted[i] UTF8String]);
     }
 }
 

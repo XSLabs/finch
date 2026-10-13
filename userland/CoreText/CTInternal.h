@@ -71,6 +71,9 @@ CT_PRIVATE CFStringRef CTFontNameString(CTFontRef f, uint16_t nameID);
 /* The font with this PostScript, full or family name, if installed or registered in this process. */
 CT_PRIVATE CGFontRef CTFontRegistryCopyGraphicsFont(CFStringRef name);
 CT_PRIVATE void CTFontRegistryAddGraphicsFont(CGFontRef font);
+/* The file a registered font came from, and the file of a font by PostScript name. */
+CT_PRIVATE void CTFontRegistrySetURL(CGFontRef font, CFURLRef url);
+CT_PRIVATE CFURLRef CTFontRegistryCopyURL(CFStringRef postscriptName);
 /* Lock around FreeType calls on a face. */
 CT_PRIVATE void CTFontLockFace(CTFontRef f);
 CT_PRIVATE void CTFontUnlockFace(CTFontRef f);

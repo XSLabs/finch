@@ -116,13 +116,20 @@ done
 #     installed) to /Applications in the image. They come from the user's
 #     install at build time and stay in the local image; nothing of Apple's or
 #     anyone else's is added to the repository. Names with spaces: separate the
-#     names with commas instead ("The Unarchiver,TextEdit").
+#     names with commas instead ("The Unarchiver,TextEdit"). A path to an .app
+#     (build/userland/apps/SwiftUIMore.app) copies that app.
 #     FINCH_HOST_APPS_DEBUG=1 re-signs the copies so crashes give full backtraces.
 IFS_SAVE="${IFS}"
 [[ "${FINCH_HOST_APPS:-}" == *,* ]] && IFS=,
 for app in ${FINCH_HOST_APPS:-}; do
     IFS="${IFS_SAVE}"
-    src="/System/Applications/${app}.app"
+    # a path to an .app (one of Finch's test apps, say) is taken as it is
+    if [[ "${app}" == */*.app ]]; then
+        src="${app}"
+        app="$(basename "${app}" .app)"
+    else
+        src="/System/Applications/${app}.app"
+    fi
     [[ -d "${src}" ]] || src="/System/Applications/Utilities/${app}.app"
     [[ -d "${src}" ]] || src="/Applications/${app}.app"
     [[ -d "${src}" ]] || die "no ${app}.app in /System/Applications or /Applications"

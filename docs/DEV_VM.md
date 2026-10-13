@@ -220,6 +220,16 @@ Other switches for an AppKit app (they work on the host too):
 - `FINCH_LOG_PRIVATE=1`: the process's log messages keep their private values (in
   `log show` and on stderr), for errors an app logs privately.
 - `FINCH_LOG_BACKTRACE=TEXT`: the stack of every log message whose format contains TEXT.
+- `FINCH_LOG_MIRROR=TEXT`: every message (debug level and signposts included) whose
+  subsystem, category or format contains TEXT, on stderr: `concurrency` shows Swift's
+  task events, without `OS_ACTIVITY_DT_MODE`'s flood.
+- `FINCH_SWIFTUI_OBJECTS=1`: each environment or observed object a SwiftUI view updates
+  with, and its fields (`@Published` ones by their current value).
+- `FINCH_COMBINE_TRACE=1` (or `bt`, with stacks): each `@Published` change, subject send
+  and `objectWillChange`.
+
+To try one of Finch's test apps in the VM, give `FINCH_HOST_APPS` its path:
+`FINCH_HOST_APPS="$PWD/build/userland/apps/SwiftUIMore.app," tools/vm/mkramdisk.sh`.
 
 ## Console output
 The serial console drops bytes 0x80–0x9F, so 4-byte UTF-8 characters (emoji)

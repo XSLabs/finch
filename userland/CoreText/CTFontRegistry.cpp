@@ -10,6 +10,7 @@
 #include "CTRegistry.h"
 #include "../fonts/FinchFonts.h"
 #include <dirent.h>
+#include <limits.h>
 #include <math.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -23,6 +24,7 @@ static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static std::map<std::string, CGFontRef> *registered;  /* PostScript name -> font */
 static std::map<std::string, std::string> *registered_full, *registered_family; /* name -> PostScript name */
 static std::vector<CTInstalledFont> *installed;
+static std::map<std::string, std::string> *registered_path; /* PostScript name -> file, registered from a URL */
 
 static std::string
 utf8(CFStringRef s)
@@ -218,6 +220,47 @@ CTFontRegistryRemoveGraphicsFont(CGFontRef font)
     }
     pthread_mutex_unlock(&lock);
     return found;
+}
+
+void
+CTFontRegistrySetURL(CGFontRef font, CFURLRef url)
+{
+    char path[PATH_MAX];
+    CFStringRef ps = font ? CGFontCopyPostScriptName(font) : NULL;
+    std::string name = utf8(ps);
+    if (ps)
+        CFRelease(ps);
+    if (name.empty() || !url || !CFURLGetFileSystemRepresentation(url, true, (UInt8 *)path, sizeof(path)))
+        return;
+    pthread_mutex_lock(&lock);
+    if (!registered_path)
+        registered_path = new std::map<std::string, std::string>();
+    (*registered_path)[name] = path;
+    pthread_mutex_unlock(&lock);
+}
+
+/* The file a font by this PostScript name comes from: registered from a URL, or installed. */
+CFURLRef
+CTFontRegistryCopyURL(CFStringRef postscriptName)
+{
+    std::string n = utf8(postscriptName), path;
+    if (n.empty())
+        return NULL;
+    pthread_mutex_lock(&lock);
+    if (registered_path) {
+        auto it = registered_path->find(n);
+        if (it != registered_path->end())
+            path = it->second;
+    }
+    pthread_mutex_unlock(&lock);
+    if (path.empty())
+        for (auto &f : CTInstalledFonts())
+            if (f.postscript == n) {
+                path = f.path;
+                break;
+            }
+    return path.empty() ? NULL
+                        : CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)path.c_str(), (CFIndex)path.size(), false);
 }
 
 std::vector<std::string>

@@ -172,10 +172,11 @@ static void make_salt(void)
 	arc4random_buf(&pointer_salt, sizeof(pointer_salt));
 	pointer_salt &= ~((uintptr_t)getpagesize() - 1);
 }
+extern bool finch_log_mirrored(struct finch_log *l);
 API bool os_signpost_enabled(struct finch_log *l)
 {
-	return l && l != &_os_log_disabled && !(os_trace_get_mode() & 0x500) &&
-	    ((l->options >> 50) & 1);
+	return l && l != &_os_log_disabled &&
+	    ((!(os_trace_get_mode() & 0x500) && ((l->options >> 50) & 1)) || finch_log_mirrored(l));
 }
 API uint64_t os_signpost_id_generate(struct finch_log *l)
 {

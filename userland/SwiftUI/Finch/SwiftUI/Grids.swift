@@ -56,7 +56,8 @@ struct _FinchGridLayout: Layout {
             default: flexibleCount += 1
             }
         }
-        let share = available.map { max(0, $0 - fixed) / CGFloat(max(flexibleCount, 1)) }
+        // an infinite proposal (a scroll view's, say) is no proposal: tracks as long as their views want
+        let share = available.flatMap { $0.isFinite ? max(0, $0 - fixed) / CGFloat(max(flexibleCount, 1)) : nil }
         var tracks: [Track] = []
         for item in items {
             let spacing = item.spacing ?? defaultSpacing

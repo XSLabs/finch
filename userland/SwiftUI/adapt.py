@@ -343,6 +343,66 @@ extension Optional {'''),
         updateSeed = GraphHost.currentHost.data.$updateSeed
         lastSeed = .max
         hasLogged = false'''),
+    # a safe-area inset is one view, in a list too (Font Book's grid has a filter bar inset)
+    ('SwiftUICore/Layout/Modifier/InsetViewModifier.swift',
+     '''@available(*, unavailable)
+extension _InsetViewModifier: Sendable {}''',
+     '''@available(*, unavailable)
+extension _InsetViewModifier: Sendable {}
+
+extension _InsetViewModifier: UnaryViewModifier {}'''),
+    # focusable views draw their content (Finch doesn't track SwiftUI focus or draw its ring yet)
+    ('SwiftUI/Event/Focus/Focusable.swift',
+     '''        body: @escaping (_Graph, _ViewInputs) -> _ViewOutputs
+    ) -> _ViewOutputs {
+        #if os(macOS)
+        _openSwiftUIUnimplementedFailure()
+        #else
+        _openSwiftUIUnimplementedFailure()
+        #endif
+    }
+}
+
+@available(*, unavailable)
+extension _FocusableModifier: Sendable {}''',
+     '''        body: @escaping (_Graph, _ViewInputs) -> _ViewOutputs
+    ) -> _ViewOutputs {
+        body(_Graph(), inputs)
+    }
+}
+
+@available(*, unavailable)
+extension _FocusableModifier: Sendable {}'''),
+    # inset shapes: the shape in the inset rect, its corners less the inset
+    ('SwiftUICore/Shape/InsettableShape.swift',
+     'extension RoundedRectangle: InsettableShape {\n    @inlinable\n    public func inset(by amount: CGFloat) -> some InsettableShape {\n        _Inset(base: self, amount: amount)\n    }\n\n    @usableFromInline\n    @frozen\n    struct _Inset: InsettableShape {\n        @usableFromInline\n        var base: RoundedRectangle\n        \n        @usableFromInline\n        var amount: CGFloat\n    \n        @inlinable\n        init(base: RoundedRectangle, amount: CGFloat) {\n            (self.base, self.amount) = (base, amount)\n        }\n\n        @usableFromInline\n        nonisolated func path(in rect: CGRect) -> Path {\n            _openSwiftUIUnimplementedFailure()\n        }',
+     'extension RoundedRectangle: InsettableShape {\n    @inlinable\n    public func inset(by amount: CGFloat) -> some InsettableShape {\n        _Inset(base: self, amount: amount)\n    }\n\n    @usableFromInline\n    @frozen\n    struct _Inset: InsettableShape {\n        @usableFromInline\n        var base: RoundedRectangle\n        \n        @usableFromInline\n        var amount: CGFloat\n    \n        @inlinable\n        init(base: RoundedRectangle, amount: CGFloat) {\n            (self.base, self.amount) = (base, amount)\n        }\n\n        @usableFromInline\n        nonisolated func path(in rect: CGRect) -> Path {\n            RoundedRectangle(cornerSize: CGSize(width: max(0, base.cornerSize.width - amount),\n                                                 height: max(0, base.cornerSize.height - amount)),\n                             style: base.style)\n                .path(in: rect.insetBy(dx: amount, dy: amount))\n        }'),
+    ('SwiftUICore/Shape/InsettableShape.swift',
+     'extension UnevenRoundedRectangle: InsettableShape {\n    @inlinable\n    public func inset(by amount: CGFloat) -> some InsettableShape {\n        _Inset(base: self, amount: amount)\n    }\n\n    @usableFromInline\n    @frozen\n    struct _Inset: InsettableShape {\n        @usableFromInline\n        var base: UnevenRoundedRectangle\n        \n        @usableFromInline\n        var amount: CGFloat\n    \n        @inlinable\n        init(base: UnevenRoundedRectangle, amount: CGFloat) {\n            (self.base, self.amount) = (base, amount)\n        }\n\n        @usableFromInline\n        nonisolated func path(in rect: CGRect) -> Path {\n            _openSwiftUIUnimplementedFailure()\n        }',
+     'extension UnevenRoundedRectangle: InsettableShape {\n    @inlinable\n    public func inset(by amount: CGFloat) -> some InsettableShape {\n        _Inset(base: self, amount: amount)\n    }\n\n    @usableFromInline\n    @frozen\n    struct _Inset: InsettableShape {\n        @usableFromInline\n        var base: UnevenRoundedRectangle\n        \n        @usableFromInline\n        var amount: CGFloat\n    \n        @inlinable\n        init(base: UnevenRoundedRectangle, amount: CGFloat) {\n            (self.base, self.amount) = (base, amount)\n        }\n\n        @usableFromInline\n        nonisolated func path(in rect: CGRect) -> Path {\n            UnevenRoundedRectangle(\n                topLeadingRadius: max(0, base.cornerRadii.topLeading - amount),\n                bottomLeadingRadius: max(0, base.cornerRadii.bottomLeading - amount),\n                bottomTrailingRadius: max(0, base.cornerRadii.bottomTrailing - amount),\n                topTrailingRadius: max(0, base.cornerRadii.topTrailing - amount),\n                style: base.style)\n                .path(in: rect.insetBy(dx: amount, dy: amount))\n        }'),
+    ('SwiftUICore/Shape/InsettableShape.swift',
+     'extension Capsule: InsettableShape {\n    @inlinable\n    public func inset(by amount: CGFloat) -> some InsettableShape {\n        _Inset(amount: _Inset._makeInset(amount, style: style))\n    }\n\n    @usableFromInline\n    @frozen\n    struct _Inset: InsettableShape {\n        @usableFromInline\n        var amount: CGFloat\n    \n        @inlinable\n        init(amount: CGFloat) {\n            self.amount = amount\n        }\n\n        @usableFromInline\n        nonisolated func path(in rect: CGRect) -> Path {\n            _openSwiftUIUnimplementedFailure()\n        }',
+     'extension Capsule: InsettableShape {\n    @inlinable\n    public func inset(by amount: CGFloat) -> some InsettableShape {\n        _Inset(amount: _Inset._makeInset(amount, style: style))\n    }\n\n    @usableFromInline\n    @frozen\n    struct _Inset: InsettableShape {\n        @usableFromInline\n        var amount: CGFloat\n    \n        @inlinable\n        init(amount: CGFloat) {\n            self.amount = amount\n        }\n\n        @usableFromInline\n        nonisolated func path(in rect: CGRect) -> Path {\n            Capsule().path(in: rect.insetBy(dx: amount, dy: amount))\n        }'),
+    ('SwiftUICore/Shape/InsettableShape.swift',
+     'extension Ellipse: InsettableShape {\n    @inlinable\n    public func inset(by amount: CGFloat) -> some InsettableShape {\n        _Inset(amount: amount)\n    }\n\n    @usableFromInline\n    @frozen\n    struct _Inset: InsettableShape {\n        @usableFromInline\n        var amount: CGFloat\n    \n        @inlinable\n        init(amount: CGFloat) {\n            self.amount = amount\n        }\n\n        @usableFromInline\n        nonisolated func path(in rect: CGRect) -> Path {\n            _openSwiftUIUnimplementedFailure()\n        }',
+     'extension Ellipse: InsettableShape {\n    @inlinable\n    public func inset(by amount: CGFloat) -> some InsettableShape {\n        _Inset(amount: amount)\n    }\n\n    @usableFromInline\n    @frozen\n    struct _Inset: InsettableShape {\n        @usableFromInline\n        var amount: CGFloat\n    \n        @inlinable\n        init(amount: CGFloat) {\n            self.amount = amount\n        }\n\n        @usableFromInline\n        nonisolated func path(in rect: CGRect) -> Path {\n            Ellipse().path(in: rect.insetBy(dx: amount, dy: amount))\n        }'),
+    ('SwiftUICore/Shape/InsettableShape.swift',
+     'extension Circle: InsettableShape {\n    @inlinable\n    public func inset(by amount: CGFloat) -> some InsettableShape {\n        _Inset(amount: amount)\n    }\n\n    @usableFromInline\n    @frozen\n    struct _Inset: InsettableShape {\n        @usableFromInline\n        var amount: CGFloat\n    \n        @inlinable\n        init(amount: CGFloat) {\n            self.amount = amount\n        }\n\n        @usableFromInline\n        nonisolated func path(in rect: CGRect) -> Path {\n            _openSwiftUIUnimplementedFailure()\n        }',
+     'extension Circle: InsettableShape {\n    @inlinable\n    public func inset(by amount: CGFloat) -> some InsettableShape {\n        _Inset(amount: amount)\n    }\n\n    @usableFromInline\n    @frozen\n    struct _Inset: InsettableShape {\n        @usableFromInline\n        var amount: CGFloat\n    \n        @inlinable\n        init(amount: CGFloat) {\n            self.amount = amount\n        }\n\n        @usableFromInline\n        nonisolated func path(in rect: CGRect) -> Path {\n            Circle().path(in: rect.insetBy(dx: amount, dy: amount))\n        }'),
+    # FINCH_SWIFTUI_OBJECTS: each environment or observed object a view updates with, and its
+    # fields (to see a model's state from outside an app)
+    ('SwiftUICore/Data/Combine/EnvironmentObject.swift',
+     '''        let newStore = property._store
+        if let newStore {''',
+     '''        let newStore = property._store
+        if let newStore { _finchDumpObject(newStore, changed: changed || signal.changedValue()?.changed == true) }
+        if let newStore {'''),
+    ('SwiftUICore/Data/Combine/ObservedObject.swift',
+     '''        lastObject = object
+        let changed = subscriber.attribute.changedValue()?.changed ?? false''',
+     '''        lastObject = object
+        let changed = subscriber.attribute.changedValue()?.changed ?? false
+        _finchDumpObject(object, changed: changed)'''),
     # runtime warnings (Finch's log can't show their private text): also to stderr with
     # FINCH_SWIFTUI_WARNINGS set
     ('SwiftUICore/Log/Logging.swift',

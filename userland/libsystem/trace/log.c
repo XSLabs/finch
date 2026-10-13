@@ -298,12 +298,49 @@ static void backtrace_if_asked(const char *format)
 		fp = next;
 	}
 }
+/* FINCH_LOG_MIRROR=TEXT copies to stderr every message, of any level (debug included),
+   whose subsystem, category or format contains TEXT: one component's log, without
+   OS_ACTIVITY_DT_MODE's flood of everything. */
+static const char *mirror_wanted(void)
+{
+	static const char *wanted = (const char *)-1;
+	if (wanted == (const char *)-1)
+		wanted = getenv("FINCH_LOG_MIRROR");
+	return wanted;
+}
+/* Is this log's subsystem or category one FINCH_LOG_MIRROR asks for? (Its signposts are
+   then on, so that they reach the mirror.) */
+bool finch_log_mirrored(struct finch_log *l)
+{
+	const char *wanted = mirror_wanted();
+	if (!wanted || !l || !l->names)
+		return false;
+	return strstr(l->names->names, wanted) ||
+	    strstr(l->names->names + l->names->subsystem_size, wanted);
+}
+static void mirror_if_asked(struct finch_log *l, const struct finch_log_pack *p,
+    const uint8_t *data, size_t size)
+{
+	const char *wanted = mirror_wanted();
+	if (!wanted || !p)
+		return;
+	const char *subsystem = l->names ? l->names->names : "";
+	const char *category = l->names ? l->names->names + l->names->subsystem_size : "";
+	if (!finch_log_mirrored(l) && !(p->format && strstr(p->format, wanted)))
+		return;
+	char *s = finch_log_compose(p->format ? p->format : "", data, size, p->error, NULL, 0);
+	if (s) {
+		dprintf(STDERR_FILENO, "log [%s:%s] %s\n", subsystem, category, s);
+		free(s);
+	}
+}
 void finch_log_send(struct finch_log *l, uint8_t type, const struct finch_log_pack *p,
     const uint8_t *data, size_t size, bool force)
 {
 	backtrace_if_asked(p ? p->format : NULL);
 	if (!l)
 		l = &_os_log_default;
+	mirror_if_asked(l, p, data, size);
 	if (!force && !os_log_type_enabled(l, type))
 		return;
 	int err = errno;

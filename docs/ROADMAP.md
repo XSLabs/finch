@@ -534,9 +534,17 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
           masked), which made redrawing a SwiftUI window about three times cheaper;
           NSFileManager's private user-home domain (0x10000); the font-matching progress
           call; NSParagraphStyle's and NSAttributedString's private text calls; switches
-          for finding a stalled app (`docs/DEV_VM.md`). Still to do: the font grid (it
-          stays on its spinner after the fonts load: the cause isn't found yet), samples,
-          installing and validating fonts; menu commands' `@Environment` values.
+          for finding a stalled app (`docs/DEV_VM.md`).
+    - [x] Font Book's font grid (2026-10-13): families with their samples. It had kept
+          its spinner because Font Book files fonts by URL and priority, which CoreText now
+          gives (`kCTFontURLAttribute` from the registry, `kCTFontPriorityAttribute` from
+          where the file is). Then: content hosted apart (a scroll view's document, sheets,
+          popovers) inherits the presenter's environment objects and the app's own
+          environment keys; safe-area insets in lists; focusable views draw their content;
+          inset rounded rectangles, capsules, ellipses and circles; lazy grids in a scroll
+          view; NSFont's lineHeight. Still to do: the plural "%lld styles" strings
+          (stringsdict), the toolbar's overlapping size label, samples and the font detail
+          view, installing and validating fonts; menu commands' `@Environment` values.
     - [ ] Next: measurement format styles, AppKit's private classes apps link
           (NSTokenAttachment, NSTouchDevice, NSButtonGroupTouchBarItem, ...), among others
           ([`APPS.md`](APPS.md)). Later: a Spotlight-style index
