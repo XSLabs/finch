@@ -20,13 +20,27 @@ import sys
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "root")
 
 
+class InspectionError(RuntimeError):
+    """An unreadable image must not look like an image with no missing imports."""
+
+
 def run(*args):
-    out = subprocess.run(args, capture_output=True, text=True).stdout
+    result = subprocess.run(args, capture_output=True, text=True)
     # Binaries built for the current arm64e ABI report their slice as "arm64e.v1", which
     # "-arch arm64e" doesn't select; a single-slice binary is read without the filter.
-    if args[1:3] == ("-arch", "arm64e") and len(out.splitlines()) <= 1:
-        out = subprocess.run(args[:1] + args[3:], capture_output=True, text=True).stdout
-    return out
+    if args[1:3] == ("-arch", "arm64e") and len(result.stdout.splitlines()) <= 1:
+        result = subprocess.run(args[:1] + args[3:], capture_output=True, text=True)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"exit {result.returncode}"
+        raise InspectionError(f"cannot inspect {args[-1]}: {detail}")
+    # Never mix exports from several slices when trying the versioned-arm64e
+    # fallback, or accept a different architecture as Finch's target.
+    slices = re.findall(r"^.* \[([^\]]+)\]:\s*$", result.stdout, re.MULTILINE)
+    action = args[-2]
+    if len(slices) != 1 or not re.fullmatch(r"arm64e(?:\.v[0-9]+)?", slices[0]) or \
+            not re.search(r"^\s*" + re.escape(action) + r":\s*$", result.stdout, re.MULTILINE):
+        raise InspectionError(f"cannot inspect {args[-1]}: no single arm64e {action} result")
+    return result.stdout
 
 
 _overlay = None
@@ -59,8 +73,9 @@ _exports = {}
 
 def exports_of(root, install_name, seen=None):
     """Symbols an install name provides, following re-exports."""
-    if install_name in _exports:
-        return _exports[install_name]
+    cache_key = (os.path.realpath(root), install_name)
+    if cache_key in _exports:
+        return _exports[cache_key]
     seen = seen or set()
     if install_name in seen:
         return set()
@@ -76,7 +91,7 @@ def exports_of(root, install_name, seen=None):
             m = re.match(r"\s+re-export\s+(\S+)", line)
             if m:
                 syms |= exports_of(root, m.group(1), seen)
-    _exports[install_name] = syms
+    _exports[cache_key] = syms
     return syms
 
 
@@ -143,4 +158,8 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except (InspectionError, OSError) as error:
+        print(f"import check failed: {error}", file=sys.stderr)
+        sys.exit(2)

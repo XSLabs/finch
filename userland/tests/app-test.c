@@ -38,6 +38,7 @@
  */
 #include <CoreGraphics/CoreGraphics.h>
 #include <ImageIO/ImageIO.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <spawn.h>
@@ -155,6 +156,7 @@ main(int argc, char **argv)
         return 2;
     }
     setvbuf(stdout, NULL, _IOLBF, 0);
+    int failures = 0;
     char sock[64];
     snprintf(sock, sizeof sock, "/tmp/finch-app-test.%d", getpid());
     setenv(FWS_SOCKET_ENV, sock, 1);
@@ -166,6 +168,13 @@ main(int argc, char **argv)
     }
     for (int i = 0; i < 100 && !FWSConnect(); i++)
         usleep(20000);
+    if (!FWSConnect()) {
+        fprintf(stderr, "window server did not become ready\n");
+        kill(server, SIGTERM);
+        waitpid(server, NULL, 0);
+        unlink(sock);
+        return 1;
+    }
     FWSSetCursorVisible(false);
     /* FINCH_SHELL: the desktop's own process (the Rail), started before the app */
     pid_t shell = 0;
@@ -216,6 +225,8 @@ main(int argc, char **argv)
             printf("window \"%s\": %s", s + 7, found ? "shown" : "not found\n");
             if (found)
                 printf(" %gx%g\n", current.width, current.height);
+            else
+                failures++;
         } else if (sscanf(s, "move:%lf,%lf", &x, &y) == 2) {
             post(FWS_EVENT_MOUSE_MOVED, current.x + x, current.y + y, 0, 0, 0);
         } else if (sscanf(s, "click:%lf,%lf", &x, &y) == 2) {
@@ -276,6 +287,11 @@ main(int argc, char **argv)
         } else if (!strncmp(s, "screenshot64", 12)) {
             usleep(200000);
             CGImageRef im = FWSCopyScreenImage();
+            if (!im) {
+                fprintf(stderr, "cannot capture screen\n");
+                failures++;
+                continue;
+            }
             if (!strcmp(s + 12, ":half")) {
                 size_t w = CGImageGetWidth(im) / 2, h = CGImageGetHeight(im) / 2;
                 CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
@@ -324,13 +340,22 @@ main(int argc, char **argv)
         } else if (!strncmp(s, "screenshot:", 11)) {
             usleep(200000);
             CGImageRef im = FWSCopyScreenImage();
+            if (!im) {
+                fprintf(stderr, "cannot capture screen\n");
+                failures++;
+                continue;
+            }
             CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)s + 11, (CFIndex)strlen(s + 11), false);
             CGImageDestinationRef d = CGImageDestinationCreateWithURL(url, CFSTR("public.png"), 1, NULL);
             if (d) {
                 CGImageDestinationAddImage(d, im, NULL);
-                printf("screenshot %s: %s\n", s + 11, CGImageDestinationFinalize(d) ? "saved" : "failed");
+                bool saved = CGImageDestinationFinalize(d);
+                printf("screenshot %s: %s\n", s + 11, saved ? "saved" : "failed");
+                if (!saved)
+                    failures++;
                 CFRelease(d);
-            }
+            } else
+                failures++;
             CFRelease(url);
             CGImageRelease(im);
         } else if (!strcmp(s, "windows")) {
@@ -355,17 +380,32 @@ main(int argc, char **argv)
             drain_output(true);
         } else {
             printf("unknown step %s\n", s);
+            failures++;
         }
     }
     usleep(300000);
     drain_output(true);
     int status = 0;
-    kill(app, SIGTERM);
+    pid_t ended;
+    do {
+        ended = waitpid(app, &status, WNOHANG);
+    } while (ended < 0 && errno == EINTR);
+    bool stoppedByTest = ended == 0;
+    if (stoppedByTest) {
+        kill(app, SIGTERM);
+        do {
+            ended = waitpid(app, &status, 0);
+        } while (ended < 0 && errno == EINTR);
+    }
+    if (ended < 0 || (WIFEXITED(status) && WEXITSTATUS(status) != 0) ||
+        (WIFSIGNALED(status) && !(stoppedByTest && WTERMSIG(status) == SIGTERM))) {
+        fprintf(stderr, "app failed (wait status %d)\n", status);
+        failures++;
+    }
     if (shell)
         kill(shell, SIGTERM);
-    waitpid(app, &status, 0);
     kill(server, SIGTERM);
     waitpid(server, NULL, 0);
     unlink(sock);
-    return 0;
+    return failures ? 1 : 0;
 }

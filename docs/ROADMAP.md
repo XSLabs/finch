@@ -416,7 +416,9 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         frameworks it carries, and ranks what's missing by apps blocked. Apple's apps are
         recorded in [`docs/APPS.md`](APPS.md) (2026-10-12: 11 of 65 have every import;
         gaps in AppKit, Foundation and CoreGraphics block the most, then AppIntents and
-        AVFoundation). The next frameworks are picked from it.
+        AVFoundation). The next frameworks are picked from it. Inspection errors now
+        fail the check instead of reporting no missing imports; six focused checks cover
+        failed reads, unsupported output and separate build folders (2026-10-13).
   - [ ] Close the symbol gaps in Finch's own frameworks that block the most apps
         (AppKit, Foundation, CoreGraphics, QuartzCore, CoreFoundation).
     - [x] IconServices (private; 14 apps link it), Finch's own (2026-10-12): icons for

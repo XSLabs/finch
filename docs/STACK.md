@@ -450,3 +450,8 @@ flowchart LR
     xpc --> sys
     sys --> kern --> xnu
 ```
+
+App import checks now stop on failed or unreadable inspection output. They do not
+count an inspection error as an app with no missing imports. The app test runner
+also returns failure for a crashed app, a required window that never appears, an
+unknown test step or a failed screenshot. Focused host checks pass (2026-10-13).
