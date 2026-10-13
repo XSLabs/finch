@@ -66,7 +66,7 @@ public struct Grid<Content> where Content: View {
 }
 
 @available(OpenSwiftUI_v4_0, *)
-extension Grid: View, PrimitiveView {}
+extension Grid: View, UnaryView, PrimitiveView {}
 
 @available(*, unavailable)
 extension Grid: Sendable {}

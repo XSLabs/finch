@@ -420,9 +420,11 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         digits), CalculateUI, SwiftData, TipKit and AppIntents (SwiftData and TipKit
         match Apple's in host comparisons), and 93 more SwiftUI symbols (Grid, picker
         content, window styles and levels, asset-catalogue colours and images). The
-        window opens with its keypad and display. Open: the bottom row is clipped, the
-        Mode picker overlaps the display, and typing a calculation leaves the display
-        at zero.
+        window opens with its keypad and display, and computes: 7 + 2 = shows 9, and the
+        clear key turns from AC to C as Apple's does. Open: the window is the width of
+        Finch's fallback (Calculator's ideal width is unbounded), its content is laid
+        out 50 points taller than the window so the top of the display and the bottom
+        row are cut off, and the Mode picker sits over the display.
   - [x] Drop-in check: `tools/app-sweep.py` runs the import check over every app and the
         frameworks it carries, and ranks what's missing by apps blocked. Apple's apps are
         recorded in [`docs/APPS.md`](APPS.md) (2026-10-12: 11 of 65 have every import;

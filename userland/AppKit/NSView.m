@@ -1429,6 +1429,8 @@ layer_changed(CALayer *layer)
     NSView *owner = objc_getAssociatedObject(root, &layer_owner_key);
     if (owner && [owner layer] == root)
         [owner setNeedsDisplayInRect:[owner bounds]];
+    else if (getenv("FINCH_TRACE_DISPLAY"))
+        fprintf(stderr, "display: layer %p changed outside a view's tree (root %p, owner %p)\n", layer, root, owner);
 }
 
 void

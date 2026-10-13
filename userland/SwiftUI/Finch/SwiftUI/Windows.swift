@@ -65,6 +65,10 @@ enum _FinchWindows {
             if shouldDumpViewSizing {
                 let measured = hostingVC.host.sizeThatFits(_ProposedSize(width: window.contentView?.bounds.width, height: nil))
                 dumpViewSize("post-show measured at window width", measured)
+                if let bounds = window.contentView?.bounds.size {
+                    dumpViewSize("post-show measured at window size",
+                                 hostingVC.host.sizeThatFits(_ProposedSize(width: bounds.width, height: bounds.height)))
+                }
                 DispatchQueue.main.async {
                     let measured = hostingVC.host.sizeThatFits(_ProposedSize(width: window.contentView?.bounds.width, height: nil))
                     dumpViewSize("next-turn measured at window width", measured)
@@ -87,6 +91,18 @@ enum _FinchWindows {
         let proposalHeight = visibleFrame.height.isFinite && visibleFrame.height > 0
             ? min(600, visibleFrame.height)
             : 600
+        // as Apple's hosting view: the content's ideal size, when it has one
+        let ideal = hostingVC.host.sizeThatFits(_ProposedSize(width: nil, height: nil))
+        dumpViewSize("ideal", ideal)
+        if shouldDumpViewSizing {
+            dumpViewSize("minimum", hostingVC.host.sizeThatFits(_ProposedSize(width: 0, height: 0)))
+            dumpViewSize("maximum", hostingVC.host.sizeThatFits(_ProposedSize(width: .infinity, height: .infinity)))
+            dumpViewSize("ideal width at height nil, width 0", hostingVC.host.sizeThatFits(_ProposedSize(width: 0, height: nil)))
+        }
+        if _FinchWindowOptions.current.sizedToContent, ideal.width.isFinite, ideal.width > 0, ideal.width <= visibleFrame.width || visibleFrame.width <= 0,
+           ideal.height.isFinite, ideal.height > 0, ideal.height <= visibleFrame.height || visibleFrame.height <= 0 {
+            return ideal
+        }
         let natural = hostingVC.host.sizeThatFits(_ProposedSize(width: proposalWidth, height: nil))
         dumpViewSize("natural", natural)
         if natural.width.isFinite, natural.width > 0, natural.height.isFinite, natural.height > 0 {
@@ -319,7 +335,9 @@ struct _FinchPassThroughSceneModifier: PrimitiveSceneModifier {
 @available(OpenSwiftUI_v4_0, *)
 extension Scene {
     nonisolated public func windowResizability(_ resizability: WindowResizability) -> some Scene {
-        modifier(_FinchPassThroughSceneModifier())
+        modifier(_FinchWindowOptionsModifier(value: resizability.kind == .contentSize) { options, sized in
+            options.sizedToContent = sized
+        })
     }
 
     nonisolated public func defaultSize(_ size: CGSize) -> some Scene {

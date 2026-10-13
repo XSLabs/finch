@@ -801,6 +801,9 @@ set_color(CGColorRef *slot, CGColorRef c)
 - (void)display
 {
     _f.needsDisplay = NO;
+    if (getenv("FINCH_TRACE_DISPLAY"))
+        fprintf(stderr, "display: layer %s %p %s\n", class_getName([self class]), self,
+                NSStringFromRect(NSRectFromCGRect(_bounds)).UTF8String);
     if ([(id)_delegate respondsToSelector:@selector(displayLayer:)]) {
         [_delegate displayLayer:self];
         return;

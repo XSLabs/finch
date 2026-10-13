@@ -684,9 +684,22 @@ server_flags(NSWindow *w)
         FWSFlushWindow(_server, (FWSRect){0, 0, 0, 0});
 }
 
+/* FINCH_TRACE_DISPLAY=1: each invalidation (and its thread) and each display pass */
+static int
+trace_display(void)
+{
+    static int on = -1;
+    if (on < 0)
+        on = getenv("FINCH_TRACE_DISPLAY") != NULL;
+    return on;
+}
+
 - (void)_finchInvalidateRect:(NSRect)rect
 {
     rect = NSIntersectionRect(rect, NSMakeRect(0, 0, _frame.size.width, _frame.size.height));
+    if (trace_display())
+        fprintf(stderr, "display: invalidate %s %s%s\n", NSStringFromRect(rect).UTF8String,
+                [NSThread isMainThread] ? "main" : "OFF MAIN", _w.displaying ? " (while displaying)" : "");
     if (NSIsEmptyRect(rect))
         return;
     _dirty = NSIsEmptyRect(_dirty) ? rect : NSUnionRect(_dirty, rect);
@@ -762,6 +775,8 @@ check_chrome(NSWindow *w, NSRect *last)
     }
     NSRect dirty = NSIntegralRect(_dirty);
     _dirty = NSZeroRect;
+    if (trace_display())
+        fprintf(stderr, "display: draw %s of %s\n", NSStringFromRect(dirty).UTF8String, [[self title] UTF8String]);
     CGContextSaveGState(cg);
     CGContextClipToRect(cg, NSRectToCGRect(dirty));
     CGContextClearRect(cg, NSRectToCGRect(dirty));
