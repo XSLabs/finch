@@ -152,7 +152,10 @@ public struct CalculateExpressionView: View {
     }
 
     public var body: some View {
-        Typesetter(fontSize: fontSize, expression: expression).text(expression.rich)
+        if getenv("FINCH_CALCULATE_DEBUG") != nil {
+            fputs("CalculateExpressionView: [\(expression.expression)] size \(fontSize)\n", stderr)
+        }
+        return Typesetter(fontSize: fontSize, expression: expression).text(expression.rich)
             .foregroundStyle(textColor)
             .lineLimit(1)
             .minimumScaleFactor(minFontSizeRatio)

@@ -17,7 +17,9 @@ updated secret matches: pass
 create existing keychain: pass (-25296)
 duplicate create returned no keychain: pass
 duplicate create left file unchanged: pass
+lock before reopen: pass (0)
 reopen: pass (0)
+unlock after reopen: pass (0)
 read after reopen: pass (0)
 saved secret survived reopen: pass
 make malformed fixture: pass
@@ -72,4 +74,5 @@ create delete fixture: pass (0)
 delete valid keychain: pass (0)
 status missing file: pass (-25294)
 missing status cleared output: pass
+remove test folder: pass
 failures: 0

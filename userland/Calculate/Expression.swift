@@ -5,8 +5,9 @@
 // rich for typeset display), its RPN stack and its programmer-mode base and bits.
 
 import Foundation
+import Observation
 
-public final class CalculateExpression: Hashable, CustomDebugStringConvertible {
+public final class CalculateExpression: Hashable, CustomDebugStringConvertible, Observable {
     // MARK: Nested types
 
     /// The base programmer mode writes numbers in.
@@ -147,11 +148,24 @@ public final class CalculateExpression: Hashable, CustomDebugStringConvertible {
     // MARK: State
 
     let id: UUID
-    var state: CalculatorState
+    private var _state: CalculatorState
+    private let registrar = ObservationRegistrar()
+
+    /// Everything the expression holds; reading it is observed, as Apple's expression is
+    /// observable (a calculator's display follows its expression).
+    var state: CalculatorState {
+        get {
+            registrar.access(self, keyPath: \.state)
+            return _state
+        }
+        set {
+            registrar.withMutation(of: self, keyPath: \.state) { _state = newValue }
+        }
+    }
 
     public init(_ expression: String, options: [CalculateKey: Any], base: Base, id: UUID) {
         self.id = id
-        self.state = CalculatorState(options: options, base: base)
+        self._state = CalculatorState(options: options, base: base)
         if expression.isEmpty {
             self.state.reevaluate()
         } else {
@@ -293,8 +307,15 @@ public final class CalculateExpression: Hashable, CustomDebugStringConvertible {
     /// Applies a key; whether it applied.
     @discardableResult
     public func update(_ operation: Operation) -> Bool {
-        state.apply(operation)
+        let applied = state.apply(operation)
+        if Self.debug {
+            fputs("Calculate: \(operation.key) \(applied ? "applied" : "refused") -> [\(state.expressionText)]\n", stderr)
+        }
+        return applied
     }
+
+    /// FINCH_CALCULATE_DEBUG=1: each key on stderr, with the expression it leaves.
+    static let debug = getenv("FINCH_CALCULATE_DEBUG") != nil
 
     /// Clears the expression, the stack and any pending operation.
     public func clearAll() {

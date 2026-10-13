@@ -228,7 +228,10 @@ Other switches for an AppKit app (they work on the host too):
   with, and its fields (`@Published` ones by their current value).
 - `FINCH_COMBINE_TRACE=1` (or `bt`, with stacks): each `@Published` change, subject send
   and `objectWillChange`.
-- `FINCH_TRACE_HIT=1`: the view each mouse-down goes to, and its superviews.
+- `FINCH_TRACE_HIT=1`: the view each mouse-down goes to, and its superviews, and whether
+  a SwiftUI button's mouse-up ran its action or was released outside.
+- `FINCH_CALCULATE_DEBUG=1`: each key Calculate applies or refuses and the expression
+  after it, and each time CalculateUI's display redraws.
 - `OpenSWIFTUI_EVENT_DEBUG=ebph` (events, bindings, phases, hit testing) with
   `FINCH_LOG_MIRROR=vents`: SwiftUI's event debugging.
 

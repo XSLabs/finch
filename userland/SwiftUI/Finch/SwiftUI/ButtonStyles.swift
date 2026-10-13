@@ -105,7 +105,9 @@ struct _FinchPressTracker: NSViewRepresentable {
 
         override func mouseUp(with event: NSEvent) {
             pressed(false)
-            if bounds.contains(convert(event.locationInWindow, from: nil)) {
+            let inside = bounds.contains(convert(event.locationInWindow, from: nil))
+            if getenv("FINCH_TRACE_HIT") != nil { fputs("button \(inside ? "action" : "released outside")\n", stderr) }
+            if inside {
                 action()
             }
         }

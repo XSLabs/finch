@@ -1,0 +1,80 @@
+Security source: Finch
+test folder is private: pass
+create requires a password: pass
+missing password returned no keychain: pass
+missing password created no file: pass
+create encrypted keychain: pass
+create returned a keychain: pass
+status after create: pass
+created keychain starts unlocked: pass
+add dummy secret: pass
+read dummy secret: pass
+dummy secret matches: pass
+stored file hides the secret: pass
+keychain file has private mode: pass
+stable lock file has private mode: pass
+create existing keychain: pass
+duplicate create returned no keychain: pass
+duplicate create left data unchanged: pass
+lock keychain: pass
+status while locked: pass
+lock clears unlocked status: pass
+read while locked: pass
+locked read returned no secret: pass
+write while locked: pass
+locked write left file unchanged: pass
+wrong password: pass
+status after wrong password: pass
+wrong password left keychain locked: pass
+unlock with password: pass
+locked write was not saved: pass
+build keychain path alias: pass
+open aliased keychain: pass
+alias open returned a keychain: pass
+unlock through alias: pass
+lock through original path: pass
+alias read after original lock: pass
+alias read returned no secret: pass
+unlock after alias lock check: pass
+case-spelling cache lock stays safe: pass
+lock all keychains: pass
+status after lock all: pass
+lock all cleared unlocked status: pass
+read after lock all: pass
+lock all read returned no secret: pass
+unlock after lock all: pass
+start fresh process: pass
+fresh process checks passed: pass
+start first concurrent writer: pass
+start second concurrent writer: pass
+first concurrent writer completed: pass
+second concurrent writer completed: pass
+read first concurrent write: pass
+first concurrent write survived: pass
+read second concurrent write: pass
+second concurrent write survived: pass
+save encrypted file for tamper check: pass
+write tampered encrypted fixture: pass
+tampered fixture is on disk: pass
+tampered encrypted file read: pass
+tampered read returned no secret: pass
+tampered read left file unchanged: pass
+tampered encrypted file unlock: pass
+tampered unlock left file unchanged: pass
+restore intact encrypted fixture: pass
+read after restoring encrypted file: pass
+restored encrypted secret matches: pass
+make plaintext fixture: pass
+open plaintext keychain: pass
+plaintext open returned no keychain: pass
+create over plaintext file: pass
+plaintext create returned no keychain: pass
+plaintext file stayed unchanged: pass
+change test folder permissions: pass
+lock with changed folder: pass
+restore test folder permissions: pass
+changed-folder lock cleared cached key: pass
+changed-folder lock returned no secret: pass
+lock before delete: pass
+delete locked keychain: pass
+failures: 0

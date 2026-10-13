@@ -1,0 +1,24 @@
+same-user audit token is allowed: pass
+different-user audit token is denied: pass
+audit token without a process is denied: pass
+reject unsupported protocol version: pass
+reject unknown request: pass
+reject malformed request data: pass
+make private test folder: pass
+create keychain through service: pass
+lock all keychains through service: pass
+wrong password stays rejected: pass
+unlock through service: pass
+add item and return a client proxy: pass
+read through the returned item proxy: pass
+update through the returned item proxy: pass
+persistent reference returns a working proxy: pass
+resolve test executable: pass
+second client shares the unlocked key and locks it: pass
+first client sees the second client's lock: pass
+first client cannot read after the shared lock: pass
+first client unlocks the shared keychain again: pass
+first client reads after unlock: pass
+delete test keychain through service: pass
+remove private test folder: pass
+failures: 0

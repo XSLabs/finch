@@ -334,7 +334,10 @@ enum _FinchMainMenu {
             let menu = NSMenu(title: title)
             for group in groups where !group.isEmpty {
                 if !menu.items.isEmpty { menu.addItem(.separator()) }
-                group.forEach(menu.addItem)
+                // an item in two groups (its placement in two menus) is added as a copy the second time
+                for item in group {
+                    menu.addItem(item.menu == nil ? item : item.copy() as! NSMenuItem)
+                }
             }
             let top = NSMenuItem(title: title, action: nil, keyEquivalent: "")
             top.submenu = menu
