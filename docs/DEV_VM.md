@@ -232,8 +232,10 @@ Other switches for an AppKit app (they work on the host too):
   a SwiftUI button's mouse-up ran its action or was released outside.
 - `FINCH_TRACE_DISPLAY=1`: each window invalidation (with its thread), each display
   pass, each layer that redraws, and layer changes outside any view's tree.
-- `FINCH_DUMP_VIEWS=1` (SwiftUI windows): the sizes a Window scene measures its content
-  at (ideal, minimum, maximum, at the window's width and size) as it opens.
+- `FINCH_DUMP_VIEWS=1` (SwiftUI windows): the sizes a window scene measures its content
+  at (ideal, least, most) and opens at.
+- `FINCH_TRACE_LAYOUT=1` (SwiftUI): every layout's size for each proposal, nested, with
+  the answers custom layouts get from their subviews: where a size comes from.
 - `FINCH_CALCULATE_DEBUG=1`: each key Calculate applies or refuses and the expression
   after it, and each time CalculateUI's display redraws.
 - `OpenSWIFTUI_EVENT_DEBUG=ebph` (events, bindings, phases, hit testing) with

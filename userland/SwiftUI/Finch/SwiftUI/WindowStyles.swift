@@ -20,8 +20,6 @@ struct _FinchWindowOptions {
     var toolbarShowsTitle = true
     var level: NSWindow.Level?
     var movableByBackground: Bool?
-    /// windowResizability(_:): a window sized to its content takes the content's ideal size
-    var sizedToContent = false
 
     static var current = _FinchWindowOptions()
 

@@ -41,6 +41,107 @@ KINDS = [
 
 # (file, upstream code, Finch's): fixes to upstream code
 FIXES = [
+    # the hosting view's safe area (the title bar, over a full-size content view) as the
+    # view graph's, as Apple's: content is placed below it, measured with it, and can ignore it
+    ('SwiftUI/Integration/Hosting/AppKit/View/NSHostingView.swift',
+     '''    package func updateSafeArea() {
+        // TODO
+    }''',
+     '''    package func updateSafeArea() {
+        let insets = safeAreaRegions.contains(.container) ? safeAreaInsets : NSEdgeInsetsZero
+        let changed = viewGraph.setSafeAreaInsets(
+            EdgeInsets(top: insets.top, leading: insets.left, bottom: insets.bottom, trailing: insets.right))
+        if changed {
+            invalidateIntrinsicContentSize()
+        }
+    }'''),
+    ('SwiftUI/Integration/Hosting/AppKit/View/NSHostingView.swift',
+     '''            invalidateProperties([.size, .containerSize], mayDeferUpdate: false)''',
+     '''            invalidateProperties([.size, .containerSize, .safeArea], mayDeferUpdate: false)'''),
+    ('SwiftUI/Integration/Hosting/AppKit/View/NSHostingView.swift',
+     '''        if window != nil {
+            invalidateProperties(.transform)''',
+     '''        if window != nil {
+            invalidateProperties([.transform, .safeArea])'''),
+    ('SwiftUICore/Layout/LayoutComputer/UnaryLayoutView.swift',
+     '''        return dimensionsCache.get(proposedSize) {
+            layout.sizeThatFits(
+                in: proposedSize,
+                context: context,
+                child: child
+            )
+        }''',
+     '''        return dimensionsCache.get(proposedSize) {
+            if _finchTraceLayout { _finchLayoutDepth += 1 }
+            let size = layout.sizeThatFits(
+                in: proposedSize,
+                context: context,
+                child: child
+            )
+            if _finchTraceLayout {
+                _finchLayoutDepth -= 1
+                print("\\(String(repeating: "  ", count: _finchLayoutDepth))unary \\(layout) \\(proposedSize) -> \\(size)", to: &_finchStandardError)
+            }
+            return size
+        }'''),
+    # each custom layout's sizing and its subviews' answers (FINCH_TRACE_LAYOUT=1)
+    ('SwiftUICore/Layout/Layout.swift',
+     '''    mutating func sizeThatFits(_ proposedSize: _ProposedSize) -> CGSize {
+        sizeCache.get(proposedSize) {
+            layout.sizeThatFits(
+                proposal: ProposedViewSize(proposedSize),
+                subviews: LayoutSubviews(
+                    context: proxies.context,
+                    storage: .direct(proxies.attributes),
+                    layoutDirection: layoutDirection
+                ),
+                cache: &cache
+            )
+        }
+    }''',
+     '''    mutating func sizeThatFits(_ proposedSize: _ProposedSize) -> CGSize {
+        sizeCache.get(proposedSize) {
+            if _finchTraceLayout { _finchLayoutDepth += 1 }
+            let size = layout.sizeThatFits(
+                proposal: ProposedViewSize(proposedSize),
+                subviews: LayoutSubviews(
+                    context: proxies.context,
+                    storage: .direct(proxies.attributes),
+                    layoutDirection: layoutDirection
+                ),
+                cache: &cache
+            )
+            if _finchTraceLayout {
+                _finchLayoutDepth -= 1
+                print("\\(String(repeating: "  ", count: _finchLayoutDepth))layout \\(L.self) \\(proposedSize) -> \\(size)", to: &_finchStandardError)
+            }
+            return size
+        }
+    }'''),
+    ('SwiftUICore/Layout/Layout.swift',
+     '''    public func sizeThatFits(_ proposal: ProposedViewSize) -> CGSize {
+        proxy.size(in: .init(proposal))
+    }''',
+     '''    public func sizeThatFits(_ proposal: ProposedViewSize) -> CGSize {
+        let size = proxy.size(in: .init(proposal))
+        if _finchTraceLayout {
+            print("\\(String(repeating: "  ", count: _finchLayoutDepth))  subview \\(proposal.width.map { "\\($0)" } ?? "nil")x\\(proposal.height.map { "\\($0)" } ?? "nil") -> \\(size)", to: &_finchStandardError)
+        }
+        return size
+    }'''),
+    ('SwiftUICore/Layout/Layout.swift',
+     '''package import OpenAttributeGraphShims
+''',
+     '''package import OpenAttributeGraphShims
+import Darwin
+
+let _finchTraceLayout = getenv("FINCH_TRACE_LAYOUT") != nil
+nonisolated(unsafe) var _finchLayoutDepth = 0
+struct _FinchStandardError: TextOutputStream {
+    mutating func write(_ string: String) { fputs(string, stderr) }
+}
+nonisolated(unsafe) var _finchStandardError = _FinchStandardError()
+'''),
     # which environment lacks an object: its keys, in the failure (FINCH_ENV_OBJECT_DEBUG=1)
     ('SwiftUICore/Data/Combine/Environment+Objects.swift',
      '''#else

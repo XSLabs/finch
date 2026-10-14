@@ -421,10 +421,12 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         match Apple's in host comparisons), and 93 more SwiftUI symbols (Grid, picker
         content, window styles and levels, asset-catalogue colours and images). The
         window opens with its keypad and display, and computes: 7 + 2 = shows 9, and the
-        clear key turns from AC to C as Apple's does. Open: the window is the width of
-        Finch's fallback (Calculator's ideal width is unbounded), its content is laid
-        out 50 points taller than the window so the top of the display and the bottom
-        row are cut off, and the Mode picker sits over the display.
+        clear key turns from AC to C as Apple's does. Windows open as Apple's SwiftUI
+        opens them (checked against it on the host: the content's ideal size, 900 by 450
+        where it has none, the title bar's safe area added), so the display sits below
+        the title bar. Open: the bottom row is 25 points short (Calculator cancels a
+        margin Apple's NavigationSplitView detail column gives and Finch's doesn't), and
+        the Mode picker is drawn in the content rather than the title bar.
   - [x] Drop-in check: `tools/app-sweep.py` runs the import check over every app and the
         frameworks it carries, and ranks what's missing by apps blocked. Apple's apps are
         recorded in [`docs/APPS.md`](APPS.md) (2026-10-12: 11 of 65 have every import;

@@ -45,7 +45,12 @@ enum _FinchWindows {
             title = currentAppName()
         }
         windowVC.window?.title = title
-        if let window = windowVC.window { _FinchWindowOptions.current.apply(to: window) }
+        if let window = windowVC.window {
+            _FinchWindowOptions.current.apply(to: window)
+            // the style can run the content under the title bar: its safe area changed
+            hostingVC.view.willChangeValue(forKey: "safeAreaInsets")
+            hostingVC.view.didChangeValue(forKey: "safeAreaInsets")
+        }
         if shouldDumpViewSizing {
             dumpWindowSizing("pre-show", hostingVC: hostingVC, window: windowVC.window, preferred: initialSize,
                              fitting: hostingVC.view.fittingSize)
@@ -54,12 +59,19 @@ enum _FinchWindows {
         // the window at its content's size, centered (a window opened later doesn't take it
         // from its controller by itself)
         if let window = windowVC.window {
-            let size = hostingVC.view.fittingSize
+            // measured again now that it's in the window: with content under the title bar,
+            // the measure includes the title bar's height
+            let size = initialContentSize(for: hostingVC)
             dumpWindowSizing("post-show", hostingVC: hostingVC, window: window, preferred: initialSize, fitting: size)
             if size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0,
                window.contentRect(forFrameRect: window.frame).size != size {
                 window.setContentSize(size)
                 window.center()
+            }
+            // a Window scene's frame is kept under its id, as Apple's ("NSWindow Frame main")
+            if case let .string(name) = item.id, singleWindowIDs.contains(name) {
+                window.setFrameUsingName(name)
+                window.setFrameAutosaveName(name)
             }
             dumpWindowSizing("post-size", hostingVC: hostingVC, window: window, preferred: initialSize, fitting: size)
             if shouldDumpViewSizing {
@@ -82,38 +94,31 @@ enum _FinchWindows {
         return windowVC
     }
 
-    /// Gives AppKit a finite starting size before it asks the hosting view for its intrinsic size.
+    /// The size a window opens at, as Apple's: the content's ideal size, a dimension without
+    /// one 900 wide or 450 tall, kept within the content's least and greatest sizes (and the
+    /// screen). The title bar's safe area, when the content runs under it, comes on top.
     private static func initialContentSize<Content: View>(for hostingVC: NSHostingController<Content>) -> NSSize {
         let visibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? .zero
-        let proposalWidth = visibleFrame.width.isFinite && visibleFrame.width > 0
-            ? min(500, visibleFrame.width)
-            : 500
-        let proposalHeight = visibleFrame.height.isFinite && visibleFrame.height > 0
-            ? min(600, visibleFrame.height)
-            : 600
-        // as Apple's hosting view: the content's ideal size, when it has one
-        let ideal = hostingVC.host.sizeThatFits(_ProposedSize(width: nil, height: nil))
-        dumpViewSize("ideal", ideal)
+        let host = hostingVC.host
+        let least = host.sizeThatFits(_ProposedSize(width: 0, height: 0))
+        let most = host.sizeThatFits(_ProposedSize(width: .infinity, height: .infinity))
+        func clamp(_ value: CGFloat, _ low: CGFloat, _ high: CGFloat, _ screen: CGFloat) -> CGFloat {
+            var v = value
+            if high.isFinite { v = min(v, high) }
+            if low.isFinite { v = max(v, low) }
+            if screen.isFinite, screen > 0 { v = min(v, screen) }
+            return max(v, 1)
+        }
+        let ideal = host.sizeThatFits(_ProposedSize(width: nil, height: nil))
+        let width = clamp(ideal.width.isFinite ? ideal.width : 900, least.width, most.width, visibleFrame.width)
+        let fitted = host.sizeThatFits(_ProposedSize(width: width, height: nil))
+        let height = clamp(fitted.height.isFinite ? fitted.height : 450, least.height, most.height, visibleFrame.height)
         if shouldDumpViewSizing {
-            dumpViewSize("minimum", hostingVC.host.sizeThatFits(_ProposedSize(width: 0, height: 0)))
-            dumpViewSize("maximum", hostingVC.host.sizeThatFits(_ProposedSize(width: .infinity, height: .infinity)))
-            dumpViewSize("ideal width at height nil, width 0", hostingVC.host.sizeThatFits(_ProposedSize(width: 0, height: nil)))
+            dumpViewSize("ideal", ideal)
+            dumpViewSize("least", least)
+            dumpViewSize("most", most)
+            dumpViewSize("opening", NSSize(width: width, height: height))
         }
-        if _FinchWindowOptions.current.sizedToContent, ideal.width.isFinite, ideal.width > 0, ideal.width <= visibleFrame.width || visibleFrame.width <= 0,
-           ideal.height.isFinite, ideal.height > 0, ideal.height <= visibleFrame.height || visibleFrame.height <= 0 {
-            return ideal
-        }
-        let natural = hostingVC.host.sizeThatFits(_ProposedSize(width: proposalWidth, height: nil))
-        dumpViewSize("natural", natural)
-        if natural.width.isFinite, natural.width > 0, natural.height.isFinite, natural.height > 0 {
-            return NSSize(width: natural.width, height: natural.height)
-        }
-
-        // Some flexible roots have no natural height. Measure them again inside a finite viewport.
-        let viewport = hostingVC.host.sizeThatFits(_ProposedSize(width: proposalWidth, height: proposalHeight))
-        dumpViewSize("viewport", viewport)
-        let width = viewport.width.isFinite && viewport.width > 0 ? viewport.width : proposalWidth
-        let height = viewport.height.isFinite && viewport.height > 0 ? viewport.height : proposalHeight
         return NSSize(width: width, height: height)
     }
 
@@ -335,9 +340,7 @@ struct _FinchPassThroughSceneModifier: PrimitiveSceneModifier {
 @available(OpenSwiftUI_v4_0, *)
 extension Scene {
     nonisolated public func windowResizability(_ resizability: WindowResizability) -> some Scene {
-        modifier(_FinchWindowOptionsModifier(value: resizability.kind == .contentSize) { options, sized in
-            options.sizedToContent = sized
-        })
+        modifier(_FinchPassThroughSceneModifier())
     }
 
     nonisolated public func defaultSize(_ size: CGSize) -> some Scene {
