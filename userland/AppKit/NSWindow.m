@@ -1765,7 +1765,28 @@ pass_key_on(NSWindow *leaving)
         should = [_delegate windowShouldClose:self];
     else if ([self respondsToSelector:@selector(windowShouldClose:)])
         should = [(id<NSWindowDelegate>)self windowShouldClose:self];
-    if (should)
+    if (!should)
+        return;
+    /* as Apple's: a document's window asks its document, which may ask the user to save */
+    NSWindowController *wc = [self windowController];
+    NSDocument *doc = [wc document];
+    if (doc) {
+        [doc shouldCloseWindowController:wc delegate:self
+                     shouldCloseSelector:@selector(_finchDocument:shouldClose:contextInfo:) contextInfo:NULL];
+        return;
+    }
+    [self close];
+}
+
+- (void)_finchDocument:(NSDocument *)doc shouldClose:(BOOL)shouldClose contextInfo:(void *)contextInfo
+{
+    if (!shouldClose)
+        return;
+    NSWindowController *wc = [self windowController];
+    /* the document goes with its last window, or with a controller that closes it */
+    if ([[doc windowControllers] count] <= 1 || [wc shouldCloseDocument])
+        [doc close];
+    else
         [self close];
 }
 
@@ -2133,6 +2154,10 @@ track(NSView *view, NSPoint inWindow, NSEvent *event, NSInteger window, BOOL inW
 {
     if ([(id)_delegate respondsToSelector:@selector(windowWillReturnUndoManager:)])
         return [_delegate windowWillReturnUndoManager:self];
+    /* as Apple's: a document's window undoes into its document (whose change count follows) */
+    NSDocument *doc = [[self windowController] document];
+    if ([doc undoManager])
+        return [doc undoManager];
     NSUndoManager *u = objc_getAssociatedObject(self, @selector(undoManager));
     if (!u) {
         u = [[[NSUndoManager alloc] init] autorelease];

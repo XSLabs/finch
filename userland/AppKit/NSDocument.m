@@ -717,18 +717,73 @@ add_unique(NSMutableArray *out, NSArray *items)
     [[_windowControllers firstObject] setWindow:window];
 }
 
+static void
+answer_close(id delegate, SEL selector, NSDocument *doc, BOOL yes, void *contextInfo)
+{
+    if (delegate && selector)
+        ((void (*)(id, SEL, id, BOOL, void *))objc_msgSend)(delegate, selector, doc, yes, contextInfo);
+}
+
+/* As Apple's: closing a window that isn't the document's last (nor closes it) asks nothing;
+   otherwise the document is asked whether it can close. */
 - (void)shouldCloseWindowController:(NSWindowController *)controller delegate:(id)delegate
                 shouldCloseSelector:(SEL)shouldCloseSelector contextInfo:(void *)contextInfo
 {
-    if (delegate && shouldCloseSelector)
-        ((void (*)(id, SEL, id, BOOL, void *))objc_msgSend)(delegate, shouldCloseSelector, self, YES, contextInfo);
+    if ([_windowControllers count] > 1 && ![controller shouldCloseDocument]) {
+        answer_close(delegate, shouldCloseSelector, self, YES, contextInfo);
+        return;
+    }
+    [self canCloseDocumentWithDelegate:delegate shouldCloseSelector:shouldCloseSelector contextInfo:contextInfo];
 }
 
+/* As Apple's: an unedited document closes; one that autosaves in place and has a file is
+   saved and closes; an untitled one that autosaves asks whether to keep it (Save..., Delete,
+   Cancel); any other edited one whether to save its changes (Save, Don't Save, Cancel). */
 - (void)canCloseDocumentWithDelegate:(id)delegate shouldCloseSelector:(SEL)shouldCloseSelector
                          contextInfo:(void *)contextInfo
 {
-    if (delegate && shouldCloseSelector)
-        ((void (*)(id, SEL, id, BOOL, void *))objc_msgSend)(delegate, shouldCloseSelector, self, YES, contextInfo);
+    if (![self isDocumentEdited]) {
+        answer_close(delegate, shouldCloseSelector, self, YES, contextInfo);
+        return;
+    }
+    BOOL autosaves = [[self class] autosavesInPlace];
+    if (autosaves && _fileURL) {
+        [self saveToURL:_fileURL ofType:_fileType forSaveOperation:NSAutosaveInPlaceOperation
+            completionHandler:^(NSError *e) {
+                if (e)
+                    [self presentError:e];
+                answer_close(delegate, shouldCloseSelector, self, e == nil, contextInfo);
+            }];
+        return;
+    }
+    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+    if (autosaves) {
+        [alert setMessageText:[NSString stringWithFormat:@"Do you want to keep this new document “%@”?", [self displayName]]];
+        [alert setInformativeText:@"You can choose to save your changes, or delete this document immediately. "
+                                  @"You can't undo this action."];
+        [alert addButtonWithTitle:@"Save…"];
+        [alert addButtonWithTitle:@"Delete"];
+    } else {
+        [alert setMessageText:[NSString stringWithFormat:@"Do you want to save the changes made to the document “%@”?",
+                                                         [self displayName]]];
+        [alert setInformativeText:@"Your changes will be lost if you don't save them."];
+        [alert addButtonWithTitle:@"Save"];
+        [alert addButtonWithTitle:@"Don't Save"];
+    }
+    [alert addButtonWithTitle:@"Cancel"];
+    void (^answer)(NSModalResponse) = ^(NSModalResponse r) {
+        if (r == NSAlertFirstButtonReturn) {
+            [self saveDocumentWithDelegate:nil didSaveSelector:NULL contextInfo:NULL];
+            answer_close(delegate, shouldCloseSelector, self, ![self isDocumentEdited], contextInfo);
+        } else {
+            answer_close(delegate, shouldCloseSelector, self, r == NSAlertSecondButtonReturn, contextInfo);
+        }
+    };
+    NSWindow *w = [self windowForSheet];
+    if (w && [w isVisible])
+        [alert beginSheetModalForWindow:w completionHandler:answer];
+    else
+        answer([alert runModal]);
 }
 
 - (void)close
