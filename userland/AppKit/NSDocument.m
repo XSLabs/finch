@@ -91,6 +91,16 @@ review_documents(NSArray *docs, BOOL closing, void (^done)(BOOL))
     [r next];
 }
 
+/* A document whose changes are kept, autosaved, while the app quits, to come back with
+   its window (NSApplication's -terminate:); it isn't asked about. */
+static char kept_key;
+
+static BOOL
+kept_at_quit(NSDocument *d)
+{
+    return objc_getAssociatedObject(d, &kept_key) != nil;
+}
+
 static NSString *const RecentsKey = @"FinchRecentDocumentPaths";  /* the app's defaults */
 
 @implementation NSDocumentController {
@@ -178,7 +188,7 @@ static NSDocumentController *shared_controller;
 - (BOOL)hasEditedDocuments
 {
     for (NSDocument *d in _documents)
-        if ([d isDocumentEdited])
+        if ([d isDocumentEdited] && !kept_at_quit(d))
             return YES;
     return NO;
 }
@@ -414,7 +424,7 @@ type_names(NSDictionary *t)
 {
     NSMutableArray *edited = [NSMutableArray array];
     for (NSDocument *d in [self documents])
-        if ([d isDocumentEdited])
+        if ([d isDocumentEdited] && !kept_at_quit(d))
             [edited addObject:d];
     review_documents(edited, NO, ^(BOOL all) {
         if (delegate && didReviewAllSelector)
@@ -622,6 +632,8 @@ static char last_save_type_key;
     NSPrintInfo *_printInfo;
     BOOL _hasUndoManager;
     BOOL _autosaveScheduled;
+    BOOL _unautosaved;       /* changes since the last save or autosave */
+    NSURL *_autosavedURL;    /* where it was last autosaved elsewhere */
 }
 
 - (instancetype)init
@@ -662,8 +674,15 @@ static char last_save_type_key;
                      error:(NSError **)outError
 {
     self = [self initWithContentsOfURL:contentsURL ofType:typeName error:outError];
-    if (self)
+    if (self) {
         [self setFileURL:urlOrNil];
+        /* as Apple's: read from somewhere else (an autosaved copy), the document is edited
+           and keeps that copy as its autosaved contents */
+        if (!urlOrNil || ![[urlOrNil URLByStandardizingPath] isEqual:[contentsURL URLByStandardizingPath]]) {
+            [self setAutosavedContentsFileURL:contentsURL];
+            [self updateChangeCount:NSChangeReadOtherContents];
+        }
+    }
     return self;
 }
 
@@ -677,6 +696,7 @@ static char last_save_type_key;
     [_undoManager release];
     [_displayName release];
     [_printInfo release];
+    [_autosavedURL release];
     [super dealloc];
 }
 
@@ -768,7 +788,19 @@ add_unique(NSMutableArray *out, NSArray *items)
 }
 - (BOOL)isInViewingMode { return NO; }
 - (BOOL)isBrowsingVersions { return NO; }
-- (BOOL)hasUnautosavedChanges { return _changeCount != 0; }
+- (BOOL)hasUnautosavedChanges { return _unautosaved; }
+- (void)_finchSetKeptAtQuit:(BOOL)kept { objc_setAssociatedObject(self, &kept_key, kept ? @YES : nil, OBJC_ASSOCIATION_RETAIN); }
+- (NSURL *)autosavedContentsFileURL { return _autosavedURL; }
+- (void)setAutosavedContentsFileURL:(NSURL *)url { [_autosavedURL autorelease]; _autosavedURL = [url copy]; }
+
+/* The autosaved copy is no longer wanted (the document was saved, or closed without). */
+- (void)_finchRemoveAutosavedContents
+{
+    if (!_autosavedURL)
+        return;
+    [[NSFileManager defaultManager] removeItemAtURL:_autosavedURL error:NULL];
+    [self setAutosavedContentsFileURL:nil];
+}
 - (NSString *)autosavingFileType { return _fileType; }
 
 /* "Untitled", "Untitled 2", ...: one more than the highest number the controller's untitled documents have. */
@@ -796,6 +828,11 @@ add_unique(NSMutableArray *out, NSArray *items)
 {
     [_displayName autorelease];
     _displayName = [name copy];
+    /* an untitled name given back (a restored document's) keeps its number taken */
+    if ([name isEqualToString:@"Untitled"])
+        _untitledNumber = 1;
+    else if ([name hasPrefix:@"Untitled "] && [[name substringFromIndex:9] integerValue] > 1)
+        _untitledNumber = [[name substringFromIndex:9] integerValue];
 }
 
 #pragma mark Windows
@@ -926,6 +963,7 @@ answer_close(id delegate, SEL selector, NSDocument *doc, BOOL yes, void *context
         [self removeWindowController:wc];
     }
     [[NSDocumentController sharedDocumentController] removeDocument:self];
+    [self _finchRemoveAutosavedContents];
     [self release];
 }
 
@@ -939,13 +977,24 @@ answer_close(id delegate, SEL selector, NSDocument *doc, BOOL yes, void *context
     case NSChangeDone:
     case NSChangeRedone:
         _changeCount++;
+        _unautosaved = YES;
         break;
     case NSChangeUndone:
         _changeCount--;
+        _unautosaved = YES;
         break;
     case NSChangeCleared:
-    case NSChangeReadOtherContents:
         _changeCount = 0;
+        _unautosaved = NO;
+        break;
+    case NSChangeReadOtherContents:
+        /* as Apple's: contents that aren't the file's are changes to it */
+        if (!_changeCount)
+            _changeCount = 1;
+        _unautosaved = NO;
+        break;
+    case NSChangeAutosaved:
+        _unautosaved = NO;
         break;
     default:
         break;
@@ -967,7 +1016,7 @@ answer_close(id delegate, SEL selector, NSDocument *doc, BOOL yes, void *context
 - (void)updateChangeCountWithToken:(id)token forSaveOperation:(NSSaveOperationType)op
 {
     if ([token integerValue] == _changeCount)
-        [self updateChangeCount:NSChangeCleared];
+        [self updateChangeCount:op == NSAutosaveElsewhereOperation ? NSChangeAutosaved : NSChangeCleared];
 }
 
 - (BOOL)hasUndoManager { return _hasUndoManager; }
@@ -1130,10 +1179,18 @@ add_version(NSURL *url, NSSaveOperationType op)
 {
     NSError *error = nil;
     id token = [self changeCountTokenForSaveOperation:op];
+    if (op == NSAutosaveElsewhereOperation)
+        [[NSFileManager defaultManager] createDirectoryAtURL:[url URLByDeletingLastPathComponent]
+                                 withIntermediateDirectories:YES attributes:nil error:NULL];
     BOOL ok = [self writeSafelyToURL:url ofType:typeName forSaveOperation:op error:&error];
-    if (ok && op != NSSaveToOperation && [[self class] preservesVersions])
+    if (ok && op == NSAutosaveElsewhereOperation) {
+        [self setAutosavedContentsFileURL:url];
+        [self updateChangeCountWithToken:token forSaveOperation:op];
+    } else if (ok && op != NSSaveToOperation && [[self class] preservesVersions])
         add_version(url, op);
-    if (ok && op != NSSaveToOperation) {
+    if (ok && op != NSSaveToOperation && op != NSAutosaveElsewhereOperation) {
+        if (_autosavedURL && ![[_autosavedURL URLByStandardizingPath] isEqual:[url URLByStandardizingPath]])
+            [self _finchRemoveAutosavedContents];
         [self setFileURL:url];
         [self setFileType:typeName];
         [self setFileModificationDate:[NSDate date]];
@@ -1224,18 +1281,43 @@ add_version(NSURL *url, NSSaveOperationType op)
         [self revertToContentsOfURL:_fileURL ofType:_fileType error:NULL];
 }
 
-/* Autosaving in place: an edited document with a file is saved to it, as an
- * autosave-in-place operation (Apple's do so a few seconds after an edit, and
- * when the app quits). Autosaving elsewhere (autosavedContentsFileURL) isn't
- * here yet. */
+/* Where a document is autosaved elsewhere, as Apple's: "Unsaved <App> Document" (or
+   "<name> (Autosaved)") in ~/Library/Autosave Information, numbered when taken. */
+static NSURL *
+new_autosave_url(NSDocument *doc)
+{
+    NSString *dir = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Autosave Information"];
+    NSString *app = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleName"] ?: [[NSProcessInfo processInfo] processName];
+    NSString *base = [doc fileURL] ? [NSString stringWithFormat:@"%@ (Autosaved)", [[[doc fileURL] lastPathComponent] stringByDeletingPathExtension]]
+                                   : [NSString stringWithFormat:@"Unsaved %@ Document", app];
+    NSString *ext = [doc fileNameExtensionForType:[doc autosavingFileType] saveOperation:NSAutosaveElsewhereOperation];
+    for (int n = 1;; n++) {
+        NSString *name = n == 1 ? base : [NSString stringWithFormat:@"%@ %d", base, n];
+        if ([ext length])
+            name = [name stringByAppendingPathExtension:ext];
+        NSString *path = [dir stringByAppendingPathComponent:name];
+        if (![[NSFileManager defaultManager] fileExistsAtPath:path])
+            return [NSURL fileURLWithPath:path];
+    }
+}
+
+/* Autosaving: an edited document with a file that autosaves in place is saved to
+ * it (Apple's do so a few seconds after an edit, and when the app quits); an
+ * untitled one, or one in an app with an autosaving delay, is saved elsewhere,
+ * to its autosavedContentsFileURL, and its file is left as it was. */
 - (void)autosaveWithImplicitCancellability:(BOOL)implicit completionHandler:(void (^)(NSError *))handler
 {
-    if (![self hasUnautosavedChanges] || !_fileURL || ![[self class] autosavesInPlace]) {
+    BOOL inPlace = _fileURL && [[self class] autosavesInPlace];
+    BOOL elsewhere = !inPlace && ([[self class] autosavesInPlace] ||
+                                  [[NSDocumentController sharedDocumentController] autosavingDelay] > 0);
+    if (![self hasUnautosavedChanges] || (!inPlace && !elsewhere)) {
         if (handler)
             handler(nil);
         return;
     }
-    [self saveToURL:_fileURL ofType:_fileType forSaveOperation:NSAutosaveInPlaceOperation completionHandler:^(NSError *e) {
+    NSURL *url = inPlace ? _fileURL : (_autosavedURL ?: new_autosave_url(self));
+    NSSaveOperationType op = inPlace ? NSAutosaveInPlaceOperation : NSAutosaveElsewhereOperation;
+    [self saveToURL:url ofType:inPlace ? _fileType : [self autosavingFileType] forSaveOperation:op completionHandler:^(NSError *e) {
         if (handler)
             handler(e);
     }];
@@ -1415,11 +1497,40 @@ add_version(NSURL *url, NSSaveOperationType op)
 
 @implementation NSDocumentController (FinchMore)
 
+/* A document window kept from the last launch (NSWindowRestoration.m): its document
+   reopened from its file, or from its autosaved copy when it had unsaved changes (an
+   untitled one has only that), and asked for the window. */
 + (void)restoreWindowWithIdentifier:(NSUserInterfaceItemIdentifier)identifier state:(NSCoder *)state
                   completionHandler:(void (^)(NSWindow *, NSError *))completionHandler
 {
-    if (completionHandler)
-        completionHandler(nil, [NSError errorWithDomain:NSCocoaErrorDomain code:NSUserCancelledError userInfo:nil]);
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *path = [state decodeObjectForKey:@"FinchDocumentPath"];
+    NSString *autosaved = [state decodeObjectForKey:@"FinchDocumentAutosavedPath"];
+    NSURL *url = [path length] ? [NSURL fileURLWithPath:path] : nil;
+    NSURL *contents = [autosaved length] && [fm fileExistsAtPath:autosaved] ? [NSURL fileURLWithPath:autosaved] : nil;
+    if (!contents && url && [fm fileExistsAtPath:path])
+        contents = url;
+    if (!contents) {
+        if (completionHandler)
+            completionHandler(nil, [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileNoSuchFileError userInfo:nil]);
+        return;
+    }
+    NSDocumentController *dc = [NSDocumentController sharedDocumentController];
+    NSDocument *open = url ? [dc documentForURL:url] : nil;
+    if (open) {
+        [open restoreDocumentWindowWithIdentifier:identifier state:state completionHandler:completionHandler];
+        return;
+    }
+    [dc reopenDocumentForURL:url withContentsOfURL:contents display:NO
+           completionHandler:^(NSDocument *doc, BOOL wasOpen, NSError *error) {
+               NSString *name = [state decodeObjectForKey:@"FinchDocumentName"];
+               if (doc && !url && [name length])
+                   [doc setDisplayName:name];
+               if (doc)
+                   [doc restoreDocumentWindowWithIdentifier:identifier state:state completionHandler:completionHandler];
+               else if (completionHandler)
+                   completionHandler(nil, error);
+           }];
 }
 
 - (void)beginOpenPanel:(NSOpenPanel *)openPanel forTypes:(NSArray<NSString *> *)types

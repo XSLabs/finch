@@ -60,6 +60,17 @@ static NSWindow *key_window, *main_window;  /* not retained */
 - (void)_finchServerEvent:(const FWSEvent *)e;
 @end
 
+@interface NSApplication (FinchRestoration)
+- (BOOL)_finchKeepsWindows;
+- (void)_finchSaveWindows;
+- (void)_finchForgetWindows;
+- (NSUInteger)_finchRestoreWindows;
+@end
+
+@interface NSDocument (FinchKeptAtQuit)
+- (void)_finchSetKeptAtQuit:(BOOL)kept;
+@end
+
 @implementation NSApplication {
     id<NSApplicationDelegate> _delegate;  /* not retained */
     NSEvent *_currentEvent;
@@ -77,6 +88,7 @@ static NSWindow *key_window, *main_window;  /* not retained */
         unsigned launched : 1;
         unsigned stopModal : 1;
         unsigned terminating : 1;
+        unsigned restored : 1;   /* windows came back from the last launch */
     } _a;
 }
 
@@ -278,14 +290,8 @@ FinchApplicationWindowOrderedOut(NSWindow *window)
     }
 }
 
-- (NSArray *)orderedWindows
-{
-    NSMutableArray *a = [NSMutableArray array];
-    for (NSWindow *w in FinchAllWindows())
-        if ([w isVisible])
-            [a addObject:w];
-    return a;
-}
+/* As Apple's: the visible windows, front to back. */
+- (NSArray *)orderedWindows { return FinchOrderedWindows(); }
 
 - (void)updateWindows
 {
@@ -772,7 +778,8 @@ schedule_view_dump(void)
     if (_policy == NSApplicationActivationPolicyRegular)
         [self activateIgnoringOtherApps:YES];
     FinchMenuBarDidLaunch();  /* the menu bar shows from now on (FinchMenuWindow.m) */
-    /* windows would be restored here; none are kept between launches yet */
+    /* the windows kept when the app last quit (NSWindowRestoration.m) */
+    _a.restored = [self _finchRestoreWindows] > 0;
     [nc postNotificationName:NSApplicationDidFinishRestoringWindowsNotification object:self];
     [nc postNotificationName:NSApplicationDidFinishLaunchingNotification
                       object:self
@@ -830,6 +837,9 @@ schedule_view_dump(void)
         }
         return;
     }
+    /* as Apple's: no untitled document when windows were restored */
+    if (_a.restored)
+        return;
     if ([d respondsToSelector:@selector(applicationShouldOpenUntitledFile:)] && ![d applicationShouldOpenUntitledFile:self])
         return;
     if ([d respondsToSelector:@selector(applicationOpenUntitledFile:)]) {
@@ -874,14 +884,22 @@ wake_event(void)
 
 - (void)terminate:(id)sender
 {
-    /* as Apple's: documents that autosave in place are saved before quitting */
+    /* as Apple's: documents that autosave in place are saved before quitting; when the
+       app's windows are kept, untitled ones too, to Autosave Information, to come back
+       with their windows at the next launch, edited still */
     Class dc = FINCH_CLASS(NSDocumentController);
+    BOOL keep = [self _finchKeepsWindows];
     if (dc)
-        for (NSDocument *doc in [[[[dc sharedDocumentController] documents] copy] autorelease])
-            if ([[doc class] autosavesInPlace] && [doc hasUnautosavedChanges])
+        for (NSDocument *doc in [[[[dc sharedDocumentController] documents] copy] autorelease]) {
+            if (![[doc class] autosavesInPlace] || (![doc fileURL] && !keep))
+                continue;
+            if ([doc hasUnautosavedChanges])
                 [doc autosaveWithImplicitCancellability:NO completionHandler:^(NSError *error) {}];
-    /* the rest (untitled ones, and those that don't autosave) are asked about, as Apple's
-       are, before the app's delegate is (Finch doesn't restore unsaved documents yet) */
+            if (keep && ([doc fileURL] || [doc autosavedContentsFileURL]))
+                [doc _finchSetKeptAtQuit:YES];
+        }
+    /* the rest (those that don't autosave, and untitled ones when windows aren't kept) are
+       asked about, as Apple's are, before the app's delegate is */
     if (dc && [[dc sharedDocumentController] hasEditedDocuments]) {
         [[dc sharedDocumentController] reviewUnsavedDocumentsWithAlertTitle:nil cancellable:YES delegate:self
                                                          didReviewAllSelector:@selector(_finchDocumentController:didReviewAll:contextInfo:)
@@ -895,6 +913,9 @@ wake_event(void)
 {
     if (all)
         [self _finchAskDelegateToTerminate];
+    else
+        for (NSDocument *doc in [dc documents])
+            [doc _finchSetKeptAtQuit:NO];
 }
 
 - (void)_finchAskDelegateToTerminate
@@ -915,6 +936,10 @@ wake_event(void)
 - (void)_finchTerminateNow
 {
     _a.terminating = YES;
+    if ([self _finchKeepsWindows])
+        [self _finchSaveWindows];
+    else
+        [self _finchForgetWindows];
     [[NSNotificationCenter defaultCenter] postNotificationName:NSApplicationWillTerminateNotification object:self];
     [[NSUserDefaults standardUserDefaults] synchronize];
     exit(0);

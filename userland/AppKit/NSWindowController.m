@@ -155,6 +155,10 @@
     [_window release];
     _window = [window retain];
     [_window setWindowController:self];
+    if (_document && _window && ![_window restorationClass])
+        [_window setRestorationClass:[[NSDocumentController sharedDocumentController] class]];
+    if (_document)
+        [_window setDocumentEdited:[_document isDocumentEdited]];
 }
 
 - (void)loadWindow
@@ -221,6 +225,11 @@
 - (void)setDocument:(id)document
 {
     _document = document;
+    /* as Apple's: a document's window is restored through the document controller */
+    if (document && _window && ![_window restorationClass])
+        [_window setRestorationClass:[[NSDocumentController sharedDocumentController] class]];
+    if (document)
+        [_window setDocumentEdited:[document isDocumentEdited]];
     [self synchronizeWindowTitleWithDocumentName];
 }
 

@@ -151,7 +151,7 @@ set_stroke(CGContextRef cg, NSColor *c)
 
 /* The cluster: a machined strip of three segments, close (x), minimise (-) and zoom (a square), in ink. */
 static void
-draw_fieldwork_controls(CGContextRef cg, NSRect b, CGFloat t, BOOL key, const BOOL enabled[3], int pressed)
+draw_fieldwork_controls(CGContextRef cg, NSRect b, CGFloat t, BOOL key, const BOOL enabled[3], int pressed, BOOL edited)
 {
     NSRect all = NSUnionRect(button_rect(0, b, t), button_rect(2, b, t));
     CGRect r = NSRectToCGRect(NSInsetRect(all, 0.5, 0.5));
@@ -188,7 +188,11 @@ draw_fieldwork_controls(CGContextRef cg, NSRect b, CGFloat t, BOOL key, const BO
         CGContextSetAlpha(cg, enabled[i] ? 1 : 0.3);
         CGContextSetLineWidth(cg, 1.25);
         CGContextSetLineCap(cg, kCGLineCapRound);
-        if (i == BUTTON_CLOSE) {
+        if (i == BUTTON_CLOSE && edited && pressed != BUTTON_CLOSE) {
+            /* unsaved changes: a dot in the close button, as Apple's */
+            set_fill(cg, ink);
+            CGContextFillEllipseInRect(cg, CGRectMake(cx - 3, cy - 3, 6, 6));
+        } else if (i == BUTTON_CLOSE) {
             CGContextMoveToPoint(cg, cx - 3.5, cy - 3.5);
             CGContextAddLineToPoint(cg, cx + 3.5, cy + 3.5);
             CGContextMoveToPoint(cg, cx - 3.5, cy + 3.5);
@@ -236,6 +240,16 @@ fill_circle(CGContextRef cg, NSRect r, CGFloat red, CGFloat green, CGFloat blue,
  * frame view's coordinates. Full-size content windows draw it from
  * FinchTitlebarView, over the content.
  */
+/* As Apple's: a document that autosaves says "Edited" after its title, where others put
+   a dot in the close button. */
+static BOOL
+edited_in_title(NSWindow *w)
+{
+    id doc = [[w windowController] document];
+    return [w isDocumentEdited] && doc && [[doc class] respondsToSelector:@selector(autosavesInPlace)] &&
+           [[doc class] autosavesInPlace];
+}
+
 - (void)_finchDrawTitlebar:(CGContextRef)cg
 {
     NSWindow *w = [self window];
@@ -268,7 +282,7 @@ fill_circle(CGContextRef cg, NSRect r, CGFloat red, CGFloat green, CGFloat blue,
             CGContextFillRect(cg, CGRectMake(0, NSMaxY(b) - mark, b.size.width, mark));
         }
         if (!bare)
-            draw_fieldwork_controls(cg, b, t, key, enabled, _pressed);
+            draw_fieldwork_controls(cg, b, t, key, enabled, _pressed, [w isDocumentEdited] && !edited_in_title(w));
     } else {
         if (![w titlebarAppearsTransparent]) {
             CGContextSetRGBFillColor(cg, key ? 0.965 : 0.945, key ? 0.965 : 0.945, key ? 0.965 : 0.945, 1);
@@ -303,10 +317,17 @@ fill_circle(CGContextRef cg, NSRect r, CGFloat red, CGFloat green, CGFloat blue,
         if (color)
             attrs[@"NSColor"] = color;
         if ([title respondsToSelector:@selector(sizeWithAttributes:)]) {
+            NSString *suffix = edited_in_title(w) ? @" \u2014 Edited" : nil;
+            NSMutableDictionary *suffixAttrs = [[attrs mutableCopy] autorelease];
+            suffixAttrs[@"NSColor"] = [NSColor secondaryLabelColor];
             NSSize size = [title sizeWithAttributes:attrs];
+            CGFloat suffixWidth = suffix ? [suffix sizeWithAttributes:suffixAttrs].width : 0;
             CGFloat left = NSMaxX(button_rect(2, b, t)) + 12;
-            CGFloat x = MAX(left, floor((b.size.width - size.width) / 2));
-            [title drawAtPoint:NSMakePoint(x, NSMaxY(b) - t + floor((t - size.height) / 2)) withAttributes:attrs];
+            CGFloat x = MAX(left, floor((b.size.width - size.width - suffixWidth) / 2));
+            CGFloat y = NSMaxY(b) - t + floor((t - size.height) / 2);
+            [title drawAtPoint:NSMakePoint(x, y) withAttributes:attrs];
+            if (suffix)
+                [suffix drawAtPoint:NSMakePoint(x + size.width, y) withAttributes:suffixAttrs];
         }
     }
 }
@@ -440,6 +461,7 @@ chrome_changed(NSWindow *w)
     NSRect _dirty;  /* window coordinates */
     NSWindowCollectionBehavior _collectionBehavior;
     NSInteger _number;
+    double _orderStamp;  /* where it was last ordered, front highest (FinchOrderedWindows) */
     NSWindowTabbingMode _tabbingMode;
     NSAppearance *_appearance;
     NSWindowSharingType _sharingType;
@@ -621,6 +643,24 @@ FINCH_PRIVATE NSArray *
 FinchAllWindows(void)
 {
     return all_windows ? [NSArray arrayWithArray:(NSArray *)all_windows] : @[];
+}
+
+/* The app's visible windows front to back: by level, then as last ordered. */
+NSArray *
+FinchOrderedWindows(void)
+{
+    NSMutableArray *a = [NSMutableArray array];
+    for (NSWindow *w in (NSArray *)all_windows)
+        if ([w isVisible])
+            [a addObject:w];
+    [a sortWithOptions:NSSortStable usingComparator:^NSComparisonResult(NSWindow *x, NSWindow *y) {
+        if ([x level] != [y level])
+            return [x level] > [y level] ? NSOrderedAscending : NSOrderedDescending;
+        if (x->_orderStamp != y->_orderStamp)
+            return x->_orderStamp > y->_orderStamp ? NSOrderedAscending : NSOrderedDescending;
+        return NSOrderedSame;
+    }];
+    return a;
 }
 
 NSWindow *
@@ -1192,7 +1232,13 @@ check_chrome(NSWindow *w, NSRect *last)
 - (BOOL)isMovableByWindowBackground { return _w.movableByBackground; }
 - (void)setMovableByWindowBackground:(BOOL)flag { _w.movableByBackground = flag; }
 - (BOOL)isDocumentEdited { return _w.documentEdited; }
-- (void)setDocumentEdited:(BOOL)flag { _w.documentEdited = flag; }
+- (void)setDocumentEdited:(BOOL)flag
+{
+    if (_w.documentEdited == (unsigned)flag)
+        return;
+    _w.documentEdited = flag;
+    [_frameView setNeedsDisplay:YES];  /* the close button's dot, or "Edited" after the title */
+}
 - (BOOL)isRestorable { return _w.restorable; }
 - (void)setRestorable:(BOOL)flag { _w.restorable = flag; }
 - (BOOL)worksWhenModal { return NO; }
@@ -1617,6 +1663,12 @@ check_chrome(NSWindow *w, NSRect *last)
         [self _finchInvalidateRect:NSMakeRect(0, 0, _frame.size.width, _frame.size.height)];
     [self displayIfNeeded];
     FWSOrderWindow(_server, place == NSWindowBelow ? FWS_ORDER_BELOW : FWS_ORDER_ABOVE, (uint32_t)MAX(other, 0));
+    static double front, back;
+    NSWindow *relative = FinchWindowForNumber(other);
+    if (relative)
+        _orderStamp = relative->_orderStamp + (place == NSWindowBelow ? -1e-6 : 1e-6);
+    else
+        _orderStamp = place == NSWindowBelow ? --back : ++front;
     for (NSWindow *child in _children)
         [child orderWindow:NSWindowAbove relativeTo:_number];
     if (appearing) {

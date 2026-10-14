@@ -425,8 +425,11 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         Export as PDF writes the text on white paper within the margins, scaled to fit.
         Closing an edited untitled document asks whether to keep it (Save..., Delete), an
         edited one that doesn't autosave whether to save it; one with a file autosaves.
-        Quitting asks the same of each edited document in turn (Finch doesn't restore
-        unsaved documents at the next launch yet, as macOS does). File > Open Recent lists
+        Quitting keeps the app's windows, as macOS's Resume does (NSWindowRestoration.m):
+        untitled documents and unsaved changes are autosaved to ~/Library/Autosave
+        Information and come back, still edited, at the next launch, in the same order and
+        place; documents that don't autosave are asked about in turn. Edited windows show
+        "— Edited" after the title, or a dot in the close button. File > Open Recent lists
         the recent documents, kept in the app's defaults across launches.
   - [ ] Calculator: runs in QEMU (2026-10-13). Every import resolves to Finch's
         frameworks (`tools/check-imports.py`): its engine, Calculate (an expression tree

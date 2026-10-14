@@ -63,6 +63,7 @@ FINCH_PRIVATE NSEvent *FinchEventApplyLocalMonitors(NSEvent *event);
 /* NSWindow (NSWindow.m) */
 FINCH_PRIVATE NSArray *FinchAllWindows(void);
 FINCH_PRIVATE NSWindow *FinchWindowForNumber(NSInteger number);
+FINCH_PRIVATE NSArray *FinchOrderedWindows(void);
 FINCH_PRIVATE void FinchWindowServerEvent(const FWSEvent *e);
 
 /* Titlebar accessories know their window (NSAccessoryClasses.m, NSWindow.m). */
