@@ -426,8 +426,10 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         where it has none, the title bar's safe area added), so the display sits below
         the title bar. With NavigationSplitView's detail column sized as Apple's (no
         ideal width; the title bar's height below its content as above), the whole keypad
-        shows and 7 + 2 = reads "7+2" over "9". Open: the Mode picker is drawn in the
-        content (over the expression line) rather than in the title bar.
+        shows and 7 + 2 = reads "7+2" over "9". A unified toolbar shares the title bar's
+        52-point band, so the Mode picker sits beside the window controls and the window
+        is Apple's height (408). Next: the other modes (scientific, programmer, RPN,
+        conversion), history, the Edit menu, keyboard entry.
   - [x] Drop-in check: `tools/app-sweep.py` runs the import check over every app and the
         frameworks it carries, and ranks what's missing by apps blocked. Apple's apps are
         recorded in [`docs/APPS.md`](APPS.md) (2026-10-12: 11 of 65 have every import;

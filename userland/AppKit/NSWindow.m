@@ -61,25 +61,38 @@ titlebar_height(NSWindowStyleMask style)
     return (style & NSWindowStyleMaskFullSizeContentView) ? 0 : bar_height(style);
 }
 
-/* The title bar and, when shown, the toolbar's row under it (NSToolbar.m). */
+/* The title bar and, when shown, the toolbar's row under it (NSToolbar.m). A unified
+   toolbar shares one band with the title bar instead, right of the window controls. */
 extern const CGFloat FinchToolbarHeight;
+enum { UNIFIED_BAND = 52 };  /* as macOS 26's unified title bar and toolbar */
+
+static BOOL
+unified_toolbar(NSWindow *w)
+{
+    NSWindowToolbarStyle style = [w toolbarStyle];
+    return [[w toolbar] isVisible] &&
+           (style == NSWindowToolbarStyleUnified || style == NSWindowToolbarStyleUnifiedCompact);
+}
+
+static CGFloat
+with_toolbar(NSWindow *w, CGFloat t)
+{
+    if (!t || ![[w toolbar] isVisible])
+        return t;
+    return unified_toolbar(w) ? MAX(t, UNIFIED_BAND) : t + FinchToolbarHeight;
+}
+
 static CGFloat
 chrome_height(NSWindow *w)
 {
-    CGFloat t = titlebar_height([w styleMask]);
-    if (t && [[w toolbar] isVisible])
-        t += FinchToolbarHeight;
-    return t;
+    return with_toolbar(w, titlebar_height([w styleMask]));
 }
 
 /* The title bar and toolbar as drawn: over the content's top when the content is full size. */
 static CGFloat
 visible_chrome_height(NSWindow *w)
 {
-    CGFloat t = bar_height([w styleMask]);
-    if (t && [[w toolbar] isVisible])
-        t += FinchToolbarHeight;
-    return t;
+    return with_toolbar(w, bar_height([w styleMask]));
 }
 
 static CFMutableArrayRef all_windows;  /* not retaining; in creation order */
@@ -436,6 +449,7 @@ chrome_changed(NSWindow *w)
     NSWindow *_parent;
     NSMutableArray *_children;
     NSToolbar *_toolbar;
+    NSWindowToolbarStyle _toolbarStyle;
     struct {
         unsigned visible : 1;
         unsigned occlusionVisible : 1; /* the occlusion state last posted */
@@ -1248,7 +1262,10 @@ check_chrome(NSWindow *w, NSRect *last)
     CGFloat t = bar_height(_style);
     BOOL shown = t && [_toolbar isVisible];
     if (before < 0)
-        before = titlebar_height(_style) ? t + (shown ? 0 : FinchToolbarHeight) : 0;
+        before = !titlebar_height(_style) ? 0
+                 : shown ? t
+                 : (_toolbarStyle == NSWindowToolbarStyleUnified || _toolbarStyle == NSWindowToolbarStyleUnifiedCompact)
+                     ? MAX(t, UNIFIED_BAND) : t + FinchToolbarHeight;
     CGFloat after = chrome_height(self);
     if (after != before) {
         NSRect f = _frame;
@@ -1256,7 +1273,14 @@ check_chrome(NSWindow *w, NSRect *last)
         f.origin.y -= after - before;
         [self setFrame:f display:NO];
     }
-    if (shown) {
+    if (shown && unified_toolbar(self)) {
+        CGFloat band = visible_chrome_height(self);
+        CGFloat left = NSMaxX(button_rect(2, NSMakeRect(0, 0, _frame.size.width, _frame.size.height), t)) + 12;
+        [row setFrame:NSMakeRect(left, _frame.size.height - band, _frame.size.width - left, band)];
+        [row setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
+        if ([row superview] != _frameView)
+            [_frameView addSubview:row];
+    } else if (shown) {
         [row setFrame:NSMakeRect(0, _frame.size.height - t - FinchToolbarHeight, _frame.size.width, FinchToolbarHeight)];
         [row setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
         if ([row superview] != _frameView)
@@ -1301,8 +1325,16 @@ check_chrome(NSWindow *w, NSRect *last)
 {
     [_toolbar runCustomizationPalette:sender];
 }
-- (NSWindowToolbarStyle)toolbarStyle { return NSWindowToolbarStyleAutomatic; }
-- (void)setToolbarStyle:(NSWindowToolbarStyle)style {}
+- (NSWindowToolbarStyle)toolbarStyle { return _toolbarStyle; }
+- (void)setToolbarStyle:(NSWindowToolbarStyle)style
+{
+    if (style == _toolbarStyle)
+        return;
+    CGFloat before = chrome_height(self);
+    _toolbarStyle = style;
+    if (_toolbar)
+        [self _finchToolbarChangedFrom:before];
+}
 - (NSTitlebarSeparatorStyle)titlebarSeparatorStyle { return NSTitlebarSeparatorStyleAutomatic; }
 - (void)setTitlebarSeparatorStyle:(NSTitlebarSeparatorStyle)style {}
 /* Titlebar accessories: kept in order, each knowing its window (NSAccessoryClasses.m).
