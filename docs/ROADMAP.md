@@ -413,6 +413,9 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         reopen, revert, find, rulers, tables, print to PDF, autosave and versions
         (NSFileVersion keeps versions since 2026-10-14: a document that autosaves in place
         adds one on each save, and Browse All Versions restores one; to check in TextEdit).
+        The format bar has the font's family, size, bold, italic, underline and colour
+        beside alignment and spacing, and the font and colour panels change the selection
+        (NSTextView's changeFont: and changeColor: were empty).
   - [ ] Calculator: runs in QEMU (2026-10-13). Every import resolves to Finch's
         frameworks (`tools/check-imports.py`): its engine, Calculate (an expression tree
         edited key by key as Apple's is, RPN and programmer modes, text expressions and

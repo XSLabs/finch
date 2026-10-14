@@ -49,6 +49,10 @@
 @interface NSTextViewSharedData : NSObject <NSCoding>
 @end
 
+@interface NSTextView (FinchRulerFonts)
+- (void)_finchConvertFonts:(NSFont * (^)(NSFont *font))convert;  /* NSTextViewMore.m */
+@end
+
 @implementation NSTextViewSharedData {
 @public
     uint32_t _flags, _moreFlags;
@@ -868,7 +872,15 @@ set_paragraph_value(NSTextView *self, NSRange range, void (^change)(NSMutablePar
 static NSString *const kHeadTag = @"NSHeadIndentRulerMarkerTag";
 static NSString *const kTailTag = @"NSTailIndentRulerMarkerTag";
 static NSString *const kFirstTag = @"NSFirstLineHeadIndentRulerMarkerTag";
-enum { kRulerAlignTag = 7101, kRulerSpacingTag = 7102 };
+enum { kRulerAlignTag = 7101, kRulerSpacingTag = 7102, kRulerFamilyTag = 7103, kRulerSizeTag = 7104,
+       kRulerStyleTag = 7105, kRulerColorTag = 7106 };
+
+
+static NSArray<NSString *> *
+ruler_sizes(void)
+{
+    return @[ @"9", @"10", @"11", @"12", @"13", @"14", @"18", @"24", @"36", @"48", @"64", @"72" ];
+}
 
 static NSImage *
 marker_image(NSSize size, void (^draw)(NSBezierPath *p))
@@ -927,14 +939,50 @@ ruler_accessory(NSTextView *tv)
     [box setTransparent:YES];
     NSView *bar = [[[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 30)] autorelease];
     [bar setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    CGFloat x = 8;
+    /* the font: family, size, bold, italic and underline, and colour (rich text only) */
+    if ([tv isRichText]) {
+        NSPopUpButton *family = [[[NSPopUpButton alloc] initWithFrame:NSMakeRect(x, 4, 130, 22) pullsDown:NO] autorelease];
+        NSArray *families = [[[NSFontManager sharedFontManager] availableFontFamilies]
+            sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+        [family addItemsWithTitles:families];
+        [family setTag:kRulerFamilyTag];
+        [family setTarget:tv];
+        [family setAction:@selector(_finchRulerFamily:)];
+        [bar addSubview:family];
+        x += 136;
+        NSPopUpButton *size = [[[NSPopUpButton alloc] initWithFrame:NSMakeRect(x, 4, 56, 22) pullsDown:NO] autorelease];
+        [size addItemsWithTitles:ruler_sizes()];
+        [size setTag:kRulerSizeTag];
+        [size setTarget:tv];
+        [size setAction:@selector(_finchRulerSize:)];
+        [bar addSubview:size];
+        x += 62;
+        NSSegmentedControl *style = [NSSegmentedControl segmentedControlWithLabels:@[ @"B", @"I", @"U" ]
+                                                                      trackingMode:NSSegmentSwitchTrackingSelectAny
+                                                                            target:tv
+                                                                            action:@selector(_finchRulerStyle:)];
+        [style setTag:kRulerStyleTag];
+        [style setFrame:NSMakeRect(x, 4, 78, 22)];
+        [bar addSubview:style];
+        x += 84;
+        NSColorWell *color = [[[NSColorWell alloc] initWithFrame:NSMakeRect(x, 4, 30, 22)] autorelease];
+        [color setColor:[NSColor textColor]];
+        [color setTag:kRulerColorTag];
+        [color setTarget:tv];
+        [color setAction:@selector(_finchRulerColor:)];
+        [bar addSubview:color];
+        x += 38;
+    }
     NSSegmentedControl *align = [NSSegmentedControl segmentedControlWithLabels:@[ @"Left", @"Center", @"Right", @"Justify" ]
                                                                   trackingMode:NSSegmentSwitchTrackingSelectOne
                                                                         target:tv
                                                                         action:@selector(_finchRulerAlignment:)];
     [align setTag:kRulerAlignTag];
-    [align setFrame:NSMakeRect(8, 4, 220, 22)];
+    [align setFrame:NSMakeRect(x, 4, 196, 22)];
     [bar addSubview:align];
-    NSPopUpButton *spacing = [[[NSPopUpButton alloc] initWithFrame:NSMakeRect(236, 4, 72, 22) pullsDown:NO] autorelease];
+    x += 202;
+    NSPopUpButton *spacing = [[[NSPopUpButton alloc] initWithFrame:NSMakeRect(x, 4, 60, 22) pullsDown:NO] autorelease];
     [spacing addItemsWithTitles:@[ @"1.0", @"1.15", @"1.5", @"2.0" ]];
     [spacing setTag:kRulerSpacingTag];
     [spacing setTarget:tv];
@@ -1014,6 +1062,81 @@ ruler_width(NSTextView *self)
     CGFloat mult = [ps lineHeightMultiple] > 0 ? [ps lineHeightMultiple] : 1;
     NSInteger item = mult >= 1.9 ? 3 : mult >= 1.4 ? 2 : mult >= 1.1 ? 1 : 0;
     [spacing selectItemAtIndex:item];
+    /* the font at the insertion point */
+    NSRange sel = [self selectedRange];
+    NSFont *font = (sel.length && sel.location < [_storage length])
+                       ? [_storage attribute:NSFontAttributeName atIndex:sel.location effectiveRange:NULL]
+                       : [self typingAttributes][NSFontAttributeName];
+    font = font ?: [self font];
+    NSPopUpButton *family = (NSPopUpButton *)find_tagged([ruler accessoryView], kRulerFamilyTag);
+    if (family && [font familyName])
+        [family selectItemWithTitle:[font familyName]];
+    NSPopUpButton *size = (NSPopUpButton *)find_tagged([ruler accessoryView], kRulerSizeTag);
+    if (size && font) {
+        NSString *pt = [NSString stringWithFormat:@"%g", [font pointSize]];
+        if (![size itemWithTitle:pt])
+            [size insertItemWithTitle:pt atIndex:0];
+        [size selectItemWithTitle:pt];
+    }
+    NSSegmentedControl *style = (NSSegmentedControl *)find_tagged([ruler accessoryView], kRulerStyleTag);
+    if (style) {
+        NSFontTraitMask traits = font ? [[NSFontManager sharedFontManager] traitsOfFont:font] : 0;
+        id underline = (sel.length && sel.location < [_storage length])
+                           ? [_storage attribute:NSUnderlineStyleAttributeName atIndex:sel.location effectiveRange:NULL]
+                           : [self typingAttributes][NSUnderlineStyleAttributeName];
+        [style setSelected:(traits & NSBoldFontMask) != 0 forSegment:0];
+        [style setSelected:(traits & NSItalicFontMask) != 0 forSegment:1];
+        [style setSelected:[underline integerValue] != 0 forSegment:2];
+    }
+    NSColorWell *well = (NSColorWell *)find_tagged([ruler accessoryView], kRulerColorTag);
+    if (well) {
+        NSColor *c = (sel.length && sel.location < [_storage length])
+                         ? [_storage attribute:NSForegroundColorAttributeName atIndex:sel.location effectiveRange:NULL]
+                         : [self typingAttributes][NSForegroundColorAttributeName];
+        [well setColor:c ?: [NSColor textColor]];
+    }
+}
+
+- (void)_finchRulerFamily:(NSPopUpButton *)sender
+{
+    NSString *family = [sender titleOfSelectedItem];
+    [self _finchConvertFonts:^NSFont *(NSFont *font) {
+        return [[NSFontManager sharedFontManager] convertFont:font toFamily:family];
+    }];
+    [self updateRuler];
+}
+
+- (void)_finchRulerSize:(NSPopUpButton *)sender
+{
+    CGFloat size = [[sender titleOfSelectedItem] doubleValue];
+    if (size <= 0)
+        return;
+    [self _finchConvertFonts:^NSFont *(NSFont *font) {
+        return [[NSFontManager sharedFontManager] convertFont:font toSize:size];
+    }];
+    [self updateRuler];
+}
+
+- (void)_finchRulerStyle:(NSSegmentedControl *)sender
+{
+    NSInteger segment = [sender selectedSegment];
+    BOOL on = [sender isSelectedForSegment:segment];
+    if (segment == 2) {
+        [self underline:sender];
+    } else if (segment == 0 || segment == 1) {
+        NSFontTraitMask trait = segment == 0 ? NSBoldFontMask : NSItalicFontMask;
+        NSFontManager *fm = [NSFontManager sharedFontManager];
+        [self _finchConvertFonts:^NSFont *(NSFont *font) {
+            return on ? [fm convertFont:font toHaveTrait:trait] : [fm convertFont:font toNotHaveTrait:trait];
+        }];
+    }
+    [self updateRuler];
+}
+
+- (void)_finchRulerColor:(NSColorWell *)sender
+{
+    [self changeColor:sender];
+    [self updateRuler];
 }
 
 static void
@@ -2975,8 +3098,6 @@ start_blinking(NSTextView *self)
 - (void)toggleContinuousSpellChecking:(id)sender { _t.continuousSpelling = !_t.continuousSpelling; }
 - (void)checkSpelling:(id)sender {}
 - (void)showGuessPanel:(id)sender {}
-- (void)changeFont:(id)sender {}
-- (void)changeColor:(id)sender {}
 - (void)changeAttributes:(id)sender {}
 - (void)changeDocumentBackgroundColor:(id)sender {}
 - (void)orderFrontSpellingPanel:(id)sender {}

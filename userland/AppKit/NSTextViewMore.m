@@ -81,6 +81,56 @@ set_value(NSTextView *tv, NSString *key, id value)
 
 @implementation NSTextView (FinchMore)
 
+#pragma mark Fonts and colours
+
+/* Each font of the selection (or the typing font) converted, as the font panel, the Font
+   menu and the format bar change them. */
+- (void)_finchConvertFonts:(NSFont * (^)(NSFont *font))convert
+{
+    change_attributes(self, ^(NSMutableDictionary *attrs, NSTextStorage *ts, NSRange r) {
+        if (attrs) {
+            NSFont *f = attrs[NSFontAttributeName] ?: [self font] ?: [NSFont userFontOfSize:0];
+            NSFont *g = convert(f);
+            if (g)
+                attrs[NSFontAttributeName] = g;
+            return;
+        }
+        [ts enumerateAttribute:NSFontAttributeName inRange:r options:0 usingBlock:^(id value, NSRange run, BOOL *stop) {
+            NSFont *f = value ?: [self font] ?: [NSFont userFontOfSize:0];
+            NSFont *g = convert(f);
+            if (g && ![g isEqual:f])
+                [ts addAttribute:NSFontAttributeName value:g range:run];
+        }];
+    });
+}
+
+/* As Apple's: the font manager (or panel) converts each font of the selection. */
+- (void)changeFont:(id)sender
+{
+    if (![self isRichText]) {
+        NSFont *f = [sender convertFont:[self font] ?: [NSFont userFixedPitchFontOfSize:0]];
+        if (f)
+            [self setFont:f];
+        return;
+    }
+    [self _finchConvertFonts:^NSFont *(NSFont *font) {
+        return [sender convertFont:font];
+    }];
+}
+
+/* As Apple's: the colour panel's colour for the selection's text. */
+- (void)changeColor:(id)sender
+{
+    NSColor *color = [sender respondsToSelector:@selector(color)] ? [sender color] : nil;
+    if (!color)
+        return;
+    if (![self isRichText]) {
+        [self setTextColor:color];
+        return;
+    }
+    set_value(self, NSForegroundColorAttributeName, color);
+}
+
 #pragma mark Underline, scripts, baseline
 
 - (IBAction)underline:(id)sender
