@@ -1584,10 +1584,13 @@ check_chrome(NSWindow *w, NSRect *last)
         _w.visible = NO;
         if (_server)
             FWSOrderWindow(_server, FWS_ORDER_OUT, 0);
+        BOOL wasKey = _w.key;
         if (_w.key)
             [self resignKeyWindow];
         if (_w.main)
             [self resignMainWindow];
+        if (wasKey)
+            pass_key_on(self);
         FinchApplicationWindowOrderedOut(self);
         [[NSNotificationCenter defaultCenter] postNotificationName:NSWindowDidOrderOffScreenNotification object:self];
         [self _finchOcclusionMayHaveChanged];
@@ -1648,6 +1651,48 @@ check_chrome(NSWindow *w, NSRect *last)
 - (BOOL)isKeyWindow { return _w.key; }
 - (BOOL)isMainWindow { return _w.main; }
 
+/* The windows that have been key, most recent last (not retained), for the window that
+   becomes key when the key window goes away. */
+static NSPointerArray *
+key_history(void)
+{
+    static NSPointerArray *history;
+    if (!history)
+        history = [[NSPointerArray weakObjectsPointerArray] retain];
+    return history;
+}
+
+static void
+note_key(NSWindow *w)
+{
+    NSPointerArray *h = key_history();
+    [h compact];
+    for (NSUInteger i = [h count]; i > 0; i--)
+        if ([h pointerAtIndex:i - 1] == (void *)w)
+            [h removePointerAtIndex:i - 1];
+    [h addPointer:(void *)w];
+}
+
+/* As Apple's: when the key window goes, the window that was key before it (and is still
+   shown, and can be) becomes key, as a document's window does when its save panel closes. */
+static void
+pass_key_on(NSWindow *leaving)
+{
+    if ([NSApp keyWindow])
+        return;
+    NSPointerArray *h = key_history();
+    [h compact];
+    for (NSUInteger i = [h count]; i > 0; i--) {
+        NSWindow *w = (NSWindow *)[h pointerAtIndex:i - 1];
+        if (w && w != leaving && [w isVisible] && [w canBecomeKeyWindow] && ![w isMiniaturized]) {
+            [w makeKeyWindow];
+            if ([w canBecomeMainWindow])
+                [w makeMainWindow];
+            return;
+        }
+    }
+}
+
 - (void)makeKeyWindow
 {
     if (_w.key || ![self canBecomeKeyWindow])
@@ -1655,6 +1700,7 @@ check_chrome(NSWindow *w, NSRect *last)
     NSWindow *old = [NSApp keyWindow];
     if (old && old != self)
         [old resignKeyWindow];
+    note_key(self);
     _w.key = YES;
     FinchApplicationSetKeyWindow(self);
     if (_server)

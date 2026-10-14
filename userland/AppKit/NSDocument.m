@@ -1064,6 +1064,23 @@ add_version(NSURL *url, NSSaveOperationType op)
 /* As Apple's: Revert needs a saved, edited document; other actions are left to their own checks. */
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
+    /* as Apple's: a document that keeps versions shows Revert To, a submenu of its last
+       saved version and the version browser, in place of Revert to Saved */
+    enum { kLastSavedTag = 0x52564c53 };
+    if ([item action] == @selector(revertDocumentToSaved:) && ![item submenu] && [item tag] != kLastSavedTag &&
+        [[self class] preservesVersions]) {
+        NSMenu *sub = [[[NSMenu alloc] initWithTitle:@"Revert To"] autorelease];
+        [[sub addItemWithTitle:@"Last Saved Version" action:@selector(revertDocumentToSaved:) keyEquivalent:@""]
+            setTag:kLastSavedTag];
+        [sub addItem:[NSMenuItem separatorItem]];
+        [sub addItemWithTitle:@"Browse All Versions…" action:@selector(browseDocumentVersions:) keyEquivalent:@""];
+        [item setTitle:@"Revert To"];
+        [item setAction:NULL];
+        [item setSubmenu:sub];
+        return [self fileURL] != nil;
+    }
+    if ([item action] == @selector(browseDocumentVersions:))
+        return [self fileURL] != nil;
     return [self validateUserInterfaceItem:item];
 }
 
@@ -1098,6 +1115,23 @@ add_version(NSURL *url, NSSaveOperationType op)
 
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
+    /* as Apple's: a document that keeps versions shows Revert To, a submenu of its last
+       saved version and the version browser, in place of Revert to Saved */
+    enum { kLastSavedTag = 0x52564c53 };
+    if ([item action] == @selector(revertDocumentToSaved:) && ![item submenu] && [item tag] != kLastSavedTag &&
+        [[self class] preservesVersions]) {
+        NSMenu *sub = [[[NSMenu alloc] initWithTitle:@"Revert To"] autorelease];
+        [[sub addItemWithTitle:@"Last Saved Version" action:@selector(revertDocumentToSaved:) keyEquivalent:@""]
+            setTag:kLastSavedTag];
+        [sub addItem:[NSMenuItem separatorItem]];
+        [sub addItemWithTitle:@"Browse All Versions…" action:@selector(browseDocumentVersions:) keyEquivalent:@""];
+        [item setTitle:@"Revert To"];
+        [item setAction:NULL];
+        [item setSubmenu:sub];
+        return [self fileURL] != nil;
+    }
+    if ([item action] == @selector(browseDocumentVersions:))
+        return [self fileURL] != nil;
     return [self validateUserInterfaceItem:item];
 }
 
