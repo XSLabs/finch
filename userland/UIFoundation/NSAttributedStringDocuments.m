@@ -14,6 +14,9 @@
  * ships in their place, so documents read back on macOS as written.
  */
 #import "UIFoundationInternal.h"
+UIF_HIDDEN NSString *FinchImportSniff(NSData *data);
+UIF_HIDDEN NSAttributedString *FinchImportAttributedString(NSData *data, NSString *type, NSDictionary *options,
+                                                           NSDictionary **docAttrs);
 #import <objc/message.h>
 
 #pragma mark - Reading RTF
@@ -1496,7 +1499,14 @@ decode_plain(NSData *data, NSDictionary *options, NSStringEncoding *used)
 static NSAttributedString *
 read_document(NSData *data, NSDictionary *wrappers, NSDictionary *options, NSDictionary **docAttrs, NSError **error)
 {
-    NSString *type = options[NSDocumentTypeDocumentOption] ?: sniff_type(data);
+    NSString *type = options[NSDocumentTypeDocumentOption] ?: FinchImportSniff(data) ?: sniff_type(data);
+    if ([@[ NSHTMLTextDocumentType, NSWebArchiveTextDocumentType, NSWordMLTextDocumentType, NSOfficeOpenXMLTextDocumentType,
+            NSOpenDocumentTextDocumentType ] containsObject:type]) {
+        NSAttributedString *imported = FinchImportAttributedString(data, type, options, docAttrs);
+        if (imported)
+            return imported;
+        goto fail;
+    }
     if ([type isEqualToString:NSRTFDTextDocumentType] && !wrappers) {
         NSFileWrapper *w = [[[NSFileWrapper alloc] initWithSerializedRepresentation:data] autorelease];
         NSDictionary *files = [w isDirectory] ? [w fileWrappers] : nil;

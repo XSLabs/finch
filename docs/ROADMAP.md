@@ -418,6 +418,8 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         (NSTextView's changeFont: and changeColor: were empty). Saving shows the File Format
         pop-up of TextEdit's eight formats by their names, the document window takes
         typing again after its panel closes, and File > Revert To browses the versions.
+        Its formats are written and read: HTML, web archives, Word 2003 XML, .docx and .odt
+        (textformats-test matches Apple's round trips; Word 97's .doc still to come).
   - [ ] Calculator: runs in QEMU (2026-10-13). Every import resolves to Finch's
         frameworks (`tools/check-imports.py`): its engine, Calculate (an expression tree
         edited key by key as Apple's is, RPN and programmer modes, text expressions and

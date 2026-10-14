@@ -72,13 +72,13 @@ run_style(NSDictionary *attrs)
 }
 
 /* a paragraph's alignment as NSTextAlignment has it on macOS (0 left, 1 centre, 2 right,
-   3 justified), natural taken as left */
+   3 justified), or -1 for natural */
 static NSInteger
 alignment_of(NSDictionary *attrs)
 {
     id ps = attrs[ParagraphKey];
-    NSInteger a = ps ? (NSInteger)[ps alignment] : 0;
-    return (a >= 0 && a <= 3) ? a : 0;
+    NSInteger a = ps ? (NSInteger)[ps alignment] : 4;
+    return (a >= 0 && a <= 3) ? a : -1;  /* natural: none written, as Apple's writers do */
 }
 
 static NSString *
@@ -154,7 +154,10 @@ html_of(NSAttributedString *as, NSRange range, NSDictionary *dict)
     [out appendString:@"</head>\n<body>\n"];
     each_paragraph(as, range, ^(NSRange p, NSDictionary *first, void (^runs)(void (^)(NSString *, NSDictionary *))) {
         NSInteger a = alignment_of(first);
-        [out appendFormat:@"<p style=\"margin: 0; text-align: %@;\">", align[(a >= 0 && a <= 3) ? a : 0]];
+        if (a >= 0)
+            [out appendFormat:@"<p style=\"margin: 0; text-align: %@;\">", align[a]];
+        else
+            [out appendString:@"<p style=\"margin: 0;\">"];
         __block BOOL any = NO;
         runs(^(NSString *text, NSDictionary *attrs) {
             any = YES;
@@ -177,7 +180,10 @@ word_runs(NSAttributedString *as, NSRange range, NSString *ns)
     NSMutableString *body = [NSMutableString string];
     each_paragraph(as, range, ^(NSRange p, NSDictionary *first, void (^runs)(void (^)(NSString *, NSDictionary *))) {
         NSInteger a = alignment_of(first);
-        [body appendFormat:@"<%@:p><%@:pPr><%@:jc %@:val=\"%@\"/></%@:pPr>", ns, ns, ns, ns, jc[(a >= 0 && a <= 3) ? a : 0], ns];
+        if (a >= 0)
+            [body appendFormat:@"<%@:p><%@:pPr><%@:jc %@:val=\"%@\"/></%@:pPr>", ns, ns, ns, ns, jc[a], ns];
+        else
+            [body appendFormat:@"<%@:p>", ns];
         runs(^(NSString *text, NSDictionary *attrs) {
             RunStyle s = run_style(attrs);
             [body appendFormat:@"<%@:r><%@:rPr>", ns, ns];
@@ -349,9 +355,11 @@ odt_of(NSAttributedString *as, NSRange range)
     };
     each_paragraph(as, range, ^(NSRange p, NSDictionary *first, void (^runs)(void (^)(NSString *, NSDictionary *))) {
         NSInteger a = alignment_of(first);
-        NSString *pstyle = style_for(@"paragraph", [NSString stringWithFormat:
-            @"<style:paragraph-properties fo:text-align=\"%@\"/>", align[(a >= 0 && a <= 3) ? a : 0]]);
-        [body appendFormat:@"<text:p text:style-name=\"%@\">", pstyle];
+        if (a >= 0)
+            [body appendFormat:@"<text:p text:style-name=\"%@\">", style_for(@"paragraph", [NSString stringWithFormat:
+                @"<style:paragraph-properties fo:text-align=\"%@\"/>", align[a]])];
+        else
+            [body appendString:@"<text:p>"];
         runs(^(NSString *text, NSDictionary *attrs) {
             RunStyle s = run_style(attrs);
             NSMutableString *props = [NSMutableString stringWithString:@"<style:text-properties"];
