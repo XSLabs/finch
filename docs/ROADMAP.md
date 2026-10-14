@@ -428,8 +428,10 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         ideal width; the title bar's height below its content as above), the whole keypad
         shows and 7 + 2 = reads "7+2" over "9". A unified toolbar shares the title bar's
         52-point band, so the Mode picker sits beside the window controls and the window
-        is Apple's height (408). Next: the other modes (scientific, programmer, RPN,
-        conversion), history, the Edit menu, keyboard entry.
+        is Apple's height (408). The Mode menu lists Basic, Scientific and Programmer
+        (pickers of picker content in menus) and switches to Scientific's keypad. Next:
+        per-option keyboard shortcuts in menu pickers (⌘1–⌘3), the View menu's Decimal
+        Places as a submenu, programmer, RPN and conversion modes, history.
   - [x] Drop-in check: `tools/app-sweep.py` runs the import check over every app and the
         frameworks it carries, and ranks what's missing by apps blocked. Apple's apps are
         recorded in [`docs/APPS.md`](APPS.md) (2026-10-12: 11 of 65 have every import;

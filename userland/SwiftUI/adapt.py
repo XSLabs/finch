@@ -41,6 +41,10 @@ KINDS = [
 
 # (file, upstream code, Finch's): fixes to upstream code
 FIXES = [
+    # describing a text storage described itself, without end
+    ('SwiftUICore/View/Text/Text/Text.swift',
+     '''        var description = "<\\(Self.self): \\(self)>"''',
+     '''        var description = "<\\(Self.self): \\(ObjectIdentifier(self))>"'''),
     # the hosting view's safe area (the title bar, over a full-size content view) as the
     # view graph's, as Apple's: content is placed below it, measured with it, and can ignore it
     ('SwiftUI/Integration/Hosting/AppKit/View/NSHostingView.swift',

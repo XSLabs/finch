@@ -47,6 +47,9 @@ protocol _FinchMenuItems {
     var _finchMenuItems: [_FinchMenuItem] { get }
 }
 
+/// FINCH_MENU_DEBUG=1: what menus are made of.
+let _finchMenuDebug = ProcessInfo.processInfo.environment["FINCH_MENU_DEBUG"] == "1"
+
 /// The menu items `content` describes.
 func _finchMenuItemsOf(_ content: Any) -> [_FinchMenuItem] {
     if let items = content as? _FinchMenuItems {
@@ -114,9 +117,16 @@ extension Picker: _FinchMenuItems {
         let selected = Set(selection.get())
         let titles = _finchOptionTitles(content)
         let tags = _finchOptionTags(content, as: SelectionValue.self)
+        // FINCH_MENU_DEBUG=1: what each picker in a menu is made of
+        if _finchMenuDebug {
+            FileHandle.standardError.write(Data("menu picker of \(type(of: content as Any)): \(titles.count) titles, tags \(tags)\n".utf8))
+        }
         return tags.indices.map { index in
             let tag = tags[index]
             return _FinchMenuItem(kind: .toggle(isOn: tag.map(selected.contains) ?? false, set: { _ in
+                if _finchMenuDebug {
+                    FileHandle.standardError.write(Data("menu picker sets \(tag.map { String(describing: $0) } ?? "nil")\n".utf8))
+                }
                 if let tag { selection.set(tag) }
             }), title: index < titles.count ? titles[index] : nil, fallback: tag.map { String(describing: $0) } ?? "")
         }
@@ -131,7 +141,11 @@ func _finchOptionTags<Value: Hashable>(_ content: Any, as _: Value.Type) -> [Val
     if let tagged = content as? _FinchTaggedView {
         return [tagged._finchTag as? Value]
     }
-    if let modified = content as? _FinchModifiedView, modified._finchContent is _FinchViewSequence {
+    if let traited = content as? _FinchTaggedTraitView, let tag = traited._finchTraitTag {
+        return [tag as? Value]
+    }
+    // one option under other modifiers: its tag is inside
+    if let modified = content as? _FinchModifiedView {
         return _finchOptionTags(modified._finchContent, as: Value.self)
     }
     return [nil]
@@ -152,6 +166,34 @@ protocol _FinchTagModifier {
 
 extension _TagTraitWritingModifier: _FinchTagModifier {
     var _finchTagValue: Any { tag }
+}
+
+/// A tag written as a trait (what an app's inlined `tag(_:)` writes).
+protocol _FinchTagTraitValue {
+    var _finchTagged: Any? { get }
+}
+
+extension TagValueTraitKey.Value: _FinchTagTraitValue {
+    var _finchTagged: Any? {
+        if case let .tagged(value) = self { return value }
+        return nil
+    }
+}
+
+extension ModifiedContent: _FinchTaggedTraitView where Modifier: _FinchTraitWriting {
+    var _finchTraitTag: Any? { modifier._finchTraitValue }
+}
+
+protocol _FinchTaggedTraitView {
+    var _finchTraitTag: Any? { get }
+}
+
+protocol _FinchTraitWriting {
+    var _finchTraitValue: Any? { get }
+}
+
+extension _TraitWritingModifier: _FinchTraitWriting {
+    var _finchTraitValue: Any? { (value as? _FinchTagTraitValue)?._finchTagged }
 }
 
 /// An NSMenu of items, their titles resolved in an environment.

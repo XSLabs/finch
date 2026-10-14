@@ -236,6 +236,8 @@ Other switches for an AppKit app (they work on the host too):
   at (ideal, least, most) and opens at.
 - `FINCH_TRACE_LAYOUT=1` (SwiftUI): every layout's size for each proposal, nested, with
   the answers custom layouts get from their subviews: where a size comes from.
+- `FINCH_MENU_DEBUG=1` (SwiftUI): what each picker in a menu is made of (its content's
+  type, titles and tags) and the value it sets when chosen.
 - `FINCH_CALCULATE_DEBUG=1`: each key Calculate applies or refuses and the expression
   after it, and each time CalculateUI's display redraws.
 - `OpenSWIFTUI_EVENT_DEBUG=ebph` (events, bindings, phases, hit testing) with

@@ -232,3 +232,8 @@ extension Picker where Label == Text {
                   content: PickerBuilder<SelectionValue>.Content(content: content()))
     }
 }
+
+/// A picker of picker content lists its options as a picker of views does.
+extension PickerBuilder.Content: _FinchViewSequence {
+    var _finchViews: [Any] { [content._identifiedView] }
+}
