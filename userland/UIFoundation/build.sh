@@ -51,7 +51,7 @@ mkdir -p "${FW}/Versions/A"
     -current_version 1018.1 -compatibility_version 1 \
     "${OBJ}"/*.o -o "${FW}/Versions/A/UIFoundation" \
     -F"${ROOT}/System/Library/Frameworks" -framework Foundation -framework CoreFoundation \
-    -framework CoreGraphics -framework CoreText -lobjc -lc++
+    -framework CoreGraphics -framework CoreText -lobjc -lc++ -lz
 ln -sfn A "${FW}/Versions/Current"
 ln -sfn Versions/Current/UIFoundation "${FW}/UIFoundation"
 "${FINCH_ROOT}/tools/mkframeworkplist.sh" "${FW}" A UIFoundation com.apple.UIFoundation UIFoundation 1.0 1018.1 English

@@ -157,6 +157,8 @@ generic_color(double r, double g, double b)
              : nil;
 }
 
+NSData *FinchExportAttributedString(NSAttributedString *as, NSRange range, NSString *type, NSDictionary *dict);
+
 @implementation UIFRTFReader
 
 - (instancetype)initWithData:(NSData *)data attachments:(NSDictionary *)attachments
@@ -1652,8 +1654,13 @@ fail:
                                      userInfo:nil];
         return d;
     }
+    NSData *exported = FinchExportAttributedString(self, range, type, dict);
+    if (exported)
+        return exported;
     if (error)
-        *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileWriteUnknownError userInfo:nil];
+        *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileWriteUnknownError
+                                 userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:
+                                     @"Documents of type %@ can't be written yet.", type ?: @"(none)"]}];
     return nil;
 }
 
