@@ -163,12 +163,19 @@ type_names(NSDictionary *t)
     return nil;
 }
 
+/* As Apple's: the type's name in the app's document types, localized by its InfoPlist
+   strings ("NSRTFPboardType" is TextEdit's "Rich Text Document"). */
 - (NSString *)displayNameForType:(NSString *)typeName
 {
     for (NSDictionary *t in [self _finchDocumentTypes])
-        if ([type_names(t) containsObject:typeName])
-            return t[@"CFBundleTypeName"] ?: typeName;
-    return typeName;
+        if ([type_names(t) containsObject:typeName]) {
+            NSString *name = t[@"CFBundleTypeName"];
+            if (!name)
+                break;
+            return [[NSBundle mainBundle] localizedStringForKey:name value:name table:@"InfoPlist"];
+        }
+    NSString *desc = [[UTType typeWithIdentifier:typeName] localizedDescription];
+    return desc ?: typeName;
 }
 
 - (NSString *)typeForContentsOfURL:(NSURL *)url error:(NSError **)outError
@@ -406,6 +413,71 @@ overrides(id doc, SEL sel)
     return [doc methodForSelector:sel] != [NSDocument instanceMethodForSelector:sel];
 }
 
+static char last_save_type_key;
+
+/* The save panel's File Format pop-up: the document's writable types by their names; a
+   choice sets the name's extension and the type to save as. */
+@interface _FinchFileFormatChooser : NSObject {
+@public
+    NSDocument *document;  /* not retained: the panel runs while the document does */
+    NSSavePanel *panel;
+    NSArray<NSString *> *types;
+    NSSaveOperationType op;
+}
+- (NSView *)viewSelecting:(NSString *)type;
+@end
+
+@implementation _FinchFileFormatChooser
+
+- (void)dealloc
+{
+    [types release];
+    [super dealloc];
+}
+
+- (NSView *)viewSelecting:(NSString *)type
+{
+    NSView *v = [[[NSView alloc] initWithFrame:NSMakeRect(0, 0, 320, 34)] autorelease];
+    NSTextField *label = [NSTextField labelWithString:@"File Format:"];
+    [label sizeToFit];
+    NSPopUpButton *popup = [[[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 6, 200, 24) pullsDown:NO] autorelease];
+    NSDocumentController *dc = [NSDocumentController sharedDocumentController];
+    for (NSString *t in types)
+        [popup addItemWithTitle:[dc displayNameForType:t] ?: t];
+    NSUInteger at = [types indexOfObject:type];
+    if (at != NSNotFound)
+        [popup selectItemAtIndex:(NSInteger)at];
+    [popup setTarget:self];
+    [popup setAction:@selector(chooseFormat:)];
+    [popup sizeToFit];
+    CGFloat pw = MAX(160, NSWidth([popup frame]));
+    [label setFrameOrigin:NSMakePoint(0, 10)];
+    [popup setFrame:NSMakeRect(NSWidth([label frame]) + 8, 6, pw, 24)];
+    [v setFrameSize:NSMakeSize(NSWidth([label frame]) + 8 + pw, 34)];
+    [v addSubview:label];
+    [v addSubview:popup];
+    /* the chooser lives as long as its view */
+    objc_setAssociatedObject(v, &last_save_type_key, self, OBJC_ASSOCIATION_RETAIN);
+    return v;
+}
+
+- (void)chooseFormat:(NSPopUpButton *)sender
+{
+    NSInteger i = [sender indexOfSelectedItem];
+    if (i < 0 || (NSUInteger)i >= [types count])
+        return;
+    NSString *type = types[(NSUInteger)i];
+    objc_setAssociatedObject(document, &last_save_type_key, type, OBJC_ASSOCIATION_COPY);
+    NSString *ext = [document fileNameExtensionForType:type saveOperation:op];
+    if ([ext length]) {
+        [panel setAllowedFileTypes:@[ ext ]];
+        NSString *name = [[panel nameFieldStringValue] stringByDeletingPathExtension];
+        [panel setNameFieldStringValue:[name stringByAppendingPathExtension:ext]];
+    }
+}
+
+@end
+
 @implementation NSDocument {
     NSURL *_fileURL;
     NSString *_fileType;
@@ -486,9 +558,60 @@ overrides(id doc, SEL sel)
 /* as Apple's: a document that autosaves in place keeps its versions */
 + (BOOL)preservesVersions { return [self autosavesInPlace]; }
 + (BOOL)usesUbiquitousStorage { return NO; }
-+ (BOOL)isNativeType:(NSString *)type { return YES; }
-+ (NSArray<NSString *> *)readableTypes { return @[]; }
-+ (NSArray<NSString *> *)writableTypes { return @[]; }
+/* As Apple's, from the app's CFBundleDocumentTypes: the entries naming this class (by its
+   name, or any entry when the app names no class), their types readable; an editor's
+   writable, with its exportable types. */
+static NSArray<NSDictionary *> *
+class_entries(Class cls)
+{
+    NSArray *all = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleDocumentTypes"];
+    if (![all isKindOfClass:[NSArray class]])
+        return @[];
+    NSMutableArray *mine = [NSMutableArray array];
+    for (NSDictionary *t in all) {
+        NSString *c = t[@"NSDocumentClass"];
+        Class tc = c ? NSClassFromString(c) : Nil;
+        if (!c || tc == cls || (tc && [cls isSubclassOfClass:tc]))
+            [mine addObject:t];
+    }
+    return mine;
+}
+
+static void
+add_unique(NSMutableArray *out, NSArray *items)
+{
+    for (id x in items)
+        if (![out containsObject:x])
+            [out addObject:x];
+}
+
++ (BOOL)isNativeType:(NSString *)type
+{
+    for (NSDictionary *t in class_entries(self))
+        if ([t[@"CFBundleTypeRole"] isEqual:@"Editor"] && [type_names(t) containsObject:type])
+            return YES;
+    return NO;
+}
+
++ (NSArray<NSString *> *)readableTypes
+{
+    NSMutableArray *out = [NSMutableArray array];
+    for (NSDictionary *t in class_entries(self))
+        add_unique(out, type_names(t));
+    return out;
+}
+
++ (NSArray<NSString *> *)writableTypes
+{
+    NSMutableArray *out = [NSMutableArray array];
+    for (NSDictionary *t in class_entries(self))
+        if ([t[@"CFBundleTypeRole"] isEqual:@"Editor"]) {
+            add_unique(out, type_names(t));
+            if ([t[@"NSExportableTypes"] isKindOfClass:[NSArray class]])
+                add_unique(out, t[@"NSExportableTypes"]);
+        }
+    return out;
+}
 + (BOOL)canConcurrentlyReadDocumentsOfType:(NSString *)typeName { return NO; }
 
 - (NSURL *)fileURL { return _fileURL; }
@@ -863,10 +986,27 @@ add_version(NSURL *url, NSSaveOperationType op)
     NSString *ext = [self fileNameExtensionForType:_fileType saveOperation:op];
     if ([ext length])
         [p setAllowedFileTypes:@[ ext ]];
+    objc_setAssociatedObject(self, &last_save_type_key, _fileType, OBJC_ASSOCIATION_COPY);
+    /* as Apple's: with more than one type to write, a File Format pop-up under the browser */
+    NSArray<NSString *> *types = [self writableTypesForSaveOperation:op];
+    if ([self shouldRunSavePanelWithAccessoryView] && [types count] > 1) {
+        _FinchFileFormatChooser *chooser = [[[_FinchFileFormatChooser alloc] init] autorelease];
+        chooser->document = self;
+        chooser->panel = p;
+        chooser->types = [types retain];
+        chooser->op = op;
+        [p setAccessoryView:[chooser viewSelecting:_fileType]];
+    }
     if (![self prepareSavePanel:p] || [p runModal] != NSModalResponseOK)
         return;
-    [self saveToURL:[p URL] ofType:_fileType forSaveOperation:op delegate:delegate didSaveSelector:didSaveSelector
-        contextInfo:contextInfo];
+    [self saveToURL:[p URL] ofType:[self fileTypeFromLastRunSavePanel] ?: _fileType forSaveOperation:op
+           delegate:delegate didSaveSelector:didSaveSelector contextInfo:contextInfo];
+}
+
+/* The type chosen in the save panel's File Format pop-up (the document's type otherwise). */
+- (NSString *)fileTypeFromLastRunSavePanel
+{
+    return objc_getAssociatedObject(self, &last_save_type_key);
 }
 
 - (IBAction)saveDocument:(id)sender
