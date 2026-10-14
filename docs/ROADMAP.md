@@ -434,7 +434,9 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         submenu), and ⌘3 opens Programmer's keypad. Next: Programmer's window runs past the
         screen's bottom, its view-as control shows an extra segment and a field's
         placeholder is white; RPN and conversion modes, history; the scientific and
-        programmer keypads take most of a minute to build in QEMU.
+        programmer keypads take most of a minute to build in QEMU (profiled: AppKit's
+        Auto Layout sync re-reads every view's intrinsic size and re-adds constraints on
+        each pass, over a few hundred platform views).
   - [x] Drop-in check: `tools/app-sweep.py` runs the import check over every app and the
         frameworks it carries, and ranks what's missing by apps blocked. Apple's apps are
         recorded in [`docs/APPS.md`](APPS.md) (2026-10-12: 11 of 65 have every import;
