@@ -793,7 +793,8 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         build time with `FINCH_HOST_APPS=TextEdit tools/vm/mkramdisk.sh`; nothing of Apple's
         is committed), opens an untitled document and takes typing (2026-10-09). It reads and saves RTF;
         NSFileCoordinator (presenters in-process) and NSTextFinder's find bar match Apple's
-        behaviour (`finch-filecoordinator-test`, `finch-textfinder-test`), and Show Ruler
+        behaviour (`finch-filecoordinator-test`, `finch-textfinder-test`; the bar counts the
+        matches, "3 found" or "Not found", as Apple's does), and Show Ruler
         brings up NSRulerView with its markers and format bar (`finch-ruler-test`). Tables
         read from and write to RTF as Apple's do, and draw with their backgrounds and borders
         and cells' vertical alignment (2026-10-09). Sharing services and their picker (Copy, Open,

@@ -45,6 +45,9 @@
  */
 #import "AppKit_Finch.h"
 #import "NSView_Finch.h"
+#import <objc/runtime.h>
+
+extern const char FinchTextFinderKey;   /* NSTextFinder.m */
 
 @interface NSTextViewSharedData : NSObject <NSCoding>
 @end
@@ -1865,6 +1868,10 @@ end_editing(NSTextView *self, NSInteger movement, BOOL always)
 - (void)didChangeText
 {
     post(self, NSTextDidChangeNotification, nil);
+    /* The find bar's match count follows the text. */
+    id finder = objc_getAssociatedObject(self, &FinchTextFinderKey);
+    if (finder)
+        [finder noteClientStringWillChange];
     if (!is_first_responder(self))
         end_editing(self, NSTextMovementOther, NO);
 }

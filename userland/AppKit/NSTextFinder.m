@@ -17,6 +17,7 @@ static const CGFloat kFindRow = 32, kReplaceRow = 28;
 @property (assign) NSTextFinder *finder;
 @property (retain) NSSearchField *searchField;
 @property (retain) NSTextField *replaceField;
+@property (retain) NSTextField *countLabel;
 @property BOOL showsReplace;
 @end
 
@@ -40,6 +41,15 @@ static const CGFloat kFindRow = 32, kReplaceRow = 28;
         [_searchField setAction:@selector(_finchSearchFieldChanged:)];
         [_searchField setAutoresizingMask:NSViewWidthSizable];
         [self addSubview:_searchField];
+        /* "3 found" / "Not found", inside the search field's right end, as
+           Apple's bar shows it. */
+        _countLabel = [[NSTextField labelWithString:@""] retain];
+        [_countLabel setFont:[NSFont systemFontOfSize:11]];
+        [_countLabel setTextColor:[NSColor secondaryLabelColor]];
+        [_countLabel setAlignment:NSTextAlignmentRight];
+        [_countLabel setFrame:NSMakeRect(228 - 22 - 76, 8, 76, 16)];
+        [_countLabel setAutoresizingMask:NSViewMinXMargin];
+        [self addSubview:_countLabel];
         NSSegmentedControl *nav = [NSSegmentedControl segmentedControlWithLabels:@[ @"‹", @"›" ]
                                                                     trackingMode:NSSegmentSwitchTrackingMomentary
                                                                           target:finder
@@ -59,6 +69,7 @@ static const CGFloat kFindRow = 32, kReplaceRow = 28;
 {
     [_searchField release];
     [_replaceField release];
+    [_countLabel release];
     [super dealloc];
 }
 
@@ -130,9 +141,17 @@ static const CGFloat kFindRow = 32, kReplaceRow = 28;
 - (void)setIncrementalSearchingEnabled:(BOOL)f { _incremental = f; }
 - (BOOL)incrementalSearchingShouldDimContentView { return _dim; }
 - (void)setIncrementalSearchingShouldDimContentView:(BOOL)f { _dim = f; }
-- (NSArray<NSValue *> *)incrementalMatchRanges { return @[]; }
+- (NSArray<NSValue *> *)incrementalMatchRanges
+{
+    if (!_incremental || ![[[_bar searchField] stringValue] length])
+        return @[];
+    return [self _matchesIn:NSMakeRange(0, [[self _string] length])];
+}
 - (void)cancelFindIndicator {}
-- (void)noteClientStringWillChange {}
+- (void)noteClientStringWillChange
+{
+    [self performSelector:@selector(_updateCount) withObject:nil afterDelay:0];
+}
 
 + (void)drawIncrementalMatchHighlightInRect:(NSRect)rect
 {
@@ -248,6 +267,37 @@ find_pasteboard(void)
     return YES;
 }
 
+- (NSArray<NSValue *> *)_matchesIn:(NSRange)scope
+{
+    NSString *needle = [self _searchString], *hay = [self _string];
+    NSMutableArray *ranges = [NSMutableArray array];
+    if (![needle length] || NSMaxRange(scope) > [hay length])
+        return ranges;
+    NSRange r = [hay rangeOfString:needle options:NSCaseInsensitiveSearch range:scope];
+    while (r.location != NSNotFound) {
+        [ranges addObject:[NSValue valueWithRange:r]];
+        NSUInteger from = NSMaxRange(r);
+        if (from >= NSMaxRange(scope))
+            break;
+        r = [hay rangeOfString:needle options:NSCaseInsensitiveSearch range:NSMakeRange(from, NSMaxRange(scope) - from)];
+    }
+    return ranges;
+}
+
+/* The bar's match count, for what the search field holds. */
+- (void)_updateCount
+{
+    if (!_bar)
+        return;
+    NSString *field = [[_bar searchField] stringValue];
+    NSString *text = @"";
+    if ([field length]) {
+        NSUInteger n = [[self _matchesIn:NSMakeRange(0, [[self _string] length])] count];
+        text = n ? [NSString stringWithFormat:@"%lu found", (unsigned long)n] : @"Not found";
+    }
+    [[_bar countLabel] setStringValue:text];
+}
+
 - (BOOL)_editable
 {
     return ![(id)_client respondsToSelector:@selector(isEditable)] || [_client isEditable];
@@ -286,18 +336,7 @@ find_pasteboard(void)
 
 - (void)_selectAllIn:(NSRange)scope
 {
-    NSString *needle = [self _searchString], *hay = [self _string];
-    if (![needle length])
-        return;
-    NSMutableArray *ranges = [NSMutableArray array];
-    NSRange r = [hay rangeOfString:needle options:NSCaseInsensitiveSearch range:scope];
-    while (r.location != NSNotFound) {
-        [ranges addObject:[NSValue valueWithRange:r]];
-        NSUInteger from = NSMaxRange(r);
-        if (from >= NSMaxRange(scope))
-            break;
-        r = [hay rangeOfString:needle options:NSCaseInsensitiveSearch range:NSMakeRange(from, NSMaxRange(scope) - from)];
-    }
+    NSArray *ranges = [self _matchesIn:scope];
     if ([ranges count] && [(id)_client respondsToSelector:@selector(setSelectedRanges:)])
         [_client setSelectedRanges:ranges];
 }
@@ -334,6 +373,7 @@ find_pasteboard(void)
     case NSTextFinderActionSelectAllInSelection: [self _selectAllIn:[self _selection]]; break;
     default: break;
     }
+    [self _updateCount];
 }
 
 /* As Apple's: every action is offered. */
@@ -349,6 +389,7 @@ find_pasteboard(void)
     [pb setString:s forType:NSPasteboardTypeString];
     if ([s length])
         [self _findForward:YES];
+    [self _updateCount];
 }
 
 - (void)_finchPrevNext:(NSSegmentedControl *)sender
@@ -366,7 +407,8 @@ find_pasteboard(void)
 
 @implementation NSTextView (FinchTextFinder)
 
-static const void *kFinder = &kFinder;
+const char FinchTextFinderKey = 0;
+static const void *kFinder = &FinchTextFinderKey;
 
 - (NSTextFinder *)_finchTextFinder
 {
