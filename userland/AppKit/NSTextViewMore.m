@@ -522,23 +522,114 @@ static char spelling_key;
 - (IBAction)orderFrontSpacingPanel:(id)sender {}
 - (IBAction)orderFrontSubstitutionsPanel:(id)sender {}
 
-/* A two-by-two table at the insertion point (the table panel's default). */
-- (IBAction)orderFrontTablePanel:(id)sender
+@end
+
+/* A table of `rows` by `columns` empty cells, bordered, at the selection; the insertion
+   point in its first cell. */
+static void
+insert_table(NSTextView *tv, NSInteger rows, NSInteger columns)
 {
     NSTextTable *table = [[[NSTextTable alloc] init] autorelease];
-    [table setNumberOfColumns:2];
+    [table setNumberOfColumns:(NSUInteger)columns];
+    [table setLayoutAlgorithm:NSTextTableAutomaticLayoutAlgorithm];
+    NSDictionary *typing = [tv typingAttributes];
+    NSParagraphStyle *base = typing[NSParagraphStyleAttributeName] ?: [NSParagraphStyle defaultParagraphStyle];
     NSMutableAttributedString *cells = [[[NSMutableAttributedString alloc] init] autorelease];
-    for (NSInteger row = 0; row < 2; row++)
-        for (NSInteger col = 0; col < 2; col++) {
-            NSTextTableBlock *block = [[[NSTextTableBlock alloc] initWithTable:table startingRow:row rowSpan:1 startingColumn:col columnSpan:1] autorelease];
+    for (NSInteger row = 0; row < rows; row++)
+        for (NSInteger col = 0; col < columns; col++) {
+            NSTextTableBlock *block = [[[NSTextTableBlock alloc] initWithTable:table startingRow:row rowSpan:1
+                                                                startingColumn:col columnSpan:1] autorelease];
             [block setWidth:1 type:NSTextBlockAbsoluteValueType forLayer:NSTextBlockBorder];
-            NSMutableParagraphStyle *ps = [[[NSMutableParagraphStyle alloc] init] autorelease];
+            [block setWidth:4 type:NSTextBlockAbsoluteValueType forLayer:NSTextBlockPadding];
+            [block setBorderColor:[NSColor grayColor]];
+            NSMutableParagraphStyle *ps = [[base mutableCopy] autorelease];
             [ps setTextBlocks:@[ block ]];
-            [cells appendAttributedString:[[[NSAttributedString alloc] initWithString:@"\n" attributes:@{NSParagraphStyleAttributeName : ps}] autorelease]];
+            NSMutableDictionary *a = [[typing mutableCopy] autorelease];
+            a[NSParagraphStyleAttributeName] = ps;
+            [cells appendAttributedString:[[[NSAttributedString alloc] initWithString:@"\n" attributes:a] autorelease]];
         }
-    [self insertText:cells replacementRange:[self selectedRange]];
+    NSRange r = [tv selectedRange];
+    NSString *s = [tv string];
+    /* a table starts a paragraph of its own */
+    if (r.location > 0 && [s characterAtIndex:r.location - 1] != '\n')
+        [cells insertAttributedString:[[[NSAttributedString alloc] initWithString:@"\n" attributes:typing] autorelease] atIndex:0];
+    if (![tv shouldChangeTextInRange:r replacementString:[cells string]])
+        return;
+    NSTextStorage *ts = [tv textStorage];
+    [ts beginEditing];
+    [ts replaceCharactersInRange:r withAttributedString:cells];
+    [ts endEditing];
+    [tv didChangeText];
+    NSUInteger first = r.location + ([[cells string] hasPrefix:@"\n"] && [cells length] > (NSUInteger)(rows * columns) ? 1 : 0);
+    [tv setSelectedRange:NSMakeRange(first, 0)];
 }
 
+@interface _FinchTablePanelController : NSObject {
+@public
+    NSPanel *panel;
+    NSTextField *rows, *columns;
+}
+@end
+
+@implementation _FinchTablePanelController
+
++ (instancetype)shared
+{
+    static _FinchTablePanelController *c;
+    if (!c) {
+        c = [[self alloc] init];
+        NSPanel *p = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 220, 118)
+                                                styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                                                          NSWindowStyleMaskUtilityWindow
+                                                  backing:NSBackingStoreBuffered defer:NO];
+        [p setTitle:@"Table"];
+        [p setFloatingPanel:YES];
+        [p setBecomesKeyOnlyIfNeeded:NO];
+        NSView *v = [p contentView];
+        NSTextField *rl = [NSTextField labelWithString:@"Rows:"], *cl = [NSTextField labelWithString:@"Columns:"];
+        [rl setFrame:NSMakeRect(16, 80, 70, 20)];
+        [cl setFrame:NSMakeRect(16, 50, 70, 20)];
+        c->rows = [[NSTextField alloc] initWithFrame:NSMakeRect(92, 78, 60, 22)];
+        c->columns = [[NSTextField alloc] initWithFrame:NSMakeRect(92, 48, 60, 22)];
+        [c->rows setIntegerValue:2];
+        [c->columns setIntegerValue:2];
+        NSButton *insert = [NSButton buttonWithTitle:@"Insert" target:c action:@selector(insertTable:)];
+        [insert setFrame:NSMakeRect(120, 12, 84, 26)];
+        [insert setKeyEquivalent:@"\r"];
+        for (NSView *sub in @[ rl, cl, c->rows, c->columns, insert ])
+            [v addSubview:sub];
+        c->panel = p;
+    }
+    return c;
+}
+
+/* into the text view of the main window, as the font panel acts on it */
+- (void)insertTable:(id)sender
+{
+    NSResponder *r = [[NSApp mainWindow] firstResponder];
+    if (![r isKindOfClass:[NSTextView class]])
+        return;
+    NSInteger nr = MAX(1, MIN(100, [rows integerValue])), nc = MAX(1, MIN(20, [columns integerValue]));
+    insert_table((NSTextView *)r, nr, nc);
+    [[NSApp mainWindow] makeKeyWindow];
+}
+
+@end
+
+@implementation NSTextView (FinchTablePanel)
+
+/* As Apple's: the table panel, which puts a table into the main window's text. */
+- (IBAction)orderFrontTablePanel:(id)sender
+{
+    _FinchTablePanelController *c = [_FinchTablePanelController shared];
+    if (![c->panel isVisible])
+        [c->panel center];
+    [c->panel makeKeyAndOrderFront:sender];
+}
+
+@end
+
+@implementation NSTextView (FinchTableInsertion)
 - (IBAction)orderFrontSharingServicePicker:(id)sender
 {
     NSRange r = [self selectedRange];

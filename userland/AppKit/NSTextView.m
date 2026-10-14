@@ -1609,7 +1609,15 @@ update_typing_from_text(NSTextView *self)
     NSUInteger len = [self->_storage length];
     if (!len)
         return;
-    NSUInteger i = self->_sel.location > 0 ? self->_sel.location - 1 : 0;
+    /* as Apple's: the character before the insertion point's attributes, but at a paragraph's
+       start the paragraph's own (so typing into an empty table cell stays in the cell) */
+    NSUInteger at = self->_sel.location;
+    NSUInteger i = at > 0 ? at - 1 : 0;
+    if (at > 0 && at < len) {
+        unichar before = [[self->_storage string] characterAtIndex:at - 1];
+        if (before == '\n' || before == '\r' || before == 0x2029)
+            i = at;
+    }
     NSDictionary *a = [self->_storage attributesAtIndex:MIN(i, len - 1) effectiveRange:NULL];
     [self->_typing autorelease];
     self->_typing = [a copy];
