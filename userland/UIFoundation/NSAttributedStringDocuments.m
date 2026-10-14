@@ -1501,7 +1501,7 @@ read_document(NSData *data, NSDictionary *wrappers, NSDictionary *options, NSDic
 {
     NSString *type = options[NSDocumentTypeDocumentOption] ?: FinchImportSniff(data) ?: sniff_type(data);
     if ([@[ NSHTMLTextDocumentType, NSWebArchiveTextDocumentType, NSWordMLTextDocumentType, NSOfficeOpenXMLTextDocumentType,
-            NSOpenDocumentTextDocumentType ] containsObject:type]) {
+            NSOpenDocumentTextDocumentType, NSDocFormatTextDocumentType ] containsObject:type]) {
         NSAttributedString *imported = FinchImportAttributedString(data, type, options, docAttrs);
         if (imported)
             return imported;

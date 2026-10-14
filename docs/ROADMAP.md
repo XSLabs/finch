@@ -418,8 +418,9 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         (NSTextView's changeFont: and changeColor: were empty). Saving shows the File Format
         pop-up of TextEdit's eight formats by their names, the document window takes
         typing again after its panel closes, and File > Revert To browses the versions.
-        Its formats are written and read: HTML, web archives, Word 2003 XML, .docx and .odt
-        (textformats-test matches Apple's round trips; Word 97's .doc still to come).
+        Its formats are written and read: HTML, web archives, Word 2003 XML, .docx, .odt
+        and Word 97's .doc (textformats-test and worddoc-test match Apple's round trips,
+        and each reads the .doc files the other writes as its own; 2026-10-14).
         Format > Table... opens a table panel whose Insert puts a bordered table of the
         rows and columns asked for at the selection, typing going into its first cell.
         Export as PDF writes the text on white paper within the margins, scaled to fit.

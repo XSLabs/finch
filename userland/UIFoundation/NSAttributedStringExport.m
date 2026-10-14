@@ -31,6 +31,8 @@ static NSString *const ParagraphKey = @"NSParagraphStyle";
 
 enum { TraitItalic = 1u << 0, TraitBold = 1u << 1 };
 
+__attribute__((visibility("hidden"))) NSData *UIFWriteWordDocument(NSAttributedString *as, NSRange range, NSDictionary *docAttrs);
+
 typedef struct {
     NSString *family;
     CGFloat size;
@@ -435,5 +437,7 @@ FinchExportAttributedString(NSAttributedString *as, NSRange range, NSString *typ
         return docx_of(as, range);
     if ([type isEqualToString:@"NSOpenDocument"])
         return odt_of(as, range);
+    if ([type isEqualToString:@"NSDocFormat"])
+        return UIFWriteWordDocument(as, range, dict);  /* NSAttributedStringWordDoc.m */
     return nil;
 }

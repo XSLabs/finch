@@ -8,6 +8,7 @@
 
 struct CTInstalledFont {
     std::string path, postscript, full, family, style;
+    uint32_t face; /* which face of a collection (.ttc), else 0 */
 };
 
 CT_PRIVATE const std::vector<CTInstalledFont> &CTInstalledFonts(void);

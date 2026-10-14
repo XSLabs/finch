@@ -16,6 +16,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <map>
@@ -33,14 +34,16 @@ utf8(CFStringRef s)
     return s && CFStringGetCString(s, buf, sizeof buf, kCFStringEncodingUTF8) ? buf : "";
 }
 
-/* A string from a font's name table (Windows or Unicode first, then Mac Roman). */
+/* A string from a font's name table, in English where the font has it: Windows US English,
+   Unicode, Mac English (Roman), then another language (fonts list theirs in any order). */
 static std::string
 name_from_table(const uint8_t *t, size_t len, uint16_t want)
 {
     if (len < 6)
         return "";
     uint16_t records = ct_be16(t + 2), storage = ct_be16(t + 4);
-    std::string mac;
+    std::string best;
+    int best_rank = -1;
     for (uint16_t r = 0; r < records && 6 + 12 * (size_t)(r + 1) <= len; r++) {
         const uint8_t *e = t + 6 + 12 * r;
         if (ct_be16(e + 6) != want)
@@ -48,25 +51,30 @@ name_from_table(const uint8_t *t, size_t len, uint16_t want)
         size_t length = ct_be16(e + 8), offset = ct_be16(e + 10);
         if (storage + offset + length > len)
             continue;
+        uint16_t platform = ct_be16(e), encoding = ct_be16(e + 2), language = ct_be16(e + 4);
+        int rank = platform == 3 ? (language == 0x0409 ? 4 : 1) : platform == 0 ? 3
+                 : platform == 1 && encoding == 0 ? (language == 0 ? 2 : 0) : -1;
+        if (rank <= best_rank)
+            continue;
         const uint8_t *s = t + storage + offset;
-        if (ct_be16(e) == 3 || ct_be16(e) == 0) {
-            std::string out;
+        std::string out;
+        if (platform == 1) {
+            out.assign((const char *)s, length);
+        } else {
             for (size_t k = 0; k + 1 < length; k += 2)
                 out += s[k] ? '?' : (char)s[k + 1];
-            return out;
         }
-        if (ct_be16(e) == 1 && mac.empty())
-            mac.assign((const char *)s, length);
+        best = out, best_rank = rank;
     }
-    return mac;
+    return best;
 }
 
-/* A name-table string of face 0 of a font file's bytes. */
+/* A name-table string of a face of a font file's bytes. */
 static std::string
-name_from_bytes(const uint8_t *d, size_t n, uint16_t want)
+name_from_bytes(const uint8_t *d, size_t n, uint32_t face, uint16_t want)
 {
-    size_t base = n >= 16 && ct_be32(d) == 'ttcf' ? ct_be32(d + 12) : 0;
-    if (base + 12 > n)
+    size_t base = finch_font_face_offset(d, n, face);
+    if (base == SIZE_MAX)
         return "";
     uint16_t count = ct_be16(d + base + 4);
     for (uint16_t i = 0; i < count && base + 12 + 16 * (size_t)(i + 1) <= n; i++) {
@@ -105,25 +113,30 @@ scan(const std::string &dir, int depth)
         int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
         if (fd < 0)
             continue;
-        size_t want = st.st_size < (1 << 20) ? (size_t)st.st_size : (size_t)1 << 20;
-        uint8_t *buf = (uint8_t *)malloc(want);
-        ssize_t got = read(fd, buf, want);
+        /* mapped whole: a collection's later faces keep their names anywhere in the file */
+        void *map = st.st_size > 0 ? mmap(NULL, (size_t)st.st_size, PROT_READ, MAP_PRIVATE, fd, 0) : MAP_FAILED;
         close(fd);
-        if (got > 0) {
+        if (map == MAP_FAILED)
+            continue;
+        const uint8_t *buf = (const uint8_t *)map;
+        size_t got = (size_t)st.st_size;
+        uint32_t faces = finch_font_face_count(buf, got);
+        for (uint32_t i = 0; i < faces; i++) {
             CTInstalledFont f;
             f.path = path;
-            f.postscript = name_from_bytes(buf, (size_t)got, 6);
-            f.full = name_from_bytes(buf, (size_t)got, 4);
-            f.family = name_from_bytes(buf, (size_t)got, 16);
+            f.face = i;
+            f.postscript = name_from_bytes(buf, got, i, 6);
+            f.full = name_from_bytes(buf, got, i, 4);
+            f.family = name_from_bytes(buf, got, i, 16);
             if (f.family.empty())
-                f.family = name_from_bytes(buf, (size_t)got, 1);
-            f.style = name_from_bytes(buf, (size_t)got, 17);
+                f.family = name_from_bytes(buf, got, i, 1);
+            f.style = name_from_bytes(buf, got, i, 17);
             if (f.style.empty())
-                f.style = name_from_bytes(buf, (size_t)got, 2);
+                f.style = name_from_bytes(buf, got, i, 2);
             if (!f.postscript.empty())
                 installed->push_back(f);
         }
-        free(buf);
+        munmap(map, got);
     }
     closedir(d);
 }
@@ -275,10 +288,25 @@ CTFontRegistryRegisteredNames(void)
     return out;
 }
 
+/* An installed face: its file, or for a collection's later face that face as a file of its own. */
 static CGFontRef
-font_at(const std::string &path)
+font_at(const CTInstalledFont &face)
 {
-    CGDataProviderRef p = CGDataProviderCreateWithFilename(path.c_str());
+    CGDataProviderRef p = CGDataProviderCreateWithFilename(face.path.c_str());
+    if (p && face.face) {
+        CFDataRef all = CGDataProviderCopyData(p);
+        CFRelease(p);
+        p = NULL;
+        std::vector<uint8_t> one = all ? finch_font_face_file(CFDataGetBytePtr(all), (size_t)CFDataGetLength(all), face.face)
+                                       : std::vector<uint8_t>();
+        if (all)
+            CFRelease(all);
+        if (!one.empty()) {
+            CFDataRef data = CFDataCreate(NULL, one.data(), (CFIndex)one.size());
+            p = CGDataProviderCreateWithCFData(data);
+            CFRelease(data);
+        }
+    }
     CGFontRef f = p ? CGFontCreateWithDataProvider(p) : NULL;
     if (p)
         CFRelease(p);
@@ -309,16 +337,16 @@ copy_named(const std::string &n)
     const std::vector<CTInstalledFont> &all = CTInstalledFonts();
     for (auto &f : all)
         if (f.postscript == n)
-            return font_at(f.path);
+            return font_at(f);
     for (auto &f : all)
         if (f.full == n)
-            return font_at(f.path);
+            return font_at(f);
     /* a family: its regular face if it has one */
     const CTInstalledFont *pick = NULL;
     for (auto &f : all)
         if (f.family == n && (!pick || f.style == "Regular"))
             pick = &f;
-    return pick ? font_at(pick->path) : NULL;
+    return pick ? font_at(*pick) : NULL;
 }
 
 CGFontRef
@@ -357,7 +385,7 @@ CTFontRegistryCopyFamilyFace(CFStringRef family, bool bold, bool italic)
     std::string fam = utf8(family);
     for (auto &f : CTInstalledFonts())
         if (f.family == fam && style_is(f.style, bold, italic))
-            return font_at(f.path);
+            return font_at(f);
     return NULL;
 }
 
@@ -402,5 +430,5 @@ CTFontRegistryCopyNearestFace(CFStringRef family, CGFloat weight, bool italic, C
     }
     if (distance)
         *distance = best ? bestDistance : INFINITY;
-    return best ? font_at(best->path) : NULL;
+    return best ? font_at(*best) : NULL;
 }

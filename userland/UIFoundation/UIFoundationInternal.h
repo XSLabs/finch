@@ -52,6 +52,14 @@ UIF_HIDDEN NSFontDescriptor *UIFSystemFontDescriptor(NSFont *font);
 extern NSString *const UIFUIUsageAttribute;     /* NSCTFontUIUsageAttribute */
 extern NSString *const UIFSizeCategoryAttribute; /* NSCTFontSizeCategoryAttribute */
 
+/* A family's font for an imported document (NSAttributedStringImport.m). */
+UIF_HIDDEN NSFont *UIFImportFont(NSString *family, CGFloat size, BOOL bold, BOOL italic);
+
+/* Word 97 (.doc) documents read and written (NSAttributedStringWordDoc.m). */
+UIF_HIDDEN BOOL UIFIsWordDocument(NSData *data);
+UIF_HIDDEN NSAttributedString *UIFReadWordDocument(NSData *data, NSDictionary **docAttrs);
+UIF_HIDDEN NSData *UIFWriteWordDocument(NSAttributedString *as, NSRange range, NSDictionary *docAttrs);
+
 /* The default font for text without one: Helvetica 12. */
 UIF_HIDDEN NSFont *UIFDefaultFont(void);
 

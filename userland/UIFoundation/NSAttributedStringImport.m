@@ -20,6 +20,18 @@ typedef struct {
     BOOL hasColor;
 } ImportStyle;
 
+static NSFont *font_for(ImportStyle s);
+
+/* A family's font at a size, bold or italic, as an imported document names it: the
+   family when there's one (or Finch's stand-in for it), else Helvetica. */
+UIF_HIDDEN NSFont *
+UIFImportFont(NSString *family, CGFloat size, BOOL bold, BOOL italic)
+{
+    ImportStyle s = {0};
+    s.family = family, s.size = size, s.bold = bold, s.italic = italic;
+    return font_for(s);
+}
+
 static NSFont *
 font_for(ImportStyle s)
 {
@@ -738,6 +750,8 @@ sniff(NSData *data)
             return @"NSOpenDocument";
         return nil;
     }
+    if (UIFIsWordDocument(data))
+        return @"NSDocFormat";
     if (n >= 8 && !memcmp(p, "bplist00", 8)) {
         id plist = [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:NULL];
         return [plist isKindOfClass:[NSDictionary class]] && plist[@"WebMainResource"] ? @"NSWebArchive" : nil;
@@ -765,6 +779,8 @@ FinchImportAttributedString(NSData *data, NSString *type, NSDictionary *options,
 {
     NSAttributedString *s = nil;
     NSString *uti = nil;
+    if ([type isEqualToString:@"NSDocFormat"])
+        return UIFReadWordDocument(data, docAttrs);  /* NSAttributedStringWordDoc.m */
     if ([type isEqualToString:@"NSHTML"]) {
         s = read_html(data), uti = @"public.html";
     } else if ([type isEqualToString:@"NSWebArchive"]) {

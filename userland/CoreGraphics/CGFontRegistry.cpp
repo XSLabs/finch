@@ -12,23 +12,24 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <map>
 #include <string>
 
 static pthread_once_t once = PTHREAD_ONCE_INIT;
-static std::map<std::string, std::string> *by_name;
+static std::map<std::string, std::pair<std::string, uint32_t>> *by_name; /* -> file, face of a collection */
 
 static uint16_t be16(const uint8_t *p) { return (uint16_t)(p[0] << 8 | p[1]); }
 static uint32_t be32(const uint8_t *p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
 
-/* The PostScript name (name ID 6) of face 0 of a font file. */
+/* The PostScript name (name ID 6) of a face of a font file. */
 static std::string
-postscript_name(const uint8_t *d, size_t n)
+postscript_name(const uint8_t *d, size_t n, uint32_t face)
 {
-    size_t base = n >= 16 && be32(d) == 'ttcf' ? be32(d + 12) : 0;
-    if (base + 12 > n)
+    size_t base = finch_font_face_offset(d, n, face);
+    if (base == SIZE_MAX)
         return "";
     uint16_t count = be16(d + base + 4);
     for (uint16_t i = 0; i < count && base + 12 + 16 * (size_t)(i + 1) <= n; i++) {
@@ -85,16 +86,20 @@ scan(const std::string &dir, int depth)
         int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
         if (fd < 0)
             continue;
-        size_t want = st.st_size < 1 << 20 ? (size_t)st.st_size : 1 << 20;  /* the name table is near the front */
-        uint8_t *buf = (uint8_t *)malloc(want);
-        ssize_t got = read(fd, buf, want);
+        /* mapped whole: a collection's later faces keep their names anywhere in the file */
+        void *map = st.st_size > 0 ? mmap(NULL, (size_t)st.st_size, PROT_READ, MAP_PRIVATE, fd, 0) : MAP_FAILED;
         close(fd);
-        if (got > 0) {
-            std::string ps = postscript_name(buf, (size_t)got);
+        if (map == MAP_FAILED)
+            continue;
+        const uint8_t *buf = (const uint8_t *)map;
+        size_t got = (size_t)st.st_size;
+        uint32_t faces = finch_font_face_count(buf, got);
+        for (uint32_t i = 0; i < faces; i++) {
+            std::string ps = postscript_name(buf, got, i);
             if (!ps.empty() && !by_name->count(ps))
-                (*by_name)[ps] = path;
+                (*by_name)[ps] = {path, i};
         }
-        free(buf);
+        munmap(map, got);
     }
     closedir(d);
 }
@@ -102,7 +107,7 @@ scan(const std::string &dir, int depth)
 static void
 build(void)
 {
-    by_name = new std::map<std::string, std::string>();
+    by_name = new std::map<std::string, std::pair<std::string, uint32_t>>();
     for (const std::string &dir : finch_font_dirs())
         scan(dir, 0);
 }
@@ -122,9 +127,14 @@ CGFontRegistryCopyDataForName(CFStringRef name)
     }
     if (it == by_name->end())
         return NULL;
-    CGDataProviderRef p = CGDataProviderCreateWithFilename(it->second.c_str());
+    CGDataProviderRef p = CGDataProviderCreateWithFilename(it->second.first.c_str());
     CFDataRef data = p ? CGDataProviderCopyData(p) : NULL;
     if (p)
         CFRelease(p);
+    if (data && it->second.second) {
+        std::vector<uint8_t> one = finch_font_face_file(CFDataGetBytePtr(data), (size_t)CFDataGetLength(data), it->second.second);
+        CFRelease(data);
+        data = one.empty() ? NULL : CFDataCreate(NULL, one.data(), (CFIndex)one.size());
+    }
     return data;
 }

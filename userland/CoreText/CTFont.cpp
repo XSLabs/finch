@@ -125,24 +125,28 @@ CTFontNameString(CTFontRef f, uint16_t id)
     const uint8_t *t = CTFontTable(f, 'name', &len);
     if (!t || len < 6)
         return NULL;
+    /* English where the font has it: Windows US English, Unicode, Mac English (Roman), then another
+       language (Helvetica.ttc lists Catalan first) */
     uint16_t count = ct_be16(t + 2), storage = ct_be16(t + 4);
-    CFStringRef mac = NULL;
+    const uint8_t *best = NULL;
+    uint16_t best_length = 0;
+    int best_rank = -1;
     for (uint16_t i = 0; i < count && 6 + 12 * (size_t)(i + 1) <= len; i++) {
         const uint8_t *r = t + 6 + 12 * i;
-        uint16_t platform = ct_be16(r), encoding = ct_be16(r + 2), name = ct_be16(r + 6), length = ct_be16(r + 8),
-                 offset = ct_be16(r + 10);
+        uint16_t platform = ct_be16(r), encoding = ct_be16(r + 2), language = ct_be16(r + 4), name = ct_be16(r + 6),
+                 length = ct_be16(r + 8), offset = ct_be16(r + 10);
         if (name != id || (size_t)storage + offset + length > len)
             continue;
-        const uint8_t *s = t + storage + offset;
-        if (platform == 3 || platform == 0) {
-            if (mac)
-                CFRelease(mac);
-            return CFStringCreateWithBytes(NULL, s, length, kCFStringEncodingUTF16BE, false);
-        }
-        if (platform == 1 && encoding == 0 && !mac)
-            mac = CFStringCreateWithBytes(NULL, s, length, kCFStringEncodingMacRoman, false);
+        int rank = platform == 3 ? (language == 0x0409 ? 4 : 1) : platform == 0 ? 3
+                 : platform == 1 && encoding == 0 ? (language == 0 ? 2 : 0) : -1;
+        if (rank > best_rank)
+            best = r, best_length = length, best_rank = rank;
     }
-    return mac;
+    if (!best)
+        return NULL;
+    const uint8_t *s = t + storage + ct_be16(best + 10);
+    return CFStringCreateWithBytes(NULL, s, best_length, ct_be16(best) == 1 ? kCFStringEncodingMacRoman : kCFStringEncodingUTF16BE,
+                                   false);
 }
 
 static int16_t s16(const uint8_t *p) { return (int16_t)ct_be16(p); }

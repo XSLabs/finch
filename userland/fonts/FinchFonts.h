@@ -21,6 +21,7 @@
 #ifndef FINCH_FONTS_H
 #define FINCH_FONTS_H
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -379,6 +380,76 @@ finch_font_apple_name(const char *finch)
         }
     }
     return found;
+}
+
+/*
+ * Font collections (.ttc): one file holding several faces, each with its own
+ * table directory (macOS's Helvetica.ttc has Helvetica, Helvetica-Bold and
+ * four more). The registries index every face, and a face after the first is
+ * handed to CoreGraphics as a font file of its own, so everything past them
+ * reads a single face.
+ */
+
+static inline uint32_t
+finch_font_be32(const uint8_t *p)
+{
+    return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3];
+}
+
+/* How many faces a font file holds: a collection's count, else 1. */
+static inline uint32_t
+finch_font_face_count(const uint8_t *d, size_t n)
+{
+    if (n < 12 || finch_font_be32(d) != 0x74746366 /* 'ttcf' */)
+        return 1;
+    uint32_t count = finch_font_be32(d + 8);
+    return 12 + 4 * (size_t)count <= n ? count : 0;
+}
+
+/* Where face i's table directory starts in a font file (0 for a single font), or SIZE_MAX. */
+static inline size_t
+finch_font_face_offset(const uint8_t *d, size_t n, uint32_t i)
+{
+    if (n < 12 || finch_font_be32(d) != 0x74746366)
+        return i == 0 ? 0 : SIZE_MAX;
+    if (i >= finch_font_face_count(d, n))
+        return SIZE_MAX;
+    size_t off = finch_font_be32(d + 12 + 4 * (size_t)i);
+    return off + 12 <= n ? off : SIZE_MAX;
+}
+
+/* Face i of a collection as a font file of its own: its table directory with the
+ * tables it names copied after it (4-byte aligned). Empty when there's no such face. */
+static inline std::vector<uint8_t>
+finch_font_face_file(const uint8_t *d, size_t n, uint32_t i)
+{
+    std::vector<uint8_t> out;
+    size_t dir = finch_font_face_offset(d, n, i);
+    if (dir == SIZE_MAX)
+        return out;
+    size_t tables = (size_t)d[dir + 4] << 8 | d[dir + 5];
+    size_t head = 12 + 16 * tables;
+    if (dir + head > n)
+        return out;
+    size_t total = head;
+    for (size_t t = 0; t < tables; t++) {
+        const uint8_t *rec = d + dir + 12 + 16 * t;
+        size_t off = finch_font_be32(rec + 8), len = finch_font_be32(rec + 12);
+        if (off > n || len > n - off)
+            return out;
+        total += (len + 3) & ~(size_t)3;
+    }
+    out.assign(total, 0);
+    memcpy(out.data(), d + dir, head);
+    size_t at = head;
+    for (size_t t = 0; t < tables; t++) {
+        uint8_t *rec = out.data() + 12 + 16 * t;
+        size_t off = finch_font_be32(rec + 8), len = finch_font_be32(rec + 12);
+        memcpy(out.data() + at, d + off, len);
+        rec[8] = (uint8_t)(at >> 24), rec[9] = (uint8_t)(at >> 16), rec[10] = (uint8_t)(at >> 8), rec[11] = (uint8_t)at;
+        at += (len + 3) & ~(size_t)3;
+    }
+    return out;
 }
 
 #endif
