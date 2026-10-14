@@ -880,6 +880,25 @@ wake_event(void)
         for (NSDocument *doc in [[[[dc sharedDocumentController] documents] copy] autorelease])
             if ([[doc class] autosavesInPlace] && [doc hasUnautosavedChanges])
                 [doc autosaveWithImplicitCancellability:NO completionHandler:^(NSError *error) {}];
+    /* the rest (untitled ones, and those that don't autosave) are asked about, as Apple's
+       are, before the app's delegate is (Finch doesn't restore unsaved documents yet) */
+    if (dc && [[dc sharedDocumentController] hasEditedDocuments]) {
+        [[dc sharedDocumentController] reviewUnsavedDocumentsWithAlertTitle:nil cancellable:YES delegate:self
+                                                         didReviewAllSelector:@selector(_finchDocumentController:didReviewAll:contextInfo:)
+                                                                  contextInfo:NULL];
+        return;
+    }
+    [self _finchAskDelegateToTerminate];
+}
+
+- (void)_finchDocumentController:(id)dc didReviewAll:(BOOL)all contextInfo:(void *)contextInfo
+{
+    if (all)
+        [self _finchAskDelegateToTerminate];
+}
+
+- (void)_finchAskDelegateToTerminate
+{
     NSApplicationTerminateReply reply = NSTerminateNow;
     if ([(id)_delegate respondsToSelector:@selector(applicationShouldTerminate:)])
         reply = [_delegate applicationShouldTerminate:self];

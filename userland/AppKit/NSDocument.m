@@ -35,6 +35,62 @@ uti_for_extension(NSString *ext)
 
 #pragma mark - NSDocumentController
 
+/* Each of `docs` asked in turn whether it can close (canCloseDocumentWithDelegate:, which
+   asks the user about unsaved changes), closed when `closing`; then `done` with whether all could. */
+@interface _FinchDocumentReview : NSObject {
+@public
+    NSMutableArray<NSDocument *> *docs;
+    BOOL closing;
+    void (^done)(BOOL);
+}
+- (void)next;
+@end
+
+@implementation _FinchDocumentReview
+
+- (void)dealloc
+{
+    [docs release];
+    [done release];
+    [super dealloc];
+}
+
+- (void)next
+{
+    if (![docs count]) {
+        done(YES);
+        [self release];
+        return;
+    }
+    NSDocument *d = [docs firstObject];
+    [d canCloseDocumentWithDelegate:self shouldCloseSelector:@selector(document:shouldClose:contextInfo:) contextInfo:NULL];
+}
+
+- (void)document:(NSDocument *)d shouldClose:(BOOL)shouldClose contextInfo:(void *)contextInfo
+{
+    if (!shouldClose) {
+        done(NO);
+        [self release];
+        return;
+    }
+    if (closing)
+        [d close];
+    [docs removeObject:d];
+    [self next];
+}
+
+@end
+
+static void
+review_documents(NSArray *docs, BOOL closing, void (^done)(BOOL))
+{
+    _FinchDocumentReview *r = [[_FinchDocumentReview alloc] init];  /* released when done */
+    r->docs = [docs mutableCopy];
+    r->closing = closing;
+    r->done = [done copy];
+    [r next];
+}
+
 @implementation NSDocumentController {
     NSMutableArray<NSDocument *> *_documents;
     NSMutableArray<NSURL *> *_recents;
@@ -336,18 +392,25 @@ type_names(NSDictionary *t)
 - (void)closeAllDocumentsWithDelegate:(id)delegate didCloseAllSelector:(SEL)didCloseAllSelector
                           contextInfo:(void *)contextInfo
 {
-    for (NSDocument *d in [self documents])
-        [d close];
-    if (delegate && didCloseAllSelector)
-        ((void (*)(id, SEL, id, BOOL, void *))objc_msgSend)(delegate, didCloseAllSelector, self, YES, contextInfo);
+    review_documents([self documents], YES, ^(BOOL all) {
+        if (delegate && didCloseAllSelector)
+            ((void (*)(id, SEL, id, BOOL, void *))objc_msgSend)(delegate, didCloseAllSelector, self, all, contextInfo);
+    });
 }
 
+/* As Apple's: each edited document asked about its changes in turn, until one is cancelled. */
 - (void)reviewUnsavedDocumentsWithAlertTitle:(NSString *)title cancellable:(BOOL)cancellable
                                     delegate:(id)delegate didReviewAllSelector:(SEL)didReviewAllSelector
                                  contextInfo:(void *)contextInfo
 {
-    if (delegate && didReviewAllSelector)
-        ((void (*)(id, SEL, id, BOOL, void *))objc_msgSend)(delegate, didReviewAllSelector, self, YES, contextInfo);
+    NSMutableArray *edited = [NSMutableArray array];
+    for (NSDocument *d in [self documents])
+        if ([d isDocumentEdited])
+            [edited addObject:d];
+    review_documents(edited, NO, ^(BOOL all) {
+        if (delegate && didReviewAllSelector)
+            ((void (*)(id, SEL, id, BOOL, void *))objc_msgSend)(delegate, didReviewAllSelector, self, all, contextInfo);
+    });
 }
 
 #pragma mark Recents and settings
