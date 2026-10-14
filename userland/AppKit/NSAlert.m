@@ -236,7 +236,8 @@ text_height(NSString *s, NSFont *font, CGFloat width)
 {
     if (!s.length)
         return 0;
-    NSRect r = [s boundingRectWithSize:NSMakeSize(width, 10000)
+    /* a label's cell draws its text 2 points in from each side */
+    NSRect r = [s boundingRectWithSize:NSMakeSize(width - 4, 10000)
                                options:NSStringDrawingUsesLineFragmentOrigin
                             attributes:@{NSFontAttributeName : font}];
     return ceil(r.size.height);
