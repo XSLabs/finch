@@ -432,8 +432,8 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         (pickers of picker content in menus) and switches to Scientific's keypad; the View
         menu is laid out as Apple's (the modes inline with ⌘1–⌘3, Decimal Places a
         submenu), and ⌘3 opens Programmer's keypad. Next: Programmer's window runs past the
-        screen's bottom, its view-as control shows an extra segment and a field's
-        placeholder is white; RPN and conversion modes, history; the scientific and
+        screen's bottom, and the control between ASCII/Unicode and the base picker
+        draws light text on a light background; RPN and conversion modes, history; the scientific and
         programmer keypads take most of a minute to build in QEMU (profiled: AppKit's
         Auto Layout sync re-reads every view's intrinsic size and re-adds constraints on
         each pass, over a few hundred platform views).

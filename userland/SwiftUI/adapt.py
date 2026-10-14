@@ -41,6 +41,15 @@ KINDS = [
 
 # (file, upstream code, Finch's): fixes to upstream code
 FIXES = [
+    # an optional view can be none: its count of views is known only when its wrapped
+    # view's is zero (ForEach took one per element, and showed an option for a nil one)
+    ('SwiftUICore/View/OptionalView.swift',
+     '''    nonisolated public static func _viewListCount(inputs: _ViewListCountInputs) -> Int? {
+        Wrapped._viewListCount(inputs: inputs)
+    }''',
+     '''    nonisolated public static func _viewListCount(inputs: _ViewListCountInputs) -> Int? {
+        Wrapped._viewListCount(inputs: inputs) == 0 ? 0 : nil
+    }'''),
     # describing a text storage described itself, without end
     ('SwiftUICore/View/Text/Text/Text.swift',
      '''        var description = "<\\(Self.self): \\(self)>"''',

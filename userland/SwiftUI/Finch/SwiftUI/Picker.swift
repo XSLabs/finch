@@ -5,6 +5,7 @@
 // chosen by its tag (`View.tag(_:)`), or by its identity in a ForEach when untagged, as
 // Apple's are. With several sources, the button shows the value they share, or none.
 
+import Darwin
 import SwiftUICore
 
 /// What a picker selects: the selected values of its sources (one for a plain binding), and
@@ -43,7 +44,7 @@ public struct Picker<Label, SelectionValue, Content>: View where Label: View, Se
     public var body: some View {
         HStack(spacing: 6) {
             _FinchControlLabel(label: label)
-            _VariadicView.Tree(_FinchPickerRoot(selection: selection, titles: _finchOptionTitles(content))) {
+            _VariadicView.Tree(_FinchPickerRoot(selection: selection, titles: _finchPickerTitles)) {
                 content
             }
         }
@@ -53,6 +54,16 @@ public struct Picker<Label, SelectionValue, Content>: View where Label: View, Se
 @available(*, unavailable)
 extension Picker: Sendable {}
 
+extension Picker {
+    var _finchPickerTitles: [Text?] {
+        let titles = _finchOptionTitles(content)
+        if _finchMenuDebug {
+            fputs("picker of \(type(of: content as Any)): \(titles.count) titles\n", stderr)
+        }
+        return titles
+    }
+}
+
 /// The pop-up button, over the options as variadic children.
 struct _FinchPickerRoot<Value: Hashable>: _VariadicView_UnaryViewRoot {
     var selection: _FinchPickerSelection<Value>
@@ -60,6 +71,9 @@ struct _FinchPickerRoot<Value: Hashable>: _VariadicView_UnaryViewRoot {
 
     func body(children: _VariadicView.Children) -> some View {
         let values = children.map { _finchTag(of: $0, as: Value.self) }
+        if _finchMenuDebug {
+            fputs("picker options: \(values.count) children, tags \(values)\n", stderr)
+        }
         let selected = Set(selection.get())
         let items = values.indices.map { index in
             _FinchPopUpItem(title: index < titles.count ? titles[index] : nil,
