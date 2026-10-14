@@ -91,6 +91,8 @@ review_documents(NSArray *docs, BOOL closing, void (^done)(BOOL))
     [r next];
 }
 
+static NSString *const RecentsKey = @"FinchRecentDocumentPaths";  /* the app's defaults */
+
 @implementation NSDocumentController {
     NSMutableArray<NSDocument *> *_documents;
     NSMutableArray<NSURL *> *_recents;
@@ -113,8 +115,15 @@ static NSDocumentController *shared_controller;
     if (self) {
         _documents = [[NSMutableArray alloc] init];
         _recents = [[NSMutableArray alloc] init];
-        if (!shared_controller)
+        /* the recent documents kept in the app's defaults, those still there */
+        for (NSString *path in [[NSUserDefaults standardUserDefaults] arrayForKey:RecentsKey])
+            if ([path isKindOfClass:[NSString class]] && [[NSFileManager defaultManager] fileExistsAtPath:path])
+                [_recents addObject:[NSURL fileURLWithPath:path]];
+        if (!shared_controller) {
             shared_controller = [self retain];
+            [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_finchUpdateRecentsMenu)
+                                                         name:NSApplicationDidFinishLaunchingNotification object:nil];
+        }
     }
     return self;
 }
@@ -426,6 +435,65 @@ type_names(NSDictionary *t)
     [_recents insertObject:url atIndex:0];
     while ([_recents count] > [self maximumRecentDocumentCount])
         [_recents removeLastObject];
+    [self _finchRecentsChanged];
+}
+
+- (void)_finchRecentsChanged
+{
+    NSMutableArray *paths = [NSMutableArray array];
+    for (NSURL *u in _recents)
+        if ([u isFileURL])
+            [paths addObject:[u path]];
+    [[NSUserDefaults standardUserDefaults] setObject:paths forKey:RecentsKey];
+    [self _finchUpdateRecentsMenu];
+}
+
+/* The main menu's Open Recent submenu (the one holding Clear Menu): an item for each recent
+   document, as Apple's controller keeps it. */
+static NSMenu *
+recents_menu(NSMenu *menu)
+{
+    for (NSMenuItem *item in [menu itemArray]) {
+        if ([item action] == @selector(clearRecentDocuments:))
+            return menu;
+        NSMenu *found = [item submenu] ? recents_menu([item submenu]) : nil;
+        if (found)
+            return found;
+    }
+    return nil;
+}
+
+- (void)_finchUpdateRecentsMenu
+{
+    NSMenu *menu = recents_menu([NSApp mainMenu]);
+    if (!menu)
+        return;
+    for (NSMenuItem *item in [[[menu itemArray] copy] autorelease])
+        if ([item action] == @selector(_finchOpenRecentDocument:) || ([item isSeparatorItem] && [item tag] == 0x52454354))
+            [menu removeItem:item];
+    NSInteger at = 0;
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSURL *u in _recents) {
+        NSMenuItem *item = [[[NSMenuItem alloc] initWithTitle:[fm displayNameAtPath:[u path]] ?: [u lastPathComponent]
+                                                       action:@selector(_finchOpenRecentDocument:) keyEquivalent:@""] autorelease];
+        [item setTarget:self];
+        [item setRepresentedObject:u];
+        [menu insertItem:item atIndex:at++];
+    }
+    if (at && !(at < [menu numberOfItems] && [[menu itemAtIndex:at] isSeparatorItem])) {
+        NSMenuItem *sep = [NSMenuItem separatorItem];
+        [sep setTag:0x52454354];
+        [menu insertItem:sep atIndex:at];
+    }
+}
+
+- (void)_finchOpenRecentDocument:(NSMenuItem *)sender
+{
+    NSURL *url = [sender representedObject];
+    [self openDocumentWithContentsOfURL:url display:YES completionHandler:^(NSDocument *doc, BOOL already, NSError *error) {
+        if (error)
+            [self presentError:error];
+    }];
 }
 
 - (void)noteNewRecentDocument:(NSDocument *)document
@@ -436,6 +504,7 @@ type_names(NSDictionary *t)
 - (IBAction)clearRecentDocuments:(id)sender
 {
     [_recents removeAllObjects];
+    [self _finchRecentsChanged];
 }
 
 - (NSTimeInterval)autosavingDelay { return _autosavingDelay; }

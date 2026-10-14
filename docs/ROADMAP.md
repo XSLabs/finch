@@ -426,7 +426,8 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         Closing an edited untitled document asks whether to keep it (Save..., Delete), an
         edited one that doesn't autosave whether to save it; one with a file autosaves.
         Quitting asks the same of each edited document in turn (Finch doesn't restore
-        unsaved documents at the next launch yet, as macOS does).
+        unsaved documents at the next launch yet, as macOS does). File > Open Recent lists
+        the recent documents, kept in the app's defaults across launches.
   - [ ] Calculator: runs in QEMU (2026-10-13). Every import resolves to Finch's
         frameworks (`tools/check-imports.py`): its engine, Calculate (an expression tree
         edited key by key as Apple's is, RPN and programmer modes, text expressions and
