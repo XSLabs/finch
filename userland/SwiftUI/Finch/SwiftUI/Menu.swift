@@ -31,6 +31,17 @@ struct _FinchMenuItem {
     var shortcut: KeyboardShortcut?
 }
 
+/// A view given a picker style (pickerStyle(_:) writes it into the environment).
+protocol _FinchPickerStyleCarrier {
+    var _finchPickerKind: _FinchPickerKind? { get }
+}
+
+extension ModifiedContent: _FinchPickerStyleCarrier where Modifier == _EnvironmentKeyWritingModifier<_FinchPickerKind> {
+    var _finchPickerKind: _FinchPickerKind? {
+        modifier.keyPath == \EnvironmentValues._finchPickerStyle ? modifier.value : nil
+    }
+}
+
 /// A view with a keyboard shortcut (keyboardShortcut(_:) writes it into the environment).
 protocol _FinchShortcutCarrier {
     var _finchShortcut: KeyboardShortcut? { get }
@@ -60,6 +71,11 @@ func _finchMenuItemsOf(_ content: Any) -> [_FinchMenuItem] {
     }
     if let modified = content as? _FinchModifiedView {
         var items = _finchMenuItemsOf(modified._finchContent)
+        // an inline picker lays its options out in the menu itself, between separators
+        if let kind = (content as? _FinchPickerStyleCarrier)?._finchPickerKind, kind == .inline || kind == .radioGroup,
+           items.count == 1, case let .submenu(options) = items[0].kind {
+            items = [_FinchMenuItem(kind: .separator)] + options + [_FinchMenuItem(kind: .separator)]
+        }
         if let shortcut = (content as? _FinchShortcutCarrier)?._finchShortcut {
             for index in items.indices where items[index].shortcut == nil { items[index].shortcut = shortcut }
         }
@@ -111,8 +127,13 @@ extension Menu: _FinchMenuItems {
 }
 
 extension Picker: _FinchMenuItems {
-    /// A picker in a menu: its options inline, the selected one checked.
+    /// A picker in a menu: as Apple's, a submenu titled with its label, of its options, the
+    /// selected one checked (the inline style lays the options out in the menu itself).
     var _finchMenuItems: [_FinchMenuItem] {
+        [_FinchMenuItem(kind: .submenu(_finchOptionItems), title: _finchOptionTitles(label).first ?? nil)]
+    }
+
+    private var _finchOptionItems: [_FinchMenuItem] {
         let selection = selection
         let selected = Set(selection.get())
         let titles = _finchOptionTitles(content)
@@ -121,16 +142,34 @@ extension Picker: _FinchMenuItems {
         if _finchMenuDebug {
             FileHandle.standardError.write(Data("menu picker of \(type(of: content as Any)): \(titles.count) titles, tags \(tags)\n".utf8))
         }
+        let shortcuts = _finchOptionShortcuts(content)
         return tags.indices.map { index in
             let tag = tags[index]
-            return _FinchMenuItem(kind: .toggle(isOn: tag.map(selected.contains) ?? false, set: { _ in
+            var item = _FinchMenuItem(kind: .toggle(isOn: tag.map(selected.contains) ?? false, set: { _ in
                 if _finchMenuDebug {
                     FileHandle.standardError.write(Data("menu picker sets \(tag.map { String(describing: $0) } ?? "nil")\n".utf8))
                 }
                 if let tag { selection.set(tag) }
             }), title: index < titles.count ? titles[index] : nil, fallback: tag.map { String(describing: $0) } ?? "")
+            item.shortcut = index < shortcuts.count ? shortcuts[index] : nil
+            return item
         }
     }
+}
+
+/// The keyboard shortcuts of a picker's options, in the order of their tags.
+func _finchOptionShortcuts(_ content: Any) -> [KeyboardShortcut?] {
+    if let sequence = content as? _FinchViewSequence {
+        return sequence._finchViews.flatMap(_finchOptionShortcuts)
+    }
+    // one option: a shortcut anywhere on it
+    var view: Any = content
+    while let modified = view as? _FinchModifiedView {
+        if let shortcut = (view as? _FinchShortcutCarrier)?._finchShortcut { return [shortcut] }
+        if modified._finchContent is _FinchViewSequence { return _finchOptionShortcuts(modified._finchContent) }
+        view = modified._finchContent
+    }
+    return [nil]
 }
 
 /// The tags of a picker's options, in the order of their titles.

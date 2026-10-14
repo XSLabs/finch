@@ -429,9 +429,12 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         shows and 7 + 2 = reads "7+2" over "9". A unified toolbar shares the title bar's
         52-point band, so the Mode picker sits beside the window controls and the window
         is Apple's height (408). The Mode menu lists Basic, Scientific and Programmer
-        (pickers of picker content in menus) and switches to Scientific's keypad. Next:
-        per-option keyboard shortcuts in menu pickers (⌘1–⌘3), the View menu's Decimal
-        Places as a submenu, programmer, RPN and conversion modes, history.
+        (pickers of picker content in menus) and switches to Scientific's keypad; the View
+        menu is laid out as Apple's (the modes inline with ⌘1–⌘3, Decimal Places a
+        submenu), and ⌘3 opens Programmer's keypad. Next: Programmer's window runs past the
+        screen's bottom, its view-as control shows an extra segment and a field's
+        placeholder is white; RPN and conversion modes, history; the scientific and
+        programmer keypads take most of a minute to build in QEMU.
   - [x] Drop-in check: `tools/app-sweep.py` runs the import check over every app and the
         frameworks it carries, and ranks what's missing by apps blocked. Apple's apps are
         recorded in [`docs/APPS.md`](APPS.md) (2026-10-12: 11 of 65 have every import;
