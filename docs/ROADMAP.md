@@ -411,7 +411,8 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
       that an arbitrary app dropped in launches or reports exactly what it lacks.
   - [ ] TextEdit, its whole scope checked in the VM: new, type, format, save, close,
         reopen, revert, find, rulers, tables, print to PDF, autosave and versions
-        (NSFileVersion is missing).
+        (NSFileVersion keeps versions since 2026-10-14: a document that autosaves in place
+        adds one on each save, and Browse All Versions restores one; to check in TextEdit).
   - [ ] Calculator: runs in QEMU (2026-10-13). Every import resolves to Finch's
         frameworks (`tools/check-imports.py`): its engine, Calculate (an expression tree
         edited key by key as Apple's is, RPN and programmer modes, text expressions and
@@ -606,7 +607,7 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
     - [ ] Next: measurement format styles, AppKit's private classes apps link
           (NSTokenAttachment, NSTouchDevice, NSButtonGroupTouchBarItem, ...), among others
           ([`APPS.md`](APPS.md)). Later: a Spotlight-style index
-          for metadata queries, a version store for NSFileVersion, lexical classes for
+          for metadata queries, lexical classes for
           the tagger, and Automator (its private framework and ViewBridge).
     - [ ] Every class and method the public headers declare, as Apple's answers them:
           `tools/api-audit.sh` lists what Finch lacks. 2026-10-12: Foundation 48 classes

@@ -483,7 +483,8 @@ overrides(id doc, SEL sel)
 
 + (BOOL)autosavesInPlace { return NO; }
 + (BOOL)autosavesDrafts { return NO; }
-+ (BOOL)preservesVersions { return NO; }
+/* as Apple's: a document that autosaves in place keeps its versions */
++ (BOOL)preservesVersions { return [self autosavesInPlace]; }
 + (BOOL)usesUbiquitousStorage { return NO; }
 + (BOOL)isNativeType:(NSString *)type { return YES; }
 + (NSArray<NSString *> *)readableTypes { return @[]; }
@@ -801,12 +802,27 @@ overrides(id doc, SEL sel)
     return @{};
 }
 
+/* A saved document's contents as a new version of it (NSFileVersion's store), as macOS's
+   revision store keeps them: every save, and an autosave in place at most hourly. */
+static void
+add_version(NSURL *url, NSSaveOperationType op)
+{
+    if (op == NSAutosaveInPlaceOperation) {
+        NSFileVersion *last = [[NSFileVersion otherVersionsOfItemAtURL:url] lastObject];
+        if (last && -[[last modificationDate] timeIntervalSinceNow] < 3600)
+            return;
+    }
+    [NSFileVersion addVersionOfItemAtURL:url withContentsOfURL:url options:0 error:NULL];
+}
+
 - (void)saveToURL:(NSURL *)url ofType:(NSString *)typeName forSaveOperation:(NSSaveOperationType)op
     completionHandler:(void (^)(NSError *))completionHandler
 {
     NSError *error = nil;
     id token = [self changeCountTokenForSaveOperation:op];
     BOOL ok = [self writeSafelyToURL:url ofType:typeName forSaveOperation:op error:&error];
+    if (ok && op != NSSaveToOperation && [[self class] preservesVersions])
+        add_version(url, op);
     if (ok && op != NSSaveToOperation) {
         [self setFileURL:url];
         [self setFileType:typeName];
