@@ -20,6 +20,8 @@ enum _FinchWindows {
     private static var open: [(id: SceneID, controller: NSWindowController)] = []
     /// The ids of Window scenes (each one window).
     static var singleWindowIDs: Set<String> = []
+    /// Posted (object: the window) when a scene's window style is applied to its window.
+    static let styleDidChangeNotification = Notification.Name("_FinchWindowStyleDidChange")
 
     private static var items: [SceneList.Item] { AppGraph.shared?.rootSceneList?.items ?? [] }
 
@@ -50,6 +52,7 @@ enum _FinchWindows {
             // the style can run the content under the title bar: its safe area changed
             hostingVC.view.willChangeValue(forKey: "safeAreaInsets")
             hostingVC.view.didChangeValue(forKey: "safeAreaInsets")
+            NotificationCenter.default.post(name: styleDidChangeNotification, object: window)
         }
         if shouldDumpViewSizing {
             dumpWindowSizing("pre-show", hostingVC: hostingVC, window: windowVC.window, preferred: initialSize,
@@ -69,9 +72,27 @@ enum _FinchWindows {
                 window.center()
             }
             // a Window scene's frame is kept under its id, as Apple's ("NSWindow Frame main")
+            var restored = false
             if case let .string(name) = item.id, singleWindowIDs.contains(name) {
-                window.setFrameUsingName(name)
+                restored = window.setFrameUsingName(name)
                 window.setFrameAutosaveName(name)
+            }
+            // what the first renders tell the content (the title bar's height, read from the
+            // window) can change its size: measured again over the next two turns
+            dumpViewSize("restored a saved frame: \(restored)", window.frame.size)
+            if !restored {
+                func settle(_ turns: Int) {
+                    DispatchQueue.main.async {
+                        dumpViewSize("settling", window.frame.size)
+                        let settled = initialContentSize(for: hostingVC)
+                        if window.contentRect(forFrameRect: window.frame).size != settled {
+                            window.setContentSize(settled)
+                            window.center()
+                        }
+                        if turns > 1 { settle(turns - 1) }
+                    }
+                }
+                settle(2)
             }
             dumpWindowSizing("post-size", hostingVC: hostingVC, window: window, preferred: initialSize, fitting: size)
             if shouldDumpViewSizing {

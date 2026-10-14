@@ -593,6 +593,49 @@ struct _FinchColumnWidth: Equatable {
     var max: CGFloat?
 }
 
+/// The height of the title bar its window runs content under (its content view's top safe
+/// area), whatever safe area the SwiftUI around it ignores.
+struct _FinchTitleInsetReader: NSViewRepresentable {
+    var inset: Binding<CGFloat>
+
+    final class ReaderView: NSView {
+        var report: ((CGFloat) -> Void)?
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            NotificationCenter.default.removeObserver(self)
+            if let window {
+                for name in [NSWindow.didResizeNotification, _FinchWindows.styleDidChangeNotification] {
+                    NotificationCenter.default.addObserver(self, selector: #selector(windowChanged), name: name,
+                                                           object: window)
+                }
+            }
+            send()
+        }
+        @objc func windowChanged() { send() }
+        override func layout() {
+            super.layout()
+            send()
+        }
+        func send() {
+            guard let top = window?.contentView?.safeAreaInsets.top else { return }
+            if ProcessInfo.processInfo.environment["FINCH_DUMP_VIEWS"] == "1" {
+                FileHandle.standardError.write(Data("FINCH_DUMP_VIEWS split view title inset \(top)\n".utf8))
+            }
+            let report = report
+            DispatchQueue.main.async { report?(top) }
+        }
+    }
+
+    func makeNSView(context: Context) -> ReaderView { ReaderView() }
+
+    func updateNSView(_ view: ReaderView, context: Context) {
+        let inset = inset
+        view.report = { if inset.wrappedValue != $0 { inset.wrappedValue = $0 } }
+        view.send()
+    }
+}
+
 struct _FinchColumnWidthKey: PreferenceKey {
     static var defaultValue: _FinchColumnWidth? { nil }
 
@@ -614,6 +657,7 @@ struct _FinchSplitView: View {
     @State private var pages: [AnyHashable] = []
     @State private var views: [AnyView] = []
     @State private var destinations = _FinchDestinations()
+    @State private var titleInset: CGFloat = 0
 
     var body: some View {
         let pagesBinding = $pages, viewsBinding = $views
@@ -652,10 +696,31 @@ struct _FinchSplitView: View {
                     .onPreferenceChange(_FinchColumnWidthKey.self) { contentWidth = $0 }
                 Divider()
             }
-            _FinchPages(root: detail, pages: detailPages, covered: false)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // as Apple's, the split view has no ideal size: a window opens it at its default
+            // as Apple's, the detail column runs the title bar's height below its content as
+            // well as above it (a Window with Calculator's content is 304 + 2 × 52 tall)
+            _FinchSplitDetailLayout {
+                _FinchPages(root: detail, pages: detailPages, covered: false)
+            }
+            .padding(.bottom, titleInset)
         }
+        .background(_FinchTitleInsetReader(inset: $titleInset))
         .environment(\._finchNavigator, navigator)
+    }
+
+    /// The detail column: it fills what it's offered, never less than its content; with no
+    /// width offered it takes all there is, with no height its content's.
+    struct _FinchSplitDetailLayout: Layout {
+        func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+            let content = subviews.first?.sizeThatFits(proposal) ?? .zero
+            return CGSize(width: proposal.width.map { max($0, content.width) } ?? .infinity,
+                          height: proposal.height.map { max($0, content.height) } ?? content.height)
+        }
+
+        func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+            subviews.first?.place(at: CGPoint(x: bounds.midX, y: bounds.midY), anchor: .center,
+                                  proposal: ProposedViewSize(bounds.size))
+        }
     }
 
     private func column(_ view: AnyView, width: _FinchColumnWidth?, default fallback: _FinchColumnWidth) -> some View {
