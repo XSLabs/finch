@@ -186,6 +186,8 @@ public struct CalculateExpressionStackView: View {
     }
 
     public var body: some View {
+        let _ = getenv("FINCH_CALCULATE_DEBUG") != nil
+            ? fputs("CalculateExpressionStackView: \(rowCount) rows, text \(textColor), separator \(separatorColor)\n", stderr) : 0
         let entries = Array(expression.postfixStack.suffix(max(1, rowCount)))
         let blanks = max(0, rowCount - entries.count)
         GeometryReader { geometry in

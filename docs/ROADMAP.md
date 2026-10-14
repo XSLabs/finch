@@ -433,7 +433,9 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         menu is laid out as Apple's (the modes inline with ⌘1–⌘3, Decimal Places a
         submenu), and ⌘3 opens Programmer's keypad. Next: Programmer's window runs past the
         screen's bottom, and the control between ASCII/Unicode and the base picker
-        draws light text on a light background; RPN and conversion modes, history; the scientific and
+        draws light text on a light background; RPN mode (⌘R) shows its stack and keypad,
+        but Calculator gives the stack white text and separators (a dark backdrop Finch
+        doesn't draw yet) and "enter" is cut to "e…"; conversion mode, history; the scientific and
         programmer keypads take most of a minute to build in QEMU (profiled: AppKit's
         Auto Layout sync re-reads every view's intrinsic size and re-adds constraints on
         each pass, over a few hundred platform views).
