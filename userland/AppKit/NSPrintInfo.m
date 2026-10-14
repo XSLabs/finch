@@ -340,7 +340,9 @@ pages(NSPrintOperation *op)
         return rects;
     }
     NSPrintInfo *p = op->_info;
-    NSRect r = op->_insideRect;
+    /* as Apple's: the view as it is now, after knowsPageRange: (a print view, TextEdit's, sizes
+       itself to the page there), unless a PDF of a given rect is asked for */
+    NSRect r = op->_pdfOnly ? op->_insideRect : [v bounds];
     CGFloat pageHeight = [p paperSize].height - [p topMargin] - [p bottomMargin];
     if (op->_pdfOnly || pageHeight <= 0 || r.size.height <= pageHeight) {
         [rects addObject:[NSValue valueWithRect:r]];
@@ -371,6 +373,19 @@ write_pdf(NSPrintOperation *op, NSURL *url, NSMutableData *data)
         return NO;
     NSPrintOperation *saved = current_operation;
     current_operation = op;
+    /* FINCH_TRACE_PRINT=1: what's printed, and on which pages */
+    if (getenv("FINCH_TRACE_PRINT")) {
+        NSView *v = op->_view;
+        fprintf(stderr, "print: %s %s, %lu page(s) %s\n", class_getName([v class]), NSStringFromRect([v frame]).UTF8String,
+                (unsigned long)[rects count], [[[rects componentsJoinedByString:@" "] stringByReplacingOccurrencesOfString:@"\n" withString:@" "] UTF8String]);
+        if ([v isKindOfClass:[NSTextView class]])
+            fprintf(stderr, "print: text length %lu, layout %s, subviews %lu\n", (unsigned long)[[(NSTextView *)v string] length],
+                    [(NSTextView *)v textLayoutManager] ? "TextKit 2" : "TextKit 1", (unsigned long)[[v subviews] count]);
+        for (NSView *sub in [v subviews])
+            fprintf(stderr, "print:   subview %s %s\n", class_getName([sub class]), NSStringFromRect([sub frame]).UTF8String);
+    }
+    extern void FinchGraphicsSetPrintingContext(CGContextRef cg);
+    FinchGraphicsSetPrintingContext(pdf);
     [op->_view beginDocument];
     NSInteger page = 1;
     for (NSValue *value in rects) {
@@ -388,8 +403,16 @@ write_pdf(NSPrintOperation *op, NSURL *url, NSMutableData *data)
                 y += MAX(0, (areaH - r.size.height) / 2);
             else
                 y += areaH - MIN(areaH, r.size.height);
+            /* as Apple's: fit pagination scales a view wider (or taller) than the page down to it */
+            CGFloat scale = [p scalingFactor];
+            if ([p horizontalPagination] == NSPrintingPaginationModeFit && r.size.width * scale > areaW && r.size.width > 0)
+                scale = areaW / r.size.width;
+            if ([p verticalPagination] == NSPrintingPaginationModeFit && r.size.height * scale > areaH && r.size.height > 0)
+                scale = MIN(scale, areaH / r.size.height);
+            if (scale != [p scalingFactor] && ![p isVerticallyCentered])
+                y = [p bottomMargin] + areaH - MIN(areaH, r.size.height * scale);
             CGContextTranslateCTM(pdf, x, y);
-            CGContextScaleCTM(pdf, [p scalingFactor], [p scalingFactor]);
+            CGContextScaleCTM(pdf, scale, scale);
         }
         if ([op->_view isFlipped])
             CGContextConcatCTM(pdf, CGAffineTransformMake(1, 0, 0, -1, -NSMinX(r), NSMaxY(r)));
@@ -402,6 +425,7 @@ write_pdf(NSPrintOperation *op, NSURL *url, NSMutableData *data)
         CGPDFContextEndPage(pdf);
     }
     [op->_view endDocument];
+    FinchGraphicsSetPrintingContext(NULL);
     current_operation = saved;
     CGPDFContextClose(pdf);
     CGContextRelease(pdf);

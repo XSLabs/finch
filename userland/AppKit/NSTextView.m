@@ -2662,7 +2662,12 @@ scroll_view(NSTextView *self)
 {
     if (!_t.drawsBackground)
         return;
-    [[self backgroundColor] setFill];
+    NSColor *c = [self backgroundColor];
+    /* printed, the system's text background is the paper's white, as it is on macOS (Finch's
+       on screen is Fieldwork's paper tone) */
+    if (![NSGraphicsContext currentContextDrawingToScreen] && [c isEqual:[NSColor textBackgroundColor]])
+        c = [NSColor whiteColor];
+    [c setFill];
     NSRectFillUsingOperation(rect, NSCompositingOperationSourceOver);
 }
 
@@ -2712,16 +2717,26 @@ static char pending_drag_key;
         /* TextKit 2: the viewport's layout fragments draw themselves. */
         [[_tlm textViewportLayoutController] layoutViewport];
         CGContextRef cg = [[NSGraphicsContext currentContext] CGContext];
+        static int tracePrint = -1;
+        if (tracePrint < 0)
+            tracePrint = getenv("FINCH_TRACE_PRINT") != NULL;
+        __block int seen = 0, drawn = 0;
         [_tlm enumerateTextLayoutFragmentsFromLocation:nil
                                                options:NSTextLayoutFragmentEnumerationOptionsEnsuresLayout
                                             usingBlock:^BOOL(NSTextLayoutFragment *f) {
                                               CGRect fr = [f layoutFragmentFrame];
+                                              seen++;
                                               if (CGRectGetMinY(fr) >= NSMaxY(inContainer))
                                                   return NO;
-                                              if (CGRectGetMaxY(fr) > NSMinY(inContainer))
+                                              if (CGRectGetMaxY(fr) > NSMinY(inContainer)) {
                                                   [f drawAtPoint:CGPointMake(o.x + fr.origin.x, o.y + fr.origin.y) inContext:cg];
+                                                  drawn++;
+                                              }
                                               return YES;
                                             }];
+        if (tracePrint && ![NSGraphicsContext currentContextDrawingToScreen])
+            fprintf(stderr, "print: text view drew %d of %d fragments in %s (container %s, context %p)\n", drawn, seen,
+                    NSStringFromRect(inContainer).UTF8String, NSStringFromSize([_container size]).UTF8String, cg);
     } else {
         NSRange glyphs = [_lm glyphRangeForBoundingRect:inContainer inTextContainer:_container];
         if (glyphs.length) {

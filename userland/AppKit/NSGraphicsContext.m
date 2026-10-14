@@ -195,7 +195,17 @@ FinchCompositeOperation(NSCompositingOperation op)
 }
 
 - (NSDictionary *)attributes { return _attributes; }
-- (BOOL)isDrawingToScreen { return YES; }
+/* The context a print operation draws its pages in (NSPrintInfo.m), while it does. */
+static CGContextRef printing_cg;
+
+void
+FinchGraphicsSetPrintingContext(CGContextRef cg)
+{
+    printing_cg = cg;
+}
+
+/* As Apple's: not when the drawing is printed (or saved as a print's PDF). */
+- (BOOL)isDrawingToScreen { return !printing_cg || _cg != printing_cg; }
 - (BOOL)isFlipped { return _flipped; }
 - (CGContextRef)CGContext { return _cg; }
 - (void *)graphicsPort { return _cg; }

@@ -422,6 +422,7 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         (textformats-test matches Apple's round trips; Word 97's .doc still to come).
         Format > Table... opens a table panel whose Insert puts a bordered table of the
         rows and columns asked for at the selection, typing going into its first cell.
+        Export as PDF writes the text on white paper within the margins, scaled to fit.
   - [ ] Calculator: runs in QEMU (2026-10-13). Every import resolves to Finch's
         frameworks (`tools/check-imports.py`): its engine, Calculate (an expression tree
         edited key by key as Apple's is, RPN and programmer modes, text expressions and
