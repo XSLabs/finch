@@ -236,6 +236,8 @@ Other switches for an AppKit app (they work on the host too):
   at (ideal, least, most) and opens at.
 - `FINCH_TRACE_LAYOUT=1` (SwiftUI): every layout's size for each proposal, nested, with
   the answers custom layouts get from their subviews: where a size comes from.
+- `FINCH_TRACE_AUTOLAYOUT=1`: each sync of a window's Auto Layout engine (constraints
+  active, added, and whether it was rebuilt); `=2` also what marked it out of date.
 - `FINCH_MENU_DEBUG=1` (SwiftUI): what each picker is made of (its content's type, titles
   and tags; in menus and as pop-up or segmented controls) and the value a menu one sets.
 - `FINCH_CALCULATE_DEBUG=1`: each key Calculate applies or refuses and the expression

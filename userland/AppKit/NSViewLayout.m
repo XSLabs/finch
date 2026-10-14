@@ -31,6 +31,7 @@
  * coming and going, constants, intrinsic sizes, frames of autoresizing
  * views, the root's size) updates it incrementally.
  */
+#include <dlfcn.h>
 #import "AppKit_Finch.h"
 #import "NSView_Finch.h"
 #import "CoreAutoLayout/FinchLayoutItem.h"
@@ -130,11 +131,23 @@ is_root(NSView *view)
     return ![view superview] || [[view window] contentView] == view;
 }
 
-static void
+__attribute__((noinline)) static void
 mark_dirty(NSView *view, BOOL rebuild)
 {
     if (!view)
         return;
+    /* FINCH_TRACE_AUTOLAYOUT=2: also what marks a root's layout out of date */
+    static int trace = -1;
+    if (trace < 0) {
+        const char *t = getenv("FINCH_TRACE_AUTOLAYOUT");
+        trace = t && atoi(t) >= 2;
+    }
+    if (trace) {
+        Dl_info info;
+        void *caller = __builtin_return_address(0);
+        if (dladdr(caller, &info) && info.dli_sname)
+            fprintf(stderr, "autolayout: dirty from %s (%s)\n", info.dli_sname, class_getName([view class]));
+    }
     NSView *root = layout_root(view);
     FinchViewLayout *s = state(root);
     s->dirty = YES;
@@ -953,6 +966,7 @@ sync_engine(NSView *root)
         rs->dirty = NO;
         return nil;
     }
+    BOOL rebuilt = rs->rebuild && rs->engine;
     if (rs->rebuild && rs->engine) {
         [rs->engine release];
         rs->engine = nil;
@@ -976,15 +990,24 @@ sync_engine(NSView *root)
         }
     }
     NSMutableSet *had = [NSMutableSet setWithArray:e->installed];
+    NSUInteger added = 0;
     for (NSLayoutConstraint *c in active) {
         if ([had containsObject:c] && record_of(c, e)) {
             engine_update(e, c);
         } else {
             engine_add(e, c);
+            added++;
             if (![had containsObject:c])
                 [e->installed addObject:c];
         }
     }
+    /* FINCH_TRACE_AUTOLAYOUT=1: each sync of a root's engine */
+    static int trace = -1;
+    if (trace < 0)
+        trace = getenv("FINCH_TRACE_AUTOLAYOUT") != NULL;
+    if (trace)
+        fprintf(stderr, "autolayout: sync %s%s: %lu active, %lu added\n", class_getName([root class]),
+                rebuilt ? " (rebuilt)" : "", (unsigned long)[active count], (unsigned long)added);
     rs->dirty = NO;
     return e;
 }
