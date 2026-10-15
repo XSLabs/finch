@@ -811,7 +811,7 @@ read_leb128(const uint8_t **p, const uint8_t *end, NSUInteger *out)
 #undef DECODE
     if ([coder containsValueForKey:@"NS.yearForWOY"]) [self setYearForWeekOfYear:[coder decodeIntegerForKey:@"NS.yearForWOY"]];
     if ([coder decodeIntegerForKey:@"NS.leapMonth"]) [self setLeapMonth:YES];
-    if ([coder containsValueForKey:@"NS.repeatedDay"]) [self setRepeatedDay:[coder decodeBoolForKey:@"NS.repeatedDay"]];
+    if ([coder decodeBoolForKey:@"NS.repeatedDay"]) [self setRepeatedDay:YES];
     NSCalendar *cal = [coder decodeObjectOfClass:[NSCalendar class] forKey:@"NS.calendar"];
     NSTimeZone *tz = [coder decodeObjectOfClass:[NSTimeZone class] forKey:@"NS.timezone"];
     if (cal) [self setCalendar:cal];

@@ -3455,9 +3455,9 @@ animation(void)
     CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
     printf("image animation data: %d %d %zu\n", (int)dataStatus, dataFrames, dataIndex);
 
-    char cwd[PATH_MAX];
     char path[PATH_MAX];
-    if (getcwd(cwd, sizeof cwd) && snprintf(path, sizeof path, "%s/build/imageio-animation.gif", cwd) < (int)sizeof path) {
+    const char *tmp = getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp";
+    if (snprintf(path, sizeof path, "%s/finch-imageio-animation-%d.gif", tmp, (int)getpid()) < (int)sizeof path) {
         FILE *file = fopen(path, "wb");
         if (file) {
             fwrite(CFDataGetBytePtr(data), 1, (size_t)CFDataGetLength(data), file);

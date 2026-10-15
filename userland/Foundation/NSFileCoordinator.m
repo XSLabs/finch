@@ -147,8 +147,9 @@ on_queue(id<NSFilePresenter> p, void (^block)(void))
 }
 
 /*
- * Reacquirers after writes wait for the next coordination, as Apple's do: a deletion's
- * too, and even for a presenter removed since.
+ * Reacquirers after writes wait for the next coordination or half a second, whichever
+ * comes first, as Apple's do (0.54 s on macOS 26): a deletion's too, and even for a
+ * presenter removed since.
  */
 static NSMutableArray *deferred; /* of @[presenter, reacquirer] */
 
@@ -206,6 +207,11 @@ reacquire_later(NSArray *reacquirers)
             deferred = [[NSMutableArray alloc] init];
         [deferred addObjectsFromArray:reacquirers];
     }
+    if ([reacquirers count])
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC),
+                       dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                         flush_deferred();
+                       });
 }
 
 /* What a write is judged by: the item's modification date and size. */

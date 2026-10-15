@@ -58,7 +58,8 @@ static CFAbsoluteTime lastEvent;
 }
 @end
 
-/* Wait until no callback has come for half a second (three seconds at most), then print them. */
+/* Wait until no callback has come for a second (four seconds at most), then print them.
+   (A reacquire after a write comes half a second later if nothing else coordinates.) */
 static void
 settle(void)
 {
@@ -69,7 +70,7 @@ settle(void)
         @synchronized([Presenter class]) {
             last = lastEvent;
         }
-        if (now - MAX(last, start) >= 0.5 || now - start >= 3)
+        if (now - MAX(last, start) >= 1 || now - start >= 4)
             break;
     }
     @synchronized([Presenter class]) {
