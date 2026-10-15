@@ -12,8 +12,9 @@
  * SIGNATURE is ARCHIVE.sig unless given. The public key is /usr/share/finch/update-key.der
  * (the curve point, X9.63), or the file FINCH_UPDATE_KEY names. install checks the signature,
  * unpacks the archive into DIR.finch-new beside DIR (one an interrupted install left is
- * cleared first), then swaps it in by renaming: DIR becomes DIR.finch-old and the new tree
- * DIR. A failure at any step leaves DIR as it was. rollback swaps DIR.finch-old back.
+ * cleared first), carries the user's files and settings over from DIR (preserved[]), then
+ * swaps it in by renaming: DIR becomes DIR.finch-old and the new tree DIR. A failure at any
+ * step leaves DIR as it was. rollback swaps DIR.finch-old back, the user's files with it.
  * (A running system's own root can't be renamed: switching the booted system is the
  * installer's, ROADMAP Phase 3; this updates a system root held as a folder.)
  */
@@ -137,6 +138,72 @@ remove_tree(const char *path)
 	return run(argv);
 }
 
+/* What belongs to the user, not the system: moved from the running root into the new one,
+   in place of the payload's defaults, and back on rollback. The rest of Library and
+   var/db is the system's (LaunchDaemons, timezone data), and so is usr/local (its licence
+   files). */
+static const char *const preserved[] = {
+	"Users", "Applications", "Library/Preferences", "Library/Keychains",
+	"Library/Application Support", "private/var/root", "private/var/db/dslocal", "private/var/at",
+	"private/etc/master.passwd", "private/etc/passwd", "private/etc/group",
+};
+#define NPRESERVED (sizeof(preserved) / sizeof(*preserved))
+
+/* Make the folders above path, as the running system has them. */
+static void
+make_parents(const char *path)
+{
+	char p[1024];
+	snprintf(p, sizeof p, "%s", path);
+	for (char *s = strchr(p + 1, '/'); s; s = strchr(s + 1, '/')) {
+		*s = 0;
+		mkdir(p, 0755);
+		*s = '/';
+	}
+}
+
+/* Move each preserved path from one root into the other, replacing what's there; on a
+   failure, put back what was moved. */
+static int
+carry(const char *from, const char *to)
+{
+	int moved[NPRESERVED] = {0};
+	char a[1024], b[1024], parked[1100];
+	for (size_t i = 0; i < NPRESERVED; i++) {
+		snprintf(a, sizeof a, "%s/%s", from, preserved[i]);
+		snprintf(b, sizeof b, "%s/%s", to, preserved[i]);
+		struct stat st;
+		if (lstat(a, &st) < 0)
+			continue;
+		/* the destination's own copy is parked, so a failure can restore it */
+		snprintf(parked, sizeof parked, "%s.finch-parked", b);
+		remove_tree(parked);
+		make_parents(b);
+		int had = lstat(b, &st) == 0;
+		if ((had && rename(b, parked) < 0) || rename(a, b) < 0) {
+			fprintf(stderr, "finch-update: can't move %s: %s\n", a, strerror(errno));
+			if (had)
+				rename(parked, b);
+			for (size_t j = i; j-- > 0;) {
+				if (!moved[j])
+					continue;
+				snprintf(a, sizeof a, "%s/%s", from, preserved[j]);
+				snprintf(b, sizeof b, "%s/%s", to, preserved[j]);
+				snprintf(parked, sizeof parked, "%s.finch-parked", b);
+				rename(b, a);
+				rename(parked, b);
+			}
+			return -1;
+		}
+		moved[i] = 1;
+	}
+	for (size_t i = 0; i < NPRESERVED; i++) {
+		snprintf(b, sizeof b, "%s/%s.finch-parked", to, preserved[i]);
+		remove_tree(b);
+	}
+	return 0;
+}
+
 static int
 install(const char *archive, const char *signature, const char *root)
 {
@@ -163,14 +230,23 @@ install(const char *archive, const char *signature, const char *root)
 	}
 	struct stat st;
 	int had = lstat(root, &st) == 0;
+	if (had && carry(root, stage) != 0) {
+		fprintf(stderr, "finch-update: %s is unchanged\n", root);
+		remove_tree(stage);
+		return 1;
+	}
 	if (had && rename(root, old) < 0) {
 		fprintf(stderr, "finch-update: can't move %s aside: %s\n", root, strerror(errno));
+		carry(stage, root);
+		remove_tree(stage);
 		return 1;
 	}
 	if (rename(stage, root) < 0) {
 		fprintf(stderr, "finch-update: can't put the new system in place: %s\n", strerror(errno));
-		if (had)
+		if (had) {
 			rename(old, root);
+			carry(stage, root);
+		}
 		return 1;
 	}
 	printf("finch-update: %s installed%s\n", root, had ? " (the previous system kept for rollback)" : "");
@@ -188,13 +264,20 @@ rollback(const char *root)
 		fprintf(stderr, "finch-update: no previous system at %s\n", old);
 		return 1;
 	}
+	/* the user's files go back with the previous system */
+	if (carry(root, old) != 0) {
+		fprintf(stderr, "finch-update: %s is unchanged\n", root);
+		return 1;
+	}
 	if (remove_tree(failed) != 0 || rename(root, failed) < 0) {
 		fprintf(stderr, "finch-update: can't move %s aside: %s\n", root, strerror(errno));
+		carry(old, root);
 		return 1;
 	}
 	if (rename(old, root) < 0) {
 		fprintf(stderr, "finch-update: can't put the previous system back: %s\n", strerror(errno));
 		rename(failed, root);
+		carry(old, root);
 		return 1;
 	}
 	remove_tree(failed);

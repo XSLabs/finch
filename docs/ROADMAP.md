@@ -1138,8 +1138,9 @@ that every app works. These release checks were missing from the Phase 5 list:
       install payload (ECDSA P-256, the key kept out of the repository), and finch-update
       verifies it with Finch's Security, installs it into a system root folder by staging
       and renaming (an interrupted install leaves the root as it was) and rolls back
-      ([design/RELEASE.md](design/RELEASE.md)). Open: switching the booted system, keeping
-      user data, resuming downloads.
+      ([design/RELEASE.md](design/RELEASE.md)). An install carries the user's files,
+      accounts and settings into the new system and rollback takes them back (2026-10-15).
+      Open: switching the booted system, resuming downloads.
 - [ ] **App checks:** name and pin the Phase 4 app set, record what works in each app,
       and test launch, open/save, clipboard, printing, network access and media where
       used. Track missing APIs and failed checks rather than counting exported names.

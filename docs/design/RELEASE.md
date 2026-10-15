@@ -76,13 +76,18 @@ finch-update rollback --root /Volumes/Finch/System
 ```
 
 `install` refuses an archive the key didn't sign, unpacks into `DIR.finch-new` beside the
-root (clearing one an interrupted install left), and swaps it in by renaming, keeping the
-previous root as `DIR.finch-old` for `rollback`; a failure at any step leaves the root as
-it was. `tools/release/test-update.sh` checks this with a throwaway key on the host, against
-Finch's Security: signed and changed archives, another key's signature, an install, one
+root (clearing one an interrupted install left), and moves the user's files and settings
+into it from the running root: `Users`, `Applications`, `Library/{Preferences,Keychains,
+Application Support}`, `private/var/root`, `private/var/db/dslocal`, `private/var/at` and
+the account files in `private/etc`. Those replace the payload's defaults; everything else,
+`Library/LaunchDaemons` and timezone data among it, is the update's. Then it swaps the new
+root in by renaming, keeping the previous root as `DIR.finch-old` for `rollback`, which
+takes the user's files back with it. A failure at any step leaves the root as it was.
+`tools/release/test-update.sh` checks this with a throwaway key on the host, against
+Finch's Security: signed and changed archives, another key's signature, an install that
+keeps the user's files, accounts and settings but takes the update's system files, one
 that fails to unpack, and rollback (2026-10-15).
 
 What remains: switching the booted system (a running system's root can't be renamed; that
-is the installer's, with the boot path), keeping user data across an update (the payload
-holds only the system), resuming an interrupted download, first-user setup and hardware
-boot. See [the roadmap](../ROADMAP.md).
+is the installer's, with the boot path), resuming an interrupted download, first-user
+setup and hardware boot. See [the roadmap](../ROADMAP.md).
