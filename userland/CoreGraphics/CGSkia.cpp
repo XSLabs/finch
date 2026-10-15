@@ -3,6 +3,7 @@
 #include "CGSkia.h"
 #include "include/core/SkPathBuilder.h"
 #include "include/core/SkPathIter.h"
+#include "include/pathops/SkPathOps.h"
 #include <math.h>
 
 sk_sp<SkColorSpace>
@@ -97,6 +98,69 @@ CGPathFromSkPath(const SkPath &path)
         }
     }
     return out;
+}
+
+static CGPathRef
+path_operation(CGPathRef path, CGPathRef mask, bool evenOdd, SkPathOp operation)
+{
+    if (!path || !mask)
+        return NULL;
+    std::optional<SkPath> result = Op(CGSkPath(path, NULL, evenOdd), CGSkPath(mask, NULL, evenOdd), operation);
+    if (!result)
+        return NULL;
+    std::optional<SkPath> normalized = Simplify(*result);
+    if (!normalized)
+        return NULL;
+    CGMutablePathRef out = CGPathFromSkPath(*normalized);
+    out->is_mutable = false;
+    return out;
+}
+
+extern "C" CGPathRef
+CGPathCreateCopyByNormalizing(CGPathRef path, bool evenOddFillRule)
+{
+    if (!path)
+        return NULL;
+    std::optional<SkPath> result = Simplify(CGSkPath(path, NULL, evenOddFillRule));
+    if (!result)
+        return NULL;
+    CGMutablePathRef out = CGPathFromSkPath(*result);
+    out->is_mutable = false;
+    return out;
+}
+
+extern "C" CGPathRef
+CGPathCreateCopyByUnioningPath(CGPathRef path, CGPathRef maskPath, bool evenOddFillRule)
+{
+    return path_operation(path, maskPath, evenOddFillRule, kUnion_SkPathOp);
+}
+
+extern "C" CGPathRef
+CGPathCreateCopyByIntersectingPath(CGPathRef path, CGPathRef maskPath, bool evenOddFillRule)
+{
+    return path_operation(path, maskPath, evenOddFillRule, kIntersect_SkPathOp);
+}
+
+extern "C" CGPathRef
+CGPathCreateCopyBySubtractingPath(CGPathRef path, CGPathRef maskPath, bool evenOddFillRule)
+{
+    return path_operation(path, maskPath, evenOddFillRule, kDifference_SkPathOp);
+}
+
+extern "C" CGPathRef
+CGPathCreateCopyBySymmetricDifferenceOfPath(CGPathRef path, CGPathRef maskPath, bool evenOddFillRule)
+{
+    return path_operation(path, maskPath, evenOddFillRule, kXOR_SkPathOp);
+}
+
+extern "C" bool
+CGPathIntersectsPath(CGPathRef path1, CGPathRef path2, bool evenOddFillRule)
+{
+    if (!path1 || !path2)
+        return false;
+    std::optional<SkPath> intersection = Op(CGSkPath(path1, NULL, evenOddFillRule),
+                                            CGSkPath(path2, NULL, evenOddFillRule), kIntersect_SkPathOp);
+    return intersection.has_value() && !intersection->isEmpty();
 }
 
 #pragma mark - Stroked and dashed copies of paths

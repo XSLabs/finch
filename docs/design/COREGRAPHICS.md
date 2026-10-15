@@ -485,3 +485,12 @@ The tests follow Foundation's:
   fill-and-clip text modes kept the clip only when font smoothing was off.
   `finch-ctfonts-test` draws emoji through CoreText and CoreGraphics and
   reports where they ink and in which colours.
+- 2026-10-15: `tools/c-api-audit.py` now compares public C declarations in the
+  macOS SDK with the built framework. In CoreGraphics, Skia path operations
+  now provide path normalization, filled union, intersection, subtraction,
+  symmetric difference and overlap checks; curves can be flattened to a
+  requested error bound. The audit counts 857 declarations, with 741 exported
+  and 116 still missing. The remaining path gaps need open-line clipping or
+  connected-component grouping; the HDR and display-service gaps need support
+  Finch does not yet have. `finch-cg-test` compares these path results with
+  Apple's.

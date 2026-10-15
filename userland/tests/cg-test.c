@@ -284,6 +284,99 @@ dump_path(const char *label, CGPathRef path)
 }
 
 static void
+path_probes(const char *label, CGPathRef path, const CGPoint *points, size_t count)
+{
+    CGRect r = denoise(CGPathGetPathBoundingBox(path));
+    printf("%s: box={%.10g %.10g %.10g %.10g} contains", label, r.origin.x, r.origin.y, r.size.width, r.size.height);
+    for (size_t i = 0; i < count; i++)
+        printf(" %d/%d", CGPathContainsPoint(path, NULL, points[i], false),
+               CGPathContainsPoint(path, NULL, points[i], true));
+    printf("\n");
+    CGPathRelease(path);
+}
+
+static void
+count_curves(void *info, const CGPathElement *element)
+{
+    if (element->type == kCGPathElementAddQuadCurveToPoint || element->type == kCGPathElementAddCurveToPoint)
+        (*(int *)info)++;
+}
+
+static void
+count_lines(void *info, const CGPathElement *element)
+{
+    if (element->type == kCGPathElementAddLineToPoint)
+        (*(int *)info)++;
+}
+
+static int
+path_line_count(CGPathRef path)
+{
+    int lines = 0;
+    CGPathApply(path, &lines, count_lines);
+    return lines;
+}
+
+static void
+path_operations(void)
+{
+    CGPathRef a = CGPathCreateWithRect(CGRectMake(0, 0, 10, 10), NULL);
+    CGPathRef b = CGPathCreateWithRect(CGRectMake(5, 5, 10, 10), NULL);
+    CGPathRef apart = CGPathCreateWithRect(CGRectMake(20, 0, 2, 2), NULL);
+    const CGPoint points[] = {{2, 2}, {7, 7}, {12, 12}, {14, 4}};
+    path_probes("path union", CGPathCreateCopyByUnioningPath(a, b, false), points, 4);
+    path_probes("path intersection", CGPathCreateCopyByIntersectingPath(a, b, false), points, 4);
+    path_probes("path subtraction", CGPathCreateCopyBySubtractingPath(a, b, false), points, 4);
+    path_probes("path xor", CGPathCreateCopyBySymmetricDifferenceOfPath(a, b, false), points, 4);
+    printf("path intersects: %d %d\n", CGPathIntersectsPath(a, b, false), CGPathIntersectsPath(a, apart, false));
+
+    CGMutablePathRef crossing = CGPathCreateMutable();
+    CGPathMoveToPoint(crossing, NULL, 0, 0);
+    CGPathAddLineToPoint(crossing, NULL, 10, 10);
+    CGPathAddLineToPoint(crossing, NULL, 0, 10);
+    CGPathAddLineToPoint(crossing, NULL, 10, 0);
+    CGPathCloseSubpath(crossing);
+    CGPathRef normalized = CGPathCreateCopyByNormalizing(crossing, true);
+    const CGPoint lobes[] = {{5, 2}, {5, 8}, {2, 5}, {8, 5}};
+    printf("normalized bowtie evenodd/winding:");
+    for (size_t i = 0; i < 4; i++)
+        printf(" %d/%d", CGPathContainsPoint(normalized, NULL, lobes[i], true),
+               CGPathContainsPoint(normalized, NULL, lobes[i], false));
+    printf("\n");
+
+    CGMutablePathRef curve = CGPathCreateMutable();
+    CGPathMoveToPoint(curve, NULL, 0, 0);
+    CGPathAddCurveToPoint(curve, NULL, 0, 20, 20, 20, 20, 0);
+    CGPathAddLineToPoint(curve, NULL, 20, -5);
+    CGPathCloseSubpath(curve);
+    CGPathRef flat = CGPathCreateCopyByFlattening(curve, 0.25);
+    int curves = 0;
+    CGPathApply(flat, &curves, count_curves);
+    printf("flattened curve elements: %d; contains: %d %d %d\n", curves,
+           CGPathContainsPoint(flat, NULL, CGPointMake(10, 8), false),
+           CGPathContainsPoint(flat, NULL, CGPointMake(10, 18), false),
+           CGPathContainsPoint(flat, NULL, CGPointMake(10, -2), false));
+    CGPathRef flat_zero = CGPathCreateCopyByFlattening(curve, 0);
+    CGPathRef flat_negative = CGPathCreateCopyByFlattening(curve, -0.25);
+    CGPathRef flat_infinite = CGPathCreateCopyByFlattening(curve, INFINITY);
+    CGPathRef flat_nan = CGPathCreateCopyByFlattening(curve, NAN);
+    printf("flatten threshold segments: %d %d %d %d\n", path_line_count(flat_zero), path_line_count(flat_negative),
+           path_line_count(flat_infinite), path_line_count(flat_nan));
+
+    CGPathRelease(flat_nan);
+    CGPathRelease(flat_infinite);
+    CGPathRelease(flat_negative);
+    CGPathRelease(flat_zero);
+    CGPathRelease(flat);
+    CGPathRelease(curve);
+    CGPathRelease(normalized);
+    CGPathRelease(crossing);
+    CGPathRelease(a);
+    CGPathRelease(b);
+    CGPathRelease(apart);
+}
+
+static void
 paths(void)
 {
     CGMutablePathRef p = CGPathCreateMutable();
@@ -915,6 +1008,7 @@ main(int argc, char **argv)
     geometry();
     transforms();
     paths();
+    path_operations();
     colors();
     contexts();
     fonts();

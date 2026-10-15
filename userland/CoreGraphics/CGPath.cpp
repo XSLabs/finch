@@ -439,6 +439,94 @@ CGPathCreateWithRoundedRect(CGRect rect, CGFloat cw, CGFloat ch, const CGAffineT
     return p;
 }
 
+static CGFloat
+distance_to_segment(CGPoint p, CGPoint a, CGPoint b)
+{
+    CGFloat dx = b.x - a.x, dy = b.y - a.y, length2 = dx * dx + dy * dy;
+    if (length2 == 0)
+        return hypot(p.x - a.x, p.y - a.y);
+    CGFloat t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / length2;
+    t = fmax(0, fmin(1, t));
+    return hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+/* Quartz allows at most 2^17 line segments for one curve at zero tolerance. */
+static const int kMaxFlattenDepth = 17;
+
+static CGPoint
+midpoint(CGPoint a, CGPoint b)
+{
+    return CGPointMake((a.x + b.x) / 2, (a.y + b.y) / 2);
+}
+
+static void
+flatten_quad(CGMutablePathRef out, CGPoint p0, CGPoint p1, CGPoint p2, CGFloat tolerance, int depth)
+{
+    if (distance_to_segment(p1, p0, p2) <= tolerance || depth == kMaxFlattenDepth) {
+        CGPathAddLineToPoint(out, NULL, p2.x, p2.y);
+        return;
+    }
+    CGPoint p01 = midpoint(p0, p1), p12 = midpoint(p1, p2), p012 = midpoint(p01, p12);
+    flatten_quad(out, p0, p01, p012, tolerance, depth + 1);
+    flatten_quad(out, p012, p12, p2, tolerance, depth + 1);
+}
+
+static void
+flatten_cubic(CGMutablePathRef out, CGPoint p0, CGPoint p1, CGPoint p2, CGPoint p3, CGFloat tolerance, int depth)
+{
+    if ((distance_to_segment(p1, p0, p3) <= tolerance && distance_to_segment(p2, p0, p3) <= tolerance) ||
+        depth == kMaxFlattenDepth) {
+        CGPathAddLineToPoint(out, NULL, p3.x, p3.y);
+        return;
+    }
+    CGPoint p01 = midpoint(p0, p1), p12 = midpoint(p1, p2), p23 = midpoint(p2, p3);
+    CGPoint p012 = midpoint(p01, p12), p123 = midpoint(p12, p23), p0123 = midpoint(p012, p123);
+    flatten_cubic(out, p0, p01, p012, p0123, tolerance, depth + 1);
+    flatten_cubic(out, p0123, p123, p23, p3, tolerance, depth + 1);
+}
+
+CGPathRef
+CGPathCreateCopyByFlattening(CGPathRef path, CGFloat flatteningThreshold)
+{
+    if (!path)
+        return NULL;
+    /* Quartz treats negative tolerances by magnitude and NaN as unbounded. */
+    if (std::isnan(flatteningThreshold))
+        flatteningThreshold = INFINITY;
+    else if (flatteningThreshold < 0)
+        flatteningThreshold = -flatteningThreshold;
+    CGMutablePathRef out = CGPathCreateMutable();
+    if (!out)
+        return NULL;
+    CGPoint current = CGPointZero, start = CGPointZero;
+    for (const CGPathElem &e : *path->elems) {
+        switch (e.type) {
+        case kCGPathElementMoveToPoint:
+            current = start = e.p[0];
+            CGPathMoveToPoint(out, NULL, current.x, current.y);
+            break;
+        case kCGPathElementAddLineToPoint:
+            current = e.p[0];
+            CGPathAddLineToPoint(out, NULL, current.x, current.y);
+            break;
+        case kCGPathElementAddQuadCurveToPoint:
+            flatten_quad(out, current, e.p[0], e.p[1], flatteningThreshold, 0);
+            current = e.p[1];
+            break;
+        case kCGPathElementAddCurveToPoint:
+            flatten_cubic(out, current, e.p[0], e.p[1], e.p[2], flatteningThreshold, 0);
+            current = e.p[2];
+            break;
+        case kCGPathElementCloseSubpath:
+            CGPathCloseSubpath(out);
+            current = start;
+            break;
+        }
+    }
+    out->is_mutable = false;
+    return out;
+}
+
 #pragma mark - Queries
 
 bool
