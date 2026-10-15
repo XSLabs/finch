@@ -104,6 +104,14 @@ then hard-resets with no panic report saved. Next, in order: boot with
 `nvram boot-args="-v keepsyms=1"` and film the last screen; then go back to Full
 Security and re-apply step 4 one setting at a time to find which one causes it.
 
+**Status (2026-10-15): moving to the internal SSD (Option B).** The external drive is a
+spinning disk behind a USB-C hub; macOS booted from it couldn't even load its image
+assets, so it's too slow to test on. The Finch container goes on the internal SSD
+instead. The internal disk is 500 GB with the main container at 494.4 GB and about 30 GB
+unallocated, so space has to be freed before the resize (the step above asks for at
+least 60 GB for the donor macOS and Finch). The resize and the donor install are yours to
+run, after a Time Machine backup.
+
 ### 3. First boot of the Finch install
 
 When setup finishes, the Mac boots into the new install. Walk through Setup Assistant:
