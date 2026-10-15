@@ -12,8 +12,10 @@ Hard rules:
   code-provenance policy). Report bugs as issues and let the user write any patch.
 - Pin Apple open-source imports to exact tags (e.g., `xnu-12377.101.15`).
 - The M4 is the only machine (build host + test target). Test in QEMU (darwin-vm) first,
-  then a VZ VM, then bare metal. On metal, only touch the boot policy of the dedicated
-  Finch APFS container, never the main macOS. See `docs/HARDWARE.md`.
+  then bare metal, from the dedicated Finch APFS container on the internal SSD. A VZ VM
+  (`tools/vz`) is optional: rebuild it first for risky boot-path or kernel experiments.
+  On metal, only touch the boot policy of the Finch container, never the main macOS.
+  See `docs/HARDWARE.md`.
 - `docs/STACK.md` holds the Mermaid diagrams of the software stack. Any commit that
   adds, replaces or removes a component updates them (and the "As of" line) in the
   same commit. Run `tools/render-stack.sh` to check they render.
