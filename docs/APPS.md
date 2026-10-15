@@ -28,16 +28,28 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 ## Launched in the VM
 
 The "Ready" apps, launched one after another in QEMU by `tools/vm/app-launch.py --ready` (each
-copied into the image from this Mac with `FINCH_HOST_APPS`, run for 45 seconds; "up" is still
-running with a titled window). As of 2026-10-15, 13 of 19 are up:
+copied into the image from this Mac with `FINCH_HOST_APPS`, run for 45 seconds). A titled
+level-0 window is the normal success result. The checker also accepts the known system UI
+for Screenshot and Bluetooth File Exchange, and no app window for the four direct-launch
+helpers below. As of 2026-10-15, all 19 pass:
 
 | App | Result |
 |---|---|
-| AirPort Utility, Calculator, ColorSync Utility, Console, Digital Color Meter, Font Book, Grapher, Image Capture, Magnifier, Script Editor, Stickies, Terminal, TextEdit | up (Terminal's window takes about 30 seconds on its first launch, archiving its settings) |
-| Screenshot | its full-screen capture overlay (level 1000), as on macOS |
-| Bluetooth File Exchange | a panel (level 8) and no document window |
-| Mission Control, Apps | no window (macOS shows neither a normal window) |
-| Siri, Time Machine | no window in a minute (each needs its service: Siri, a backup disk) |
+| AirPort Utility, Calculator, ColorSync Utility, Console, Digital Color Meter, Font Book, Grapher, Image Capture, Magnifier, Script Editor, Stickies, Terminal, TextEdit | titled window (Terminal's window takes about 30 seconds on its first launch, archiving its settings) |
+| Screenshot | full-screen capture overlay, untitled and level 1000 |
+| Bluetooth File Exchange | level-8 dialog; the VM has no Bluetooth, so it says Bluetooth is unavailable. On this Mac it opens “Select File to Send.” |
+| Apps | no app window; the Apps browser is hosted by Spotlight and Dock |
+| Mission Control | no app window; the desktop overview is opened by the system shortcut |
+| Siri | no app window on direct launch; Siri's UI appears after Siri is activated |
+| Time Machine | no app window without the backup UI or a backup disk |
+
+`app-launch.py` accepts Screenshot only with a level-1000 window, Bluetooth File Exchange
+only with a level-8 window, and the four no-window cases only when there is no visible
+app-level window. This keeps an unrelated empty or untitled window from making an app pass.
+Mission Control is normally entered with Control-Up Arrow or a trackpad gesture. Apps opens
+the app browser through Spotlight. Siri must be activated before it shows its assistant UI.
+Time Machine's backup view needs a backup disk. These launches are system surfaces or
+service-driven apps, not document-window apps.
 
 Calculator and TextEdit are checked further by `tools/vm/test-calculator.sh` and
 `tools/vm/test-textedit.sh`.

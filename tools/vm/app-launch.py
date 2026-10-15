@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT OR Apache-2.0
 """Launch apps from this Mac's install in the VM, one after another in one boot, and say which
-come up: still running after a while, with a titled window. Apple's apps come from the
-user's install at image build time, never the repository.
+come up: still running after a while, with their expected window or system UI. Apple's apps
+come from the user's install at image build time, never the repository.
 
   FINCH_HOST_APPS="Calculator,TextEdit" tools/vm/mkramdisk.sh
   tools/vm/app-launch.py Calculator TextEdit          (names as FINCH_HOST_APPS takes them)
   tools/vm/app-launch.py --ready                      (docs/APPS.md's "Ready" apps)
   tools/vm/app-launch.py --seconds 40 ...             (time each app runs; 45 by default)
 
-Prints one line per app: "up" with its windows' titles, "no window", "crashed" (with the
-runner's status) or "not in the image". Exits non-zero if any app isn't up.
+Prints one line per app: "up" with its windows' titles or expected UI, "no window", "crashed"
+(with the runner's status) or "not in the image". Exits non-zero if any app isn't up.
 """
 import plistlib
 import re
@@ -22,6 +22,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PLACES = ['/System/Applications', '/System/Applications/Utilities', '/Applications']
 BOOT_FAILED = '### VM exited before the shell started'
+SPECIAL_WINDOWS = {
+    'Bluetooth File Exchange': (8, 'level-8 Bluetooth panel'),
+    'Screenshot': (1000, 'level-1000 capture overlay'),
+}
+NO_WINDOW_EXPECTED = {
+    'Apps': 'the app browser is hosted by Spotlight',
+    'Mission Control': 'the desktop overview is opened by the system shortcut',
+    'Siri': 'the assistant UI appears after Siri is activated',
+    'Time Machine': 'the backup UI needs a backup disk or active service',
+}
 
 
 def executable(name):
@@ -77,6 +87,7 @@ def main():
         m = re.search(rf'^APP\|{i}\|(\S+)\s*$', text, re.M)
         listed = re.findall(rf'^WIN\|{i}\|  window "([^"]*)" (\S+) level (-?\d+)\s*$', text, re.M)
         windows = [t for t, size, level in listed if t and level == '0']
+        visible = [w for w in listed if w[2] != '24']
         others = ', '.join(f'"{t}" {size} level {level}' for t, size, level in listed if not (t and level == '0') and level != '24')
         errors = re.findall(rf'^ERR\|{i}\|(.*?)\s*$', text, re.M)
         if not m:
@@ -86,6 +97,13 @@ def main():
         elif m.group(1) != '0' or errors:
             verdict = f'crashed (runner status {m.group(1)}){": " + errors[0] if errors else ""}'
         elif not windows:
+            special = SPECIAL_WINDOWS.get(name)
+            if special and any(level == str(special[0]) for _, _, level in listed):
+                print(f'{name:28} up: {special[1]}')
+                continue
+            if name in NO_WINDOW_EXPECTED and not visible:
+                print(f'{name:28} up: no app window expected ({NO_WINDOW_EXPECTED[name]})')
+                continue
             verdict = 'no window' + (f' (others: {others})' if others else '')
         else:
             print(f'{name:28} up: {", ".join(windows)}')
