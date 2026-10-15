@@ -465,7 +465,11 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         Convert, ⌥⌘C) opens, USD over EUR, saying currency rates are unavailable as macOS
         does offline. Next: View > Show History (⌃⌘S) opens the history sidebar over the
         keypad instead of beside it, and the operator keys' symbols then sit at their
-        left edges; keys typed with finch-app-test's type: don't reach the calculator;
+        left edges. SwiftUIKeypad's KEYPAD_SPLIT (a split view's hidden sidebar shown with
+        ⌘4, over a detail column as wide as Calculator's keypad) lays the columns out beside
+        each other and grows the window to fit them, so the difference is likely macOS 26's
+        sidebar floating over the detail column, which Calculator meets through
+        GeometryProxy.safeAreaInsets, where Finch's places the columns side by side; keys typed with finch-app-test's type: don't reach the calculator;
         the scientific and
         programmer keypads took most of a minute to build in QEMU. On the host,
         `SwiftUIKeypad` (a toolbar picker over a Grid of 20 or 60 buttons, timing each

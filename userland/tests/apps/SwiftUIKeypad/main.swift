@@ -24,6 +24,7 @@ enum Pad: String, CaseIterable, Identifiable {
 final class Model {
     var pad: Pad = .basic
     var display = "0"
+    var sidebar: NavigationSplitViewVisibility = .detailOnly
     var switched = Date()
     var switchedCPU = cpuTime()
 
@@ -50,7 +51,11 @@ struct SwiftUIKeypadApp: App {
 
     var body: some Scene {
         Window("Keypad", id: "keypad") {
-            KeypadView(model: model)
+            if ProcessInfo.processInfo.environment["KEYPAD_SPLIT"] != nil {
+                SplitKeypadView(model: model)
+            } else {
+                KeypadView(model: model)
+            }
         }
         .windowResizability(.contentSize)
         .commands {
@@ -62,7 +67,29 @@ struct SwiftUIKeypadApp: App {
                     }
                     .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
                 }
+                Button("Sidebar") {
+                    model.sidebar = model.sidebar == .detailOnly ? .all : .detailOnly
+                    report("sidebar \(model.sidebar == .all ? "shown" : "hidden")")
+                }
+                .keyboardShortcut("4", modifiers: .command)
             }
+        }
+    }
+}
+
+/// KEYPAD_SPLIT=1: the keypad as the detail of a split view whose sidebar (a list, as
+/// Calculator's history) starts hidden; ⌘4 shows or hides it.
+struct SplitKeypadView: View {
+    let model: Model
+
+    var body: some View {
+        NavigationSplitView(columnVisibility: Binding(get: { model.sidebar }, set: { model.sidebar = $0 })) {
+            List(0..<3, id: \.self) { Text("record \($0)") }
+                .navigationSplitViewColumnWidth(220)
+        } detail: {
+            // as wide as Calculator's keypad, so the sidebar doesn't fit beside it in the window
+            KeypadView(model: model)
+                .frame(minWidth: 760)
         }
     }
 }
