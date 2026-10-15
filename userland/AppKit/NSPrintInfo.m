@@ -442,8 +442,30 @@ write_pdf(NSPrintOperation *op, NSURL *url, NSMutableData *data)
             url = [NSURL fileURLWithPath:[_info dictionary][NSPrintSavePath]];
         return url && write_pdf(self, url, nil);
     }
-    NSLog(@"Finch: no printer to print \"%@\" on", _jobTitle ?: [[_view window] title] ?: @"");
+    NSString *title = _jobTitle ?: [[_view window] title] ?: @"";
+    if (_showsPrintPanel && NSApp)
+        return [self _finchSaveAsPDFTitled:title];
+    NSLog(@"Finch: no printer to print \"%@\" on", title);
     return NO;
+}
+
+/* The print panel, for now: there are no printers, so, as the PDF menu of Apple's offers, the
+   job can be saved as a PDF, named after the document, where a save panel says. */
+- (BOOL)_finchSaveAsPDFTitled:(NSString *)title
+{
+    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+    [alert setMessageText:[NSString stringWithFormat:@"Print “%@”", title]];
+    [alert setInformativeText:@"No printer is set up. The document can be saved as a PDF."];
+    [alert addButtonWithTitle:@"Save as PDF…"];
+    [alert addButtonWithTitle:@"Cancel"];
+    if ([alert runModal] != NSAlertFirstButtonReturn)
+        return NO;
+    NSSavePanel *save = [NSSavePanel savePanel];
+    NSString *base = [[title stringByDeletingPathExtension] length] ? [title stringByDeletingPathExtension] : @"Untitled";
+    [save setNameFieldStringValue:[base stringByAppendingPathExtension:@"pdf"]];
+    if ([save runModal] != NSModalResponseOK || ![save URL])
+        return NO;
+    return write_pdf(self, [save URL], nil);
 }
 
 - (void)runOperationModalForWindow:(NSWindow *)docWindow delegate:(id)delegate

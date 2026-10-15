@@ -420,7 +420,10 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         Export as PDF writing a PDF, Find (⌘F, Return, Escape closing the bar with the
         match selected for typing over), and Make Rich Text (the format bar and ruler
         shown) with a table inserted and typed into (its first cell keeps the typing even
-        when the table goes in at the start), by their files. Export's save panel opens as a window of
+        when the table goes in at the start), File > Print saving a PDF through the print
+        panel (with no printers, Save as PDF..., as the PDF menu of Apple's), and a new
+        unsaved document autosaved at Quit and back, edited, at the next launch, by their
+        files and windows: 21 steps, all passing in QEMU (2026-10-15). Export's save panel opens as a window of
         its own, where macOS attaches it to the document as a sheet.
         The format bar has the font's family, size, bold, italic, underline and colour
         beside alignment and spacing, and the font and colour panels change the selection

@@ -72,8 +72,10 @@ for selected in "$@"; do
     fi
 done
 # Known failures (tools/host-test-exceptions.txt): "test: reason", or "test (1x display):
-# reason" for one that only fails when this Mac's main display isn't Retina (Apple's AppKit
-# then rounds frames to whole points). One that passes fails the run until it's removed.
+# reason" for one that fails when this Mac's main display isn't Retina (Apple's AppKit then
+# rounds frames to whole points; with a Retina display attached too, its window may land on
+# either, so such a test may pass). One that passes fails the run until it's removed, but
+# for a display exception.
 MAIN_1X=0
 system_profiler SPDisplaysDataType 2>/dev/null | awk '/Resolution:/ { r = $0 } /Main Display: Yes/ { print r }' |
     grep -q Retina || MAIN_1X=1
@@ -83,7 +85,11 @@ exception() {
         [[ -z "${line}" || "${line}" == \#* ]] && continue
         name="${line%%:*}"
         rest="${line#*:}"
-        if [[ "${name}" == "$1 (1x display)" && "${MAIN_1X}" -eq 1 ]] || [[ "${name}" == "$1" ]]; then
+        if [[ "${name}" == "$1 (1x display)" && "${MAIN_1X}" -eq 1 ]]; then
+            echo "display:${rest# }"
+            return 0
+        fi
+        if [[ "${name}" == "$1" ]]; then
             echo "${rest# }"
             return 0
         fi
@@ -109,11 +115,15 @@ report() {
     if why=$(exception "$1"); then
         case "$2" in
         ok*)
+            if [[ "${why}" == display:* ]]; then
+                printf '%-34s %s\n' "$1" "$2"
+                return
+            fi
             printf '%-34s %s\n' "$1" "passes now: remove its exception"
             excused="pass"
             ;;
         *)
-            printf '%-34s %s\n' "$1" "known: $2 (${why})"
+            printf '%-34s %s\n' "$1" "known: $2 (${why#display:})"
             excused="fail"
             ;;
         esac

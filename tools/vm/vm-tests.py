@@ -328,7 +328,9 @@ def main():
             else:
                 verdict, ok = 'ok (%s)' % check, True
         if name in known:
-            if ok:
+            if ok and known[name].startswith('1x main display'):
+                passed += 1  # (with a Retina display attached too, Apple's window may land on it)
+            elif ok:
                 verdict = 'passes now: remove its exception'
                 failed += 1
             else:
