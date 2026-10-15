@@ -5,7 +5,7 @@ What runs on Finch today and where each piece comes from, bottom to top.
 These diagrams are updated in every commit that changes the stack, and
 `tools/render-stack.sh` checks that they render.
 
-**As of 2026-10-13:** nothing Finch builds links a closed library
+**As of 2026-10-15:** nothing Finch builds links a closed library
 (`tools/check-closed.py`). Finch's own Foundation covers about 140 of Apple's
 classes, on a CoreFoundation that dispatches to Objective-C objects as Apple's
 does (`docs/design/FOUNDATION.md`); its NSXMLParser and NSXMLDocument read
@@ -196,7 +196,7 @@ block-beta
         columns 4
         t2["Processes"]
         init["finch-init (PID 1)<br/>bootstrap server,<br/>system + user domains"]
-        logd["finch-logd, finch-pboardd<br/>(pasteboards), screencapture and<br/>its service, launchctl,<br/>sh, mount_tmpfs, devtools"]
+        logd["finch-logd, finch-pboardd<br/>(pasteboards), pbcopy and pbpaste,<br/>screencapture and its service,<br/>launchctl, sh, mount_tmpfs, devtools"]
         daemons["notifyd, syslogd, aslmanager,<br/>newsyslog, dynamic_pager, atrun,<br/>cron, mDNSPosix, configd,<br/>diskarbitrationd"]
         space2[" "]
         cmds["file/shell/text/adv/system_cmds,<br/>bash, zsh, bc, su, login,<br/>mount, fsck, FAT helpers"]

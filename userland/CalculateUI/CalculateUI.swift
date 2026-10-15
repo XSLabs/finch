@@ -173,7 +173,8 @@ public struct CalculateExpressionView: View {
 
 /// An editable expression takes what's typed in its window, as Apple's: each key that names a
 /// calculator key is that key's operation, applied to the expression and then reported to the
-/// calculator. (Keys nothing else in the window takes come to its views as key equivalents.)
+/// calculator. It is the window's first responder when nothing else is (so Edit > Copy copies
+/// the expression's result), and otherwise hears the keys nothing took, as key equivalents.
 struct _ExpressionKeys: NSViewRepresentable {
     var expression: CalculateExpression
     var callback: ((CalculateExpression.Operation) -> Void)?
@@ -183,17 +184,40 @@ struct _ExpressionKeys: NSViewRepresentable {
         var callback: ((CalculateExpression.Operation) -> Void)?
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override var acceptsFirstResponder: Bool { true }
 
-        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window, window.firstResponder === window {
+                window.makeFirstResponder(self)
+            }
+        }
+
+        /// The calculator key a key-down names, applied; false for any other key.
+        private func apply(_ event: NSEvent) -> Bool {
             guard window != nil, !isHiddenOrHasHiddenAncestor,
                   event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
                   let typed = event.characters, typed.count == 1,
                   let operation = _ExpressionKeys.operation(for: typed.first!), let expression
-            else { return super.performKeyEquivalent(with: event) }
+            else { return false }
             if expression.update(operation) {
                 callback?(operation)
             }
             return true
+        }
+
+        override func keyDown(with event: NSEvent) {
+            if !apply(event) {
+                super.keyDown(with: event)
+            }
+        }
+
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            apply(event) || super.performKeyEquivalent(with: event)
+        }
+
+        @objc func copy(_ sender: Any?) {
+            expression?.copyToClipboard(overridePlaintext: nil)
         }
     }
 

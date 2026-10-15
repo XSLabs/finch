@@ -239,6 +239,8 @@ steps=(
     "firehose|oss libdispatch libfirehose_server && mkdir -p build/userland/lib && mv -f build/root/usr/lib/system/liblibfirehose_server.a build/userland/lib/libfirehose_server.a"
     "logd|make -s -C userland/logd"
     "pboard|make -s -C userland/pboard"
+    # pbcopy and pbpaste (the pasteboard from the command line)
+    "pbcopy|make -s -C userland/pbcopy"
     # screencapture and its service (Apple's Screenshot app asks the service)
     "screencapture|make -s -C userland/screencapture"
     # Commands (userland/INVENTORY.md lists the deferred ones that don't build yet)

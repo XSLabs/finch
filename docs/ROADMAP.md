@@ -484,7 +484,10 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         GeometryProxy.safeAreaInsets, where Finch's places the columns side by side.
         Typing works (2026-10-15): CalculateUI's editable expression view takes the keys
         that name calculator keys (7+2= shows 9), and SwiftUI buttons' keyboard shortcuts,
-        with or without modifiers, work anywhere in their window. The scientific and
+        with or without modifiers, work anywhere in their window. Edit > Copy copies the
+        result (the expression view is the window's first responder, as Apple's), and
+        tools/vm/test-calculator.sh checks typed sums in Basic and Scientific by what
+        pbpaste reads back (Finch's own pbcopy and pbpaste). The scientific and
         programmer keypads took most of a minute to build in QEMU. On the host,
         `SwiftUIKeypad` (a toolbar picker over a Grid of 20 or 60 buttons, timing each
         switch) showed the window never settling after it grew: the toolbar laid its

@@ -112,6 +112,8 @@ Apps from this Mac's install are checked by scripts of their own, with the app i
 `FINCH_HOST_APPS=TextEdit tools/vm/mkramdisk.sh && tools/vm/test-textedit.sh` opens a text file,
 saves it twice, restores the earlier version with File > Revert To > Browse All Versions,
 exports it as a PDF, and checks the files after each step.
+`FINCH_HOST_APPS=Calculator tools/vm/mkramdisk.sh && tools/vm/test-calculator.sh` types
+expressions into Calculator, copies each result (⌘C) and checks it with `pbpaste`.
 
 ## Apple open-source commands
 
