@@ -78,18 +78,44 @@ struct SwiftUIKeypadApp: App {
 }
 
 /// KEYPAD_SPLIT=1: the keypad as the detail of a split view whose sidebar (a list, as
-/// Calculator's history) starts hidden; ⌘4 shows or hides it.
+/// Calculator's history) starts hidden; ⌘4 shows or hides it. KEYPAD_SPLIT=probe: the
+/// sidebar is shown after a second, and the window's, sidebar's and detail's widths are
+/// printed before and after; then it quits.
 struct SplitKeypadView: View {
     let model: Model
+    @State private var sidebarWidth = 0.0
+    @State private var detailWidth = 0.0
+    @State private var detailInset = 0.0
 
     var body: some View {
         NavigationSplitView(columnVisibility: Binding(get: { model.sidebar }, set: { model.sidebar = $0 })) {
             List(0..<3, id: \.self) { Text("record \($0)") }
                 .navigationSplitViewColumnWidth(220)
+                .background(GeometryReader { g in Color.clear.onAppear { sidebarWidth = g.size.width }
+                    .onChange(of: g.size.width) { sidebarWidth = g.size.width } })
         } detail: {
             // as wide as Calculator's keypad, so the sidebar doesn't fit beside it in the window
+            // (KEYPAD_SPLIT_GRID=1: no minimum, the width the scientific keypad's grid needs)
             KeypadView(model: model)
-                .frame(minWidth: 760)
+                .frame(minWidth: ProcessInfo.processInfo.environment["KEYPAD_SPLIT_GRID"] != nil ? nil : 760)
+                .background(GeometryReader { g in Color.clear.onAppear { detailWidth = g.size.width; detailInset = g.safeAreaInsets.leading }
+                    .onChange(of: g.size.width) { detailWidth = g.size.width; detailInset = g.safeAreaInsets.leading } })
+        }
+        .onAppear {
+            guard ProcessInfo.processInfo.environment["KEYPAD_SPLIT"] == "probe" else { return }
+            func widths(_ label: String) {
+                let w = NSApp.windows.first { $0.title == "Keypad" }
+                report("\(label): window \(Int(w?.frame.width ?? 0)) sidebar \(Int(sidebarWidth)) detail \(Int(detailWidth)) inset \(Int(detailInset))")
+            }
+            if ProcessInfo.processInfo.environment["KEYPAD_SPLIT_GRID"] != nil { model.switchTo(.scientific) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                widths("hidden")
+                model.sidebar = .all
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    widths("shown")
+                    NSApp.terminate(nil)
+                }
+            }
         }
     }
 }

@@ -24,6 +24,7 @@
  *   type:TEXT         type TEXT (ASCII)
  *   key:CODE,CHAR     press a key (macOS virtual key code, character as a number)
  *   cmd:CHAR          press Command-CHAR
+ *   ctrlcmd:CHAR      press Control-Command-CHAR
  *   sample:X,Y,LABEL  print the screen's colour at X,Y in the current window
  *   windows           print the window list (titles and sizes)
  *   frames            print the window list with where each window is
@@ -274,6 +275,8 @@ main(int argc, char **argv)
             key((uint16_t)c, (uint32_t)n, 0);
         } else if (!strncmp(s, "cmd:", 4) && s[4]) {
             key((uint16_t)(unsigned char)s[4], 0, kCGEventFlagMaskCommand);
+        } else if (!strncmp(s, "ctrlcmd:", 8) && s[8]) {
+            key((uint16_t)(unsigned char)s[8], 0, kCGEventFlagMaskCommand | kCGEventFlagMaskControl);
         } else if (sscanf(s, "sample:%lf,%lf,%63s", &x, &y, label) == 3) {
             usleep(200000);
             CGImageRef im = FWSCopyScreenImage();

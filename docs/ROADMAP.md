@@ -486,7 +486,13 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         2026-10-15, and put back: Finch's safeAreaInset doesn't count towards the window's
         minimum size, so a wide detail ran under the sidebar instead of the window growing.
         In the VM the history's minimum width stays the keypad's, 118, and the keypad is
-        laid out wider than the room beside the sidebar.)
+        laid out wider than the room beside the sidebar.) Finch's two-column split view now floats its
+        sidebar as macOS 26's does (2026-10-15): the detail runs the full width with the
+        sidebar's width + 8 as its leading safe area (`_safeAreaInsets`, which counts
+        towards size), and SwiftUIKeypad's KEYPAD_SPLIT=probe prints Apple's numbers on
+        Finch (detail 760, inset 228). Calculator's keypad still runs under its history and
+        the window doesn't grow, so it doesn't take its width from that safe area; next is
+        finding what it reads.
         Typing works (2026-10-15): CalculateUI's editable expression view takes the keys
         that name calculator keys (7+2= shows 9), and SwiftUI buttons' keyboard shortcuts,
         with or without modifiers, work anywhere in their window. Edit > Copy copies the

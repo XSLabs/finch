@@ -644,9 +644,12 @@ struct _FinchColumnWidthKey: PreferenceKey {
     }
 }
 
-/// The split view: the columns side by side, divided, the sidebar on the sidebar's
-/// background. Values pushed in the sidebar or content columns replace the detail column's
-/// pages; the detail column is a stack.
+/// The split view. With two columns, as macOS 26's: the sidebar floats over the detail
+/// column, which runs the window's full width with the sidebar's width (and a gap of 8) as
+/// its leading safe area, so a detail that reads its geometry's safe area keeps clear of
+/// it, and the window is at least that inset wider than the detail needs. With a content
+/// column, the columns sit side by side, divided. Values pushed in the sidebar or content
+/// columns replace the detail column's pages; the detail column is a stack.
 struct _FinchSplitView: View {
     var sidebar: AnyView
     var content: AnyView?
@@ -683,7 +686,25 @@ struct _FinchSplitView: View {
         let detailPages = pages.map { value in
             destinations.views[ObjectIdentifier(type(of: value.base))]?(value.base) ?? AnyView(EmptyView())
         } + views
-        return HStack(spacing: 0) {
+        if content == nil {
+            let width = sidebarWidth ?? _FinchColumnWidth(min: 180, ideal: 220, max: 400)
+            return AnyView(ZStack(alignment: .topLeading) {
+                _FinchSplitDetailLayout {
+                    _FinchPages(root: detail, pages: detailPages, covered: false)
+                }
+                .padding(.bottom, titleInset)
+                ._safeAreaInsets(EdgeInsets(top: 0, leading: showsSidebar ? width.ideal + 8 : 0, bottom: 0, trailing: 0))
+                if showsSidebar {
+                    column(sidebar, width: sidebarWidth, default: width)
+                        .background(Color(nsColor: .underPageBackgroundColor))
+                        .environment(\._finchListStyle, SidebarListStyle().appearance)
+                }
+            }
+            .onPreferenceChange(_FinchColumnWidthKey.self) { if content == nil { sidebarWidth = $0 } }
+            .background(_FinchTitleInsetReader(inset: $titleInset))
+            .environment(\._finchNavigator, navigator))
+        }
+        return AnyView(HStack(spacing: 0) {
             if showsSidebar {
                 column(sidebar, width: sidebarWidth, default: _FinchColumnWidth(min: 180, ideal: 220, max: 400))
                     .onPreferenceChange(_FinchColumnWidthKey.self) { sidebarWidth = $0 }
@@ -705,7 +726,7 @@ struct _FinchSplitView: View {
             .padding(.bottom, titleInset)
         }
         .background(_FinchTitleInsetReader(inset: $titleInset))
-        .environment(\._finchNavigator, navigator)
+        .environment(\._finchNavigator, navigator))
     }
 
     /// The detail column: it fills what it's offered, never less than its content; with no
