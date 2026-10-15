@@ -41,7 +41,7 @@ COMPARE=(
     "cf-test|" "foundation-test|" "intl-test|" "misc-test|" "data-test|" "collections-test|" "kvc-test|" "typedstream-test|" "tiff-test|" "colorsync-test|" "colorsync-devices-test|" "iconservices-test|" "smallprivate-test|" "quicklook-test|" "exports-test|" "cookies-test|" "foundation-more-test|" "appkit-values-test|" "hiservices-test|" "scripting-test|" "cfnetwork-test|" "coreimage-test|" "cgevent-test|" "keylayout-test|" "contacts-test|" "accounts-test|" "metal-test|" "iosurface-test|" "gss-test|" "cfurl-test|" "pasteboard-test|" "coremedia-test|" "corevideo-test|" "audiotoolbox-test|" "audioconverter-test|" "extaudiofile-test|" "extaudiofile-test|--src-check" "applescript-test|" "fileversion-test|" "textformats-test|" "worddoc-test|"
     "archive-test|" "predicate-test|" "measurement-test|" "bridge-test|" "streams-test|" "documents-test|"
     "files-test|" "xmlparser-test|" "cfnotify-test|" "l10n-test|" "uti-test|" "cg-test|" "imageio-test|"
-    "ct-test|" "quartzcore-test|" "calayer-test|" "uifoundation-test|userland/tests/uifoundation-reference.bin" "appkit-core-test|" "appkit-draw-test|userland/tests/appkit-draw-reference.bin"
+    "ct-test|" "quartzcore-test|" "calayer-test|" "uifoundation-test|userland/tests/uifoundation-reference.bin" "appkit-core-test|" "appkit-gaps-test|" "appkit-draw-test|userland/tests/appkit-draw-reference.bin"
     "appkit-containers-test|" "appkit-controls-test|${B}/controls-test.nib" "appkit-menu-test|${B}/menu-test.nib"
     "appkit-text-test|${B}/appkit-text-test.nib" "appkit-document-test|${B}" "nib-test|${B}/nib-test.nib"
     "appkit-layout-test|${B}" "appkit-bindings-test|${B}/appkit-bindings-test.nib" "appkit-panels-test|"

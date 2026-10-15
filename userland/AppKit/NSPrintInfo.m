@@ -77,6 +77,14 @@ defaults(void)
 + (NSPrinter *)defaultPrinter { return nil; }
 + (NSString *)defaultPrinterName { return nil; }
 
+/* Apple's deprecated setter has no effect; Finch has no system printer list to change. */
++ (void)setDefaultPrinter:(NSPrinter *)printer {}
+
++ (NSSize)sizeForPaperName:(NSPrinterPaperName)name
+{
+    return NSZeroSize;
+}
+
 - (instancetype)init
 {
     return [self initWithDictionary:@{}];
@@ -201,6 +209,17 @@ static CGFloat num(NSPrintInfo *p, NSString *k) { return [p->_dict[k] doubleValu
 - (BOOL)takesPDFFormat { return YES; }
 - (NSPDFPanel *)PDFPanel { return nil; }
 
+- (void)takeSettingsFromPDFInfo:(NSPDFInfo *)info
+{
+    if (!info)
+        return;
+    NSURL *url = info.URL;
+    BOOL isDirectory = NO;
+    if (url.isFileURL && [[NSFileManager defaultManager] fileExistsAtPath:url.path isDirectory:&isDirectory] && isDirectory)
+        [NSException raise:NSInvalidArgumentException format:@"The PDF destination must be a file, not a directory."];
+    [_dict addEntriesFromDictionary:info.attributes];
+}
+
 /* As Apple's with no printer: the paper less a small device margin. */
 - (NSRect)imageablePageBounds
 {
@@ -312,6 +331,12 @@ static NSPrintOperation *current_operation;
 - (void)setJobTitle:(NSString *)t { [_jobTitle autorelease]; _jobTitle = [t copy]; }
 - (NSPrintPanel *)printPanel { return _panel ?: (_panel = [[NSPrintPanel alloc] init]); }
 - (void)setPrintPanel:(NSPrintPanel *)p { [_panel autorelease]; _panel = [p retain]; }
+- (NSView *)accessoryView { return self.printPanel.accessoryView; }
+- (void)setAccessoryView:(NSView *)view { self.printPanel.accessoryView = view; }
+- (NSString *)jobStyleHint { return self.printPanel.jobStyleHint; }
+- (void)setJobStyleHint:(NSString *)hint { self.printPanel.jobStyleHint = hint; }
+- (BOOL)showPanels { return _showsPrintPanel && _showsProgressPanel; }
+- (void)setShowPanels:(BOOL)flag { _showsPrintPanel = flag; _showsProgressPanel = flag; }
 - (NSPDFPanel *)PDFPanel { return nil; }
 - (void)setPDFPanel:(NSPDFPanel *)p {}
 - (BOOL)canSpawnSeparateThread { return NO; }
@@ -482,7 +507,8 @@ write_pdf(NSPrintOperation *op, NSURL *url, NSMutableData *data)
 
 @implementation NSPrintPanel {
     NSPrintPanelOptions _options;
-    NSString *_helpAnchor, *_jobStyleHint;
+    NSString *_helpAnchor, *_jobStyleHint, *_defaultButtonTitle;
+    NSPrintInfo *_printInfo;
     NSMutableArray *_accessories;
 }
 
@@ -491,9 +517,23 @@ write_pdf(NSPrintOperation *op, NSURL *url, NSMutableData *data)
 - (void)setOptions:(NSPrintPanelOptions)o { _options = o; }
 - (NSString *)helpAnchor { return _helpAnchor; }
 - (void)setHelpAnchor:(NSString *)a { [_helpAnchor autorelease]; _helpAnchor = [a copy]; }
+- (NSString *)defaultButtonTitle { return _defaultButtonTitle; }
+- (void)setDefaultButtonTitle:(NSString *)title { [_defaultButtonTitle autorelease]; _defaultButtonTitle = [title copy]; }
 - (NSPrintPanelJobStyleHint)jobStyleHint { return _jobStyleHint; }
 - (void)setJobStyleHint:(NSPrintPanelJobStyleHint)h { [_jobStyleHint autorelease]; _jobStyleHint = [h copy]; }
 - (NSArray *)accessoryControllers { return _accessories ? [[_accessories copy] autorelease] : @[]; }
+- (NSView *)accessoryView { return [(NSViewController *)_accessories.firstObject view]; }
+- (void)setAccessoryView:(NSView *)view
+{
+    [_accessories release];
+    _accessories = nil;
+    if (view) {
+        NSViewController *controller = [[NSViewController alloc] init];
+        controller.view = view;
+        _accessories = [[NSMutableArray alloc] initWithObjects:controller, nil];
+        [controller release];
+    }
+}
 - (void)addAccessoryController:(NSViewController<NSPrintPanelAccessorizing> *)c
 {
     if (!_accessories)
@@ -504,41 +544,114 @@ write_pdf(NSPrintOperation *op, NSURL *url, NSMutableData *data)
 {
     [_accessories removeObjectIdenticalTo:c];
 }
-- (NSInteger)runModal { return NSModalResponseCancel; }
-- (NSInteger)runModalWithPrintInfo:(NSPrintInfo *)info { return NSModalResponseCancel; }
+- (NSInteger)runModal { return [self runModalWithPrintInfo:NSPrintOperation.currentOperation.printInfo ?: [NSPrintInfo sharedPrintInfo]]; }
+- (NSInteger)runModalWithPrintInfo:(NSPrintInfo *)info
+{
+    [_printInfo release];
+    _printInfo = [info retain];
+    return NSModalResponseCancel;
+}
 - (void)beginSheetUsingPrintInfo:(NSPrintInfo *)info onWindow:(NSWindow *)window
                completionHandler:(void (^)(NSPrintPanelResult))handler
 {
+    [_printInfo release];
+    _printInfo = [info retain];
     if (handler)
         handler(NSPrintPanelResultCancelled);
 }
-- (NSPrintInfo *)printInfo { return [NSPrintInfo sharedPrintInfo]; }
+- (void)beginSheetWithPrintInfo:(NSPrintInfo *)info
+                  modalForWindow:(NSWindow *)window
+                         delegate:(id)delegate
+                  didEndSelector:(SEL)didEndSelector
+                     contextInfo:(void *)contextInfo
+{
+    [self beginSheetUsingPrintInfo:info onWindow:window completionHandler:^(NSPrintPanelResult result) {
+        if (delegate && didEndSelector)
+            ((void (*)(id, SEL, id, NSInteger, void *))objc_msgSend)(delegate, didEndSelector, self, result, contextInfo);
+    }];
+}
+- (NSPrintInfo *)printInfo { return _printInfo ?: [NSPrintInfo sharedPrintInfo]; }
+- (void)updateFromPrintInfo
+{
+    if (!_printInfo)
+        _printInfo = [[NSPrintInfo sharedPrintInfo] retain];
+}
+- (void)finalWritePrintInfo {}
 
 - (void)dealloc
 {
     [_helpAnchor release];
     [_jobStyleHint release];
+    [_defaultButtonTitle release];
+    [_printInfo release];
     [_accessories release];
     [super dealloc];
 }
 
 @end
 
-@implementation NSPageLayout
+@implementation NSPageLayout {
+    NSPrintInfo *_printInfo;
+    NSMutableArray *_accessories;
+}
 
 + (NSPageLayout *)pageLayout { return [[[self alloc] init] autorelease]; }
-- (NSInteger)runModal { return NSModalResponseCancel; }
-- (NSInteger)runModalWithPrintInfo:(NSPrintInfo *)info { return NSModalResponseCancel; }
+- (NSInteger)runModal { return [self runModalWithPrintInfo:[NSPrintInfo sharedPrintInfo]]; }
+- (NSInteger)runModalWithPrintInfo:(NSPrintInfo *)info
+{
+    [_printInfo release];
+    _printInfo = [info retain];
+    return NSModalResponseCancel;
+}
 - (void)beginSheetUsingPrintInfo:(NSPrintInfo *)info onWindow:(NSWindow *)window
                completionHandler:(void (^)(NSPageLayoutResult))handler
 {
+    [_printInfo release];
+    _printInfo = [info retain];
     if (handler)
         handler(NSPageLayoutResultCancelled);
 }
-- (NSArray *)accessoryControllers { return @[]; }
-- (void)addAccessoryController:(NSViewController *)c {}
-- (void)removeAccessoryController:(NSViewController *)c {}
-- (NSPrintInfo *)printInfo { return [NSPrintInfo sharedPrintInfo]; }
+- (void)beginSheetWithPrintInfo:(NSPrintInfo *)info
+                  modalForWindow:(NSWindow *)window
+                         delegate:(id)delegate
+                  didEndSelector:(SEL)didEndSelector
+                     contextInfo:(void *)contextInfo
+{
+    [self beginSheetUsingPrintInfo:info onWindow:window completionHandler:^(NSPageLayoutResult result) {
+        if (delegate && didEndSelector)
+            ((void (*)(id, SEL, id, NSInteger, void *))objc_msgSend)(delegate, didEndSelector, self, result, contextInfo);
+    }];
+}
+- (NSArray *)accessoryControllers { return _accessories ? [[_accessories copy] autorelease] : @[]; }
+- (NSView *)accessoryView { return [(NSViewController *)_accessories.firstObject view]; }
+- (void)setAccessoryView:(NSView *)view
+{
+    [_accessories release];
+    _accessories = nil;
+    if (view) {
+        NSViewController *controller = [[NSViewController alloc] init];
+        controller.view = view;
+        _accessories = [[NSMutableArray alloc] initWithObjects:controller, nil];
+        [controller release];
+    }
+}
+- (void)addAccessoryController:(NSViewController *)controller
+{
+    if (!_accessories)
+        _accessories = [[NSMutableArray alloc] init];
+    [_accessories addObject:controller];
+}
+- (void)removeAccessoryController:(NSViewController *)controller { [_accessories removeObjectIdenticalTo:controller]; }
+- (NSPrintInfo *)printInfo { return _printInfo; }
+- (void)readPrintInfo {}
+- (void)writePrintInfo {}
+
+- (void)dealloc
+{
+    [_printInfo release];
+    [_accessories release];
+    [super dealloc];
+}
 
 @end
 

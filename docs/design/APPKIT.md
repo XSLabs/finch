@@ -764,3 +764,12 @@ draws (`userland/tests/app-test.c`).
   decoded in full first, then the app's class takes its subviews, constraints and
   settings (its internal constraints were lost). `finch-appkit-compat-test` matches
   Apple's on the host and in the VM.
+- 2026-10-15: AppKit API gap pass. Added local text import and edit helpers, glyph,
+  text-alternative and list values, collection updates and a table diffable source,
+  plus print settings and panel state and pasteboard file-wrapper, URL and color
+  support. The API audit moved from 35 missing classes and 94 missing methods on
+  existing classes to 30 and 49. All six requested host comparisons pass. Printer
+  lists, spell checking, dictionary bindings, image-rep drawing, Core Data documents,
+  Core Image images, touch, OpenGL, movie and speech support, Writing Tools and calls
+  backed by closed Apple services remain out because Finch lacks the service or
+  drawing and storage work needed to match Apple's behavior.

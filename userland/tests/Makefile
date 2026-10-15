@@ -9,6 +9,7 @@ all: $(OUT)/finch-appkit-containers2-test $(OUT)/finch-appkit-misc2-test $(OUT)/
 
 all: $(OUT)/finch-appkit-containers2-render-test $(OUT)/finch-appkit-controls2-render-test $(OUT)/finch-appkit-color-browser-render-test
 all: $(OUT)/finch-console-policy-test
+all: $(OUT)/finch-appkit-gaps-test
 
 $(OUT)/finch-console-policy-test: console-policy-test.c ../finch-init/console-policy.h
 	@mkdir -p $(OUT)
@@ -322,6 +323,11 @@ $(OUT)/finch-appkit-text-window-test: appkit-text-window-test.m
 $(OUT)/finch-appkit-panels-test: appkit-panels-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-deprecated-declarations -o $@ $< -framework AppKit -framework UniformTypeIdentifiers
+
+# AppKit APIs with local behavior: text values, printing settings and pasteboards.
+$(OUT)/finch-appkit-gaps-test: appkit-gaps-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-deprecated-declarations -o $@ $< -framework AppKit -framework CoreImage
 
 # Alerts, sheets, open and save panels and launching on the window server (Finch-only: compare with
 # appkit-panels-window-test.expected).

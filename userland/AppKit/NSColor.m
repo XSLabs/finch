@@ -16,6 +16,7 @@
  */
 #import "FinchTheme.h"
 #import "AppKitDrawing.h"
+#import <CoreImage/CoreImage.h>
 #include <math.h>
 
 NSNotificationName NSSystemColorsDidChangeNotification = @"NSSystemColorsDidChangeNotification";
@@ -879,6 +880,17 @@ release_pattern_image(void *info)
     return space_color(space, components, numberOfComponents);
 }
 
++ (NSColor *)colorWithCIColor:(CIColor *)color
+{
+    if (!color)
+        return nil;
+    CGColorSpaceRef cgSpace = color.colorSpace;
+    NSColorSpace *space = cgSpace ? [[[NSColorSpace alloc] initWithCGColorSpace:cgSpace] autorelease] : nil;
+    if (space)
+        return [self colorWithColorSpace:space components:color.components count:(NSInteger)color.numberOfComponents];
+    return [self colorWithRed:color.red green:color.green blue:color.blue alpha:color.alpha];
+}
+
 static NSColor *
 rgb_in(NSColorSpace *space, CGFloat r, CGFloat g, CGFloat b, CGFloat a)
 {
@@ -1447,6 +1459,11 @@ decode_typed(NSCoder *coder)
     return [result retain];
 }
 
+- (void)writeToPasteboard:(NSPasteboard *)pasteboard
+{
+    [pasteboard writeObjects:@[self]];
+}
+
 @end
 
 /* Gradients' interpolated colours: Apple's never come back tagged in RGB spaces. */
@@ -1458,3 +1475,45 @@ FinchGradientColor(NSColorSpace *space, const CGFloat *c, NSInteger n)
         col->_tagged = NO;
     return col;
 }
+
+@interface NSColor (FinchPasteboard) <NSPasteboardWriting, NSPasteboardReading>
+@end
+
+@implementation NSColor (FinchPasteboard)
+
+- (NSArray<NSPasteboardType> *)writableTypesForPasteboard:(NSPasteboard *)pasteboard
+{
+    return @[NSPasteboardTypeColor];
+}
+
+- (id)pasteboardPropertyListForType:(NSPasteboardType)type
+{
+    if (![type isEqualToString:NSPasteboardTypeColor])
+        return nil;
+    return [NSKeyedArchiver archivedDataWithRootObject:self requiringSecureCoding:NO error:NULL];
+}
+
++ (NSArray<NSPasteboardType> *)readableTypesForPasteboard:(NSPasteboard *)pasteboard
+{
+    return @[NSPasteboardTypeColor];
+}
+
++ (NSPasteboardReadingOptions)readingOptionsForType:(NSPasteboardType)type pasteboard:(NSPasteboard *)pasteboard
+{
+    return NSPasteboardReadingAsData;
+}
+
+- (id)initWithPasteboardPropertyList:(id)propertyList ofType:(NSPasteboardType)type
+{
+    NSData *data = [propertyList isKindOfClass:[NSData class]] ? propertyList : nil;
+    if (![type isEqualToString:NSPasteboardTypeColor] || !data) {
+        [self release];
+        return nil;
+    }
+    NSKeyedUnarchiver *unarchiver = [[[NSKeyedUnarchiver alloc] initForReadingFromData:data error:NULL] autorelease];
+    unarchiver.requiresSecureCoding = NO;
+    NSColor *color = [unarchiver decodeObjectOfClass:[NSColor class] forKey:NSKeyedArchiveRootObjectKey];
+    return [color retain];
+}
+
+@end

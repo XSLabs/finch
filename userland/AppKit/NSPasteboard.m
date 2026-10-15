@@ -10,6 +10,11 @@
  */
 #import "AppKit_Finch.h"
 
+@interface NSPasteboardItem (FinchPasteboardIdentity)
+- (uint64_t)_finchItemID;
+- (NSPasteboard *)_finchPasteboard;
+@end
+
 NSPasteboardName NSPasteboardNameGeneral = @"Apple CFPasteboard general";
 NSPasteboardName NSPasteboardNameFont = @"Apple CFPasteboard font";
 NSPasteboardName NSPasteboardNameRuler = @"Apple CFPasteboard ruler";
@@ -228,6 +233,7 @@ plist_of(NSData *d)
 }
 
 - (uint64_t)_finchItemID { return _itemID; }
+- (NSPasteboard *)_finchPasteboard { return _board; }
 - (NSDictionary *)_finchProviders { return _providers; }
 
 /* (an item lists its own types, in the order they were given: the pasteboard lists the
@@ -546,6 +552,29 @@ set_item1(NSPasteboard *self, id value, NSString *type)
     return out;
 }
 
+- (NSUInteger)indexOfPasteboardItem:(NSPasteboardItem *)pasteboardItem
+{
+    if (!pasteboardItem)
+        return NSNotFound;
+    uint64_t itemID = 0;
+    if ([pasteboardItem _finchPasteboard] == self) {
+        itemID = [pasteboardItem _finchItemID];
+    } else {
+        for (NSNumber *key in _written)
+            if (_written[key] == pasteboardItem) {
+                itemID = [key unsignedLongLongValue];
+                break;
+            }
+    }
+    if (!itemID)
+        return NSNotFound;
+    NSArray *items = [self pasteboardItems];
+    for (NSUInteger i = 0; i < items.count; i++)
+        if ([items[i] _finchItemID] == itemID)
+            return i;
+    return NSNotFound;
+}
+
 - (NSArray<NSPasteboardType> *)types
 {
     NSMutableArray *a = [NSMutableArray array];
@@ -682,6 +711,18 @@ read_object(NSPasteboard *pb, NSPasteboardItem *item, Class c)
 {
     NSData *d = [NSData dataWithContentsOfFile:filename];
     return d && [self setData:d forType:NSFileContentsPboardType];
+}
+
+- (BOOL)writeFileWrapper:(NSFileWrapper *)wrapper
+{
+    NSData *data = [wrapper serializedRepresentation];
+    return data && [self setData:data forType:NSFileContentsPboardType];
+}
+
+- (NSFileWrapper *)readFileWrapper
+{
+    NSData *data = [self dataForType:NSFileContentsPboardType];
+    return data ? [[[NSFileWrapper alloc] initWithSerializedRepresentation:data] autorelease] : nil;
 }
 
 - (NSString *)readFileContentsType:(NSPasteboardType)type toFile:(NSString *)filename

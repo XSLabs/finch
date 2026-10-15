@@ -117,6 +117,16 @@ string_from(id plist)
 
 @implementation NSURL (FinchPasteboard)
 
++ (NSURL *)URLFromPasteboard:(NSPasteboard *)pasteboard
+{
+    return [[pasteboard readObjectsForClasses:@[[NSURL class]] options:@{}] firstObject];
+}
+
+- (void)writeToPasteboard:(NSPasteboard *)pasteboard
+{
+    [pasteboard writeObjects:@[self]];
+}
+
 - (NSArray<NSPasteboardType> *)writableTypesForPasteboard:(NSPasteboard *)pasteboard
 {
     return @[ [self isFileURL] ? NSPasteboardTypeFileURL : NSPasteboardTypeURL ];
