@@ -451,8 +451,11 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         is Apple's height (408). The Mode menu lists Basic, Scientific and Programmer
         (pickers of picker content in menus) and switches to Scientific's keypad; the View
         menu is laid out as Apple's (the modes inline with ⌘1–⌘3, Decimal Places a
-        submenu), and ⌘3 opens Programmer's keypad. Next: Programmer's window runs past the
-        screen's bottom, and the control between ASCII/Unicode and the base picker
+        submenu), and ⌘3 opens Programmer's keypad. Programmer's window runs past the
+        screen's bottom, as a SwiftUI window growing to fit its content does on macOS (it
+        keeps its top; measured with SwiftUIKeypad's KEYPAD_PROBE on Apple's frameworks,
+        2026-10-15), and constrainFrameRect:toScreen: now moves and fits windows as
+        Apple's does. Next: the control between ASCII/Unicode and the base picker
         draws light text on a light background; RPN mode (⌘R) shows its stack and keypad,
         but Calculator gives the stack white text and separators (a dark backdrop Finch
         doesn't draw yet) and "enter" is cut to "e…"; conversion mode, history; the scientific and

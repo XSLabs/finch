@@ -178,6 +178,18 @@ main(int argc, char **argv)
         NSScreen *s = NSScreen.mainScreen;
         printf("screen %s visible %s scale %g\n", NSStringFromRect(s.frame).UTF8String,
                NSStringFromRect(s.visibleFrame).UTF8String, s.backingScaleFactor);
+        /* constrainFrameRect:toScreen: as Apple's (measured on macOS 26): only up and down */
+        for (int resizable = 0; resizable < 2; resizable++) {
+            NSWindow *c = [[NSWindow alloc]
+                initWithContentRect:NSMakeRect(100, 100, 400, 300)
+                          styleMask:NSWindowStyleMaskTitled | (resizable ? NSWindowStyleMaskResizable : 0)
+                            backing:NSBackingStoreBuffered
+                              defer:YES];
+            printf("constrain (resizable %d): taller %s below %s above %s\n", resizable,
+                   NSStringFromRect([c constrainFrameRect:NSMakeRect(100, -200, 400, 976) toScreen:s]).UTF8String,
+                   NSStringFromRect([c constrainFrameRect:NSMakeRect(100, -150, 400, 300) toScreen:s]).UTF8String,
+                   NSStringFromRect([c constrainFrameRect:NSMakeRect(100, 500, 400, 300) toScreen:s]).UTF8String);
+        }
 
         NSWindow *w = [[NSWindow alloc]
             initWithContentRect:NSMakeRect(100, 100, 300, 200)

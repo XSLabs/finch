@@ -1,5 +1,7 @@
 launch: delegate applicationDidFinishLaunching
 screen {{0, 0}, {800, 600}} visible {{0, 0}, {800, 576}} scale 2
+constrain (resizable 0): taller {{100, -400}, {400, 976}} below {{100, 0}, {400, 300}} above {{100, 276}, {400, 300}}
+constrain (resizable 1): taller {{100, 0}, {400, 576}} below {{100, 0}, {400, 300}} above {{100, 276}, {400, 300}}
 shown: delegate windowDidBecomeKey
 window {{100, 100}, {300, 232}} number>0 1 key 1 main 1 visible 1 first responder window
 app key 1 main 1 active 1 windows 1

@@ -1562,13 +1562,27 @@ check_chrome(NSWindow *w, NSRect *last)
     [self setFrameOrigin:origin];
 }
 
+/* As Apple's (measured on macOS 26): only up and down. A window taller than the visible
+   frame keeps its top at the top, and a resizable one is cut to the visible frame's height;
+   otherwise one past the top or the bottom is moved back within it. */
 - (NSRect)constrainFrameRect:(NSRect)frame toScreen:(NSScreen *)screen
 {
     if (!screen)
         return frame;
     NSRect visible = [screen visibleFrame];
+    if (frame.size.height > visible.size.height) {
+        if ([self styleMask] & NSWindowStyleMaskResizable) {
+            frame.size.height = visible.size.height;
+            frame.origin.y = visible.origin.y;
+        } else {
+            frame.origin.y = NSMaxY(visible) - frame.size.height;
+        }
+        return frame;
+    }
     if (NSMaxY(frame) > NSMaxY(visible))
         frame.origin.y = NSMaxY(visible) - frame.size.height;
+    if (frame.origin.y < visible.origin.y)
+        frame.origin.y = visible.origin.y;
     return frame;
 }
 

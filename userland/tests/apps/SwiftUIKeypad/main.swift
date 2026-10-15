@@ -5,7 +5,11 @@
 // first run loop turn after it appears, and counts the process's CPU time from the switch
 // to a second after that, which takes in the layout that follows, on stderr
 // ("keypad basic: 20 keys in N ms, CPU M ms").
+// KEYPAD_PROBE=1: the window is moved to the bottom of the screen, the keypad switches to the
+// bigger one, and the window's frame and the screen's visible frame are printed: whether a
+// window growing to fit its content is kept on the screen. Then it quits.
 import SwiftUI
+import AppKit
 
 enum Pad: String, CaseIterable, Identifiable {
     case basic, scientific
@@ -86,6 +90,23 @@ struct Keys: View {
     let model: Model
     let pad: Pad
 
+    func probe() {
+        guard pad == .basic else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                let w = NSApp.windows.first { $0.isVisible }
+                report("probe: grown \(w.map { NSStringFromRect($0.frame) } ?? "-") visible \(w?.screen.map { NSStringFromRect($0.visibleFrame) } ?? "-")")
+                NSApp.terminate(nil)
+            }
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            guard let w = NSApp.windows.first(where: { $0.isVisible }), let visible = w.screen?.visibleFrame else { return }
+            w.setFrameOrigin(NSPoint(x: w.frame.origin.x, y: visible.minY))
+            report("probe: low \(NSStringFromRect(w.frame))")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { model.switchTo(.scientific) }
+        }
+    }
+
     var body: some View {
         Grid(horizontalSpacing: 4, verticalSpacing: 4) {
             ForEach(0..<pad.rows, id: \.self) { row in
@@ -105,6 +126,10 @@ struct Keys: View {
             }
         }
         .onAppear {
+            if ProcessInfo.processInfo.environment["KEYPAD_PROBE"] != nil {
+                probe()
+                return
+            }
             let keys = pad.rows * pad.columns
             DispatchQueue.main.async {
                 let ms = Int(Date().timeIntervalSince(model.switched) * 1000)
