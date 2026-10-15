@@ -455,10 +455,12 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         screen's bottom, as a SwiftUI window growing to fit its content does on macOS (it
         keeps its top; measured with SwiftUIKeypad's KEYPAD_PROBE on Apple's frameworks,
         2026-10-15), and constrainFrameRect:toScreen: now moves and fits windows as
-        Apple's does. Next: the control between ASCII/Unicode and the base picker
-        draws light text on a light background; RPN mode (⌘R) shows its stack and keypad,
-        but Calculator gives the stack white text and separators (a dark backdrop Finch
-        doesn't draw yet) and "enter" is cut to "e…"; conversion mode, history; the scientific and
+        Apple's does. Calculator is dark, as on macOS (2026-10-15): it asks for
+        preferredColorScheme(.dark), which Finch's hosting view now gives its window as the
+        DarkAqua appearance, and a SwiftUI view's colour scheme follows its appearance (so
+        SwiftUI apps follow Night too). Programmer's Hide Binary and RPN's stack, white text
+        meant for that dark backdrop, read again. Next: RPN's "enter" is cut to "e…";
+        conversion mode, history; the scientific and
         programmer keypads took most of a minute to build in QEMU. On the host,
         `SwiftUIKeypad` (a toolbar picker over a Grid of 20 or 60 buttons, timing each
         switch) showed the window never settling after it grew: the toolbar laid its

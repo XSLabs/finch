@@ -8,6 +8,8 @@
 // KEYPAD_PROBE=1: the window is moved to the bottom of the screen, the keypad switches to the
 // bigger one, and the window's frame and the screen's visible frame are printed: whether a
 // window growing to fit its content is kept on the screen. Then it quits.
+// KEYPAD_DARK=1: the window asks for .preferredColorScheme(.dark); its appearance is printed,
+// and it quits (KEYPAD_DARK=show: stays open).
 import SwiftUI
 import AppKit
 
@@ -67,6 +69,8 @@ struct SwiftUIKeypadApp: App {
 
 struct KeypadView: View {
     let model: Model
+    @Environment(\.colorScheme) private var colorScheme
+    private let dark = ProcessInfo.processInfo.environment["KEYPAD_DARK"] != nil
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 8) {
@@ -77,6 +81,16 @@ struct KeypadView: View {
                 .id(model.pad)
         }
         .padding(12)
+        .preferredColorScheme(dark ? .dark : nil)
+        .onChange(of: colorScheme, initial: true) {
+            guard dark else { return }
+            report("dark: scheme \(colorScheme == .dark ? "dark" : "light")")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                let w = NSApp.windows.first { $0.isVisible }
+                report("dark: window \(w?.effectiveAppearance.name.rawValue ?? "-")")
+                if ProcessInfo.processInfo.environment["KEYPAD_DARK"] != "show" { NSApp.terminate(nil) }
+            }
+        }
         .toolbar {
             Picker("Mode", selection: Binding(get: { model.pad }, set: { model.switchTo($0) })) {
                 ForEach(Pad.allCases) { Text($0.rawValue.capitalized).tag($0) }

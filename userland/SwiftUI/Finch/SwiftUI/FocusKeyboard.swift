@@ -12,6 +12,7 @@ private enum FinchFocusAssociations {
     static var bridge: UInt8 = 0
     static var windowObserver: UInt8 = 0
     static var focusDisabled: UInt8 = 0
+    static var colorSchemeOwner: UInt8 = 0  // the hosting view whose preferredColorScheme a window has
 }
 
 private final class FinchWindowFocusObserver {
@@ -315,6 +316,30 @@ extension NSHostingView {
         // FocusState registrations and their focused flags are host preferences.
         // Rebuild the store when SwiftUI reports that those preferences changed.
         invalidateProperties(.focusStore)
+        applyPreferredColorScheme()
+    }
+
+    /// preferredColorScheme, as Apple's: the window takes that appearance (and so does the
+    /// content, whose colour scheme follows its appearance); back to its own when the
+    /// preference goes, if it was this view that set it.
+    package func applyPreferredColorScheme() {
+        guard let window else { return }
+        let owner = objc_getAssociatedObject(window, &FinchFocusAssociations.colorSchemeOwner) as AnyObject?
+        switch preferenceValue(PreferredColorSchemeKey.self) {
+        case let scheme?:
+            let name: NSAppearance.Name = scheme == .dark ? .darkAqua : .aqua
+            // (after this update: the change rebuilds this view's environment, which an update
+            // in progress would overwrite)
+            if window.appearance?.name != name {
+                DispatchQueue.main.async { [weak window] in window?.appearance = NSAppearance(named: name) }
+            }
+            objc_setAssociatedObject(window, &FinchFocusAssociations.colorSchemeOwner, self, .OBJC_ASSOCIATION_ASSIGN)
+        case nil where owner === self:
+            DispatchQueue.main.async { [weak window] in window?.appearance = nil }
+            objc_setAssociatedObject(window, &FinchFocusAssociations.colorSchemeOwner, nil, .OBJC_ASSOCIATION_ASSIGN)
+        case nil:
+            break
+        }
     }
 
     package func updateFocusStore() {

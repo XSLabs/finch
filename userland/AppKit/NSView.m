@@ -459,7 +459,27 @@ static char layout_direction_key;
 - (BOOL)needsUpdateConstraints { return _f.needsUpdateConstraints; }
 - (void)setNeedsUpdateConstraints:(BOOL)flag { _f.needsUpdateConstraints = flag; }
 - (NSAppearance *)appearance { return _appearance; }
-- (void)setAppearance:(NSAppearance *)appearance { [_appearance autorelease]; _appearance = [appearance retain]; }
+- (void)setAppearance:(NSAppearance *)appearance
+{
+    NSAppearanceName before = [[self effectiveAppearance] name];
+    [_appearance autorelease];
+    _appearance = [appearance retain];
+    if (![[[self effectiveAppearance] name] isEqualToString:before])
+        FinchViewAppearanceDidChange(self, YES);
+}
+/* As Apple's: a view whose effective appearance changes hears it (viewDidChangeEffectiveAppearance)
+   and draws again, and so do its subviews, but for those with an appearance of their own. */
+void
+FinchViewAppearanceDidChange(NSView *view, BOOL top)
+{
+    if (!top && view->_appearance)
+        return;
+    [view viewDidChangeEffectiveAppearance];
+    [view setNeedsDisplay:YES];
+    for (NSView *sub in [[view->_subviews copy] autorelease])
+        FinchViewAppearanceDidChange(sub, NO);
+}
+
 - (NSAppearance *)effectiveAppearance
 {
     for (NSView *v = self; v; v = v->_superview)

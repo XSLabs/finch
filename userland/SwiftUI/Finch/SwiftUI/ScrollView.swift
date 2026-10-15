@@ -99,11 +99,12 @@ extension View {
     /// The environment values content hosted apart (in a scroll view's document, a sheet, a
     /// popover) inherits from where it is presented. Not the whole environment, which holds
     /// the presenting graph's own state.
-    func _finchInheriting(_ environment: EnvironmentValues) -> some View {
+    /// (colorScheme: false for a window's content, whose colour scheme is its window's appearance's)
+    func _finchInheriting(_ environment: EnvironmentValues, colorScheme: Bool = true) -> some View {
         self.transformEnvironment(\.self) { $0._finchInheritAppValues(from: environment) }
             .environment(\.font, environment.font)
             .environment(\.isEnabled, environment.isEnabled)
-            .environment(\.colorScheme, environment.colorScheme)
+            .transformEnvironment(\.colorScheme) { if colorScheme { $0 = environment.colorScheme } }
             .environment(\.layoutDirection, environment.layoutDirection)
             .environment(\.locale, environment.locale)
             .environment(\.multilineTextAlignment, environment.multilineTextAlignment)

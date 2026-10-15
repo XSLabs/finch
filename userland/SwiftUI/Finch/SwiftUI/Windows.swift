@@ -32,7 +32,7 @@ enum _FinchWindows {
         defer { Update.end() }
         // The scene stores app values, including environment objects, separately from its view.
         let rootView = item.value.view
-            ._finchInheriting(item.environment)
+            ._finchInheriting(item.environment, colorScheme: false)
             .rootEnvironment()
         let hostingVC = NSHostingController(rootView: rootView)
         let initialSize = initialContentSize(for: hostingVC)

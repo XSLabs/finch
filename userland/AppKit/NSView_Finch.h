@@ -51,6 +51,9 @@ FINCH_PRIVATE CGFloat FinchViewBackingScale(NSView *view);
 FINCH_PRIVATE CGAffineTransform FinchViewToBase(NSView *view);
 FINCH_PRIVATE NSRect FinchViewRectBeingDrawn(NSView *view);
 FINCH_PRIVATE void FinchViewDrawTree(NSView *view, CGContextRef cg, NSRect rect, BOOL inViewSpace);
+/* Tell a view and its subviews (but for those with an appearance of their own) that their
+   effective appearance changed: viewDidChangeEffectiveAppearance, and drawing again. */
+FINCH_PRIVATE void FinchViewAppearanceDidChange(NSView *view, BOOL top);
 
 /* Auto Layout's hooks in NSView (NSViewLayout.m). */
 FINCH_PRIVATE void FinchLayoutViewFrameDidChange(NSView *view);

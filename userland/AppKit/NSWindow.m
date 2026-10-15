@@ -1279,7 +1279,14 @@ check_chrome(NSWindow *w, NSRect *last)
     });
 }
 - (NSAppearance *)appearance { return _appearance; }
-- (void)setAppearance:(NSAppearance *)appearance { [_appearance autorelease]; _appearance = [appearance retain]; }
+- (void)setAppearance:(NSAppearance *)appearance
+{
+    NSAppearanceName before = [[self effectiveAppearance] name];
+    [_appearance autorelease];
+    _appearance = [appearance retain];
+    if (![[[self effectiveAppearance] name] isEqualToString:before] && _frameView)
+        FinchViewAppearanceDidChange(_frameView, YES);
+}
 - (NSAppearance *)effectiveAppearance { return _appearance ?: [NSApp effectiveAppearance]; }
 - (NSToolbar *)toolbar { return _toolbar; }
 - (void)setToolbar:(NSToolbar *)toolbar

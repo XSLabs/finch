@@ -806,7 +806,9 @@ extension _FocusableModifier: Sendable {}'''),
             environment.plist.override(with: environmentOverride.plist)
         }
         viewGraph.setEnvironment(environment)''',
-     '''        if let environmentOverride {
+     '''        // as Apple's: the colour scheme is the view's appearance's (its window's, or Night's)
+        environment.colorScheme = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+        if let environmentOverride {
             environment.plist.override(with: environmentOverride.plist)
         }
         environment.focusBridge = focusBridge
@@ -954,6 +956,21 @@ extension _FocusableModifier: Sendable {}'''),
      '''        let pixelLength = convertFromBacking(CGSize(width: 1, height: 1))
         let result = fittingSize.rounded(.up, toMultipleOf: pixelLength.width)''',
      '''        let result = intrinsicSizeForAppKit(from: fittingSize)'''),
+    # preferredColorScheme: the host reads the preference and gives its window that appearance
+    ('SwiftUI/Integration/Hosting/AppKit/View/NSHostingView.swift',
+     '''        appendViewGraphFeatures()
+        initializeViewGraph()
+''',
+     '''        appendViewGraphFeatures()
+        initializeViewGraph()
+        viewGraph.addPreference(PreferredColorSchemeKey.self)
+'''),
+    ('SwiftUI/Integration/Hosting/AppKit/View/NSHostingView.swift',
+     '''        if window != nil {
+            invalidateProperties([.transform, .safeArea])''',
+     '''        if window != nil {
+            applyPreferredColorScheme()
+            invalidateProperties([.transform, .safeArea])'''),
 ]
 
 
