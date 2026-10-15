@@ -481,7 +481,12 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         ⌘4, over a detail column as wide as Calculator's keypad) lays the columns out beside
         each other and grows the window to fit them, so the difference is likely macOS 26's
         sidebar floating over the detail column, which Calculator meets through
-        GeometryProxy.safeAreaInsets, where Finch's places the columns side by side.
+        GeometryProxy.safeAreaInsets, where Finch's places the columns side by side. (A
+        floating sidebar over a full-width detail with a leading safeAreaInset was tried,
+        2026-10-15, and put back: Finch's safeAreaInset doesn't count towards the window's
+        minimum size, so a wide detail ran under the sidebar instead of the window growing.
+        In the VM the history's minimum width stays the keypad's, 118, and the keypad is
+        laid out wider than the room beside the sidebar.)
         Typing works (2026-10-15): CalculateUI's editable expression view takes the keys
         that name calculator keys (7+2= shows 9), and SwiftUI buttons' keyboard shortcuts,
         with or without modifiers, work anywhere in their window. Edit > Copy copies the
