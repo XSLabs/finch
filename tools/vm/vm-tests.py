@@ -85,6 +85,7 @@ SCRIPTS = {
                                   'security-keychain-encryption-test', 'keychain-crypto-test'],
     'tools/vm/test-drag.sh': ['appkit-drag-apps-test'],
     'tools/vm/test-services.sh': [],  # (the daemons running, and cron running a job)
+    'tools/vm/test-login.sh': ['security-keychain-login-test'],
 }
 # Not test programs, or run by another test.
 NOT_TESTS = {'app-test'}

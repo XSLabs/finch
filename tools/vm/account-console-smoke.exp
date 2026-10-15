@@ -1,6 +1,9 @@
 #!/usr/bin/expect -f
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Prove the real console login rejects a bad password and opens a user shell.
+# Prove the real console login rejects a bad password and opens a user shell, and that
+# PAM's keychain module makes the user's login keychain with the login password and
+# unlocks it at each login, but leaves one with another password locked
+# (finch-security-keychain-login-test, run as the user after each login).
 # Run under tools/vm/with-vm-lock.sh. All test files live in guest tmpfs.
 set timeout 300
 log_user 1
@@ -54,6 +57,61 @@ proc run_checked {command label} {
     }
 }
 
+# A command in the logged-in user's shell, which must exit 0.
+proc user_run {command label} {
+    global user_prompt login_prompt root_prompt
+    set status_pattern [format {FINCH_USER_STATUS_%s=([0-9]+)} $label]
+    send -s -- "$command; printf '\\nFINCH_USER_STATUS_${label}=%d\\n' \$?\r"
+    expect {
+        -re $status_pattern {
+            if {$expect_out(1,string) != 0} {
+                fail "$label failed with exit status $expect_out(1,string)"
+            }
+        }
+        -re $root_prompt { fail "user shell ended while running $label" }
+        eof { fail "VM exited while running $label" }
+        timeout { fail "timed out while running $label" }
+    }
+    expect {
+        -exact $user_prompt {}
+        eof { fail "VM exited after $label" }
+        timeout { fail "user shell did not return after $label" }
+    }
+}
+
+# Log out of the user shell and back in with the right password.
+proc relogin {label} {
+    global user_prompt login_prompt root_prompt password_prompt username test_password
+    send -s -- "exit\r"
+    expect {
+        -re $root_prompt {}
+        eof { fail "VM exited at logout before $label" }
+        timeout { fail "logout before $label did not return to the setup shell" }
+    }
+    send -s -- "/usr/bin/login\r"
+    expect {
+        -re $login_prompt {}
+        eof { fail "VM exited before the login prompt for $label" }
+        timeout { fail "login did not show its prompt for $label" }
+    }
+    send -s -- "$username\r"
+    expect {
+        -re $password_prompt {}
+        timeout { fail "login did not ask for the password for $label" }
+    }
+    send -s -- "$test_password\r"
+    expect {
+        -exact "FINCH_LOGIN_PROFILE_READY" {}
+        "Login incorrect" { fail "login refused the password for $label" }
+        eof { fail "VM exited during the login for $label" }
+        timeout { fail "the login for $label did not start the user's shell" }
+    }
+    expect {
+        -exact $user_prompt {}
+        timeout { fail "user prompt did not appear for $label" }
+    }
+}
+
 spawn $root/tools/vm/run.sh
 expect {
     -exact "development root console enabled by boot argument" {}
@@ -85,9 +143,9 @@ expect {
 
 # Check the writable guest paths and all source files before making overlays.
 run_checked {test "$(id -u)" = 0 && test "$(stat -f %u:%g:%Lp /private)" = 0:0:755 && test "$(stat -f %u:%g:%Lp /private/var/rw)" = 0:0:755 && test "$(stat -f %u:%g:%Lp /private/var/rw/Users)" = 0:0:755} verify-root-paths
-run_checked {test -d /private/etc && test ! -L /private/etc && test -d /private/etc/pam.d && test ! -L /private/etc/pam.d && test -d /usr/lib/pam && test ! -L /usr/lib/pam && test -f /usr/local/share/finch/account-fixture/master.passwd && test ! -L /usr/local/share/finch/account-fixture/master.passwd && test -f /usr/local/share/finch/account-fixture/group && test ! -L /usr/local/share/finch/account-fixture/group && test -f /private/etc/pam.d/login && test ! -L /private/etc/pam.d/login && test -f /usr/lib/pam/pam_unix.so.2 && test ! -L /usr/lib/pam/pam_unix.so.2 && test -f /usr/lib/pam/pam_nologin.so.2 && test ! -L /usr/lib/pam/pam_nologin.so.2 && test -f /usr/lib/pam/pam_launchd.so.2 && test ! -L /usr/lib/pam/pam_launchd.so.2 && test -f /usr/lib/pam/pam_uwtmp.so.2 && test ! -L /usr/lib/pam/pam_uwtmp.so.2} verify-release-sources
+run_checked {test -d /private/etc && test ! -L /private/etc && test -d /private/etc/pam.d && test ! -L /private/etc/pam.d && test -d /usr/lib/pam && test ! -L /usr/lib/pam && test -f /usr/local/share/finch/account-fixture/master.passwd && test ! -L /usr/local/share/finch/account-fixture/master.passwd && test -f /usr/local/share/finch/account-fixture/group && test ! -L /usr/local/share/finch/account-fixture/group && test -f /private/etc/pam.d/login && test ! -L /private/etc/pam.d/login && test -f /usr/lib/pam/pam_unix.so.2 && test ! -L /usr/lib/pam/pam_unix.so.2 && test -f /usr/lib/pam/pam_nologin.so.2 && test ! -L /usr/lib/pam/pam_nologin.so.2 && test -f /usr/lib/pam/pam_launchd.so.2 && test ! -L /usr/lib/pam/pam_launchd.so.2 && test -f /usr/lib/pam/pam_uwtmp.so.2 && test ! -L /usr/lib/pam/pam_uwtmp.so.2 && test -f /usr/lib/pam/pam_keychain.so.2 && test ! -L /usr/lib/pam/pam_keychain.so.2 && test -x /usr/local/bin/finch-security-keychain-login-test} verify-release-sources
 run_checked {finch_cksum_matches() { finch_cksum_staged=$(cksum < "$1") || return 1; finch_cksum_live=$(cksum < "$2") || return 1; [ "$finch_cksum_staged" = "$finch_cksum_live" ]; }} define-checksum-helper
-run_checked {finch_policy_file=/private/etc/pam.d/login; printf '%s\n' '# login: auth account password session (Finch)' '# SPDX-License-Identifier: MIT OR Apache-2.0' 'auth       required       pam_unix.so' 'account    required       pam_nologin.so' 'account    required       pam_unix.so' 'password   required       pam_unix.so' 'session    required       pam_launchd.so' 'session    required       pam_uwtmp.so' | while IFS= read -r finch_policy_expected_line; do grep -Fxq "$finch_policy_expected_line" "$finch_policy_file" || exit 1; done && [ "$(grep -Ec '^[[:space:]]*[^#[:space:]]' "$finch_policy_file")" -eq 6 ] || { printf 'login policy does not match Finch rules\n'; false; }} verify-release-login-policy
+run_checked {finch_policy_file=/private/etc/pam.d/login; printf '%s\n' '# login: auth account password session (Finch)' '# SPDX-License-Identifier: MIT OR Apache-2.0' 'auth       required       pam_unix.so' 'account    required       pam_nologin.so' 'account    required       pam_unix.so' 'password   required       pam_unix.so' 'session    required       pam_launchd.so' 'session    required       pam_keychain.so' 'session    required       pam_uwtmp.so' | while IFS= read -r finch_policy_expected_line; do grep -Fxq "$finch_policy_expected_line" "$finch_policy_file" || exit 1; done && [ "$(grep -Ec '^[[:space:]]*[^#[:space:]]' "$finch_policy_file")" -eq 7 ] || { printf 'login policy does not match Finch rules\n'; false; }} verify-release-login-policy
 run_checked {test ! -e /private/var/rw/finch-account-console-smoke && test ! -e /private/var/rw/Users/finchconsole} verify-clean-test-paths
 run_checked {FINCH_SMOKE_STAGE=/private/var/rw/finch-account-console-smoke; export FINCH_SMOKE_STAGE} set-stage-path
 run_checked {finch_report_stage_entry() { finch_stage_path=$1; if [ -L "$finch_stage_path" ]; then if finch_stage_target=$(/usr/bin/readlink "$finch_stage_path"); then if [ -e "$finch_stage_path" ]; then printf 'symlink exists: %s -> %s\n' "$finch_stage_path" "$finch_stage_target"; else printf 'dangling symlink: %s -> %s\n' "$finch_stage_path" "$finch_stage_target"; fi; else printf 'symlink target unreadable: %s\n' "$finch_stage_path"; fi; elif [ -e "$finch_stage_path" ]; then printf 'present: %s\n' "$finch_stage_path"; else printf 'missing: %s\n' "$finch_stage_path"; fi; if [ -e "$finch_stage_path" ] || [ -L "$finch_stage_path" ]; then printf 'owner:group:mode for %s: ' "$finch_stage_path"; stat -f '%u:%g:%Lp' "$finch_stage_path"; fi; }} define-stage-diagnostic
@@ -99,7 +157,7 @@ run_checked {cp -Np /usr/local/share/finch/account-fixture/master.passwd "$FINCH
 run_checked {cp -Np "$FINCH_SMOKE_STAGE/etc/pam.d/login" "$FINCH_SMOKE_STAGE/pam-login"} stage-login-policy
 run_checked {chown root:wheel "$FINCH_SMOKE_STAGE/master.passwd" "$FINCH_SMOKE_STAGE/group" "$FINCH_SMOKE_STAGE/pam-login" && chmod 600 "$FINCH_SMOKE_STAGE/master.passwd" && chmod 644 "$FINCH_SMOKE_STAGE/group" "$FINCH_SMOKE_STAGE/pam-login"} set-staged-account-modes
 run_checked {chown 0:0 "$FINCH_SMOKE_STAGE/etc" "$FINCH_SMOKE_STAGE/etc/pam.d" "$FINCH_SMOKE_STAGE/etc/pam.d/login"} normalize-staged-login-policy-owner
-run_checked {chown 0:0 "$FINCH_SMOKE_STAGE/pam" "$FINCH_SMOKE_STAGE/pam/pam_unix.so.2" "$FINCH_SMOKE_STAGE/pam/pam_nologin.so.2" "$FINCH_SMOKE_STAGE/pam/pam_launchd.so.2" "$FINCH_SMOKE_STAGE/pam/pam_uwtmp.so.2"} normalize-staged-pam-owner
+run_checked {chown 0:0 "$FINCH_SMOKE_STAGE/pam" "$FINCH_SMOKE_STAGE/pam/pam_unix.so.2" "$FINCH_SMOKE_STAGE/pam/pam_nologin.so.2" "$FINCH_SMOKE_STAGE/pam/pam_launchd.so.2" "$FINCH_SMOKE_STAGE/pam/pam_uwtmp.so.2" "$FINCH_SMOKE_STAGE/pam/pam_keychain.so.2"} normalize-staged-pam-owner
 run_checked {test "$(stat -f %u:%g:%Lp "$FINCH_SMOKE_STAGE/etc")" = 0:0:755 || { finch_report_stage_entry "$FINCH_SMOKE_STAGE/etc"; false; }} verify-staged-etc-directory
 run_checked {test "$(stat -f %u:%g:%Lp "$FINCH_SMOKE_STAGE/etc/pam.d")" = 0:0:755 || { finch_report_stage_entry "$FINCH_SMOKE_STAGE/etc/pam.d"; false; }} verify-staged-pam-policy-directory
 run_checked {test "$(stat -f %u:%g:%Lp "$FINCH_SMOKE_STAGE/etc/pam.d/login")" = 0:0:644 || { finch_report_stage_entry "$FINCH_SMOKE_STAGE/etc/pam.d/login"; false; }} verify-staged-login-policy
@@ -120,16 +178,16 @@ run_checked {/sbin/mount_tmpfs /private/etc} mount-account-files
 run_checked {/sbin/mount_tmpfs /usr/lib/pam} mount-pam-modules
 run_checked {finch_mount_list=$(/sbin/mount); finch_mount_has_plain_tmpfs() { finch_mount_wanted=$1; while IFS= read -r finch_mount_line; do finch_mount_field_on=$(printf '%s\n' "$finch_mount_line" | cut -d ' ' -f 2) || return 1; finch_mount_field_target=$(printf '%s\n' "$finch_mount_line" | cut -d ' ' -f 3) || return 1; finch_mount_field_type=$(printf '%s\n' "$finch_mount_line" | cut -d ' ' -f 4) || return 1; if [ "$finch_mount_field_on" = on ] && [ "$finch_mount_field_target" = "$finch_mount_wanted" ] && [ "$finch_mount_field_type" = '(tmpfs,' ] && ! printf '%s\n' "$finch_mount_line" | grep -Eq ', union(,|\))'; then return 0; fi; done <<< "$finch_mount_list"; return 1; }; finch_mount_has_plain_tmpfs /private/etc && finch_mount_has_plain_tmpfs /usr/lib/pam && ! printf '%s\n' "$finch_mount_list" | grep -Fq ' on /private/etc/pam.d ('} verify-plain-tmpfs-mounts
 run_checked {cp -RNp "$FINCH_SMOKE_STAGE/etc/." /private/etc/ && cp -RNp "$FINCH_SMOKE_STAGE/pam/." /usr/lib/pam/} restore-settings-and-pam-modules
-run_checked {chown 0:0 /private/etc /private/etc/pam.d /usr/lib/pam && chmod 755 /private/etc /private/etc/pam.d /usr/lib/pam && test "$(stat -f %u:%g:%Lp /private/etc)" = 0:0:755 && test "$(stat -f %u:%g:%Lp /private/etc/pam.d)" = 0:0:755 && test "$(stat -f %u:%g:%Lp /private/etc/pam.d/login)" = 0:0:644 && test "$(stat -f %u:%g:%Lp /usr/lib/pam)" = 0:0:755 && test "$(stat -f %u:%g /usr/lib/pam/pam_unix.so.2)" = 0:0 && test "$(stat -f %u:%g /usr/lib/pam/pam_nologin.so.2)" = 0:0 && test "$(stat -f %u:%g /usr/lib/pam/pam_launchd.so.2)" = 0:0 && test "$(stat -f %u:%g /usr/lib/pam/pam_uwtmp.so.2)" = 0:0} verify-restored-ownership
+run_checked {chown 0:0 /private/etc /private/etc/pam.d /usr/lib/pam && chmod 755 /private/etc /private/etc/pam.d /usr/lib/pam && test "$(stat -f %u:%g:%Lp /private/etc)" = 0:0:755 && test "$(stat -f %u:%g:%Lp /private/etc/pam.d)" = 0:0:755 && test "$(stat -f %u:%g:%Lp /private/etc/pam.d/login)" = 0:0:644 && test "$(stat -f %u:%g:%Lp /usr/lib/pam)" = 0:0:755 && test "$(stat -f %u:%g /usr/lib/pam/pam_unix.so.2)" = 0:0 && test "$(stat -f %u:%g /usr/lib/pam/pam_nologin.so.2)" = 0:0 && test "$(stat -f %u:%g /usr/lib/pam/pam_launchd.so.2)" = 0:0 && test "$(stat -f %u:%g /usr/lib/pam/pam_uwtmp.so.2)" = 0:0 && test "$(stat -f %u:%g /usr/lib/pam/pam_keychain.so.2)" = 0:0} verify-restored-ownership
 
 # Install the temporary test account data on the new tmpfs filesystems.
 run_checked {cp -Np "$FINCH_SMOKE_STAGE/master.passwd" /private/etc/master.passwd && cp -Np "$FINCH_SMOKE_STAGE/passwd" /private/etc/passwd && cp -Np "$FINCH_SMOKE_STAGE/group" /private/etc/group && cp -Np "$FINCH_SMOKE_STAGE/pam-login" /private/etc/pam.d/login} install-account-and-policy-files
-run_checked {chown root:wheel /private/etc/master.passwd /private/etc/passwd /private/etc/group /private/etc/pam.d/login && chown root:wheel /usr/lib/pam/pam_unix.so.2 /usr/lib/pam/pam_nologin.so.2 /usr/lib/pam/pam_launchd.so.2 /usr/lib/pam/pam_uwtmp.so.2 && chmod 600 /private/etc/master.passwd && chmod 644 /private/etc/passwd /private/etc/group /private/etc/pam.d/login} set-release-file-ownership
+run_checked {chown root:wheel /private/etc/master.passwd /private/etc/passwd /private/etc/group /private/etc/pam.d/login && chown root:wheel /usr/lib/pam/pam_unix.so.2 /usr/lib/pam/pam_nologin.so.2 /usr/lib/pam/pam_launchd.so.2 /usr/lib/pam/pam_uwtmp.so.2 /usr/lib/pam/pam_keychain.so.2 && chmod 600 /private/etc/master.passwd && chmod 644 /private/etc/passwd /private/etc/group /private/etc/pam.d/login} set-release-file-ownership
 run_checked {finch_cksum_matches "$FINCH_SMOKE_STAGE/master.passwd" /private/etc/master.passwd && finch_cksum_matches "$FINCH_SMOKE_STAGE/passwd" /private/etc/passwd && finch_cksum_matches "$FINCH_SMOKE_STAGE/group" /private/etc/group && finch_cksum_matches "$FINCH_SMOKE_STAGE/pam-login" /private/etc/pam.d/login} verify-account-and-policy-copy
-run_checked {finch_cksum_matches "$FINCH_SMOKE_STAGE/pam/pam_unix.so.2" /usr/lib/pam/pam_unix.so.2 && finch_cksum_matches "$FINCH_SMOKE_STAGE/pam/pam_nologin.so.2" /usr/lib/pam/pam_nologin.so.2 && finch_cksum_matches "$FINCH_SMOKE_STAGE/pam/pam_launchd.so.2" /usr/lib/pam/pam_launchd.so.2 && finch_cksum_matches "$FINCH_SMOKE_STAGE/pam/pam_uwtmp.so.2" /usr/lib/pam/pam_uwtmp.so.2} verify-module-copies
+run_checked {finch_cksum_matches "$FINCH_SMOKE_STAGE/pam/pam_unix.so.2" /usr/lib/pam/pam_unix.so.2 && finch_cksum_matches "$FINCH_SMOKE_STAGE/pam/pam_nologin.so.2" /usr/lib/pam/pam_nologin.so.2 && finch_cksum_matches "$FINCH_SMOKE_STAGE/pam/pam_launchd.so.2" /usr/lib/pam/pam_launchd.so.2 && finch_cksum_matches "$FINCH_SMOKE_STAGE/pam/pam_uwtmp.so.2" /usr/lib/pam/pam_uwtmp.so.2 && finch_cksum_matches "$FINCH_SMOKE_STAGE/pam/pam_keychain.so.2" /usr/lib/pam/pam_keychain.so.2} verify-module-copies
 run_checked {test "$(stat -f %u:%g:%Lp /private/etc/master.passwd)" = 0:0:600 && test "$(stat -f %u:%g:%Lp /private/etc/passwd)" = 0:0:644 && test "$(stat -f %u:%g:%Lp /private/etc/group)" = 0:0:644 && test "$(stat -f %u:%g:%Lp /private/etc/pam.d/login)" = 0:0:644} verify-account-and-policy-ownership
-run_checked {test "$(stat -f %u:%g /usr/lib/pam/pam_unix.so.2)" = 0:0 && test "$(stat -f %u:%g /usr/lib/pam/pam_nologin.so.2)" = 0:0 && test "$(stat -f %u:%g /usr/lib/pam/pam_launchd.so.2)" = 0:0 && test "$(stat -f %u:%g /usr/lib/pam/pam_uwtmp.so.2)" = 0:0} verify-module-owners
-run_checked {test "$(stat -f %Sp /usr/lib/pam/pam_unix.so.2 | cut -c 6,9)" = -- && test "$(stat -f %Sp /usr/lib/pam/pam_nologin.so.2 | cut -c 6,9)" = -- && test "$(stat -f %Sp /usr/lib/pam/pam_launchd.so.2 | cut -c 6,9)" = -- && test "$(stat -f %Sp /usr/lib/pam/pam_uwtmp.so.2 | cut -c 6,9)" = --} verify-module-modes
+run_checked {test "$(stat -f %u:%g /usr/lib/pam/pam_unix.so.2)" = 0:0 && test "$(stat -f %u:%g /usr/lib/pam/pam_nologin.so.2)" = 0:0 && test "$(stat -f %u:%g /usr/lib/pam/pam_launchd.so.2)" = 0:0 && test "$(stat -f %u:%g /usr/lib/pam/pam_uwtmp.so.2)" = 0:0 && test "$(stat -f %u:%g /usr/lib/pam/pam_keychain.so.2)" = 0:0} verify-module-owners
+run_checked {test "$(stat -f %Sp /usr/lib/pam/pam_unix.so.2 | cut -c 6,9)" = -- && test "$(stat -f %Sp /usr/lib/pam/pam_nologin.so.2 | cut -c 6,9)" = -- && test "$(stat -f %Sp /usr/lib/pam/pam_launchd.so.2 | cut -c 6,9)" = -- && test "$(stat -f %Sp /usr/lib/pam/pam_uwtmp.so.2 | cut -c 6,9)" = -- && test "$(stat -f %Sp /usr/lib/pam/pam_keychain.so.2 | cut -c 6,9)" = --} verify-module-modes
 
 # accountctl makes the user's password hash in the same protected store that
 # login and PAM will read. The home and startup file exist only in guest tmpfs.
@@ -247,6 +305,16 @@ expect {
     eof { fail "VM exited after the identity check" }
     timeout { fail "user shell prompt did not return after the identity check" }
 }
+# The login keychain: made and unlocked by this first login; locked, then unlocked again by
+# the next; replaced by one with another password, which the next login leaves locked.
+set kc /usr/local/bin/finch-security-keychain-login-test
+user_run "$kc" keychain-first-login
+user_run "$kc --lock-default" keychain-lock
+relogin "the keychain relogin"
+user_run "$kc" keychain-relogin
+user_run "$kc --seed-alternate-password" keychain-seed-alternate
+relogin "the alternate-password login"
+user_run "$kc --verify-alternate-password" keychain-alternate-stays-locked
 send -s -- "exit\r"
 expect {
     -re $root_prompt {}
@@ -257,4 +325,4 @@ expect {
 }
 send -- "\x01x"
 expect eof
-puts "console login: wrong password refused; correct password opened UID 6000, GID 20 shell in its own home; logout returned to the setup shell"
+puts "console login: wrong password refused; correct password opened UID 6000, GID 20 shell in its own home; the login keychain was made and unlocked at login, unlocked again after a relogin, and one with another password left locked; logout returned to the setup shell"

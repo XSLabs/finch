@@ -1133,8 +1133,10 @@ that every app works. These release checks were missing from the Phase 5 list:
       access as well as allowed access. Finch now has pinned web roots, a file
       keychain and signature checks. Encrypted file keychains pass focused host and
       QEMU checks, including shared unlock and lock through a per-user service.
-      Login password integration, shared authorization,
-      certificate updates and enforced app restrictions remain open.
+      The login keychain is made and unlocked with the login password at a real console
+      login, and one with another password stays locked (tools/vm/test-login.sh,
+      2026-10-15). Changing the keychain's password with the login password, shared
+      authorization, certificate updates and enforced app restrictions remain open.
 - [ ] **Updates:** signed update files, interrupted-download recovery, safe installation,
       rollback to a working system and preservation of user files and settings.
       Signed updates and rollback (2026-10-15): tools/release/sign-update.sh signs an

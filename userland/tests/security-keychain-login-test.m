@@ -15,8 +15,9 @@
 static const char guestMarker[] =
     "/System/Library/Finch/LaunchAgents/org.finch.securityd.plist";
 static const char testHome[] = "/private/var/rw/Users/finchconsole";
-static const char loginPassword[] = "loginpassword";
-static const char wrongPassword[] = "not-loginpassword";
+/* (tools/vm/account-console-smoke.exp's password for the account) */
+static const char loginPassword[] = "Finch local password test 2026";
+static const char wrongPassword[] = "Finch wrong password test 2026";
 static const char alternatePassword[] = "alternate-keychain-password";
 static const char serviceName[] = "org.finch.security-keychain-login-test";
 static const char accountName[] = "login-probe";

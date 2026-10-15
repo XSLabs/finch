@@ -44,8 +44,12 @@ blocks reads from both. The QEMU service check also covers item references,
 wrong passwords and malformed requests (2026-10-13). Host-only checks retain a
 local file backend: a fresh process starts locked and a fork clears inherited keys.
 Locking handles aliases of the same file in both paths. Older plaintext files are
-refused and left unchanged; migration, a password dialog and automatic unlock at
-login remain open. Focused host and QEMU checks pass for password rejection,
+refused and left unchanged; migration and a password dialog remain open. At login,
+`pam_keychain` (in `/etc/pam.d/login`'s session) makes the user's login keychain with the
+login password, or unlocks it with that password, and leaves a keychain with another
+password locked. tools/vm/test-login.sh checks this through Finch's real console login
+in QEMU, over three logins, with `finch-security-keychain-login-test` run as the user
+(2026-10-15). A password change doesn't yet change the keychain's password. Focused host and QEMU checks pass for password rejection,
 locked reads and writes, changed-file rejection, alias locking, concurrent saves,
 file permissions and unsafe paths (2026-10-13). Filename-case checks pass on both
 systems. These checks use dummy secrets in private temporary folders.

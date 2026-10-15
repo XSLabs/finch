@@ -766,6 +766,13 @@ $(OUT)/finch-security-keychain-service-test: security-keychain-service-test.m ..
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -fblocks -DOS_OBJECT_USE_OBJC=0 -Wno-deprecated-declarations -o $@ $< -framework Security -framework Foundation
 
+# The login keychain PAM unlocks, run by tools/vm/account-console-smoke.exp as the disposable
+# UID 6000 user after a real console login.
+all: $(OUT)/finch-security-keychain-login-test
+$(OUT)/finch-security-keychain-login-test: security-keychain-login-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -o $@ $< -framework Security -framework Foundation
+
 # Finch's HTTPS root store and caller-selected trust anchors.
 $(OUT)/finch-security-roots-test: security-roots-test.c security-test-certs.inc
 	@mkdir -p $(OUT)
