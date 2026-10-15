@@ -397,7 +397,8 @@ finish_on_main(void (^handler)(NSError *), NSError *error)
     NSPopUpButton *popup = [[[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 280, 26) pullsDown:NO] autorelease];
     NSDateFormatter *df = [[[NSDateFormatter alloc] init] autorelease];
     [df setDateStyle:NSDateFormatterMediumStyle];
-    [df setTimeStyle:NSDateFormatterShortStyle];
+    /* (with seconds: saves a minute apart or less are told apart) */
+    [df setTimeStyle:NSDateFormatterMediumStyle];
     for (NSFileVersion *v in versions)
         [popup addItemWithTitle:[df stringFromDate:[v modificationDate]] ?: [v localizedName]];
     [alert setAccessoryView:popup];

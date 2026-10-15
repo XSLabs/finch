@@ -412,7 +412,11 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
   - [ ] TextEdit, its whole scope checked in the VM: new, type, format, save, close,
         reopen, revert, find, rulers, tables, print to PDF, autosave and versions
         (NSFileVersion keeps versions since 2026-10-14: a document that autosaves in place
-        adds one on each save, and Browse All Versions restores one; to check in TextEdit).
+        adds one on each save, and Browse All Versions restores one. Checked in TextEdit in
+        the VM, 2026-10-15: two saves of a text file keep two versions, File > Revert To
+        greys Last Saved Version while nothing has changed, and Browse All Versions
+        restores the earlier one to the file and the window; its versions show seconds, so
+        saves within a minute are told apart).
         The format bar has the font's family, size, bold, italic, underline and colour
         beside alignment and spacing, and the font and colour panels change the selection
         (NSTextView's changeFont: and changeColor: were empty). Saving shows the File Format
