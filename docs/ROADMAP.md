@@ -409,7 +409,7 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
 - [ ] Unmodified Mac apps: launched and working on Finch's frameworks. Remaining: the
       two sub-items below marked open (TextEdit's whole scope, Calculator) and a check
       that an arbitrary app dropped in launches or reports exactly what it lacks.
-  - [ ] TextEdit, its whole scope checked in the VM: new, type, format, save, close,
+  - [x] TextEdit, its whole scope checked in the VM: new, type, format, save, close,
         reopen, revert, find, rulers, tables, print to PDF, autosave and versions
         (NSFileVersion keeps versions since 2026-10-14: a document that autosaves in place
         adds one on each save, and Browse All Versions restores one. Checked in TextEdit in
