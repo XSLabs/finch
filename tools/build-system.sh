@@ -243,6 +243,8 @@ steps=(
     "pbcopy|make -s -C userland/pbcopy"
     # Finch's alert sound (made by userland/sounds/mksound.py)
     "sounds|make -s -C userland/sounds"
+    # finch-update (signed updates, checked with Finch's Security)
+    "update|make -s -C userland/update"
     # screencapture and its service (Apple's Screenshot app asks the service)
     "screencapture|make -s -C userland/screencapture"
     # Commands (userland/INVENTORY.md lists the deferred ones that don't build yet)

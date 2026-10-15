@@ -56,6 +56,33 @@ checked, but running the installed root and preserving data across boots are
 still unverified. No hardware disk was changed.
 
 Hashes detect a mismatch with the embedded list. They do not prove who made an
-archive: someone replacing the archive could replace its list too. Signed
-releases, update verification, safe disk installation, first-user setup,
-rollback and hardware boot remain unfinished. See [the roadmap](../ROADMAP.md).
+archive: someone replacing the archive could replace its list too. A signature does:
+
+## Signed updates
+
+`tools/release/sign-update.sh ARCHIVE` signs a payload: ECDSA P-256 over the archive's
+SHA-256, written beside it as `ARCHIVE.sig`. Its key pair stays in `build/release/keys`
+(made on first use, never committed); a real release's key is its maker's to keep
+(`FINCH_UPDATE_SIGNING_KEY`). The public key, the curve point, goes into the system as
+`/usr/share/finch/update-key.der` when the system is built after a key exists.
+
+`finch-update` (`userland/update`, Finch's own, over Finch's Security) checks and applies
+one:
+
+```sh
+finch-update verify rootfs.tar.gz                  # rootfs.tar.gz.sig beside it
+finch-update install rootfs.tar.gz --root /Volumes/Finch/System
+finch-update rollback --root /Volumes/Finch/System
+```
+
+`install` refuses an archive the key didn't sign, unpacks into `DIR.finch-new` beside the
+root (clearing one an interrupted install left), and swaps it in by renaming, keeping the
+previous root as `DIR.finch-old` for `rollback`; a failure at any step leaves the root as
+it was. `tools/release/test-update.sh` checks this with a throwaway key on the host, against
+Finch's Security: signed and changed archives, another key's signature, an install, one
+that fails to unpack, and rollback (2026-10-15).
+
+What remains: switching the booted system (a running system's root can't be renamed; that
+is the installer's, with the boot path), keeping user data across an update (the payload
+holds only the system), resuming an interrupted download, first-user setup and hardware
+boot. See [the roadmap](../ROADMAP.md).

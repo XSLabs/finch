@@ -1134,6 +1134,12 @@ that every app works. These release checks were missing from the Phase 5 list:
       certificate updates and enforced app restrictions remain open.
 - [ ] **Updates:** signed update files, interrupted-download recovery, safe installation,
       rollback to a working system and preservation of user files and settings.
+      Signed updates and rollback (2026-10-15): tools/release/sign-update.sh signs an
+      install payload (ECDSA P-256, the key kept out of the repository), and finch-update
+      verifies it with Finch's Security, installs it into a system root folder by staging
+      and renaming (an interrupted install leaves the root as it was) and rolls back
+      ([design/RELEASE.md](design/RELEASE.md)). Open: switching the booted system, keeping
+      user data, resuming downloads.
 - [ ] **App checks:** name and pin the Phase 4 app set, record what works in each app,
       and test launch, open/save, clipboard, printing, network access and media where
       used. Track missing APIs and failed checks rather than counting exported names.
