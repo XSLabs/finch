@@ -462,7 +462,9 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         item views out and then applied the engine's older frames over them, so every
         pass moved them back and the window laid out and redrew at full CPU forever.
         Fixed (2026-10-14): the 60-key switch now takes 175 ms of CPU and the app goes
-        idle. To re-check in QEMU with Calculator. Auto Layout itself was a small part:
+        idle. In QEMU, Calculator's Scientific keypad shows within 20 seconds of ⌘2,
+        and SwiftUIKeypad's 60 keys take 10 (QEMU runs about fifty times slower than the
+        M4, so the rest is still worth cutting). Auto Layout itself was a small part:
         making its syncs incremental saved no measurable time, so they stay as they are.
   - [x] Drop-in check: `tools/app-sweep.py` runs the import check over every app and the
         frameworks it carries, and ranks what's missing by apps blocked. Apple's apps are

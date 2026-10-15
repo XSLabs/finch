@@ -93,7 +93,7 @@ void *CGDirectDisplayCopyCurrentMetalDevice(CGDirectDisplayID display);
 size_t CGBitmapGetAlignedBytesPerRow(size_t bytesPerRow);
 CGPathRef CGPathCreateWithContinuousRoundedRect(CGRect rect, CGFloat radius, const CGAffineTransform *transform);
 size_t CGContextGetLineDashCount(CGContextRef c);
-void CGContextGetLineDashPattern(CGContextRef c, CGFloat *phase, CGFloat *lengths);
+void CGContextGetLineDashPattern(CGContextRef c, CGFloat *phase, CGFloat *lengths, size_t count);
 void CGContextSetCTM(CGContextRef c, CGAffineTransform t);
 void CGContextSetFontSmoothingBackgroundColor(CGContextRef c, CGColorRef color);
 CGContextRef CGWindowContextCreate(CGSConnectionID cid, CGSWindowID wid, CFDictionaryRef options);
@@ -661,15 +661,16 @@ CGContextGetLineDashCount(CGContextRef c)
     return c ? CGContextState(c).dashes.size() : 0;
 }
 
+/* as Apple's: count is the room in lengths, and at most that many are copied */
 void
-CGContextGetLineDashPattern(CGContextRef c, CGFloat *phase, CGFloat *lengths)
+CGContextGetLineDashPattern(CGContextRef c, CGFloat *phase, CGFloat *lengths, size_t count)
 {
     if (!c)
         return;
     if (phase)
         *phase = CGContextState(c).dash_phase;
     if (lengths)
-        for (size_t i = 0; i < CGContextState(c).dashes.size(); i++)
+        for (size_t i = 0; i < CGContextState(c).dashes.size() && i < count; i++)
             lengths[i] = CGContextState(c).dashes[i];
 }
 

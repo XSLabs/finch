@@ -25,7 +25,7 @@ extern int CGColorSpaceGetType(CGColorSpaceRef);
 extern CFStringRef CGColorSpaceCopyICCProfileDescription(CGColorSpaceRef);
 extern size_t CGBitmapGetAlignedBytesPerRow(size_t);
 extern size_t CGContextGetLineDashCount(CGContextRef);
-extern void CGContextGetLineDashPattern(CGContextRef, CGFloat *, CGFloat *);
+extern void CGContextGetLineDashPattern(CGContextRef, CGFloat *, CGFloat *, size_t);  // (lengths, and the room in it)
 extern void CGContextSetCTM(CGContextRef, CGAffineTransform);
 extern void CATransform3DInterpolate(CATransform3D *, const CATransform3D *, const CATransform3D *, double);
 extern NSString *const CADynamicRangeHigh, *const CADynamicRangeConstrainedHigh, *const kCAOnOrderIn, *const kCAOnOrderOut,
@@ -143,8 +143,11 @@ main(void)
         CGFloat dashes[] = {4, 2, 1};
         CGContextSetLineDash(ctx, 1.5, dashes, 3);
         CGFloat phase = 0, got[3] = {0};
-        CGContextGetLineDashPattern(ctx, &phase, got);
+        CGContextGetLineDashPattern(ctx, &phase, got, 3);
         printf("dash: count %zu phase %g lengths %g %g %g\n", CGContextGetLineDashCount(ctx), phase, got[0], got[1], got[2]);
+        CGFloat some[3] = {0};
+        CGContextGetLineDashPattern(ctx, NULL, some, 2);
+        printf("dash: room for 2: %g %g %g\n", some[0], some[1], some[2]);
         CGContextSetCTM(ctx, CGAffineTransformMake(2, 0, 0, 3, 5, 7));
         CGAffineTransform t = CGContextGetCTM(ctx);
         printf("ctm set: %g %g %g %g %g %g\n", t.a, t.b, t.c, t.d, t.tx, t.ty);
