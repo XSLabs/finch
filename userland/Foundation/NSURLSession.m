@@ -12,17 +12,19 @@
  * Tasks run on a private queue; completion handlers and delegate calls go to the
  * session's delegate queue. Responses are cached and custom protocols answer requests
  * through NSURLCache.m. Cookies are sent and kept through the session's cookie storage
- * (NSHTTPCookie.m). Authentication challenges, HTTP/2 and background sessions aren't
- * there yet.
+ * (NSHTTPCookie.m). Basic and Digest authentication challenges work; NTLM, server-trust,
+ * HTTP/2 and background sessions aren't there yet.
  */
 #import <Foundation/Foundation.h>
 #include "../certificates/ca-bundle.h"
 #include <netdb.h>
 #include <fcntl.h>
 #include <stdatomic.h>
+#include <stdlib.h>
 #include <os/lock.h>
 #include <sys/stat.h>
 #include <openssl/err.h>
+#include <openssl/md5.h>
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
 #include <sys/socket.h>
@@ -690,14 +692,14 @@ static __thread Hooks *current_hooks;
 static __thread NSURLCredentialStorage *current_credentials;
 static __thread BOOL current_credentials_set;
 
-/* A response load() answers itself: a redirect it follows, or a Basic password challenge. */
-static NSString *basic_realm(NSHTTPURLResponse *r);
+/* A response load() answers itself: a redirect it follows, or a password challenge. */
+static NSDictionary *http_authentication_parameters(NSHTTPURLResponse *r, NSString *scheme);
 static BOOL
 answered_by_load(NSHTTPURLResponse *r)
 {
     NSInteger s = [r statusCode];
     return ((s == 301 || s == 302 || s == 303 || s == 307 || s == 308) && [r valueForHTTPHeaderField:@"Location"]) ||
-           (s == 401 && basic_realm(r));
+           (s == 401 && (http_authentication_parameters(r, @"Digest") || http_authentication_parameters(r, @"Basic")));
 }
 
 /* A response body as it arrives: by its length, chunked, or to the end of the connection;
@@ -947,22 +949,140 @@ load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outRespons
     return rb.download ? [NSData data] : rb.memory;
 }
 
-/* A Basic challenge's realm ("" when it names none); nil for any other response. */
-static NSString *
-basic_realm(NSHTTPURLResponse *r)
+/* Parameters from a Basic or Digest WWW-Authenticate challenge. */
+static NSDictionary *
+http_authentication_parameters(NSHTTPURLResponse *r, NSString *scheme)
 {
     if ([r statusCode] != 401)
         return nil;
-    NSString *h = [r valueForHTTPHeaderField:@"WWW-Authenticate"];
-    if (!h || [h rangeOfString:@"basic" options:NSCaseInsensitiveSearch | NSAnchoredSearch].location == NSNotFound)
+    NSString *header = [r valueForHTTPHeaderField:@"WWW-Authenticate"];
+    if (!header)
         return nil;
-    NSRange start = [h rangeOfString:@"realm=\"" options:NSCaseInsensitiveSearch];
-    if (start.location == NSNotFound)
-        return @"";
-    NSUInteger from = NSMaxRange(start);
-    NSRange stop = [h rangeOfString:@"\"" options:0 range:NSMakeRange(from, [h length] - from)];
-    return stop.location == NSNotFound ? [h substringFromIndex:from]
-                                       : [h substringWithRange:NSMakeRange(from, stop.location - from)];
+    NSCharacterSet *space = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+    NSRange search = NSMakeRange(0, [header length]);
+    NSRange found = NSMakeRange(NSNotFound, 0);
+    while (search.location < [header length]) {
+        NSRange candidate = [header rangeOfString:scheme options:NSCaseInsensitiveSearch range:search];
+        if (candidate.location == NSNotFound)
+            break;
+        NSUInteger end = NSMaxRange(candidate);
+        BOOL startsScheme = (candidate.location == 0 || [header characterAtIndex:candidate.location - 1] == ',' ||
+                             [space characterIsMember:[header characterAtIndex:candidate.location - 1]]) &&
+                            (end == [header length] || [space characterIsMember:[header characterAtIndex:end]]);
+        if (startsScheme) {
+            found = candidate;
+            break;
+        }
+        search.location = end;
+    }
+    if (found.location == NSNotFound)
+        return nil;
+
+    NSMutableDictionary *parameters = [NSMutableDictionary dictionary];
+    NSUInteger p = NSMaxRange(found), length = [header length];
+    while (p < length) {
+        while (p < length && ([space characterIsMember:[header characterAtIndex:p]] || [header characterAtIndex:p] == ','))
+            p++;
+        if (p == length)
+            break;
+        NSUInteger start = p;
+        while (p < length && [header characterAtIndex:p] != '=' && [header characterAtIndex:p] != ',')
+            p++;
+        NSString *name = [[header substringWithRange:NSMakeRange(start, p - start)]
+            stringByTrimmingCharactersInSet:space];
+        if (p == length || [header characterAtIndex:p] != '=') {
+            while (p < length && [header characterAtIndex:p] != ',')
+                p++;
+            continue;
+        }
+        p++;
+        while (p < length && [space characterIsMember:[header characterAtIndex:p]])
+            p++;
+        NSMutableString *value = [NSMutableString string];
+        if (p < length && [header characterAtIndex:p] == '"') {
+            p++;
+            while (p < length && [header characterAtIndex:p] != '"') {
+                unichar c = [header characterAtIndex:p++];
+                if (c == '\\' && p < length)
+                    c = [header characterAtIndex:p++];
+                [value appendFormat:@"%C", c];
+            }
+            if (p < length)
+                p++;
+        } else {
+            NSUInteger valueStart = p;
+            while (p < length && [header characterAtIndex:p] != ',')
+                p++;
+            [value appendString:[[header substringWithRange:NSMakeRange(valueStart, p - valueStart)]
+                stringByTrimmingCharactersInSet:space]];
+        }
+        if ([name length])
+            parameters[[name lowercaseString]] = value;
+        while (p < length && [header characterAtIndex:p] != ',')
+            p++;
+        if (p < length)
+            p++;
+    }
+    parameters[@"scheme"] = scheme;
+    return parameters;
+}
+
+static NSString *
+md5_hex(NSString *text)
+{
+    NSData *bytes = [text dataUsingEncoding:NSUTF8StringEncoding];
+    unsigned char digest[MD5_DIGEST_LENGTH];
+    MD5([bytes bytes], [bytes length], digest);
+    NSMutableString *hex = [NSMutableString stringWithCapacity:MD5_DIGEST_LENGTH * 2];
+    for (NSUInteger i = 0; i < MD5_DIGEST_LENGTH; i++)
+        [hex appendFormat:@"%02x", digest[i]];
+    return hex;
+}
+
+static NSString *
+digest_quote(NSString *value)
+{
+    return [NSString stringWithFormat:@"\"%@\"", [[value stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"]
+                                                            stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""]];
+}
+
+static NSString *
+digest_authorization(NSURLCredential *credential, NSURLRequest *request, NSDictionary *challenge)
+{
+    NSString *realm = challenge[@"realm"], *nonce = challenge[@"nonce"], *qops = challenge[@"qop"];
+    NSString *algorithm = challenge[@"algorithm"] ?: @"MD5";
+    if (![realm length] || ![nonce length] || ![qops length] || [algorithm caseInsensitiveCompare:@"MD5"] != NSOrderedSame)
+        return nil;
+    BOOL auth = NO;
+    for (NSString *qop in [qops componentsSeparatedByString:@","])
+        if ([[qop stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
+                caseInsensitiveCompare:@"auth"] == NSOrderedSame)
+            auth = YES;
+    if (!auth)
+        return nil;
+
+    NSURL *url = [request URL];
+    NSString *path = [(NSString *)CFURLCopyPath((CFURLRef)url) autorelease];
+    if (![path length])
+        path = @"/";
+    NSString *query = [url query];
+    NSString *uri = query ? [NSString stringWithFormat:@"%@?%@", path, query] : path;
+    unsigned char random[16];
+    arc4random_buf(random, sizeof random);
+    NSMutableString *cnonce = [NSMutableString stringWithCapacity:sizeof random * 2];
+    for (NSUInteger i = 0; i < sizeof random; i++)
+        [cnonce appendFormat:@"%02x", random[i]];
+    NSString *nc = @"00000001", *qop = @"auth";
+    NSString *ha1 = md5_hex([NSString stringWithFormat:@"%@:%@:%@", [credential user], realm, [credential password]]);
+    NSString *ha2 = md5_hex([NSString stringWithFormat:@"%@:%@", [request HTTPMethod], uri]);
+    NSString *response = md5_hex([NSString stringWithFormat:@"%@:%@:%@:%@:%@:%@", ha1, nonce, nc, cnonce, qop, ha2]);
+    NSMutableString *header = [NSMutableString stringWithFormat:@"Digest username=%@, realm=%@, nonce=%@, uri=%@, response=%@, "
+                                                                "algorithm=MD5, qop=auth, nc=%@, cnonce=%@",
+                                digest_quote([credential user]), digest_quote(realm), digest_quote(nonce), digest_quote(uri),
+                                digest_quote(response), nc, digest_quote(cnonce)];
+    if (challenge[@"opaque"])
+        [header appendFormat:@", opaque=%@", digest_quote(challenge[@"opaque"])];
+    return header;
 }
 
 static NSURLCredentialStorage *
@@ -1017,9 +1137,9 @@ credential_store(void)
 @end
 
 /* Load a request, following up to 16 redirects (the delegate may stop one) and answering
-   Basic password challenges: the delegate's credential, or by default the URL's user and
-   password, then the protection space's default credential in the session's storage. A
-   credential that works is kept there, if its persistence allows. */
+   Basic and Digest password challenges: the delegate's credential, or by default the
+   URL's user and password, then the protection space's default credential in the session's
+   storage. A credential that works is kept there, if its persistence allows. */
 static NSData *
 load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
 {
@@ -1077,8 +1197,11 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
         }
         NSInteger s = [resp statusCode];
         NSString *loc = [resp valueForHTTPHeaderField:@"Location"];
-        NSString *realm = basic_realm(resp);
-        if (realm && failures < 8) {
+        NSDictionary *auth = http_authentication_parameters(resp, @"Digest");
+        if (!auth)
+            auth = http_authentication_parameters(resp, @"Basic");
+        if (auth && failures < 8) {
+            BOOL digest = [auth[@"scheme"] caseInsensitiveCompare:@"Digest"] == NSOrderedSame;
             NSURL *u = [r URL];
             NSString *scheme = [[u scheme] lowercaseString];
             NSInteger port = [u port] ? [[u port] integerValue] : [scheme isEqualToString:@"https"] ? 443 : 80;
@@ -1086,8 +1209,8 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
                         initWithHost:[u host]
                                 port:port
                             protocol:scheme
-                               realm:[realm length] ? realm : nil
-                authenticationMethod:NSURLAuthenticationMethodHTTPBasic] autorelease];
+                               realm:[auth[@"realm"] length] ? auth[@"realm"] : nil
+                authenticationMethod:digest ? NSURLAuthenticationMethodHTTPDigest : NSURLAuthenticationMethodHTTPBasic] autorelease];
             NSURLCredential *proposed = used ?: [credential_store() defaultCredentialForProtectionSpace:space];
             FinchChallengeSender *sender = [[FinchChallengeSender new] autorelease];
             NSURLAuthenticationChallenge *challenge = [[[NSURLAuthenticationChallenge alloc]
@@ -1115,13 +1238,21 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
                     credential = proposed;
             }
             if ([credential user] && [credential password]) {
-                NSString *pair = [NSString stringWithFormat:@"%@:%@", [credential user], [credential password]];
-                [r setValue:[@"Basic " stringByAppendingString:[[pair dataUsingEncoding:NSUTF8StringEncoding] base64EncodedStringWithOptions:0]]
-                    forHTTPHeaderField:@"Authorization"];
-                used = credential;
-                usedSpace = space;
-                failures++;
-                continue;
+                NSString *value = nil;
+                if (digest)
+                    value = digest_authorization(credential, r, auth);
+                else {
+                    NSString *pair = [NSString stringWithFormat:@"%@:%@", [credential user], [credential password]];
+                    value = [[pair dataUsingEncoding:NSUTF8StringEncoding] base64EncodedStringWithOptions:0];
+                }
+                if (value) {
+                    [r setValue:digest ? value : [@"Basic " stringByAppendingString:value]
+                        forHTTPHeaderField:@"Authorization"];
+                    used = credential;
+                    usedSpace = space;
+                    failures++;
+                    continue;
+                }
             }
         }
         if (used && s != 401 && [used persistence] != NSURLCredentialPersistenceNone) {

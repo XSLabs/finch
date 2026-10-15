@@ -450,7 +450,7 @@ $(OUT)/finch-sysconfig-test: sysconfig-test.m
 # The URL loading system against a loopback HTTP server (diff Apple's run and Finch's).
 $(OUT)/finch-urlsession-test: urlsession-test.m
 	@mkdir -p $(OUT)
-	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-unused-result -o $@ $< -framework Foundation
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-unused-result -Wno-deprecated-declarations -o $@ $< -framework Foundation
 
 # NSTextFinder and the find bar through NSTextView (diff Apple's run and Finch's).
 $(OUT)/finch-textfinder-test: textfinder-test.m

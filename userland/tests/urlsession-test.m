@@ -4,18 +4,22 @@
  * responses, and NSURLSession loading file:, data: and http: URLs (from a
  * small HTTP server on the loopback interface, with redirects and chunked
  * bodies), with completion handlers and delegates, downloads cut short (the
- * connection dropped, or the task cancelled) resumed from their resume data, Basic
- * password challenges, and what a session's delegate is told: challenges, redirects,
+ * connection dropped, or the task cancelled) resumed from their resume data, Basic and
+ * Digest password challenges, and what a session's delegate is told: challenges, redirects,
  * responses, data and download progress. Prints everything; run it
  * against Apple's Foundation and Finch's (DYLD_FRAMEWORK_PATH) and diff all
  * but the first line.
  */
 #import <Foundation/Foundation.h>
+#include <CommonCrypto/CommonDigest.h>
 #include <arpa/inet.h>
+#include <ctype.h>
 #include <dlfcn.h>
 #include <netinet/in.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -27,6 +31,110 @@ static int port;
 static char big_body[BIG];
 static int big_served, stall_served, big2_served;
 static char last_range[64];
+
+static int
+digest_field(const char *request, const char *name, char *value, size_t size)
+{
+    const char *p = strcasestr(request, "\r\nAuthorization:");
+    if (!p)
+        return 0;
+    p += strlen("\r\nAuthorization:");
+    while (*p == ' ' || *p == '\t')
+        p++;
+    if (strncasecmp(p, "Digest", 6) || (p[6] != ' ' && p[6] != '\t'))
+        return 0;
+    p += 6;
+    while (*p == ' ' || *p == '\t')
+        p++;
+    while (*p && *p != '\r' && *p != '\n') {
+        while (*p == ' ' || *p == '\t' || *p == ',')
+            p++;
+        const char *key = p;
+        while (*p && *p != '=' && *p != ',' && *p != '\r' && *p != '\n')
+            p++;
+        size_t key_length = (size_t)(p - key);
+        while (key_length && (key[key_length - 1] == ' ' || key[key_length - 1] == '\t'))
+            key_length--;
+        if (*p != '=') {
+            while (*p && *p != ',' && *p != '\r' && *p != '\n')
+                p++;
+            continue;
+        }
+        p++;
+        while (*p == ' ' || *p == '\t')
+            p++;
+        char parsed[512];
+        size_t n = 0;
+        if (*p == '"') {
+            p++;
+            while (*p && *p != '"' && *p != '\r' && *p != '\n') {
+                if (*p == '\\' && p[1])
+                    p++;
+                if (n + 1 < sizeof parsed)
+                    parsed[n++] = *p;
+                p++;
+            }
+            if (*p == '"')
+                p++;
+        } else {
+            while (*p && *p != ',' && *p != '\r' && *p != '\n') {
+                if (n + 1 < sizeof parsed)
+                    parsed[n++] = *p;
+                p++;
+            }
+            while (n && (parsed[n - 1] == ' ' || parsed[n - 1] == '\t'))
+                n--;
+        }
+        parsed[n] = 0;
+        if (strlen(name) == key_length && !strncasecmp(key, name, key_length)) {
+            if (n >= size)
+                return 0;
+            memcpy(value, parsed, n + 1);
+            return 1;
+        }
+        while (*p && *p != ',' && *p != '\r' && *p != '\n')
+            p++;
+    }
+    return 0;
+}
+
+static void
+md5_hex(const char *text, char out[33])
+{
+    unsigned char digest[CC_MD5_DIGEST_LENGTH];
+    CC_MD5(text, (CC_LONG)strlen(text), digest);
+    for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++)
+        snprintf(out + i * 2, 3, "%02x", digest[i]);
+}
+
+static int
+valid_digest(const char *request, const char *method, const char *path)
+{
+    char username[128], realm[128], nonce[128], uri[512], response[64];
+    char qop[32], cnonce[128], nc[16], opaque[128], algorithm[32];
+    if (!digest_field(request, "username", username, sizeof username) || strcmp(username, "ada") ||
+        !digest_field(request, "realm", realm, sizeof realm) || strcmp(realm, "Finch Digest") ||
+        !digest_field(request, "nonce", nonce, sizeof nonce) || strcmp(nonce, "finch-fixed-nonce") ||
+        !digest_field(request, "uri", uri, sizeof uri) || strcmp(uri, path) ||
+        !digest_field(request, "response", response, sizeof response) ||
+        !digest_field(request, "qop", qop, sizeof qop) || strcasecmp(qop, "auth") ||
+        !digest_field(request, "cnonce", cnonce, sizeof cnonce) || !cnonce[0] ||
+        !digest_field(request, "nc", nc, sizeof nc) || strlen(nc) != 8 ||
+        !digest_field(request, "opaque", opaque, sizeof opaque) || strcmp(opaque, "finch-fixed-opaque") ||
+        !digest_field(request, "algorithm", algorithm, sizeof algorithm) || strcasecmp(algorithm, "MD5"))
+        return 0;
+    for (int i = 0; i < 8; i++)
+        if (!isxdigit((unsigned char)nc[i]))
+            return 0;
+    char source[1024], ha1[33], ha2[33], expected[33];
+    snprintf(source, sizeof source, "%s:%s:%s", username, realm, "secret");
+    md5_hex(source, ha1);
+    snprintf(source, sizeof source, "%s:%s", method, uri);
+    md5_hex(source, ha2);
+    snprintf(source, sizeof source, "%s:%s:%s:%s:%s:%s", ha1, nonce, nc, cnonce, qop, ha2);
+    md5_hex(source, expected);
+    return !strcasecmp(response, expected);
+}
 
 static void
 serve_big(int fd, const char *req, int *served)
@@ -93,6 +201,14 @@ handle(void *arg)
             else
                 snprintf(out, sizeof out,
                          "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"Finch Test\"\r\n"
+                         "Content-Type: text/plain\r\nContent-Length: 6\r\n\r\ndenied");
+        } else if (!strcmp(path, "/digest")) {
+            if (valid_digest(req, method, path))
+                snprintf(out, sizeof out, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 7\r\n\r\nwelcome");
+            else
+                snprintf(out, sizeof out,
+                         "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Digest realm=\"Finch Digest\", nonce=\"finch-fixed-nonce\", "
+                         "opaque=\"finch-fixed-opaque\", qop=\"auth\", algorithm=MD5\r\n"
                          "Content-Type: text/plain\r\nContent-Length: 6\r\n\r\ndenied");
         } else if (!strcmp(path, "/hello")) {
             snprintf(out, sizeof out,
@@ -458,6 +574,17 @@ main(void)
                [ws.configuration.URLCredentialStorage defaultCredentialForProtectionSpace:space].user.UTF8String ?: "(none)");
         w = [Watcher new];
         watched(@"delegate auth cancelled", w, ^(NSURLSession *session) { return [session dataTaskWithURL:local(@"/auth")]; });
+
+        load(@"digest, no password", [NSURLRequest requestWithURL:local(@"/digest")]);
+        load(@"digest, password in the URL",
+             [NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:@"http://ada:secret@127.0.0.1:%d/digest", port]]]);
+        w = [Watcher new];
+        w.credentials = @[ [NSURLCredential credentialWithUser:@"ada" password:@"wrong" persistence:NSURLCredentialPersistenceForSession],
+                           [NSURLCredential credentialWithUser:@"ada" password:@"secret" persistence:NSURLCredentialPersistenceForSession] ];
+        watched(@"delegate digest auth", w, ^(NSURLSession *session) { return [session dataTaskWithURL:local(@"/digest")]; });
+        w = [Watcher new];
+        watched(@"delegate digest auth cancelled", w, ^(NSURLSession *session) { return [session dataTaskWithURL:local(@"/digest")]; });
+
         w = [Watcher new];
         watched(@"delegate redirect", w, ^(NSURLSession *session) { return [session dataTaskWithURL:local(@"/redirect")]; });
         w = [Watcher new];

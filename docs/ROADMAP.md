@@ -1037,10 +1037,11 @@ and AppKit come in Phase 2).
   - [x] NSURLCache (memory and disk, by URL, with the request cache policies) and
         NSURLProtocol (per configuration and registered, redirects followed);
         `urlcache-test` matches Apple's (2026-10-11)
-  - [x] Download streaming and resume data; Basic authentication (credentials, protection
-        spaces, challenges, credential storage); delegate responses, streamed data,
-        redirects and download progress; `urlsession-test` matches Apple's (2026-10-15)
-  - [ ] Digest, NTLM and server-trust challenges, HTTP/2, WebSocket and stream tasks
+  - [x] Download streaming and resume data; Basic authentication and Digest (MD5,
+        `qop=auth`; credentials, protection spaces, challenges and credential storage);
+        delegate responses, streamed data, redirects and download progress;
+        `urlsession-test` matches Apple's (2026-10-15)
+  - [ ] NTLM and server-trust challenges, HTTP/2, WebSocket and stream tasks
 - [ ] AVFoundation / CoreAudio / CoreMedia ([media plan](design/MEDIA.md))
   - [x] CoreMedia and CoreVideo's buffer, time and format operations (2026-10-10).
   - [x] AudioToolbox format properties and PCM audio files (2026-10-10).
