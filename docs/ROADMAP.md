@@ -459,8 +459,10 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         preferredColorScheme(.dark), which Finch's hosting view now gives its window as the
         DarkAqua appearance, and a SwiftUI view's colour scheme follows its appearance (so
         SwiftUI apps follow Night too). Programmer's Hide Binary and RPN's stack, white text
-        meant for that dark backdrop, read again. Next: RPN's "enter" is cut to "e…";
-        conversion mode, history; the scientific and
+        meant for that dark backdrop, read again. RPN's "enter" fits its key: SwiftUI's
+        minimumScaleFactor shrinks text that doesn't fit, as string drawing now does for
+        attributed strings with a minimum scale (2026-10-15). Next: conversion mode,
+        history; the scientific and
         programmer keypads took most of a minute to build in QEMU. On the host,
         `SwiftUIKeypad` (a toolbar picker over a Grid of 20 or 60 buttons, timing each
         switch) showed the window never settling after it grew: the toolbar laid its

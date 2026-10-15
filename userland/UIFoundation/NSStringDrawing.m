@@ -15,7 +15,7 @@ UIF_HIDDEN NSUInteger UIFStringDrawingContextMaximumLines(NSStringDrawingContext
 
 /* A layout's results, for the drawing context. */
 static void
-set_result(NSStringDrawingContext *context, UIFLayout *L, CGRect used)
+set_result(NSStringDrawingContext *context, UIFLayout *L, CGRect used, CGFloat scale)
 {
     if (!context)
         return;
@@ -25,7 +25,108 @@ set_result(NSStringDrawingContext *context, UIFLayout *L, CGRect used)
         UIFLine *ln = &L->lines[L->count - 1];
         last = used.size.height - (ln->top + ln->baseline);
     }
-    UIFStringDrawingContextSetResult(context, 1, used, first, last, (NSInteger)L->count, L->truncated);
+    UIFStringDrawingContextSetResult(context, scale, used, first, last, (NSInteger)L->count, L->truncated);
+}
+
+#pragma mark - Shrinking to fit
+
+/* The string with every font scaled. */
+static NSAttributedString *
+scaled(NSAttributedString *s, CGFloat factor)
+{
+    NSMutableAttributedString *out = [[s mutableCopy] autorelease];
+    [s enumerateAttributesInRange:NSMakeRange(0, s.length) options:0
+                       usingBlock:^(NSDictionary *attrs, NSRange range, BOOL *stop) {
+                           CTFontRef f = (CTFontRef)UIFFontIn(attrs);
+                           CTFontRef g = CTFontCreateCopyWithAttributes(f, CTFontGetSize(f) * factor, NULL, NULL);
+                           if (g) {
+                               [out addAttribute:NSFontAttributeName value:(id)g range:range];
+                               CFRelease(g);
+                           }
+                       }];
+    return out;
+}
+
+static NSDictionary *
+scaled_typing(NSDictionary *typing, CGFloat factor)
+{
+    CTFontRef f = (CTFontRef)UIFFontIn(typing);
+    CTFontRef g = CTFontCreateCopyWithAttributes(f, CTFontGetSize(f) * factor, NULL, NULL);
+    if (!g)
+        return typing;
+    NSMutableDictionary *out = [[typing mutableCopy] autorelease];
+    out[NSFontAttributeName] = (id)g;
+    CFRelease(g);
+    return out;
+}
+
+/* All of it laid out, untruncated, within the width (0: unbounded) */
+static BOOL
+fits(UIFLayout *L, NSAttributedString *s, CGFloat width)
+{
+    if (L->truncated || L->end < s.length)
+        return NO;
+    /* each line's text measured whole: the layout keeps a line within the container,
+       truncating it (to an ellipsis) without saying so */
+    if (width <= 0)
+        return YES;
+    for (size_t i = 0; i < L->count; i++) {
+        NSRange r = NSIntersectionRange(L->lines[i].range, NSMakeRange(0, s.length));
+        while (r.length && [[NSCharacterSet whitespaceAndNewlineCharacterSet]
+                               characterIsMember:[s.string characterAtIndex:NSMaxRange(r) - 1]])
+            r.length--;
+        if (!r.length)
+            continue;
+        CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)[s attributedSubstringFromRange:r]);
+        CGFloat w = line ? CTLineGetTypographicBounds(line, NULL, NULL, NULL) : 0;
+        if (line)
+            CFRelease(line);
+        if (L->lines[i].x + w > width + 0.01)
+            return NO;
+    }
+    return YES;
+}
+
+/*
+ * Lay a string out. With a drawing context's minimumScaleFactor (above 0, below 1), an
+ * attributed string that doesn't fit is laid out with its fonts scaled down by the least that
+ * fits, to a hundredth, down to the minimum; that is the context's actualScaleFactor.
+ * Apple's (macOS 26) scale by the minimum even when less would do, and report the lines'
+ * unscaled heights; its SwiftUI works out how much the text needs. Finch's SwiftUI
+ * (OpenSwiftUI) leaves that to string drawing and sizes the text by what it reports, so here
+ * a string is scaled no more than it needs, and measured as drawn. NSString's methods don't
+ * scale, as Apple's don't.
+ */
+static UIFLayout
+layout_scaled(NSAttributedString **s, NSDictionary **typing, UIFLayoutParams p, CGFloat width,
+              NSStringDrawingContext *context, BOOL scales, CGFloat *scale)
+{
+    *scale = 1;
+    UIFLayout L = UIFLayoutString(*s, *typing, p);
+    CGFloat minimum = scales && context ? context.minimumScaleFactor : 0;
+    if (minimum <= 0 || minimum >= 1 || !(*s).length || fits(&L, *s, width))
+        return L;
+    CGFloat lo = minimum, hi = 1;
+    NSAttributedString *best = nil;
+    for (int i = 0; i < 7 && hi - lo > 0.005; i++) {
+        CGFloat mid = (lo + hi) / 2;
+        NSAttributedString *t = scaled(*s, mid);
+        UIFLayout M = UIFLayoutString(t, scaled_typing(*typing, mid), p);
+        BOOL ok = fits(&M, t, width);
+        UIFLayoutFree(&M);
+        if (ok) {
+            lo = mid;
+            best = t;
+        } else {
+            hi = mid;
+        }
+    }
+    CGFloat use = best ? lo : minimum;
+    UIFLayoutFree(&L);
+    *s = best ?: scaled(*s, use);
+    *typing = scaled_typing(*typing, use);
+    *scale = use;
+    return UIFLayoutString(*s, *typing, p);
 }
 
 #pragma mark - The API
@@ -44,25 +145,27 @@ typing_attributes(NSAttributedString *s)
 
 static CGRect
 bounding_rect(NSAttributedString *s, NSDictionary *typing, CGSize size, NSStringDrawingOptions options,
-              NSStringDrawingContext *context)
+              NSStringDrawingContext *context, BOOL scales)
 {
     UIFLayoutParams p = {size.width, size.height, options, 0, NO, NO, UIFStringDrawingContextMaximumLines(context), NO};
-    UIFLayout L = UIFLayoutString(s, typing, p);
+    CGFloat scale;
+    UIFLayout L = layout_scaled(&s, &typing, p, size.width, context, scales, &scale);
     CGRect r = UIFLayoutUsedRect(&L, p);
-    set_result(context, &L, r);
+    set_result(context, &L, r, scale);
     UIFLayoutFree(&L);
     return r;
 }
 
 static void
 draw_in_rect(NSAttributedString *s, NSDictionary *typing, CGRect rect, NSStringDrawingOptions options,
-             NSStringDrawingContext *context, BOOL clip)
+             NSStringDrawingContext *context, BOOL clip, BOOL scales)
 {
     BOOL flipped = UIFCurrentContextIsFlipped();
     BOOL multi = (options & NSStringDrawingUsesLineFragmentOrigin) != 0;
     UIFLayoutParams p = {multi ? rect.size.width : 0, multi ? rect.size.height : 0, options, 0, NO, NO,
                          UIFStringDrawingContextMaximumLines(context), NO};
-    UIFLayout L = UIFLayoutString(s, typing, p);
+    CGFloat scale;
+    UIFLayout L = layout_scaled(&s, &typing, p, rect.size.width, context, scales, &scale);
     CGRect used = UIFLayoutUsedRect(&L, p);
     if (multi) {
         CGFloat top = flipped ? CGRectGetMinY(rect) : CGRectGetMaxY(rect);
@@ -80,7 +183,7 @@ draw_in_rect(NSAttributedString *s, NSDictionary *typing, CGRect rect, NSStringD
         CGFloat top = flipped ? rect.origin.y - ln->baseline : rect.origin.y + ln->baseline;
         UIFLayoutDraw(&L, rect.origin.x - ln->x, top, flipped);
     }
-    set_result(context, &L, used);
+    set_result(context, &L, used, scale);
     UIFLayoutFree(&L);
 }
 
@@ -111,7 +214,7 @@ draw_at_point(NSAttributedString *s, NSDictionary *typing, CGPoint point)
 
 - (void)drawInRect:(CGRect)rect withAttributes:(NSDictionary *)attrs
 {
-    draw_in_rect(attributed(self, attrs), attrs ? attrs : @{}, rect, NSStringDrawingUsesLineFragmentOrigin, nil, YES);
+    draw_in_rect(attributed(self, attrs), attrs ? attrs : @{}, rect, NSStringDrawingUsesLineFragmentOrigin, nil, YES, NO);
 }
 
 - (void)drawWithRect:(CGRect)rect
@@ -119,7 +222,7 @@ draw_at_point(NSAttributedString *s, NSDictionary *typing, CGPoint point)
           attributes:(NSDictionary *)attributes
              context:(NSStringDrawingContext *)context
 {
-    draw_in_rect(attributed(self, attributes), attributes ? attributes : @{}, rect, options, context, NO);
+    draw_in_rect(attributed(self, attributes), attributes ? attributes : @{}, rect, options, context, NO, NO);
 }
 
 - (CGRect)boundingRectWithSize:(CGSize)size
@@ -127,7 +230,7 @@ draw_at_point(NSAttributedString *s, NSDictionary *typing, CGPoint point)
                     attributes:(NSDictionary *)attributes
                        context:(NSStringDrawingContext *)context
 {
-    return bounding_rect(attributed(self, attributes), attributes ? attributes : @{}, size, options, context);
+    return bounding_rect(attributed(self, attributes), attributes ? attributes : @{}, size, options, context, NO);
 }
 
 - (void)drawWithRect:(NSRect)rect options:(NSStringDrawingOptions)options attributes:(NSDictionary *)attributes
@@ -156,17 +259,17 @@ draw_at_point(NSAttributedString *s, NSDictionary *typing, CGPoint point)
 
 - (void)drawInRect:(CGRect)rect
 {
-    draw_in_rect(self, typing_attributes(self), rect, NSStringDrawingUsesLineFragmentOrigin, nil, YES);
+    draw_in_rect(self, typing_attributes(self), rect, NSStringDrawingUsesLineFragmentOrigin, nil, YES, YES);
 }
 
 - (void)drawWithRect:(CGRect)rect options:(NSStringDrawingOptions)options context:(NSStringDrawingContext *)context
 {
-    draw_in_rect(self, typing_attributes(self), rect, options, context, NO);
+    draw_in_rect(self, typing_attributes(self), rect, options, context, NO, YES);
 }
 
 - (CGRect)boundingRectWithSize:(CGSize)size options:(NSStringDrawingOptions)options context:(NSStringDrawingContext *)context
 {
-    return bounding_rect(self, typing_attributes(self), size, options, context);
+    return bounding_rect(self, typing_attributes(self), size, options, context, YES);
 }
 
 - (void)drawWithRect:(NSRect)rect options:(NSStringDrawingOptions)options

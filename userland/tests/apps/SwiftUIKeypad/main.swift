@@ -77,6 +77,16 @@ struct KeypadView: View {
             Text(model.display)
                 .font(.system(size: 36, weight: .light))
                 .frame(maxWidth: .infinity, alignment: .trailing)
+            if ProcessInfo.processInfo.environment["KEYPAD_SCALE"] != nil {
+                // KEYPAD_SCALE=1: a label too wide for its frame, which minimumScaleFactor shrinks
+                HStack {
+                    Text("enter").font(.system(size: 24)).lineLimit(1).minimumScaleFactor(0.5)
+                        .frame(width: 30).border(.red)
+                    Text("enter").font(.system(size: 24)).lineLimit(1)
+                        .frame(width: 30).border(.blue)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
             Keys(model: model, pad: model.pad)
                 .id(model.pad)
         }
