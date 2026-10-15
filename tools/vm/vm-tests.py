@@ -84,6 +84,7 @@ SCRIPTS = {
     'tools/vm/test-keychain.sh': ['security-keychain-service-test', 'security-keychain-storage-test',
                                   'security-keychain-encryption-test', 'keychain-crypto-test'],
     'tools/vm/test-drag.sh': ['appkit-drag-apps-test'],
+    'tools/vm/test-services.sh': [],  # (the daemons running, and cron running a job)
 }
 # Not test programs, or run by another test.
 NOT_TESTS = {'app-test'}
@@ -356,7 +357,7 @@ def main():
                                      stdin=subprocess.DEVNULL)
                 if BOOT_FAILED not in run.stdout:
                     break
-            name = ', '.join(SCRIPTS[script])
+            name = ', '.join(SCRIPTS[script]) or script.split('/')[-1]
             if run.returncode == 0:
                 print('%-36s ok (%s)' % (name, script))
                 passed += 1

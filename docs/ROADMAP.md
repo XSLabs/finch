@@ -1115,7 +1115,9 @@ that every app works. These release checks were missing from the Phase 5 list:
 - [ ] **System services:** cron, configd, disk mounting and Bonjour; network settings
       that persist and notify apps when they change. Framework clients alone do not
       complete these services. See [Security and SystemConfiguration](design/SECURITY.md).
-      Found in the test pass (2026-10-15): the VM image has no real, root-owned
+      In the VM (2026-10-15), tools/vm/test-services.sh checks notifyd, syslogd, logd,
+      configd, diskarbitrationd, mDNSResponder and cron are running, and that cron runs a
+      job from a crontab. Found in the test pass: the VM image has no real, root-owned
       /Library/Preferences/SystemConfiguration, so its configd can't commit system
       preferences (tools/vm/test-settings.sh runs a configd of its own to check them);
       and SCPreferences of a root process's own file, which Apple's write in-process,
