@@ -241,6 +241,8 @@ steps=(
     "pboard|make -s -C userland/pboard"
     # pbcopy and pbpaste (the pasteboard from the command line)
     "pbcopy|make -s -C userland/pbcopy"
+    # Finch's alert sound (made by userland/sounds/mksound.py)
+    "sounds|make -s -C userland/sounds"
     # screencapture and its service (Apple's Screenshot app asks the service)
     "screencapture|make -s -C userland/screencapture"
     # Commands (userland/INVENTORY.md lists the deferred ones that don't build yet)

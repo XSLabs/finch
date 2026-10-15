@@ -19,7 +19,7 @@ running with a titled window). As of 2026-10-15, 13 of 19 are up:
 
 | App | Result |
 |---|---|
-| AirPort Utility, Calculator, ColorSync Utility, Console, Digital Color Meter, Font Book, Grapher, Image Capture, Magnifier, Script Editor, Stickies, Terminal, TextEdit | up (Terminal's window takes about 30 seconds on its first launch, archiving its settings; it can't find the system alert sound) |
+| AirPort Utility, Calculator, ColorSync Utility, Console, Digital Color Meter, Font Book, Grapher, Image Capture, Magnifier, Script Editor, Stickies, Terminal, TextEdit | up (Terminal's window takes about 30 seconds on its first launch, archiving its settings) |
 | Screenshot | its full-screen capture overlay (level 1000), as on macOS |
 | Bluetooth File Exchange | a panel (level 8) and no document window |
 | Mission Control, Apps | no window (macOS shows neither a normal window) |

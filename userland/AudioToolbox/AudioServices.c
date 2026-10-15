@@ -11,6 +11,7 @@
 #include <Block.h>
 #include <dispatch/dispatch.h>
 #include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 typedef struct Sound {
@@ -173,6 +174,25 @@ AudioServicesRemoveSystemSoundCompletion(SystemSoundID inSystemSoundID)
 }
 
 /* The property's value for the sound named by the specifier (a SystemSoundID). */
+/* Apple's private 'aurl': the user's alert sound, a CFURL (the caller's to release). As
+   macOS's, the global default com.apple.sound.beep.sound names it; else Finch's own sound. */
+#define kAudioServicesPropertyAlertSoundURL 'aurl'
+
+static CFURLRef
+alert_sound_url(void)
+{
+    CFStringRef path = CFPreferencesCopyAppValue(CFSTR("com.apple.sound.beep.sound"), kCFPreferencesAnyApplication);
+    if (path && CFGetTypeID(path) != CFStringGetTypeID()) {
+        CFRelease(path);
+        path = NULL;
+    }
+    CFURLRef url = CFURLCreateWithFileSystemPath(NULL, path ? path : CFSTR("/System/Library/Sounds/Finch.aiff"),
+                                                 kCFURLPOSIXPathStyle, false);
+    if (path)
+        CFRelease(path);
+    return url;
+}
+
 static OSStatus
 property(AudioServicesPropertyID inPropertyID, UInt32 inSpecifierSize, const void *inSpecifier, UInt32 **out)
 {
@@ -181,8 +201,14 @@ property(AudioServicesPropertyID inPropertyID, UInt32 inSpecifierSize, const voi
         *out = &alert_volume_bits;
         return kAudioServicesNoError;
     }
-    if (inPropertyID != kAudioServicesPropertyIsUISound && inPropertyID != kAudioServicesPropertyCompletePlaybackIfAppDies)
+    if (inPropertyID != kAudioServicesPropertyIsUISound && inPropertyID != kAudioServicesPropertyCompletePlaybackIfAppDies) {
+        /* FINCH_TRACE_AUDIOSERVICES: the properties asked for that aren't here */
+        if (getenv("FINCH_TRACE_AUDIOSERVICES"))
+            fprintf(stderr, "AudioServices: property '%c%c%c%c' (%u-byte specifier) unsupported\n",
+                    (char)(inPropertyID >> 24), (char)(inPropertyID >> 16), (char)(inPropertyID >> 8),
+                    (char)inPropertyID, (unsigned)inSpecifierSize);
         return kAudioServicesUnsupportedPropertyError;
+    }
     if (inSpecifierSize != sizeof(SystemSoundID) || !inSpecifier)
         return kAudioServicesBadSpecifierSizeError;
     Sound *s = find(*(const SystemSoundID *)inSpecifier);
@@ -196,6 +222,13 @@ OSStatus
 AudioServicesGetPropertyInfo(AudioServicesPropertyID inPropertyID, UInt32 inSpecifierSize, const void *inSpecifier,
                              UInt32 *outPropertyDataSize, Boolean *outWritable)
 {
+    if (inPropertyID == kAudioServicesPropertyAlertSoundURL) {
+        if (outPropertyDataSize)
+            *outPropertyDataSize = sizeof(CFURLRef);
+        if (outWritable)
+            *outWritable = false;
+        return kAudioServicesNoError;
+    }
     UInt32 *v;
     pthread_mutex_lock(&lock);
     OSStatus err = property(inPropertyID, inSpecifierSize, inSpecifier, &v);
@@ -213,6 +246,13 @@ OSStatus
 AudioServicesGetProperty(AudioServicesPropertyID inPropertyID, UInt32 inSpecifierSize, const void *inSpecifier,
                          UInt32 *ioPropertyDataSize, void *outPropertyData)
 {
+    if (inPropertyID == kAudioServicesPropertyAlertSoundURL) {
+        if (!ioPropertyDataSize || *ioPropertyDataSize < sizeof(CFURLRef) || !outPropertyData)
+            return kAudioServicesBadPropertySizeError;
+        *(CFURLRef *)outPropertyData = alert_sound_url();
+        *ioPropertyDataSize = sizeof(CFURLRef);
+        return kAudioServicesNoError;
+    }
     UInt32 *v;
     pthread_mutex_lock(&lock);
     OSStatus err = property(inPropertyID, inSpecifierSize, inSpecifier, &v);
