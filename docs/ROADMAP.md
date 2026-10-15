@@ -461,8 +461,12 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         SwiftUI apps follow Night too). Programmer's Hide Binary and RPN's stack, white text
         meant for that dark backdrop, read again. RPN's "enter" fits its key: SwiftUI's
         minimumScaleFactor shrinks text that doesn't fit, as string drawing now does for
-        attributed strings with a minimum scale (2026-10-15). Next: conversion mode,
-        history; the scientific and
+        attributed strings with a minimum scale (2026-10-15). Conversion mode (View >
+        Convert, ⌥⌘C) opens, USD over EUR, saying currency rates are unavailable as macOS
+        does offline. Next: View > Show History (⌃⌘S) opens the history sidebar over the
+        keypad instead of beside it, and the operator keys' symbols then sit at their
+        left edges; keys typed with finch-app-test's type: don't reach the calculator;
+        the scientific and
         programmer keypads took most of a minute to build in QEMU. On the host,
         `SwiftUIKeypad` (a toolbar picker over a Grid of 20 or 60 buttons, timing each
         switch) showed the window never settling after it grew: the toolbar laid its
