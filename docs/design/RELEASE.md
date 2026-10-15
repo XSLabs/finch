@@ -73,6 +73,7 @@ one:
 finch-update verify rootfs.tar.gz                  # rootfs.tar.gz.sig beside it
 finch-update install rootfs.tar.gz --root /Volumes/Finch/System
 finch-update rollback --root /Volumes/Finch/System
+finch-update fetch https://example.org/rootfs.tar.gz /var/db/finch-update   # then verify
 ```
 
 `install` refuses an archive the key didn't sign, unpacks into `DIR.finch-new` beside the
@@ -88,6 +89,17 @@ Finch's Security: signed and changed archives, another key's signature, an insta
 keeps the user's files, accounts and settings but takes the update's system files, one
 that fails to unpack, and rollback (2026-10-15).
 
+`fetch` downloads `URL` and `URL.sig` into a folder with Finch's NSURLSession and verifies
+them. A download cut short leaves resume data beside it (`NAME.resume`, from the error's
+`NSURLSessionDownloadTaskResumeData`), and continues with a Range request: at once, up to
+`FINCH_UPDATE_ATTEMPTS` times (5), then on the next fetch. Finch's download tasks stream
+their bodies to a file, report a body cut short as `NSURLErrorNetworkConnectionLost` with
+resume data when the response had a validator, and `cancelByProducingResumeData:` and
+`downloadTaskWithResumeData:` work as Apple's (`finch-urlsession-test`, diffed against
+Apple's Foundation). test-update.sh serves an update from `tools/release/test-server.py`,
+which cuts off each archive's first download halfway, and checks the resume in a later run
+and in the same one (2026-10-15). The partial file is in the temporary folder, so a
+download resumed after a restart that cleared it starts again.
+
 What remains: switching the booted system (a running system's root can't be renamed; that
-is the installer's, with the boot path), resuming an interrupted download, first-user
-setup and hardware boot. See [the roadmap](../ROADMAP.md).
+is the installer's, with the boot path), first-user setup and hardware boot. See [the roadmap](../ROADMAP.md).

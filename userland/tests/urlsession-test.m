@@ -3,7 +3,8 @@
  * finch-urlsession-test: the URL loading system: requests and their headers,
  * responses, and NSURLSession loading file:, data: and http: URLs (from a
  * small HTTP server on the loopback interface, with redirects and chunked
- * bodies), with completion handlers and delegates. Prints everything; run it
+ * bodies), with completion handlers and delegates, and downloads cut short (the
+ * connection dropped, or the task cancelled) resumed from their resume data. Prints everything; run it
  * against Apple's Foundation and Finch's (DYLD_FRAMEWORK_PATH) and diff all
  * but the first line.
  */
@@ -18,15 +19,49 @@
 
 static int port;
 
+/* /big and /stall: 64 KiB with a validator, served whole or from a Range; the first whole
+   one of each is cut off halfway (/big's connection closed, /stall's left hanging). */
+#define BIG 65536
+static char big_body[BIG];
+static int big_served, stall_served;
+static char last_range[64];
+
+static void
+serve_big(int fd, const char *req, int *served)
+{
+    const char *range = strcasestr(req, "\r\nRange: bytes=");
+    long from = range ? atol(range + 15) : 0;
+    snprintf(last_range, sizeof last_range, "%s", range ? "" : "(none)");
+    if (range)
+        sscanf(range + 9, "%63[^\r]", last_range);
+    char head[512];
+    if (from > 0)
+        snprintf(head, sizeof head,
+                 "HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\nETag: \"v1\"\r\n"
+                 "Last-Modified: Thu, 01 Oct 2026 00:00:00 GMT\r\nAccept-Ranges: bytes\r\n"
+                 "Content-Range: bytes %ld-%d/%d\r\nContent-Length: %ld\r\n\r\n",
+                 from, BIG - 1, BIG, BIG - from);
+    else
+        snprintf(head, sizeof head,
+                 "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nETag: \"v1\"\r\n"
+                 "Last-Modified: Thu, 01 Oct 2026 00:00:00 GMT\r\nAccept-Ranges: bytes\r\nContent-Length: %d\r\n\r\n",
+                 BIG);
+    write(fd, head, strlen(head));
+    if (from == 0 && !(*served)++) {
+        write(fd, big_body, BIG / 2);
+        if (served == &stall_served)
+            sleep(30); /* (until the client cancels) */
+        return;
+    }
+    write(fd, big_body + from, BIG - from);
+}
+
 /* Serves one canned response per connection, chosen by the request path. */
 static void *
-serve(void *arg)
+handle(void *arg)
 {
-    int listener = (int)(intptr_t)arg;
-    for (;;) {
-        int fd = accept(listener, NULL, NULL);
-        if (fd < 0)
-            break;
+    int fd = (int)(intptr_t)arg;
+    {
         char req[4096];
         ssize_t n = 0, r;
         while (n < (ssize_t)sizeof req - 1 && (r = read(fd, req + n, sizeof req - 1 - n)) > 0) {
@@ -44,6 +79,11 @@ serve(void *arg)
         char method[16] = "";
         sscanf(req, "%15s %255s", method, path);
         char out[8192];
+        if (!strcmp(path, "/big") || !strcmp(path, "/stall")) {
+            serve_big(fd, req, !strcmp(path, "/big") ? &big_served : &stall_served);
+            close(fd);
+            return NULL;
+        }
         if (!strcmp(path, "/hello")) {
             snprintf(out, sizeof out,
                      "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 6\r\nX-Test: one\r\n\r\nhello\n");
@@ -72,6 +112,21 @@ serve(void *arg)
         while (read(fd, drain, sizeof drain) > 0)
             ;
         close(fd);
+    }
+    return NULL;
+}
+
+static void *
+serve(void *arg)
+{
+    int listener = (int)(intptr_t)arg;
+    for (;;) {
+        int fd = accept(listener, NULL, NULL);
+        if (fd < 0)
+            break;
+        pthread_t t;
+        pthread_create(&t, NULL, handle, (void *)(intptr_t)fd);
+        pthread_detach(t);
     }
     return NULL;
 }
@@ -132,6 +187,23 @@ load(NSString *label, NSURLRequest *request)
                                        print_result(label, data, response, error);
                                        dispatch_semaphore_signal(done);
                                      }] resume];
+    dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+}
+
+/* A download that ends with resume data, resumed from it. */
+static void
+resumed(NSString *label, NSData *resumeData)
+{
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    [[[NSURLSession sharedSession]
+        downloadTaskWithResumeData:resumeData
+                 completionHandler:^(NSURL *location, NSURLResponse *response, NSError *error) {
+                   NSData *got = [NSData dataWithContentsOfURL:location];
+                   printf("%s resumed: error %ld status %ld range %s size %lu intact %d\n", label.UTF8String, (long)error.code,
+                          (long)((NSHTTPURLResponse *)response).statusCode, last_range, (unsigned long)got.length,
+                          [got isEqualToData:[NSData dataWithBytes:big_body length:BIG]]);
+                   dispatch_semaphore_signal(done);
+                 }] resume];
     dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
 }
 
@@ -239,6 +311,41 @@ main(void)
                 dispatch_semaphore_signal(done);
               }] resume];
         dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+
+        /* A download whose connection drops halfway, then one cancelled halfway. */
+        for (int i = 0; i < BIG; i++)
+            big_body[i] = (char)('a' + i % 26 + i / 4096);
+        __block NSData *resumeData = nil;
+        [[[NSURLSession sharedSession]
+            downloadTaskWithURL:local(@"/big")
+              completionHandler:^(NSURL *location, NSURLResponse *response, NSError *error) {
+                resumeData = error.userInfo[NSURLSessionDownloadTaskResumeData];
+                printf("dropped download: file %d error %ld resume data %d\n", location != nil, (long)error.code, resumeData != nil);
+                dispatch_semaphore_signal(done);
+              }] resume];
+        dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+        if (resumeData)
+            resumed(@"dropped", resumeData);
+        resumeData = nil;
+        NSURLSessionDownloadTask *stalled = [[NSURLSession sharedSession]
+            downloadTaskWithURL:local(@"/stall")
+              completionHandler:^(NSURL *location, NSURLResponse *response, NSError *error) {
+                printf("cancelled download: error %ld has resume data %d\n", (long)error.code,
+                       error.userInfo[NSURLSessionDownloadTaskResumeData] != nil);
+                dispatch_semaphore_signal(done);
+              }];
+        [stalled resume];
+        while (stalled.countOfBytesReceived < BIG / 2)
+            usleep(50000);
+        [stalled cancelByProducingResumeData:^(NSData *data) {
+          resumeData = data;
+          printf("cancel: resume data %d received %lld\n", data != nil, stalled.countOfBytesReceived);
+          dispatch_semaphore_signal(done);
+        }];
+        dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+        dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+        if (resumeData)
+            resumed(@"cancelled", resumeData);
 
         Delegate *d = [Delegate new];
         d.data = [NSMutableData data];

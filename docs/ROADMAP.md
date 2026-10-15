@@ -1139,8 +1139,9 @@ that every app works. These release checks were missing from the Phase 5 list:
       verifies it with Finch's Security, installs it into a system root folder by staging
       and renaming (an interrupted install leaves the root as it was) and rolls back
       ([design/RELEASE.md](design/RELEASE.md)). An install carries the user's files,
-      accounts and settings into the new system and rollback takes them back (2026-10-15).
-      Open: switching the booted system, resuming downloads.
+      accounts and settings into the new system and rollback takes them back, and
+      `finch-update fetch` resumes a download cut short, over Finch's NSURLSession's resume
+      data (2026-10-15). Open: switching the booted system.
 - [ ] **App checks:** name and pin the Phase 4 app set, record what works in each app,
       and test launch, open/save, clipboard, printing, network access and media where
       used. Track missing APIs and failed checks rather than counting exported names.

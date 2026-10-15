@@ -18,6 +18,9 @@
 #import <Foundation/Foundation.h>
 #include "../certificates/ca-bundle.h"
 #include <netdb.h>
+#include <fcntl.h>
+#include <os/lock.h>
+#include <sys/stat.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
@@ -655,8 +658,103 @@ cookie_store(void)
     return current_cookies_set ? current_cookies : [NSHTTPCookieStorage sharedHTTPCookieStorage];
 }
 
+/* A download task's file, which a successful response's body streams into (a resumed one's
+   206 response appending to what's there), set on the loading thread around its load. The
+   socket is kept so a cancel can cut the connection. */
+typedef struct {
+    int fd;
+    int64_t offset;   /* bytes in the file from before, by the resume data (0 for a new download) */
+    int64_t written;  /* bytes in it now */
+    int64_t expected; /* the whole size, when the response says */
+    int sock;
+    BOOL cancelled;
+    os_unfair_lock lock;
+    NSHTTPURLResponse *response; /* (retained) the response whose body went into the file */
+    void (^progress)(void);
+} Download;
+static __thread Download *current_download;
+
+/* A response body as it arrives: by its length, chunked, or to the end of the connection;
+   decoded into memory or a download's file. */
+typedef struct {
+    BOOL chunked, done, failed;
+    int64_t length, got; /* (length -1: to the connection's end) */
+    int state;           /* chunked: 0 the size line, 1 its data, 2 the line end after it */
+    uint64_t remaining;
+    char line[64];
+    int lineLength;
+    NSMutableData *memory;
+    Download *download;
+} Body;
+
+static void
+body_emit(Body *b, const char *p, size_t n)
+{
+    if (!n || b->failed)
+        return;
+    if (!b->download) {
+        [b->memory appendBytes:p length:n];
+        return;
+    }
+    while (n) {
+        ssize_t w = write(b->download->fd, p, n);
+        if (w <= 0) {
+            b->failed = YES;
+            return;
+        }
+        p += w;
+        n -= (size_t)w;
+        b->download->written += w;
+    }
+    if (b->download->progress)
+        b->download->progress();
+}
+
+static void
+body_feed(Body *b, const char *p, size_t n)
+{
+    if (!b->chunked) {
+        size_t take = b->length < 0 ? n : (size_t)MIN((int64_t)n, b->length - b->got);
+        body_emit(b, p, take);
+        b->got += (int64_t)take;
+        b->done = b->length >= 0 && b->got == b->length;
+        return;
+    }
+    while (n && !b->done) {
+        if (b->state == 1) {
+            size_t take = (size_t)MIN((uint64_t)n, b->remaining);
+            body_emit(b, p, take);
+            p += take;
+            n -= take;
+            if (!(b->remaining -= take))
+                b->state = 2;
+            continue;
+        }
+        char ch = *p++;
+        n--;
+        if (ch != '\n') {
+            if (b->state == 0 && b->lineLength < (int)sizeof b->line - 1)
+                b->line[b->lineLength++] = ch;
+            continue;
+        }
+        if (b->state == 2) {
+            b->state = 0;
+            continue;
+        }
+        b->line[b->lineLength] = 0;
+        b->lineLength = 0;
+        b->remaining = strtoull(b->line, NULL, 16);
+        if (b->remaining)
+            b->state = 1;
+        else
+            b->done = YES; /* (trailers, if any, are left unread) */
+    }
+}
+
 /* One request and its response over HTTP/1.1 (the connection closes after it). Each
-   Set-Cookie line comes back on its own in setCookies (folded together they'd be ambiguous). */
+   Set-Cookie line comes back on its own in setCookies (folded together they'd be ambiguous).
+   A body cut short is an error (NSURLErrorNetworkConnectionLost). With a download on this
+   thread, a successful response's body goes into its file, and nothing comes back. */
 static NSData *
 load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outResponse, NSInteger *outError, NSMutableArray *setCookies)
 {
@@ -695,20 +793,41 @@ load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outRespons
         *outError = NSURLErrorNetworkConnectionLost;
         return nil;
     }
+    Download *download = current_download;
+    if (download) {
+        os_unfair_lock_lock(&download->lock);
+        download->sock = c.fd;
+        BOOL cancelled = download->cancelled;
+        os_unfair_lock_unlock(&download->lock);
+        if (cancelled)
+            shutdown(c.fd, SHUT_RDWR);
+    }
+    /* the head */
     NSMutableData *all = [NSMutableData data];
     char buf[16384];
     ssize_t n;
-    while ((n = conn_read(&c, buf, sizeof buf)) > 0)
+    NSUInteger end = 0;
+    BOOL found = NO;
+    while (!found && (n = conn_read(&c, buf, sizeof buf)) > 0) {
+        NSUInteger from = [all length] > 3 ? [all length] - 3 : 0;
         [all appendBytes:buf length:(NSUInteger)n];
-    conn_close(&c);
+        const char *b = [all bytes];
+        for (NSUInteger i = from; i + 3 < [all length]; i++)
+            if (!memcmp(b + i, "\r\n\r\n", 4)) {
+                end = i;
+                found = YES;
+                break;
+            }
+    }
     const char *bytes = [all bytes];
-    NSUInteger len = [all length], end = 0;
-    for (NSUInteger i = 0; i + 3 < len; i++)
-        if (!memcmp(bytes + i, "\r\n\r\n", 4)) {
-            end = i;
-            break;
+    NSUInteger len = [all length];
+    if (!found) {
+        if (download) {
+            os_unfair_lock_lock(&download->lock);
+            download->sock = -1;
+            os_unfair_lock_unlock(&download->lock);
         }
-    if (!end) {
+        conn_close(&c);
         *outError = len ? NSURLErrorBadServerResponse : NSURLErrorTimedOut;
         return nil;
     }
@@ -716,6 +835,12 @@ load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outRespons
     NSArray *lines = [headerText componentsSeparatedByString:@"\r\n"];
     NSArray *status = [lines[0] componentsSeparatedByString:@" "];
     if ([status count] < 2) {
+        if (download) {
+            os_unfair_lock_lock(&download->lock);
+            download->sock = -1;
+            os_unfair_lock_unlock(&download->lock);
+        }
+        conn_close(&c);
         *outError = NSURLErrorBadServerResponse;
         return nil;
     }
@@ -733,25 +858,54 @@ load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outRespons
     }
     *outResponse = [[[NSHTTPURLResponse alloc] initWithURL:url statusCode:[status[1] integerValue] HTTPVersion:status[0]
                                               headerFields:h] autorelease];
-    NSData *payload = [all subdataWithRange:NSMakeRange(end + 4, len - end - 4)];
-    if ([[[*outResponse valueForHTTPHeaderField:@"Transfer-Encoding"] lowercaseString] containsString:@"chunked"]) {
-        NSMutableData *out = [NSMutableData data];
-        const char *p = [payload bytes], *e = p + [payload length];
-        while (p < e) {
-            char *after;
-            unsigned long size = strtoul(p, &after, 16);
-            const char *line = strstr(after, "\r\n");
-            if (!line || size == 0)
-                break;
-            p = line + 2;
-            if (p + size > e)
-                size = (unsigned long)(e - p);
-            [out appendBytes:p length:size];
-            p += size + 2;
-        }
-        payload = out;
+    /* the body */
+    NSInteger code = [*outResponse statusCode];
+    Body rb = {.length = -1, .memory = [NSMutableData data]};
+    rb.chunked = [[[*outResponse valueForHTTPHeaderField:@"Transfer-Encoding"] lowercaseString] containsString:@"chunked"];
+    NSString *length = [*outResponse valueForHTTPHeaderField:@"Content-Length"];
+    if (!rb.chunked && length)
+        rb.length = [length longLongValue];
+    if ([[request HTTPMethod] isEqualToString:@"HEAD"] || code == 204 || code == 304 || code < 200)
+        rb.length = 0, rb.chunked = NO;
+    NSInteger failure = 0;
+    if (download && code >= 200 && code < 300) {
+        /* a 206 continues the file where the resume data left it; anything else starts it again */
+        NSString *range = [*outResponse valueForHTTPHeaderField:@"Content-Range"];
+        long long start = -1;
+        if (code == 206 && !(range && sscanf([range UTF8String], "bytes %lld-", &start) == 1 && start == download->offset))
+            failure = NSURLErrorBadServerResponse;
+        if (code != 206)
+            download->offset = 0;
+        if (!failure && (ftruncate(download->fd, download->offset) < 0 || lseek(download->fd, download->offset, SEEK_SET) < 0))
+            failure = NSURLErrorCannotWriteToFile;
+        download->written = download->offset;
+        download->expected = rb.length >= 0 ? download->offset + rb.length : -1;
+        [download->response release];
+        download->response = [*outResponse retain];
+        rb.download = download;
     }
-    return payload;
+    if (!failure) {
+        body_feed(&rb, bytes + end + 4, len - end - 4);
+        while (!rb.done && !rb.failed && (n = conn_read(&c, buf, sizeof buf)) > 0)
+            body_feed(&rb, buf, (size_t)n);
+    }
+    BOOL cancelled = NO;
+    if (download) {
+        os_unfair_lock_lock(&download->lock);
+        download->sock = -1;
+        cancelled = download->cancelled;
+        os_unfair_lock_unlock(&download->lock);
+    }
+    conn_close(&c);
+    if (!failure && rb.failed)
+        failure = NSURLErrorCannotWriteToFile;
+    if (!failure && !rb.done && (rb.chunked || rb.length >= 0))
+        failure = cancelled ? NSURLErrorCancelled : NSURLErrorNetworkConnectionLost;
+    if (failure) {
+        *outError = failure;
+        return nil;
+    }
+    return rb.download ? [NSData data] : rb.memory;
 }
 
 /* Load a request, following up to 16 redirects. */
@@ -904,6 +1058,7 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
 - (instancetype)_finchInitWithSession:(NSURLSession *)session request:(NSURLRequest *)request identifier:(NSUInteger)ident
                              download:(BOOL)download
                            completion:(void (^)(id result, NSURLResponse *response, NSError *error))completion;
+- (void)_finchSetResumeInfo:(NSDictionary *)info;
 @end
 
 @implementation NSURLSessionTask {
@@ -918,6 +1073,9 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
     void (^_completion)(id, NSURLResponse *, NSError *);
     NSString *_description;
     float _priority;
+    Download *_loading;              /* a download's, while it loads */
+    NSDictionary *_resumeInfo;       /* a resumed download's resume data */
+    void (^_resumeHandler)(NSData *); /* cancelByProducingResumeData:'s */
 }
 
 - (instancetype)_finchInitWithSession:(NSURLSession *)session request:(NSURLRequest *)request identifier:(NSUInteger)ident
@@ -944,7 +1102,15 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
     [_error release];
     [_completion release];
     [_description release];
+    [_resumeInfo release];
+    [_resumeHandler release];
     [super dealloc];
+}
+
+- (void)_finchSetResumeInfo:(NSDictionary *)info
+{
+    [_resumeInfo autorelease];
+    _resumeInfo = [info copy];
 }
 
 - (NSUInteger)taskIdentifier { return _identifier; }
@@ -978,6 +1144,14 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
     NSURLRequest *request = _original;
     BOOL download = _download;
     NSURLSessionConfiguration *configuration = [[_session.configuration retain] autorelease];
+    NSString *scheme = [[[request URL] scheme] lowercaseString];
+    if (download && ([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"])) {
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+          [self _finchDownload:request configuration:configuration];
+          [self release];
+        });
+        return;
+    }
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
       NSURLResponse *response = nil;
       NSError *error = nil;
@@ -1000,6 +1174,138 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
     });
 }
 
+/* An http(s) download: its body streamed into a file in the temporary folder (not through the
+   cache) and, when the load fails after a successful response with a validator (ETag or
+   Last-Modified), resume data in the error to continue it from where it stopped, with a
+   Range request (downloadTaskWithResumeData:). A cancel cuts the connection; with
+   cancelByProducingResumeData:, the handler gets the resume data too. */
+- (void)_finchDownload:(NSURLRequest *)request configuration:(NSURLSessionConfiguration *)configuration
+{
+    NSDictionary *resume = _resumeInfo;
+    NSString *path = resume[@"NSURLSessionResumeInfoLocalPath"];
+    int64_t offset = [resume[@"NSURLSessionResumeBytesReceived"] longLongValue];
+    NSString *validator = resume[@"NSURLSessionResumeEntityTag"] ?: resume[@"NSURLSessionResumeServerDownloadDate"];
+    struct stat st;
+    if (resume && !(path && stat([path fileSystemRepresentation], &st) == 0 && st.st_size >= offset))
+        path = nil, offset = 0; /* (the partial file is gone: start again) */
+    if (!path)
+        path = [NSTemporaryDirectory() stringByAppendingPathComponent:
+                                           [NSString stringWithFormat:@"CFNetworkDownload_%@.tmp", [[NSUUID UUID] UUIDString]]];
+    Download dl = {.fd = open([path fileSystemRepresentation], O_WRONLY | O_CREAT, 0600), .offset = offset, .sock = -1,
+                   .expected = -1, .lock = OS_UNFAIR_LOCK_INIT};
+    if (dl.fd < 0) {
+        [self _finchFinishWithResult:nil response:nil
+                               error:url_error(NSURLErrorCannotCreateFile, [request URL], @"cannot create file")];
+        return;
+    }
+    if (offset > 0) {
+        NSMutableURLRequest *r = [[request mutableCopy] autorelease];
+        [r setValue:[NSString stringWithFormat:@"bytes=%lld-", offset] forHTTPHeaderField:@"Range"];
+        if (validator)
+            [r setValue:validator forHTTPHeaderField:@"If-Range"];
+        request = r;
+    }
+    __block Download *dp = &dl;
+    dl.progress = ^{
+      @synchronized(self) {
+          _received = dp->written;
+          _expected = dp->expected;
+      }
+    };
+    @synchronized(self) {
+        _loading = &dl;
+    }
+    NSURLResponse *response = nil;
+    NSError *error = nil;
+    current_cookies = configuration.HTTPShouldSetCookies && configuration.HTTPCookieAcceptPolicy != NSHTTPCookieAcceptPolicyNever
+                          ? configuration.HTTPCookieStorage
+                          : nil;
+    current_cookies_set = YES;
+    current_download = &dl;
+    load(request, &response, &error);
+    current_download = NULL;
+    current_cookies = nil;
+    current_cookies_set = NO;
+    void (^handler)(NSData *) = nil;
+    BOOL finished;
+    @synchronized(self) {
+        _loading = NULL;
+        handler = [[_resumeHandler retain] autorelease];
+        finished = _state == NSURLSessionTaskStateCompleted;
+        _received = dl.written;
+        _expected = dl.expected;
+    }
+    close(dl.fd);
+    NSHTTPURLResponse *got = [dl.response autorelease];
+    NSData *resumeData = nil;
+    if (error || dl.cancelled) {
+        NSString *etag = [got valueForHTTPHeaderField:@"ETag"], *date = [got valueForHTTPHeaderField:@"Last-Modified"];
+        if (got && dl.written > 0 && (etag || date) && [[request HTTPMethod] isEqualToString:@"GET"] && (handler || !finished)) {
+            NSMutableDictionary *info = [NSMutableDictionary dictionary];
+            info[@"NSURLSessionResumeInfoVersion"] = @2;
+            info[@"NSURLSessionDownloadURL"] = [[_original URL] absoluteString];
+            info[@"NSURLSessionResumeBytesReceived"] = @(dl.written);
+            info[@"NSURLSessionResumeInfoLocalPath"] = path;
+            info[@"NSURLSessionResumeInfoTempFileName"] = [path lastPathComponent];
+            if (etag)
+                info[@"NSURLSessionResumeEntityTag"] = etag;
+            if (date)
+                info[@"NSURLSessionResumeServerDownloadDate"] = date;
+            if ([_original allHTTPHeaderFields])
+                info[@"NSURLSessionResumeOriginalRequestHeaders"] = [_original allHTTPHeaderFields];
+            resumeData = [NSPropertyListSerialization dataWithPropertyList:info format:NSPropertyListBinaryFormat_v1_0 options:0
+                                                                     error:NULL];
+        } else {
+            unlink([path fileSystemRepresentation]);
+        }
+        if (dl.cancelled)
+            error = url_error(NSURLErrorCancelled, [_original URL], @"cancelled");
+        if (resumeData) {
+            NSMutableDictionary *userInfo = [[[error userInfo] mutableCopy] autorelease];
+            userInfo[NSURLSessionDownloadTaskResumeData] = resumeData;
+            error = [NSError errorWithDomain:[error domain] code:[error code] userInfo:userInfo];
+        }
+        if (handler)
+            handler(resumeData);
+        [self _finchFinishWithResult:nil response:response error:error];
+        return;
+    }
+    if (finished) {
+        unlink([path fileSystemRepresentation]);
+        return;
+    }
+    [self _finchFinishWithResult:[NSURL fileURLWithPath:path] response:response error:nil];
+}
+
+/* Cut a download's connection, if it's loading; it ends with NSURLErrorCancelled. */
+- (BOOL)_finchInterruptDownload
+{
+    @synchronized(self) {
+        if (!_loading)
+            return NO;
+        os_unfair_lock_lock(&_loading->lock);
+        _loading->cancelled = YES;
+        if (_loading->sock >= 0)
+            shutdown(_loading->sock, SHUT_RDWR);
+        os_unfair_lock_unlock(&_loading->lock);
+        return YES;
+    }
+}
+
+- (void)_finchCancelProducingResumeData:(void (^)(NSData *))handler
+{
+    @synchronized(self) {
+        if (_loading && !_resumeHandler) {
+            _resumeHandler = [handler copy];
+            [self _finchInterruptDownload];
+            return;
+        }
+    }
+    [self cancel];
+    if (handler)
+        handler(nil);
+}
+
 - (void)_finchFinishWithResult:(id)result response:(NSURLResponse *)response error:(NSError *)error
 {
     @synchronized(self) {
@@ -1008,7 +1314,8 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
         _state = NSURLSessionTaskStateCompleted;
         _response = [response retain];
         _error = [error retain];
-        _received = [result isKindOfClass:[NSData class]] ? (int64_t)[result length] : [response expectedContentLength];
+        if (!_download || !error)
+            _received = [result isKindOfClass:[NSData class]] ? (int64_t)[result length] : [response expectedContentLength];
     }
     void (^completion)(id, NSURLResponse *, NSError *) = [[_completion retain] autorelease];
     NSURLSession *session = [[_session retain] autorelease];
@@ -1035,6 +1342,7 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
 
 - (void)cancel
 {
+    [self _finchInterruptDownload];
     [self _finchFinishWithResult:nil response:nil
                            error:url_error(NSURLErrorCancelled, [_original URL], @"cancelled")];
 }
@@ -1050,9 +1358,7 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
 @implementation NSURLSessionDownloadTask
 - (void)cancelByProducingResumeData:(void (^)(NSData *))handler
 {
-    [self cancel];
-    if (handler)
-        handler(nil);
+    [self _finchCancelProducingResumeData:handler];
 }
 @end
 
@@ -1175,6 +1481,25 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
                                 completionHandler:(void (^)(NSURL *, NSURLResponse *, NSError *))completionHandler
 {
     return [self downloadTaskWithRequest:[NSURLRequest requestWithURL:url] completionHandler:completionHandler];
+}
+/* (resume data from Finch's downloads; anything else gives a task that fails) */
+- (NSURLSessionDownloadTask *)downloadTaskWithResumeData:(NSData *)resumeData
+                                       completionHandler:(void (^)(NSURL *, NSURLResponse *, NSError *))completionHandler
+{
+    id info = resumeData ? [NSPropertyListSerialization propertyListWithData:resumeData options:0 format:NULL error:NULL] : nil;
+    NSString *url = [info isKindOfClass:[NSDictionary class]] ? info[@"NSURLSessionDownloadURL"] : nil;
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[url isKindOfClass:[NSString class]] ? url : @"finch-invalid-resume-data:"]];
+    NSDictionary *headers = [info isKindOfClass:[NSDictionary class]] ? info[@"NSURLSessionResumeOriginalRequestHeaders"] : nil;
+    if ([headers isKindOfClass:[NSDictionary class]])
+        [r setAllHTTPHeaderFields:headers];
+    NSURLSessionDownloadTask *task = [self _finchTask:[NSURLSessionDownloadTask class] request:r download:YES completion:completionHandler];
+    if (url)
+        [(NSURLSessionTask *)task _finchSetResumeInfo:info];
+    return task;
+}
+- (NSURLSessionDownloadTask *)downloadTaskWithResumeData:(NSData *)resumeData
+{
+    return [self downloadTaskWithResumeData:resumeData completionHandler:(id _Nonnull)nil];
 }
 - (NSURLSessionUploadTask *)uploadTaskWithRequest:(NSURLRequest *)request fromData:(NSData *)bodyData
                                 completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler

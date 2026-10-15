@@ -196,7 +196,7 @@ block-beta
         columns 4
         t2["Processes"]
         init["finch-init (PID 1)<br/>bootstrap server,<br/>system + user domains"]
-        logd["finch-logd, finch-pboardd<br/>(pasteboards), pbcopy and pbpaste,<br/>finch-update (signed updates),<br/>screencapture and its service,<br/>launchctl, sh, mount_tmpfs, devtools"]
+        logd["finch-logd, finch-pboardd<br/>(pasteboards), pbcopy and pbpaste,<br/>finch-update (signed,<br/>resumable updates),<br/>screencapture and its service,<br/>launchctl, sh, mount_tmpfs, devtools"]
         daemons["notifyd, syslogd, aslmanager,<br/>newsyslog, dynamic_pager, atrun,<br/>cron, mDNSPosix, configd,<br/>diskarbitrationd"]
         space2[" "]
         cmds["file/shell/text/adv/system_cmds,<br/>bash, zsh, bc, su, login,<br/>mount, fsck, FAT helpers"]

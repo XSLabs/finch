@@ -2,14 +2,17 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # finch-update on the host, with Finch's Security: a signed update verifies, a changed archive
 # or another key's signature doesn't; install puts a new root in place and keeps the old one,
-# an unreadable archive leaves the root as it was, and rollback puts the old one back. Uses a
-# throwaway key pair, not the release's. Run directly (DYLD_* is set per command).
+# an unreadable archive leaves the root as it was, and rollback puts the old one back; fetch
+# downloads an update from a local server (tools/release/test-server.py) that cuts the first
+# download off, and resumes it, in the same run or the next. Uses a throwaway key pair, not
+# the release's. Run directly (DYLD_* is set per command).
 set -uo pipefail
 FINCH_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 R="${FINCH_ROOT}/build/root/System/Library"
 TOOL="${FINCH_ROOT}/build/root/usr/sbin/finch-update"
 T="$(mktemp -d)"
-trap 'rm -rf "${T}"' EXIT
+server=
+trap '[[ -n "${server}" ]] && { kill "${server}"; wait "${server}"; } 2>/dev/null; rm -rf "${T}"' EXIT
 fails=0
 check() {
     if [[ "$1" == "$2" ]]; then echo "ok: $3"; else echo "FAIL: $3 (got $1, want $2)"; fails=$((fails + 1)); fi
@@ -37,6 +40,7 @@ echo 'ada:*:501:20::0:0:Ada:/Users/ada:/bin/zsh' > "${T}/system/private/etc/mast
 mkdir -p "${T}/system/Library/Preferences" "${T}/system/Library/LaunchDaemons" "${T}/v2/Library/LaunchDaemons"
 mkdir -p "${T}/system/private/var/root" && echo hi > "${T}/system/private/var/root/.profile"
 echo dark > "${T}/system/Library/Preferences/look" && echo old > "${T}/system/Library/LaunchDaemons/job" && echo new > "${T}/v2/Library/LaunchDaemons/job"
+head -c 1000000 /dev/urandom > "${T}/v2/etc/blob"
 mkdir -p "${T}/v2/Users" "${T}/v2/private/etc" && echo 'root:*:0:0::0:0:System Administrator:/var/root:/bin/sh' > "${T}/v2/private/etc/master.passwd"
 tar -C "${T}/v2" -czf "${T}/v2.tar.gz" . && openssl dgst -sha256 -sign "${T}/key.pem" -out "${T}/v2.tar.gz.sig" "${T}/v2.tar.gz"
 check "$(upd install "${T}/changed.tar.gz" --root "${T}/system")" 1 "an unsigned update isn't installed"
@@ -59,5 +63,23 @@ check "$(upd rollback --root "${T}/system")" 0 "rollback"
 check "$(cat "${T}/system/etc/version")" one "  the previous system is back"
 check "$(cat "${T}/system/Users/ada/Documents/notes.txt")" draft "  with the user's files"
 check "$(upd rollback --root "${T}/system")" 1 "a second rollback has nothing to go back to"
+# fetch, from a server that cuts off the first download of each archive halfway
+mkdir -p "${T}/web"
+cp "${T}/v2.tar.gz" "${T}/v2.tar.gz.sig" "${T}/web/"
+cp "${T}/v2.tar.gz" "${T}/web/again.tar.gz" && cp "${T}/v2.tar.gz.sig" "${T}/web/again.tar.gz.sig"
+cp "${T}/changed.tar.gz" "${T}/web/changed.tar.gz" && cp "${T}/v2.tar.gz.sig" "${T}/web/changed.tar.gz.sig"
+python3 "${FINCH_ROOT}/tools/release/test-server.py" "${T}/web" & server=$!
+for _ in $(seq 50); do [[ -s "${T}/web/.port" ]] && break; sleep 0.1; done
+web="http://127.0.0.1:$(cat "${T}/web/.port")"
+check "$(FINCH_UPDATE_ATTEMPTS=1 upd fetch "${web}/v2.tar.gz" "${T}/dl")" 1 "a fetch cut off fails"
+check "$([[ -s "${T}/dl/v2.tar.gz.resume" ]] && echo kept || echo none)" kept "  and keeps its resume data"
+check "$(upd fetch "${web}/v2.tar.gz" "${T}/dl")" 0 "the next fetch finishes it"
+check "$(grep -c '^v2.tar.gz bytes=[1-9][0-9]*-$' "${T}/web/.ranges")" 1 "  from where it stopped"
+check "$(cmp -s "${T}/dl/v2.tar.gz" "${T}/v2.tar.gz" && echo same || echo differs)" same "  and the archive is whole"
+check "$([[ -e "${T}/dl/v2.tar.gz.resume" ]] && echo kept || echo cleared)" cleared "  its resume data cleared"
+check "$(upd fetch "${web}/again.tar.gz" "${T}/dl")" 0 "a fetch cut off resumes in the same run"
+check "$(grep -c '^again.tar.gz bytes=[1-9][0-9]*-$' "${T}/web/.ranges")" 1 "  from where it stopped"
+check "$(upd fetch "${web}/changed.tar.gz" "${T}/dl")" 1 "a fetched archive the key didn't sign fails"
+check "$(upd fetch "${web}/missing.tar.gz" "${T}/dl")" 1 "a missing one fails"
 echo "${fails} failed"
 [[ "${fails}" -eq 0 ]]

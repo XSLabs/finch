@@ -8,6 +8,7 @@
  *   finch-update verify ARCHIVE [SIGNATURE]
  *   finch-update install ARCHIVE [SIGNATURE] --root DIR
  *   finch-update rollback --root DIR
+ *   finch-update fetch URL DIR
  *
  * SIGNATURE is ARCHIVE.sig unless given. The public key is /usr/share/finch/update-key.der
  * (the curve point, X9.63), or the file FINCH_UPDATE_KEY names. install checks the signature,
@@ -16,7 +17,8 @@
  * swaps it in by renaming: DIR becomes DIR.finch-old and the new tree DIR. A failure at any
  * step leaves DIR as it was. rollback swaps DIR.finch-old back, the user's files with it.
  * (A running system's own root can't be renamed: switching the booted system is the
- * installer's, ROADMAP Phase 3; this updates a system root held as a folder.)
+ * installer's, ROADMAP Phase 3; this updates a system root held as a folder.) fetch downloads
+ * URL and URL.sig into DIR, resuming one cut short (fetch.m), and verifies them.
  */
 #include <CommonCrypto/CommonDigest.h>
 #include <CoreFoundation/CoreFoundation.h>
@@ -285,12 +287,15 @@ rollback(const char *root)
 	return 0;
 }
 
+int finch_update_fetch(const char *url, const char *dir, char *archive, size_t archiveSize);
+
 static int
 usage(void)
 {
 	fprintf(stderr, "usage: finch-update verify ARCHIVE [SIGNATURE]\n"
 	                "       finch-update install ARCHIVE [SIGNATURE] --root DIR\n"
-	                "       finch-update rollback --root DIR\n");
+	                "       finch-update rollback --root DIR\n"
+	                "       finch-update fetch URL DIR\n");
 	return 2;
 }
 
@@ -308,6 +313,16 @@ main(int argc, char **argv)
 			args[n++] = argv[i];
 		else
 			return usage();
+	}
+	if (!strcmp(argv[1], "fetch") && n == 2 && !root) {
+		char archive[1024], signature[1100];
+		if (finch_update_fetch(args[0], args[1], archive, sizeof archive) != 0)
+			return 1;
+		snprintf(signature, sizeof signature, "%s.sig", archive);
+		int s = verify(archive, signature);
+		if (!s)
+			printf("finch-update: %s is signed by the update key\n", archive);
+		return s;
 	}
 	char sig[1024];
 	if (n >= 1 && !args[1]) {
