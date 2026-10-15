@@ -562,6 +562,10 @@ insert_table(NSTextView *tv, NSInteger rows, NSInteger columns)
     [tv didChangeText];
     NSUInteger first = r.location + ([[cells string] hasPrefix:@"\n"] && [cells length] > (NSUInteger)(rows * columns) ? 1 : 0);
     [tv setSelectedRange:NSMakeRange(first, 0)];
+    /* typing goes into the first cell: its attributes (with its block), even when the insertion
+       point didn't move (a table inserted at the start), which leaves the old typing attributes */
+    if (first < [ts length])
+        [tv setTypingAttributes:[ts attributesAtIndex:first effectiveRange:NULL]];
 }
 
 @interface _FinchTablePanelController : NSObject {

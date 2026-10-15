@@ -417,8 +417,10 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         greys Last Saved Version while nothing has changed, and Browse All Versions
         restores the earlier one to the file and the window; its versions show seconds, so
         saves within a minute are told apart). tools/vm/test-textedit.sh checks those,
-        Export as PDF writing a PDF, and Find (⌘F, Return, Escape closing the bar with the
-        match selected for typing over), by their files. Export's save panel opens as a window of
+        Export as PDF writing a PDF, Find (⌘F, Return, Escape closing the bar with the
+        match selected for typing over), and Make Rich Text (the format bar and ruler
+        shown) with a table inserted and typed into (its first cell keeps the typing even
+        when the table goes in at the start), by their files. Export's save panel opens as a window of
         its own, where macOS attaches it to the document as a sheet.
         The format bar has the font's family, size, bold, italic, underline and colour
         beside alignment and spacing, and the font and colour panels change the selection
