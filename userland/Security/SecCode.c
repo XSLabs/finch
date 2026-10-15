@@ -358,6 +358,20 @@ static OSStatus readFile(CFURLRef url, CFDataRef *out)
 	return 0;
 }
 
+static OSStatus checkPlainResource(CFURLRef url)
+{
+	char path[PATH_MAX];
+	if (!url || !CFURLGetFileSystemRepresentation(url, true, (UInt8 *)path, sizeof(path)))
+		return errSecCSBadResource;
+	int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+	if (fd < 0)
+		return errSecCSBadResource;
+	struct stat st;
+	bool plain = fstat(fd, &st) == 0 && S_ISREG(st.st_mode);
+	close(fd);
+	return plain ? 0 : errSecCSBadResource;
+}
+
 /* The bundle an executable path lies in (X.app/Contents/MacOS/X), if any. */
 static CFURLRef enclosingBundle(const char *exe)
 {
@@ -678,6 +692,96 @@ static OSStatus validate(StaticCode *s, SecCSFlags flags, SecRequirementRef req)
 			err = errSecCSReqFailed;
 	}
 	return err;
+}
+
+OSStatus SecCodeValidateFileResource(SecStaticCodeRef codeRef, CFStringRef relativePath,
+	CFDataRef fileData, SecCSFlags flags)
+{
+	if (flags != kSecCSDefaultFlags)
+		return errSecCSInvalidFlags;
+	if (!fileData)
+		return errSecCSObjectRequired;
+	if (!isType(fileData, CFDataGetTypeID()) || !isType(relativePath, CFStringGetTypeID()))
+		return errSecCSInvalidObjectRef;
+	if (!isType(codeRef, SecStaticCodeGetTypeID()))
+		return errSecCSInvalidObjectRef;
+
+	char path[PATH_MAX];
+	if (!CFStringGetCString(relativePath, path, sizeof(path), kCFStringEncodingUTF8) || !path[0] || path[0] == '/')
+		return errSecCSBadResource;
+	for (char *part = path; *part;) {
+		char *slash = strchr(part, '/');
+		if (slash)
+			*slash = '\0';
+		if (!part[0] || !strcmp(part, ".") || !strcmp(part, ".."))
+			return errSecCSBadResource;
+		if (!slash)
+			break;
+		part = slash + 1;
+	}
+
+	StaticCode *code = (StaticCode *)codeRef;
+	if (!code->bundle)
+		return errSecCSBadResource;
+	OSStatus status = validate(code, kSecCSDoNotValidateResources, NULL);
+	if (status)
+		return status;
+
+	CFURLRef resourcesURL = bundleFile(code, CFSTR("_CodeSignature/CodeResources"));
+	CFDataRef resourcesData = NULL;
+	status = resourcesURL ? readFile(resourcesURL, &resourcesData) : errSecCSResourcesNotFound;
+	if (resourcesURL)
+		CFRelease(resourcesURL);
+	if (status)
+		return errSecCSResourcesNotFound;
+	CFPropertyListRef plist = CFPropertyListCreateWithData(NULL, resourcesData, 0, NULL, NULL);
+	CFRelease(resourcesData);
+	CFDictionaryRef files = isType(plist, CFDictionaryGetTypeID())
+	    ? CFDictionaryGetValue(plist, CFSTR("files2"))
+	    : NULL;
+	if (!isType(files, CFDictionaryGetTypeID()) && isType(plist, CFDictionaryGetTypeID()))
+		files = CFDictionaryGetValue(plist, CFSTR("files"));
+	CFTypeRef entry = isType(files, CFDictionaryGetTypeID())
+	    ? CFDictionaryGetValue(files, relativePath)
+	    : NULL;
+	if (!entry) {
+		status = isType(plist, CFDictionaryGetTypeID()) ? errSecCSBadResource : errSecCSResourcesInvalid;
+	} else {
+		CFDataRef hash = NULL;
+		const EVP_MD *algorithm = NULL;
+		if (isType(entry, CFDataGetTypeID())) {
+			hash = (CFDataRef)entry;
+			algorithm = EVP_sha1();
+		} else if (isType(entry, CFDictionaryGetTypeID())) {
+			CFTypeRef hash2 = CFDictionaryGetValue(entry, CFSTR("hash2"));
+			CFTypeRef hash1 = CFDictionaryGetValue(entry, CFSTR("hash"));
+			if (CFDictionaryGetValue(entry, CFSTR("symlink")) ||
+			    CFDictionaryGetValue(entry, CFSTR("cdhash")) ||
+			    CFDictionaryGetValue(entry, CFSTR("requirement"))) {
+				status = errSecCSResourcesInvalid;
+			} else if (isType(hash2, CFDataGetTypeID())) {
+				hash = (CFDataRef)hash2;
+				algorithm = EVP_sha256();
+			} else if (isType(hash1, CFDataGetTypeID())) {
+				hash = (CFDataRef)hash1;
+				algorithm = EVP_sha1();
+			}
+		}
+		if (!status && (!hash || !algorithm)) {
+			status = errSecCSBadResource;
+		} else if (!status) {
+			CFURLRef resourceURL = bundleFile(code, relativePath);
+			status = checkPlainResource(resourceURL);
+			if (resourceURL)
+				CFRelease(resourceURL);
+			if (!status && !hashMatches(CFDataGetBytePtr(hash), CFDataGetLength(hash), algorithm,
+			        CFDataGetBytePtr(fileData), CFDataGetLength(fileData)))
+				status = errSecCSBadResource;
+		}
+	}
+	if (plist)
+		CFRelease(plist);
+	return status;
 }
 
 static OSStatus withErrors(OSStatus err, CFErrorRef *errors)

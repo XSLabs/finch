@@ -25,26 +25,43 @@ struct _FinchClipScroll<Content: View>: View {
     @State private var viewport: CGSize = .zero
     @State private var target = _FinchClipScrollTarget()
     @Environment(\._finchScrollReader) private var reader
+    @Environment(\.horizontalScrollBounceBehavior) private var horizontalBounce
+    @Environment(\.verticalScrollBounceBehavior) private var verticalBounce
 
     private var maxOffset: CGPoint {
         CGPoint(x: axes.contains(.horizontal) ? max(0, contentSize.width - viewport.width) : 0,
                 y: axes.contains(.vertical) ? max(0, contentSize.height - viewport.height) : 0)
     }
 
+    private var bounceAxes: Axis.Set {
+        var result: Axis.Set = []
+        if axes.contains(.horizontal) && _finchAllowsBounce(horizontalBounce, content: contentSize.width, viewport: viewport.width) {
+            result.insert(.horizontal)
+        }
+        if axes.contains(.vertical) && _finchAllowsBounce(verticalBounce, content: contentSize.height, viewport: viewport.height) {
+            result.insert(.vertical)
+        }
+        return result
+    }
+
+    private var displayedOffset: CGPoint {
+        let limit = maxOffset
+        let bouncing = bounceAxes
+        return CGPoint(x: _finchDisplayedOffset(offset.x, limit: limit.x, bounces: bouncing.contains(.horizontal)),
+                       y: _finchDisplayedOffset(offset.y, limit: limit.y, bounces: bouncing.contains(.vertical)))
+    }
+
     private var scrollGeometry: ScrollGeometry {
-        ScrollGeometry(contentOffset: offset, contentSize: contentSize, contentInsets: .zero,
+        ScrollGeometry(contentOffset: displayedOffset, contentSize: contentSize, contentInsets: .zero,
                        containerSize: viewport)
     }
 
-    private func clamped(_ p: CGPoint) -> CGPoint {
-        let limit = maxOffset
-        return CGPoint(x: min(max(0, p.x), limit.x), y: min(max(0, p.y), limit.y))
-    }
-
     var body: some View {
-        let shown = clamped(offset)
+        let shown = displayedOffset
         let limit = maxOffset
         let target = target, reader = reader, axes = axes
+        let offsetState = $offset
+        let activeBounceAxes = bounceAxes
         target.axes = axes
         target.scroll = { [$offset] rect, anchor in
             MainActor.assumeIsolated {
@@ -104,11 +121,45 @@ struct _FinchClipScroll<Content: View>: View {
                 }
             }
             .overlay(_FinchScrollWheelCatcher(canScroll: isDisabled ? [] : [
-                limit.x > 0 ? Axis.Set.horizontal : [], limit.y > 0 ? Axis.Set.vertical : [],
-            ]) { dx, dy in
-                offset = clamped(CGPoint(x: shown.x - dx, y: shown.y - dy))
-            })
+                limit.x > 0 || activeBounceAxes.contains(.horizontal) ? Axis.Set.horizontal : [],
+                limit.y > 0 || activeBounceAxes.contains(.vertical) ? Axis.Set.vertical : [],
+            ], scrolled: { dx, dy in
+                offsetState.wrappedValue = CGPoint(
+                    x: _finchScrolledOffset(offsetState.wrappedValue.x, delta: dx, limit: limit.x,
+                                            bounces: activeBounceAxes.contains(.horizontal)),
+                    y: _finchScrolledOffset(offsetState.wrappedValue.y, delta: dy, limit: limit.y,
+                                            bounces: activeBounceAxes.contains(.vertical)))
+            }, scrollEnded: {
+                let current = offsetState.wrappedValue
+                let settled = CGPoint(x: min(max(0, current.x), limit.x), y: min(max(0, current.y), limit.y))
+                guard settled != current else { return }
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) {
+                    offsetState.wrappedValue = settled
+                }
+            }))
     }
+}
+
+private func _finchAllowsBounce(_ behavior: ScrollBounceBehavior, content: CGFloat, viewport: CGFloat) -> Bool {
+    switch behavior._finchKind {
+    case .always:
+        true
+    case .automatic, .basedOnSize:
+        content > viewport + 0.5
+    }
+}
+
+private func _finchDisplayedOffset(_ value: CGFloat, limit: CGFloat, bounces: Bool) -> CGFloat {
+    guard bounces else { return min(max(0, value), limit) }
+    if value < 0 { return max(-120, value * 0.5) }
+    if value > limit { return min(limit + 120, limit + (value - limit) * 0.5) }
+    return value
+}
+
+private func _finchScrolledOffset(_ value: CGFloat, delta: CGFloat, limit: CGFloat, bounces: Bool) -> CGFloat {
+    let next = value - delta
+    guard bounces else { return min(max(0, next), limit) }
+    return min(limit + 240, max(-240, next))
 }
 
 /// A clip scroll as a reader's scroll target: where its views are, and scrolling to one.
@@ -150,10 +201,15 @@ final class _FinchClipScrollTarget: _FinchScrollTargetView {
 struct _FinchScrollWheelCatcher: NSViewRepresentable {
     var canScroll: Axis.Set
     var scrolled: (CGFloat, CGFloat) -> Void
+    var scrollEnded: () -> Void
 
     final class WheelView: NSView {
         var canScroll: Axis.Set = []
         var scrolled: (CGFloat, CGFloat) -> Void = { _, _ in }
+        var scrollEnded: () -> Void = {}
+        private var settleWork: DispatchWorkItem?
+
+        deinit { settleWork?.cancel() }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard let event = NSApp.currentEvent, event.type == .scrollWheel, frame.contains(point) else {
@@ -167,6 +223,14 @@ struct _FinchScrollWheelCatcher: NSViewRepresentable {
             let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
             scrolled(canScroll.contains(.horizontal) ? event.scrollingDeltaX * scale : 0,
                      canScroll.contains(.vertical) ? event.scrollingDeltaY * scale : 0)
+            settleWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.settleWork = nil
+                self.scrollEnded()
+            }
+            settleWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
         }
     }
 
@@ -175,5 +239,6 @@ struct _FinchScrollWheelCatcher: NSViewRepresentable {
     func updateNSView(_ view: WheelView, context: Context) {
         view.canScroll = canScroll
         view.scrolled = scrolled
+        view.scrollEnded = scrollEnded
     }
 }

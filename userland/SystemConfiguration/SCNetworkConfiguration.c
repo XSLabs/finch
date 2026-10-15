@@ -6,14 +6,22 @@
  * session's preferences, committed with SCPreferencesCommitChanges.
  */
 #include "SCFinch.h"
+#include <errno.h>
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/if_types.h>
+#include <net/if_var.h>
+#include <netinet/ip.h>
+#include <netinet/ip6.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <sys/sockio.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /* ---- Interfaces ---- */
 
@@ -21,12 +29,16 @@ typedef struct {
 	CFRuntimeBase base;
 	CFStringRef bsdName, type, displayName, hardwareAddress;
 	CFDictionaryRef configuration;
+	SCPreferencesRef prefs;
+	CFStringRef serviceID;
+	SCNetworkInterfaceRef child;
 } Interface;
 
 static void interfaceFree(CFTypeRef o)
 {
 	Interface *i = (Interface *)o;
-	CFTypeRef refs[] = {i->bsdName, i->type, i->displayName, i->hardwareAddress, i->configuration};
+	CFTypeRef refs[] = {i->bsdName, i->type, i->displayName, i->hardwareAddress, i->configuration,
+	    i->prefs, i->serviceID, i->child};
 	for (size_t k = 0; k < sizeof(refs) / sizeof(*refs); k++)
 		if (refs[k])
 			CFRelease(refs[k]);
@@ -140,6 +152,15 @@ SCNetworkInterfaceRef _SCNetworkInterfaceCreateFromConfiguration(CFDictionaryRef
 	return (SCNetworkInterfaceRef)i;
 }
 
+static SCNetworkInterfaceRef interfaceCreateForService(CFDictionaryRef config, SCPreferencesRef prefs,
+	    CFStringRef serviceID)
+{
+	Interface *i = (Interface *)_SCNetworkInterfaceCreateFromConfiguration(config);
+	i->prefs = (SCPreferencesRef)CFRetain(prefs);
+	i->serviceID = CFRetain(serviceID);
+	return (SCNetworkInterfaceRef)i;
+}
+
 static Interface *validInterface(SCNetworkInterfaceRef i)
 {
 	if (i && CFGetTypeID(i) == SCNetworkInterfaceGetTypeID())
@@ -147,6 +168,12 @@ static Interface *validInterface(SCNetworkInterfaceRef i)
 	_SCErrorSet(kSCStatusInvalidArgument);
 	return NULL;
 }
+
+static CFDictionaryRef pathValue(SCPreferencesRef prefs, CFStringRef fmt, ...) CF_FORMAT_FUNCTION(2, 3);
+static CFStringRef defaultConfigurationType(Interface *interface);
+static CFArrayRef interfaceConfigurationPaths(Interface *interface, CFStringRef entity);
+static bool validExtendedConfigurationType(Interface *interface, CFStringRef entity);
+static Boolean setInterfaceConfiguration(Interface *interface, CFStringRef entity, CFDictionaryRef config);
 
 CFStringRef SCNetworkInterfaceGetBSDName(SCNetworkInterfaceRef interface)
 {
@@ -175,14 +202,141 @@ CFStringRef SCNetworkInterfaceGetHardwareAddressString(SCNetworkInterfaceRef int
 /* Finch's interfaces don't layer (no PPP over Ethernet yet). */
 SCNetworkInterfaceRef SCNetworkInterfaceGetInterface(SCNetworkInterfaceRef interface)
 {
-	validInterface(interface);
-	return NULL;
+	Interface *i = validInterface(interface);
+	return i ? i->child : NULL;
 }
 
 CFDictionaryRef SCNetworkInterfaceGetConfiguration(SCNetworkInterfaceRef interface)
 {
 	Interface *i = validInterface(interface);
-	return i ? i->configuration : NULL;
+	if (!i)
+		return NULL;
+	CFArrayRef paths = interfaceConfigurationPaths(i, defaultConfigurationType(i));
+	CFDictionaryRef config = paths && CFArrayGetCount(paths)
+	    ? SCPreferencesPathGetValue(i->prefs, CFArrayGetValueAtIndex(paths, 0)) : NULL;
+	if (paths)
+		CFRelease(paths);
+	if (config && CFDictionaryGetCount(config) == 0)
+		config = NULL;
+	_SCErrorSet(kSCStatusOK);
+	return config;
+}
+
+CFDictionaryRef SCNetworkInterfaceGetExtendedConfiguration(SCNetworkInterfaceRef interface, CFStringRef extendedType)
+{
+	Interface *i = validInterface(interface);
+	if (!i || !extendedType || CFGetTypeID(extendedType) != CFStringGetTypeID()) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return NULL;
+	}
+	if (!validExtendedConfigurationType(i, extendedType)) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return NULL;
+	}
+	CFArrayRef paths = interfaceConfigurationPaths(i, extendedType);
+	CFDictionaryRef config = paths && CFArrayGetCount(paths)
+	    ? SCPreferencesPathGetValue(i->prefs, CFArrayGetValueAtIndex(paths, 0)) : NULL;
+	if (paths)
+		CFRelease(paths);
+	if (config && CFDictionaryGetCount(config) == 0)
+		config = NULL;
+	_SCErrorSet(kSCStatusOK);
+	return config;
+}
+
+Boolean SCNetworkInterfaceSetConfiguration(SCNetworkInterfaceRef interface, CFDictionaryRef config)
+{
+	Interface *i = validInterface(interface);
+	if (!i || (config && CFGetTypeID(config) != CFDictionaryGetTypeID())) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	return setInterfaceConfiguration(i, defaultConfigurationType(i), config);
+}
+
+Boolean SCNetworkInterfaceSetExtendedConfiguration(SCNetworkInterfaceRef interface, CFStringRef extendedType,
+	    CFDictionaryRef config)
+{
+	Interface *i = validInterface(interface);
+	if (!i || !extendedType || CFGetTypeID(extendedType) != CFStringGetTypeID() ||
+	    (config && CFGetTypeID(config) != CFDictionaryGetTypeID())) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	if (!validExtendedConfigurationType(i, extendedType)) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	return setInterfaceConfiguration(i, extendedType, config);
+}
+
+Boolean SCNetworkInterfaceCopyMTU(SCNetworkInterfaceRef interface, int *current, int *minimum, int *maximum)
+{
+	Interface *i = validInterface(interface);
+	if (!i || !i->bsdName) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	struct ifreq request = {0};
+	if (!CFStringGetCString(i->bsdName, request.ifr_name, sizeof(request.ifr_name), kCFStringEncodingASCII)) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	int fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (fd < 0) {
+		_SCErrorSet(errno);
+		return false;
+	}
+	if (ioctl(fd, SIOCGIFMTU, &request) < 0) {
+		int error = errno;
+		close(fd);
+		_SCErrorSet(error);
+		return false;
+	}
+	int mtu = request.ifr_mtu;
+	if (current) *current = mtu;
+	if (minimum) *minimum = mtu;
+	if (maximum) *maximum = mtu;
+	if ((minimum || maximum) && ioctl(fd, SIOCGIFDEVMTU, &request) == 0) {
+		if (minimum) *minimum = request.ifr_devmtu.ifdm_min > IF_MINMTU ? request.ifr_devmtu.ifdm_min : IF_MINMTU;
+		if (maximum) *maximum = request.ifr_devmtu.ifdm_max;
+		if (minimum && *minimum < IP_MSS) *minimum = IP_MSS;
+		if (minimum && *minimum < IPV6_MMTU) *minimum = IPV6_MMTU;
+		if (minimum && *minimum > mtu) *minimum = mtu;
+		if (minimum && maximum && *minimum > *maximum) *minimum = *maximum;
+	}
+	close(fd);
+	_SCErrorSet(kSCStatusOK);
+	return true;
+}
+
+Boolean SCNetworkInterfaceSetMTU(SCNetworkInterfaceRef interface, int mtu)
+{
+	Interface *i = validInterface(interface);
+	if (!i)
+		return false;
+	int minimum, maximum;
+	if (!SCNetworkInterfaceCopyMTU(interface, NULL, &minimum, &maximum))
+		return false;
+	if (mtu != 0 && (mtu < minimum || mtu > maximum)) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	CFDictionaryRef old = SCNetworkInterfaceGetConfiguration(interface);
+	CFMutableDictionaryRef changed = old ? CFDictionaryCreateMutableCopy(NULL, 0, old)
+	    : CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	CFDictionaryRemoveValue(changed, kSCResvInactive);
+	if (mtu == 0) {
+		CFDictionaryRemoveValue(changed, kSCPropNetEthernetMTU);
+	} else {
+		CFNumberRef number = CFNumberCreate(NULL, kCFNumberIntType, &mtu);
+		CFDictionarySetValue(changed, kSCPropNetEthernetMTU, number);
+		CFRelease(number);
+	}
+	Boolean ok = SCNetworkInterfaceSetConfiguration(interface,
+	    CFDictionaryGetCount(changed) ? changed : NULL);
+	CFRelease(changed);
+	return ok;
 }
 
 CFArrayRef SCNetworkInterfaceGetSupportedInterfaceTypes(SCNetworkInterfaceRef interface)
@@ -205,6 +359,60 @@ CFArrayRef SCNetworkInterfaceGetSupportedProtocolTypes(SCNetworkInterfaceRef int
 	return types;
 }
 
+CFArrayRef SCNetworkInterfaceCopyMediaSubTypes(CFArrayRef available)
+{
+	if (!available || CFGetTypeID(available) != CFArrayGetTypeID()) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return NULL;
+	}
+	CFMutableArrayRef subtypes = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+	for (CFIndex i = 0; i < CFArrayGetCount(available); i++) {
+		CFTypeRef item = CFArrayGetValueAtIndex(available, i);
+		if (CFGetTypeID(item) != CFDictionaryGetTypeID())
+			continue;
+		CFTypeRef subtype = CFDictionaryGetValue(item, kSCPropNetEthernetMediaSubType);
+		if (subtype && CFGetTypeID(subtype) == CFStringGetTypeID() &&
+		    !CFArrayContainsValue(subtypes, CFRangeMake(0, CFArrayGetCount(subtypes)), subtype))
+			CFArrayAppendValue(subtypes, subtype);
+	}
+	if (CFArrayGetCount(subtypes) == 0) {
+		CFRelease(subtypes);
+		_SCErrorSet(kSCStatusOK);
+		return NULL;
+	}
+	_SCErrorSet(kSCStatusOK);
+	return subtypes;
+}
+
+CFArrayRef SCNetworkInterfaceCopyMediaSubTypeOptions(CFArrayRef available, CFStringRef subtype)
+{
+	if (!available || CFGetTypeID(available) != CFArrayGetTypeID() || !subtype ||
+	    CFGetTypeID(subtype) != CFStringGetTypeID()) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return NULL;
+	}
+	CFMutableArrayRef options = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+	for (CFIndex i = 0; i < CFArrayGetCount(available); i++) {
+		CFTypeRef item = CFArrayGetValueAtIndex(available, i);
+		if (CFGetTypeID(item) != CFDictionaryGetTypeID())
+			continue;
+		CFTypeRef itemSubtype = CFDictionaryGetValue(item, kSCPropNetEthernetMediaSubType);
+		CFTypeRef itemOptions = CFDictionaryGetValue(item, kSCPropNetEthernetMediaOptions);
+		if (!itemSubtype || CFGetTypeID(itemSubtype) != CFStringGetTypeID() || !CFEqual(itemSubtype, subtype) ||
+		    !itemOptions || CFGetTypeID(itemOptions) != CFArrayGetTypeID())
+			continue;
+		if (!CFArrayContainsValue(options, CFRangeMake(0, CFArrayGetCount(options)), itemOptions))
+			CFArrayAppendValue(options, itemOptions);
+	}
+	if (CFArrayGetCount(options) == 0) {
+		CFRelease(options);
+		_SCErrorSet(kSCStatusOK);
+		return NULL;
+	}
+	_SCErrorSet(kSCStatusOK);
+	return options;
+}
+
 /* ---- Sets, services and protocols over a preferences session ---- */
 
 typedef struct {
@@ -213,12 +421,13 @@ typedef struct {
 	CFStringRef id;
 	CFStringRef protocolType;   /* protocols: the entity; services: NULL */
 	CFStringRef serviceID;      /* protocols: their service */
+	SCNetworkInterfaceRef interface;
 } NetObject;
 
 static void netFree(CFTypeRef o)
 {
 	NetObject *n = (NetObject *)o;
-	CFTypeRef refs[] = {n->prefs, n->id, n->protocolType, n->serviceID};
+	CFTypeRef refs[] = {n->prefs, n->id, n->protocolType, n->serviceID, n->interface};
 	for (size_t k = 0; k < sizeof(refs) / sizeof(*refs); k++)
 		if (refs[k])
 			CFRelease(refs[k]);
@@ -263,6 +472,147 @@ static CFDictionaryRef pathValue(SCPreferencesRef prefs, CFStringRef fmt, ...)
 	CFRelease(path);
 	return d;
 }
+
+static CFStringRef createChildID(SCPreferencesRef prefs, CFStringRef parent)
+{
+	CFStringRef path = SCPreferencesPathCreateUniqueChild(prefs, parent);
+	if (!path)
+		return NULL;
+	CFArrayRef parts = CFStringCreateArrayBySeparatingStrings(NULL, path, CFSTR("/"));
+	CFRelease(path);
+	CFIndex count = CFArrayGetCount(parts);
+	CFStringRef id = count ? CFRetain(CFArrayGetValueAtIndex(parts, count - 1)) : NULL;
+	CFRelease(parts);
+	return id;
+}
+
+static CFStringRef defaultConfigurationType(Interface *interface)
+{
+	if (CFEqual(interface->type, kSCNetworkInterfaceTypeIEEE80211))
+		return kSCEntNetAirPort;
+	if (CFEqual(interface->type, kSCNetworkInterfaceTypePPP))
+		return kSCEntNetPPP;
+	if (CFEqual(interface->type, kSCNetworkInterfaceTypeEthernet) ||
+	    CFEqual(interface->type, kSCNetworkInterfaceTypeBond) ||
+	    CFEqual(interface->type, kSCNetworkInterfaceTypeBridge) ||
+	    CFEqual(interface->type, kSCNetworkInterfaceTypeVLAN))
+		return kSCEntNetEthernet;
+	if (CFEqual(interface->type, kSCNetworkInterfaceTypeFireWire))
+		return kSCEntNetFireWire;
+	return interface->type;
+}
+
+static bool hasPerInterfaceConfiguration(Interface *interface)
+{
+	return CFEqual(interface->type, kSCNetworkInterfaceTypeEthernet) ||
+	    CFEqual(interface->type, kSCNetworkInterfaceTypeIEEE80211) ||
+	    CFEqual(interface->type, kSCNetworkInterfaceTypeBond) ||
+	    CFEqual(interface->type, kSCNetworkInterfaceTypeBridge) ||
+	    CFEqual(interface->type, kSCNetworkInterfaceTypeVLAN) ||
+	    CFEqual(interface->type, kSCNetworkInterfaceTypeFireWire);
+}
+
+static bool knownConfigurationEntity(CFStringRef entity)
+{
+	return CFEqual(entity, kSCEntNet6to4) || CFEqual(entity, kSCEntNetAirPort) ||
+	    CFEqual(entity, kSCEntNetEthernet) || CFEqual(entity, kSCEntNetFireWire) ||
+	    CFEqual(entity, kSCEntNetIPSec) || CFEqual(entity, kSCEntNetL2TP) ||
+	    CFEqual(entity, kSCEntNetModem) || CFEqual(entity, kSCEntNetPPP) || CFEqual(entity, CFSTR("VPN"));
+}
+
+static bool validExtendedConfigurationType(Interface *interface, CFStringRef entity)
+{
+	if (!entity || CFGetTypeID(entity) != CFStringGetTypeID() || !interface->prefs || !interface->serviceID ||
+	    !hasPerInterfaceConfiguration(interface) || CFEqual(entity, defaultConfigurationType(interface)) ||
+	    knownConfigurationEntity(entity))
+		return false;
+	return true;
+}
+
+static CFArrayRef interfaceConfigurationPaths(Interface *interface, CFStringRef entity)
+{
+	if (!interface || !interface->prefs || !interface->serviceID || !entity ||
+	    CFGetTypeID(entity) != CFStringGetTypeID()) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return NULL;
+	}
+	CFMutableArrayRef paths = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+	if (!hasPerInterfaceConfiguration(interface)) {
+		CFStringRef path = CFStringCreateWithFormat(NULL, NULL, CFSTR("/NetworkServices/%@/%@"),
+		    interface->serviceID, entity);
+		CFArrayAppendValue(paths, path);
+		CFRelease(path);
+		return paths;
+	}
+	if (!interface->bsdName) {
+		CFRelease(paths);
+		_SCErrorSet(kSCStatusNoKey);
+		return NULL;
+	}
+	CFArrayRef sets = SCNetworkSetCopyAll(interface->prefs);
+	CFStringRef target = CFStringCreateWithFormat(NULL, NULL, CFSTR("/NetworkServices/%@"), interface->serviceID);
+	for (CFIndex i = 0; i < CFArrayGetCount(sets); i++) {
+		NetObject *set = (NetObject *)CFArrayGetValueAtIndex(sets, i);
+		CFStringRef membership = CFStringCreateWithFormat(NULL, NULL,
+		    CFSTR("/Sets/%@/Network/Service/%@"), set->id, interface->serviceID);
+		CFStringRef link = SCPreferencesPathGetLink(interface->prefs, membership);
+		CFRelease(membership);
+		if (link && CFEqual(link, target)) {
+			CFStringRef path = CFStringCreateWithFormat(NULL, NULL,
+			    CFSTR("/Sets/%@/Network/Interface/%@/%@"), set->id, interface->bsdName, entity);
+			CFArrayAppendValue(paths, path);
+			CFRelease(path);
+		}
+	}
+	CFRelease(target);
+	CFRelease(sets);
+	if (CFArrayGetCount(paths) == 0) {
+		CFRelease(paths);
+		_SCErrorSet(kSCStatusNoKey);
+		return NULL;
+	}
+	return paths;
+}
+
+static Boolean setInterfaceConfiguration(Interface *interface, CFStringRef entity, CFDictionaryRef config)
+{
+	if (!interface->prefs || !interface->serviceID || !entity ||
+	    (config && CFGetTypeID(config) != CFDictionaryGetTypeID())) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	CFArrayRef paths = interfaceConfigurationPaths(interface, entity);
+	if (!paths)
+		return false;
+	Boolean ok = true;
+	for (CFIndex i = 0; i < CFArrayGetCount(paths); i++) {
+		CFStringRef path = CFArrayGetValueAtIndex(paths, i);
+		if (config && CFDictionaryGetCount(config) > 0) {
+			ok = SCPreferencesPathSetValue(interface->prefs, path, config);
+		} else if (SCPreferencesPathGetValue(interface->prefs, path)) {
+			ok = SCPreferencesPathRemoveValue(interface->prefs, path);
+		} else {
+			_SCErrorSet(kSCStatusOK);
+			ok = true;
+		}
+		if (!ok)
+			break;
+	}
+	CFRelease(paths);
+	if (ok)
+		_SCErrorSet(kSCStatusOK);
+	return ok;
+}
+
+static bool validPrefs(SCPreferencesRef prefs)
+{
+	if (prefs && CFGetTypeID(prefs) == SCPreferencesGetTypeID())
+		return true;
+	_SCErrorSet(kSCStatusInvalidArgument);
+	return false;
+}
+
+static CFDictionaryRef serviceDict(NetObject *n);
 
 static CFComparisonResult compareStrings(const void *a, const void *b, void *context)
 {
@@ -343,6 +693,232 @@ CFArrayRef SCNetworkSetGetServiceOrder(SCNetworkSetRef set)
 	return order && CFGetTypeID(order) == CFArrayGetTypeID() ? order : NULL;
 }
 
+SCNetworkSetRef SCNetworkSetCreate(SCPreferencesRef prefs)
+{
+	if (!validPrefs(prefs))
+		return NULL;
+	CFStringRef setID = createChildID(prefs, CFSTR("/Sets"));
+	if (!setID)
+		return NULL;
+	CFDictionaryRef empty = CFDictionaryCreate(NULL, NULL, NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+	    &kCFTypeDictionaryValueCallBacks);
+	CFStringRef path = CFStringCreateWithFormat(NULL, NULL, CFSTR("/Sets/%@"), setID);
+	Boolean ok = SCPreferencesPathSetValue(prefs, path, empty);
+	CFRelease(path);
+	CFRelease(empty);
+	if (!ok) {
+		CFRelease(setID);
+		return NULL;
+	}
+	NetObject *set = netCreate(SCNetworkSetGetTypeID(), prefs, setID);
+	CFRelease(setID);
+	return (SCNetworkSetRef)set;
+}
+
+Boolean SCNetworkSetSetName(SCNetworkSetRef set, CFStringRef name)
+{
+	NetObject *n = validNet(set, SCNetworkSetGetTypeID());
+	if (!n || (name && CFGetTypeID(name) != CFStringGetTypeID())) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	CFStringRef path = CFStringCreateWithFormat(NULL, NULL, CFSTR("/Sets/%@"), n->id);
+	CFDictionaryRef old = SCPreferencesPathGetValue(n->prefs, path);
+	if (!old) {
+		CFRelease(path);
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	if (name) {
+		CFArrayRef sets = SCNetworkSetCopyAll(n->prefs);
+		for (CFIndex i = 0; i < CFArrayGetCount(sets); i++) {
+			SCNetworkSetRef other = CFArrayGetValueAtIndex(sets, i);
+			if (CFEqual(SCNetworkSetGetSetID(other), n->id))
+				continue;
+			CFStringRef otherName = SCNetworkSetGetName(other);
+			if (otherName && CFEqual(otherName, name)) {
+				CFRelease(sets);
+				CFRelease(path);
+				_SCErrorSet(kSCStatusKeyExists);
+				return false;
+			}
+		}
+		CFRelease(sets);
+	}
+	CFMutableDictionaryRef changed = CFDictionaryCreateMutableCopy(NULL, 0, old);
+	if (name)
+		CFDictionarySetValue(changed, kSCPropUserDefinedName, name);
+	else
+		CFDictionaryRemoveValue(changed, kSCPropUserDefinedName);
+	Boolean ok = SCPreferencesPathSetValue(n->prefs, path, changed);
+	CFRelease(changed);
+	CFRelease(path);
+	return ok;
+}
+
+Boolean SCNetworkSetSetCurrent(SCNetworkSetRef set)
+{
+	NetObject *n = validNet(set, SCNetworkSetGetTypeID());
+	if (!n || !pathValue(n->prefs, CFSTR("/Sets/%@"), n->id)) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	CFStringRef path = CFStringCreateWithFormat(NULL, NULL, CFSTR("/Sets/%@"), n->id);
+	Boolean ok = SCPreferencesSetValue(n->prefs, kSCPrefCurrentSet, path);
+	CFRelease(path);
+	return ok;
+}
+
+Boolean SCNetworkSetSetServiceOrder(SCNetworkSetRef set, CFArrayRef newOrder)
+{
+	NetObject *n = validNet(set, SCNetworkSetGetTypeID());
+	if (!n || !newOrder || CFGetTypeID(newOrder) != CFArrayGetTypeID()) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	if (!pathValue(n->prefs, CFSTR("/Sets/%@"), n->id)) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	CFMutableArrayRef clean = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+	for (CFIndex i = 0; i < CFArrayGetCount(newOrder); i++) {
+		CFTypeRef value = CFArrayGetValueAtIndex(newOrder, i);
+		if (CFGetTypeID(value) != CFStringGetTypeID()) {
+			CFRelease(clean);
+			_SCErrorSet(kSCStatusInvalidArgument);
+			return false;
+		}
+		if (!CFArrayContainsValue(clean, CFRangeMake(0, CFArrayGetCount(clean)), value))
+			CFArrayAppendValue(clean, value);
+	}
+	CFStringRef path = CFStringCreateWithFormat(NULL, NULL, CFSTR("/Sets/%@/Network/Global/IPv4"), n->id);
+	CFDictionaryRef old = SCPreferencesPathGetValue(n->prefs, path);
+	CFMutableDictionaryRef changed = old ? CFDictionaryCreateMutableCopy(NULL, 0, old)
+	    : CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	if (CFArrayGetCount(clean))
+		CFDictionarySetValue(changed, kSCPropNetServiceOrder, clean);
+	else
+		CFDictionaryRemoveValue(changed, kSCPropNetServiceOrder);
+	Boolean ok;
+	if (CFDictionaryGetCount(changed))
+		ok = SCPreferencesPathSetValue(n->prefs, path, changed);
+	else if (old)
+		ok = SCPreferencesPathRemoveValue(n->prefs, path);
+	else {
+		_SCErrorSet(kSCStatusOK);
+		ok = true;
+	}
+	CFRelease(changed);
+	CFRelease(clean);
+	CFRelease(path);
+	return ok;
+}
+
+Boolean SCNetworkSetAddService(SCNetworkSetRef set, SCNetworkServiceRef service)
+{
+	NetObject *s = validNet(set, SCNetworkSetGetTypeID());
+	NetObject *v = validNet(service, SCNetworkServiceGetTypeID());
+	if (!s || !v || s->prefs != v->prefs ||
+	    !pathValue(s->prefs, CFSTR("/Sets/%@"), s->id) || !serviceDict(v)) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	CFStringRef entry = CFStringCreateWithFormat(NULL, NULL, CFSTR("/Sets/%@/Network/Service/%@"), s->id, v->id);
+	CFStringRef link = CFStringCreateWithFormat(NULL, NULL, CFSTR("/NetworkServices/%@"), v->id);
+	CFStringRef old = SCPreferencesPathGetLink(s->prefs, entry);
+	if (old && CFEqual(old, link)) {
+		CFRelease(link);
+		CFRelease(entry);
+		_SCErrorSet(kSCStatusOK);
+		return true;
+	}
+	Boolean ok = SCPreferencesPathSetLink(s->prefs, entry, link);
+	CFRelease(link);
+	CFRelease(entry);
+	if (!ok)
+		return false;
+	CFArrayRef order = SCNetworkSetGetServiceOrder(set);
+	CFMutableArrayRef changed = order ? CFArrayCreateMutableCopy(NULL, 0, order)
+	    : CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+	if (!CFArrayContainsValue(changed, CFRangeMake(0, CFArrayGetCount(changed)), v->id))
+		CFArrayAppendValue(changed, v->id);
+	ok = SCNetworkSetSetServiceOrder(set, changed);
+	CFRelease(changed);
+	return ok;
+}
+
+Boolean SCNetworkSetContainsInterface(SCNetworkSetRef set, SCNetworkInterfaceRef interface)
+{
+	NetObject *n = validNet(set, SCNetworkSetGetTypeID());
+	if (!n || !validInterface(interface))
+		return false;
+	CFArrayRef services = SCNetworkSetCopyServices(set);
+	if (!services)
+		return false;
+	Boolean found = false;
+	for (CFIndex i = 0; i < CFArrayGetCount(services); i++) {
+		SCNetworkInterfaceRef candidate = SCNetworkServiceGetInterface(CFArrayGetValueAtIndex(services, i));
+		if (candidate && CFEqual(candidate, interface)) {
+			found = true;
+			break;
+		}
+	}
+	CFRelease(services);
+	_SCErrorSet(kSCStatusOK);
+	return found;
+}
+
+Boolean SCNetworkSetRemoveService(SCNetworkSetRef set, SCNetworkServiceRef service)
+{
+	NetObject *s = validNet(set, SCNetworkSetGetTypeID());
+	NetObject *v = validNet(service, SCNetworkServiceGetTypeID());
+	if (!s || !v || s->prefs != v->prefs || !serviceDict(v) ||
+	    !pathValue(s->prefs, CFSTR("/Sets/%@"), s->id)) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	CFStringRef entry = CFStringCreateWithFormat(NULL, NULL, CFSTR("/Sets/%@/Network/Service/%@"), s->id, v->id);
+	CFStringRef oldLink = SCPreferencesPathGetLink(s->prefs, entry);
+	Boolean ok = true;
+	if (oldLink)
+		ok = SCPreferencesPathRemoveValue(s->prefs, entry);
+	CFRelease(entry);
+	if (!ok)
+		return false;
+	CFArrayRef order = SCNetworkSetGetServiceOrder(set);
+	if (order) {
+		CFMutableArrayRef changed = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+		for (CFIndex i = 0; i < CFArrayGetCount(order); i++) {
+			CFTypeRef item = CFArrayGetValueAtIndex(order, i);
+			if (!CFEqual(item, v->id))
+				CFArrayAppendValue(changed, item);
+		}
+		ok = SCNetworkSetSetServiceOrder(set, changed);
+		CFRelease(changed);
+	}
+	if (ok)
+		_SCErrorSet(kSCStatusOK);
+	return ok;
+}
+
+Boolean SCNetworkSetRemove(SCNetworkSetRef set)
+{
+	NetObject *n = validNet(set, SCNetworkSetGetTypeID());
+	if (!n) return false;
+	CFStringRef path = CFStringCreateWithFormat(NULL, NULL, CFSTR("/Sets/%@"), n->id);
+	if (!SCPreferencesPathGetValue(n->prefs, path)) {
+		CFRelease(path);
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	CFTypeRef current = SCPreferencesGetValue(n->prefs, kSCPrefCurrentSet);
+	if (current && CFGetTypeID(current) == CFStringGetTypeID() && CFEqual(current, path))
+		SCPreferencesRemoveValue(n->prefs, kSCPrefCurrentSet);
+	Boolean ok = SCPreferencesPathRemoveValue(n->prefs, path);
+	CFRelease(path);
+	return ok;
+}
+
 CFArrayRef SCNetworkSetCopyServices(SCNetworkSetRef set)
 {
 	NetObject *n = validNet(set, SCNetworkSetGetTypeID());
@@ -368,6 +944,53 @@ CFArrayRef SCNetworkSetCopyServices(SCNetworkSetRef set)
 	CFRelease(base);
 	_SCErrorSet(kSCStatusOK);
 	return out;
+}
+
+SCNetworkServiceRef SCNetworkServiceCreate(SCPreferencesRef prefs, SCNetworkInterfaceRef interface)
+{
+	if (!validPrefs(prefs) || !validInterface(interface))
+		return NULL;
+
+	CFDictionaryRef config = ((Interface *)interface)->configuration;
+	CFMutableDictionaryRef newConfig = config ? CFDictionaryCreateMutableCopy(NULL, 0, config)
+	    : CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	Interface *i = (Interface *)interface;
+	if (i->bsdName)
+		CFDictionarySetValue(newConfig, kSCPropNetInterfaceDeviceName, i->bsdName);
+	if (i->type) {
+		CFDictionarySetValue(newConfig, kSCPropNetInterfaceType, i->type);
+		if (CFEqual(i->type, kSCNetworkInterfaceTypeIEEE80211))
+			CFDictionarySetValue(newConfig, kSCPropNetInterfaceHardware, kSCEntNetAirPort);
+		else
+			CFDictionarySetValue(newConfig, kSCPropNetInterfaceHardware, i->type);
+	}
+	if (i->displayName)
+		CFDictionarySetValue(newConfig, kSCPropUserDefinedName, i->displayName);
+
+	CFStringRef serviceID = createChildID(prefs, CFSTR("/NetworkServices"));
+	if (!serviceID) {
+		CFRelease(newConfig);
+		return NULL;
+	}
+	CFMutableDictionaryRef record = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+	    &kCFTypeDictionaryValueCallBacks);
+	CFDictionarySetValue(record, kSCEntNetInterface, newConfig);
+	if (i->displayName)
+		CFDictionarySetValue(record, kSCPropUserDefinedName, i->displayName);
+	CFStringRef path = CFStringCreateWithFormat(NULL, NULL, CFSTR("/NetworkServices/%@"), serviceID);
+	Boolean ok = SCPreferencesPathSetValue(prefs, path, record);
+	CFRelease(path);
+	CFRelease(record);
+	if (!ok) {
+		CFRelease(newConfig);
+		CFRelease(serviceID);
+		return NULL;
+	}
+	NetObject *service = netCreate(SCNetworkServiceGetTypeID(), prefs, serviceID);
+	service->interface = interfaceCreateForService(newConfig, prefs, serviceID);
+	CFRelease(newConfig);
+	CFRelease(serviceID);
+	return (SCNetworkServiceRef)service;
 }
 
 CFArrayRef SCNetworkServiceCopyAll(SCPreferencesRef prefs)
@@ -424,21 +1047,9 @@ SCNetworkInterfaceRef SCNetworkServiceGetInterface(SCNetworkServiceRef service)
 	CFDictionaryRef config = d ? CFDictionaryGetValue(d, kSCEntNetInterface) : NULL;
 	if (!config || CFGetTypeID(config) != CFDictionaryGetTypeID())
 		return NULL;
-	/* Kept for the service's lifetime, as Apple's returns it unretained. */
-	static CFMutableDictionaryRef cache;
-	static dispatch_once_t once;
-	dispatch_once(&once, ^{
-		cache = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-	});
-	SCNetworkInterfaceRef i = _SCNetworkInterfaceCreateFromConfiguration(config);
-	SCNetworkInterfaceRef have = (SCNetworkInterfaceRef)CFDictionaryGetValue(cache, i);
-	if (have) {
-		CFRelease(i);
-		return have;
-	}
-	CFDictionarySetValue(cache, i, i);
-	CFRelease(i);
-	return i;
+	if (!n->interface)
+		n->interface = interfaceCreateForService(config, n->prefs, n->id);
+	return n->interface;
 }
 
 static bool isProtocolEntity(CFStringRef k)
@@ -490,6 +1101,95 @@ SCNetworkProtocolRef SCNetworkServiceCopyProtocol(SCNetworkServiceRef service, C
 static CFDictionaryRef protocolDict(NetObject *p)
 {
 	return p ? pathValue(p->prefs, CFSTR("/NetworkServices/%@/%@"), p->serviceID, p->protocolType) : NULL;
+}
+
+static bool validProtocolType(CFStringRef type)
+{
+	return type && CFGetTypeID(type) == CFStringGetTypeID() && isProtocolEntity(type);
+}
+
+static CFDictionaryRef defaultProtocolConfiguration(CFStringRef type)
+{
+	CFMutableDictionaryRef config = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+	    &kCFTypeDictionaryValueCallBacks);
+	if (CFEqual(type, kSCNetworkProtocolTypeIPv4))
+		CFDictionarySetValue(config, kSCPropNetIPv4ConfigMethod, kSCValNetIPv4ConfigMethodDHCP);
+	else if (CFEqual(type, kSCNetworkProtocolTypeIPv6))
+		CFDictionarySetValue(config, kSCPropNetIPv6ConfigMethod, kSCValNetIPv6ConfigMethodAutomatic);
+	return config;
+}
+
+Boolean SCNetworkServiceAddProtocolType(SCNetworkServiceRef service, CFStringRef protocolType)
+{
+	NetObject *n = validNet(service, SCNetworkServiceGetTypeID());
+	if (!n || !validProtocolType(protocolType)) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	if (!serviceDict(n)) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	CFStringRef path = CFStringCreateWithFormat(NULL, NULL, CFSTR("/NetworkServices/%@/%@"), n->id,
+	    protocolType);
+	if (SCPreferencesPathGetValue(n->prefs, path)) {
+		CFRelease(path);
+		_SCErrorSet(kSCStatusKeyExists);
+		return false;
+	}
+	CFDictionaryRef config = defaultProtocolConfiguration(protocolType);
+	Boolean ok = SCPreferencesPathSetValue(n->prefs, path, config);
+	CFRelease(config);
+	CFRelease(path);
+	return ok;
+}
+
+Boolean SCNetworkServiceRemoveProtocolType(SCNetworkServiceRef service, CFStringRef protocolType)
+{
+	NetObject *n = validNet(service, SCNetworkServiceGetTypeID());
+	if (!n || !validProtocolType(protocolType)) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	if (!serviceDict(n)) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	CFStringRef path = CFStringCreateWithFormat(NULL, NULL, CFSTR("/NetworkServices/%@/%@"), n->id,
+	    protocolType);
+	if (!SCPreferencesPathGetValue(n->prefs, path)) {
+		CFRelease(path);
+		_SCErrorSet(kSCStatusNoKey);
+		return false;
+	}
+	Boolean ok = SCPreferencesPathRemoveValue(n->prefs, path);
+	CFRelease(path);
+	return ok;
+}
+
+Boolean SCNetworkServiceEstablishDefaultConfiguration(SCNetworkServiceRef service)
+{
+	NetObject *n = validNet(service, SCNetworkServiceGetTypeID());
+	if (!n || !serviceDict(n)) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	SCNetworkInterfaceRef interface = SCNetworkServiceGetInterface(service);
+	CFArrayRef types = interface ? SCNetworkInterfaceGetSupportedProtocolTypes(interface) : NULL;
+	if (!types) {
+		_SCErrorSet(kSCStatusFailed);
+		return false;
+	}
+	for (CFIndex i = 0; i < CFArrayGetCount(types); i++) {
+		CFStringRef type = CFArrayGetValueAtIndex(types, i);
+		if (!pathValue(n->prefs, CFSTR("/NetworkServices/%@/%@"), n->id, type)) {
+			if (!SCNetworkServiceAddProtocolType(service, type)) {
+				return false;
+			}
+		}
+	}
+	_SCErrorSet(kSCStatusOK);
+	return true;
 }
 
 CFStringRef SCNetworkProtocolGetProtocolType(SCNetworkProtocolRef protocol)
@@ -585,5 +1285,26 @@ Boolean SCNetworkServiceSetName(SCNetworkServiceRef service, CFStringRef name)
 	Boolean ok = SCPreferencesPathSetValue(n->prefs, path, m);
 	CFRelease(path);
 	CFRelease(m);
+	return ok;
+}
+
+Boolean SCNetworkServiceRemove(SCNetworkServiceRef service)
+{
+	NetObject *n = validNet(service, SCNetworkServiceGetTypeID());
+	if (!n || !serviceDict(n)) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	CFArrayRef sets = SCNetworkSetCopyAll(n->prefs);
+	for (CFIndex i = 0; i < CFArrayGetCount(sets); i++) {
+		if (!SCNetworkSetRemoveService(CFArrayGetValueAtIndex(sets, i), service)) {
+			CFRelease(sets);
+			return false;
+		}
+	}
+	CFRelease(sets);
+	CFStringRef path = CFStringCreateWithFormat(NULL, NULL, CFSTR("/NetworkServices/%@"), n->id);
+	Boolean ok = SCPreferencesPathRemoveValue(n->prefs, path);
+	CFRelease(path);
 	return ok;
 }

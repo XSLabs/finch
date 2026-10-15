@@ -13,6 +13,7 @@
 #include <arpa/inet.h>
 #include <dlfcn.h>
 #include <pwd.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 static NSString *
@@ -285,6 +286,7 @@ preferences(void)
                        @"Network" : @{ @"HostNames" : @{ @"LocalHostName" : @"finch-test" } } },
     };
     [plist writeToFile:path atomically:YES];
+    chmod(path.fileSystemRepresentation, S_IRUSR | S_IWUSR);
     SCPreferencesRef p = SCPreferencesCreate(NULL, CFSTR("finch-sysconfig-test"), (__bridge CFStringRef)path);
     printf("create %d type %d\n", p != NULL, p && CFGetTypeID(p) == SCPreferencesGetTypeID());
     NSArray *keys = CFBridgingRelease(SCPreferencesCopyKeyList(p));
@@ -359,6 +361,8 @@ preferences(void)
     [[NSFileManager defaultManager] removeItemAtPath:own error:NULL];
     [[NSFileManager defaultManager] removeItemAtPath:fresh error:NULL];
 
+    Boolean prefsLocked = SCPreferencesLock(p, false);
+    printf("lock comparison preferences %d\n", prefsLocked);
     printf("== network configuration\n");
     SCNetworkSetRef set = SCNetworkSetCopyCurrent(p);
     printf("current set %d id %s name %s type %d\n", set != NULL, [(__bridge NSString *)SCNetworkSetGetSetID(set) UTF8String],
@@ -394,7 +398,144 @@ preferences(void)
         [ptypes addObject:(__bridge NSString *)SCNetworkProtocolGetProtocolType((__bridge SCNetworkProtocolRef)pr)];
     [ptypes sortUsingSelector:@selector(compare:)];
     printf("protocols %s\n", [ptypes componentsJoinedByString:@","].UTF8String);
+
+    printf("== preference edits\n");
+    SCNetworkInterfaceRef base = SCNetworkServiceGetInterface(byID);
+    CFDictionaryRef oldInterfaceConfig = SCNetworkInterfaceGetConfiguration(base);
+    CFMutableDictionaryRef interfaceConfig = oldInterfaceConfig
+        ? CFDictionaryCreateMutableCopy(NULL, 0, oldInterfaceConfig)
+        : CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(interfaceConfig, CFSTR("FinchTestMarker"), CFSTR("saved"));
+    Boolean interfaceSet = SCNetworkInterfaceSetConfiguration(base, interfaceConfig);
+    printf("interface configuration %d %d\n", interfaceSet,
+           [(__bridge NSString *)CFDictionaryGetValue(SCNetworkInterfaceGetConfiguration(base), CFSTR("FinchTestMarker")) isEqualToString:@"saved"]);
+    Boolean extendedSet = SCNetworkInterfaceSetExtendedConfiguration(base, CFSTR("com.example.FinchTestConfig"), interfaceConfig);
+    CFDictionaryRef extendedConfig = SCNetworkInterfaceGetExtendedConfiguration(base, CFSTR("com.example.FinchTestConfig"));
+    printf("extended interface configuration %d %d\n", extendedSet,
+           [(__bridge NSString *)CFDictionaryGetValue(extendedConfig, CFSTR("FinchTestMarker")) isEqualToString:@"saved"]);
+
+    int currentMTU = 0, minimumMTU = 0, maximumMTU = 0;
+    Boolean copiedMTU = SCNetworkInterfaceCopyMTU(base, &currentMTU, &minimumMTU, &maximumMTU);
+    printf("interface MTU %d %d\n", copiedMTU,
+           copiedMTU && currentMTU > 0 && minimumMTU <= currentMTU && maximumMTU >= currentMTU);
+    Boolean setMTU = copiedMTU && SCNetworkInterfaceSetMTU(base, currentMTU);
+    CFDictionaryRef mtuConfig = SCNetworkInterfaceGetConfiguration(base);
+    CFNumberRef savedMTU = mtuConfig ? CFDictionaryGetValue(mtuConfig, kSCPropNetEthernetMTU) : NULL;
+    int readMTU = 0;
+    Boolean readSetMTU = savedMTU && CFNumberGetValue(savedMTU, kCFNumberIntType, &readMTU) && readMTU == currentMTU;
+    printf("set/read interface MTU %d %d\n", setMTU, readSetMTU);
+    Boolean clearMTU = copiedMTU && SCNetworkInterfaceSetMTU(base, 0);
+    mtuConfig = SCNetworkInterfaceGetConfiguration(base);
+    printf("clear interface MTU %d %d\n", clearMTU,
+           !mtuConfig || !CFDictionaryContainsKey(mtuConfig, kSCPropNetEthernetMTU));
+
+    NSArray *availableMedia = @[
+        @{(__bridge NSString *)kSCPropNetEthernetMediaSubType : @"1000baseT",
+          (__bridge NSString *)kSCPropNetEthernetMediaOptions : @[@"full-duplex"]},
+        @{(__bridge NSString *)kSCPropNetEthernetMediaSubType : @"100baseTX",
+          (__bridge NSString *)kSCPropNetEthernetMediaOptions : @[@"half-duplex"]},
+        @{(__bridge NSString *)kSCPropNetEthernetMediaSubType : @"1000baseT",
+          (__bridge NSString *)kSCPropNetEthernetMediaOptions : @[@"full-duplex"]},
+    ];
+    CFArrayRef mediaSubtypes = SCNetworkInterfaceCopyMediaSubTypes((__bridge CFArrayRef)availableMedia);
+    CFArrayRef mediaOptions = SCNetworkInterfaceCopyMediaSubTypeOptions((__bridge CFArrayRef)availableMedia,
+        CFSTR("1000baseT"));
+    printf("media lists %ld %ld\n", (long)(mediaSubtypes ? CFArrayGetCount(mediaSubtypes) : -1),
+           (long)(mediaOptions ? CFArrayGetCount(mediaOptions) : -1));
+    if (mediaSubtypes) CFRelease(mediaSubtypes);
+    if (mediaOptions) CFRelease(mediaOptions);
+    CFRelease(interfaceConfig);
+
+    CFStringRef uniqueChild = SCPreferencesPathCreateUniqueChild(p, CFSTR("/FinchUnique"));
+    printf("unique preference child %d %d\n", uniqueChild != NULL,
+           uniqueChild && SCPreferencesPathGetValue(p, uniqueChild) != NULL);
+    if (uniqueChild) {
+        SCPreferencesPathRemoveValue(p, uniqueChild);
+        CFRelease(uniqueChild);
+    }
+
+    Boolean addProtocol = SCNetworkServiceAddProtocolType(byID, kSCNetworkProtocolTypeIPv6);
+    SCNetworkProtocolRef addedProtocol = SCNetworkServiceCopyProtocol(byID, kSCNetworkProtocolTypeIPv6);
+    CFDictionaryRef addedConfig = addedProtocol ? SCNetworkProtocolGetConfiguration(addedProtocol) : NULL;
+    printf("add protocol %d method %s enabled %d\n", addProtocol,
+           [(__bridge NSString *)CFDictionaryGetValue(addedConfig, kSCPropNetIPv6ConfigMethod) UTF8String],
+           addedProtocol ? SCNetworkProtocolGetEnabled(addedProtocol) : 0);
+    Boolean duplicateProtocol = SCNetworkServiceAddProtocolType(byID, kSCNetworkProtocolTypeIPv6);
+    int duplicateProtocolError = SCError();
+    printf("duplicate protocol %d error %d\n", duplicateProtocol, duplicateProtocolError);
+
+    SCNetworkServiceRef created = SCNetworkServiceCreate(p, base);
+    printf("create service %d name %d\n", created != NULL,
+           created && SCNetworkServiceGetName(created) != NULL);
+    Boolean defaults = created && SCNetworkServiceEstablishDefaultConfiguration(created);
+    NSArray *defaultProtocols = created ? CFBridgingRelease(SCNetworkServiceCopyProtocols(created)) : @[];
+    NSMutableArray *defaultTypes = [NSMutableArray array];
+    for (id pr in defaultProtocols)
+        [defaultTypes addObject:(__bridge NSString *)SCNetworkProtocolGetProtocolType((__bridge SCNetworkProtocolRef)pr)];
+    [defaultTypes sortUsingSelector:@selector(compare:)];
+    printf("default configuration %d protocols %s\n", defaults, [defaultTypes componentsJoinedByString:@","].UTF8String);
+
+    SCNetworkSetRef editedSet = SCNetworkSetCreate(p);
+    Boolean setNamed = editedSet && SCNetworkSetSetName(editedSet, CFSTR("Finch Test Location"));
+    Boolean setAdded = editedSet && created && SCNetworkSetAddService(editedSet, created);
+    Boolean setAddedAgain = editedSet && created && SCNetworkSetAddService(editedSet, created);
+    Boolean setContains = editedSet && SCNetworkSetContainsInterface(editedSet, base);
+    CFArrayRef editedServices = editedSet ? SCNetworkSetCopyServices(editedSet) : NULL;
+    printf("set create/name/add/repeat/contains/services %d %d %d %d %d %ld\n",
+           editedSet != NULL, setNamed, setAdded, setAddedAgain, setContains,
+           (long)(editedServices ? CFArrayGetCount(editedServices) : -1));
+    if (editedServices) CFRelease(editedServices);
+    CFStringRef createdID = created ? SCNetworkServiceGetServiceID(created) : NULL;
+    const void *orderIDs[] = { createdID, createdID };
+    CFArrayRef duplicateOrder = createdID ? CFArrayCreate(NULL, orderIDs, 2, &kCFTypeArrayCallBacks) : NULL;
+    Boolean orderSet = editedSet && duplicateOrder && SCNetworkSetSetServiceOrder(editedSet, duplicateOrder);
+    CFArrayRef orderRead = editedSet ? SCNetworkSetGetServiceOrder(editedSet) : NULL;
+    printf("service order %d count %ld\n", orderSet, (long)(orderRead ? CFArrayGetCount(orderRead) : -1));
+    if (duplicateOrder) CFRelease(duplicateOrder);
+    Boolean currentSet = editedSet && SCNetworkSetSetCurrent(editedSet);
+    SCNetworkSetRef actualCurrent = SCNetworkSetCopyCurrent(p);
+    printf("current edited set %d\n", currentSet && actualCurrent &&
+           CFEqual(SCNetworkSetGetSetID(actualCurrent), SCNetworkSetGetSetID(editedSet)));
+    if (actualCurrent) CFRelease(actualCurrent);
+
+    Boolean removeFromSet = editedSet && created && SCNetworkSetRemoveService(editedSet, created);
+    Boolean removedContains = editedSet && !SCNetworkSetContainsInterface(editedSet, base);
+    Boolean restoreCurrent = set && SCNetworkSetSetCurrent(set);
+    Boolean removeService = created && SCNetworkServiceRemove(created);
+    SCNetworkServiceRef removed = createdID ? SCNetworkServiceCopy(p, createdID) : NULL;
+    Boolean removeSet = editedSet && SCNetworkSetRemove(editedSet);
+    SCNetworkSetRef removedSet = editedSet ? SCNetworkSetCopy(p, SCNetworkSetGetSetID(editedSet)) : NULL;
+    printf("remove from set/interface/service/set %d %d %d %d %d\n", removeFromSet, removedContains,
+           restoreCurrent, removeService, removed == NULL && removeSet && removedSet == NULL);
+    if (removed) CFRelease(removed);
+    if (removedSet) CFRelease(removedSet);
+    if (editedSet) CFRelease(editedSet);
+    if (created) CFRelease(created);
+
+    Boolean computerName = SCPreferencesSetComputerName(p, CFSTR("Finch Preference Name"), kCFStringEncodingUTF8);
+    Boolean localHostName = SCPreferencesSetLocalHostName(p, CFSTR("finch-preference-host"));
+    Boolean badHostName = SCPreferencesSetLocalHostName(p, CFSTR("not.a.host"));
+    int badHostError = SCError();
+    printf("specific preferences %d %d invalid %d error %d\n", computerName, localHostName,
+           badHostName, badHostError);
+
+    Boolean committed = SCPreferencesCommitChanges(p);
+    Boolean prefsUnlocked = SCPreferencesUnlock(p);
+    SCPreferencesRef reloaded = SCPreferencesCreate(NULL, CFSTR("finch-sysconfig-reloaded"), (__bridge CFStringRef)path);
+    SCNetworkServiceRef persistedService = reloaded ? SCNetworkServiceCopy(reloaded, CFSTR("SVC1")) : NULL;
+    SCNetworkProtocolRef persistedIPv6 = persistedService ? SCNetworkServiceCopyProtocol(persistedService,
+        kSCNetworkProtocolTypeIPv6) : NULL;
+    CFDictionaryRef persistedSystem = reloaded ? SCPreferencesPathGetValue(reloaded, CFSTR("/System/System")) : NULL;
+    CFDictionaryRef persistedHosts = reloaded ? SCPreferencesPathGetValue(reloaded, CFSTR("/System/Network/HostNames")) : NULL;
+    printf("commit/readback/unlock %d %d %d %d %d\n", committed, prefsUnlocked, persistedIPv6 != NULL,
+           [(__bridge NSString *)CFDictionaryGetValue(persistedSystem, kSCPropSystemComputerName) isEqualToString:@"Finch Preference Name"],
+           [(__bridge NSString *)CFDictionaryGetValue(persistedHosts, kSCPropNetLocalHostName) isEqualToString:@"finch-preference-host"]);
+    if (persistedIPv6) CFRelease(persistedIPv6);
+    if (persistedService) CFRelease(persistedService);
+    if (reloaded) CFRelease(reloaded);
+
     if (ipv4) CFRelease(ipv4);
+    if (addedProtocol) CFRelease(addedProtocol);
     if (byID) CFRelease(byID);
     if (set) CFRelease(set);
     CFRelease(p);

@@ -10,6 +10,7 @@
  */
 #import <Foundation/Foundation.h>
 #import <Security/Security.h>
+#import <Security/SecStaticCode.h>
 #include <CommonCrypto/CommonDigest.h>
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
@@ -255,6 +256,19 @@ date(int y, int m, int d)
 }
 
 static void
+print_trust_properties(const char *label, SecTrustRef t)
+{
+    NSArray *properties = CFBridgingRelease(SecTrustCopyProperties(t));
+    printf("%s: properties %lu", label, (unsigned long)properties.count);
+    for (NSDictionary *item in properties) {
+        NSString *title = item[(id)kSecPropertyTypeTitle];
+        NSString *errorText = item[(id)kSecPropertyTypeError];
+        printf(" [%s|%s]", title.UTF8String ?: "-", errorText.UTF8String ?: "-");
+    }
+    printf("\n");
+}
+
+static void
 evaluate(const char *label, SecTrustRef t)
 {
     CFErrorRef err = NULL;
@@ -269,6 +283,7 @@ evaluate(const char *label, SecTrustRef t)
         printf("%s:   %s\n", label, [(__bridge NSString *)s UTF8String]);
         CFRelease(s);
     }
+    print_trust_properties(label, t);
     if (err)
         CFRelease(err);
 }
@@ -282,6 +297,7 @@ trust(void)
     NSArray *certs = @[ (__bridge id)leaf, (__bridge id)root ];
     OSStatus st = SecTrustCreateWithCertificates((__bridge CFArrayRef)certs, ssl, &t);
     printf("create %d type %d\n", (int)st, CFGetTypeID(t) == SecTrustGetTypeID());
+    print_trust_properties("not evaluated", t);
     CFDateRef when = date(2027, 1, 1);
     SecTrustSetVerifyDate(t, when);
     SecTrustSetNetworkFetchAllowed(t, false);
@@ -338,6 +354,36 @@ trust(void)
     CFRelease(when);
     CFRelease(t);
     CFRelease(ssl);
+}
+
+static void
+code_resource(const char *path)
+{
+    NSString *bundlePath = [NSString stringWithUTF8String:path];
+    NSURL *bundleURL = [NSURL fileURLWithPath:bundlePath];
+    NSString *resourcePath = [bundlePath stringByAppendingPathComponent:@"Contents/Resources/marker.txt"];
+    NSData *data = [NSData dataWithContentsOfFile:resourcePath];
+    SecStaticCodeRef code = NULL;
+    OSStatus createStatus = SecStaticCodeCreateWithPath((__bridge CFURLRef)bundleURL, kSecCSDefaultFlags, &code);
+    OSStatus validStatus = code && data
+        ? SecCodeValidateFileResource(code, CFSTR("Resources/marker.txt"), (__bridge CFDataRef)data, kSecCSDefaultFlags)
+        : errSecCSObjectRequired;
+    NSMutableData *changed = [data mutableCopy];
+    if (changed.length)
+        ((uint8_t *)changed.mutableBytes)[0] ^= 0xff;
+    OSStatus changedStatus = code && changed
+        ? SecCodeValidateFileResource(code, CFSTR("Resources/marker.txt"), (__bridge CFDataRef)changed, kSecCSDefaultFlags)
+        : errSecCSObjectRequired;
+    OSStatus missingStatus = code && data
+        ? SecCodeValidateFileResource(code, CFSTR("Resources/missing.txt"), (__bridge CFDataRef)data, kSecCSDefaultFlags)
+        : errSecCSObjectRequired;
+    OSStatus symlinkStatus = code && data
+        ? SecCodeValidateFileResource(code, CFSTR("Resources/link.txt"), (__bridge CFDataRef)data, kSecCSDefaultFlags)
+        : errSecCSObjectRequired;
+    printf("code resource create %d valid %d changed %d missing %d symlink %d\n", (int)createStatus, (int)validStatus,
+           (int)changedStatus, (int)missingStatus, (int)symlinkStatus);
+    if (code)
+        CFRelease(code);
 }
 
 static void
@@ -977,7 +1023,7 @@ identities(void)
 }
 
 int
-main(void)
+main(int argc, const char **argv)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
     Dl_info dl;
@@ -997,6 +1043,8 @@ main(void)
         task();
         authorization();
         access_objects();
+        if (argc > 1)
+            code_resource(argv[1]);
     }
     printf("== done\n");
     return 0;

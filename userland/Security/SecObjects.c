@@ -1249,6 +1249,52 @@ CFDictionaryRef SecTrustCopyResult(SecTrustRef t)
 	CFRelease(n);
 	return d;
 }
+static CFStringRef copyTrustPropertyError(Trust *t)
+{
+	switch (t->status) {
+	case errSecNotTrusted:
+	case errSecCreateChainFailed:
+		return CFRetain(CFSTR("CSSMERR_TP_NOT_TRUSTED"));
+	case errSecCertificateExpired:
+		return CFRetain(CFSTR("CSSMERR_TP_CERT_EXPIRED"));
+	case errSecHostNameMismatch:
+		return CFRetain(CFSTR("Host name mismatch"));
+	default: {
+		CFStringRef message = _SecCopyErrorString(t->status);
+		return message ? message : CFStringCreateWithFormat(NULL, NULL, CFSTR("OSStatus %d"), (int)t->status);
+	}
+	}
+}
+CFArrayRef SecTrustCopyProperties(SecTrustRef ref)
+{
+	if (!valid(ref, SecTrustGetTypeID()))
+		return NULL;
+	Trust *t = (Trust *)ref;
+	CFMutableArrayRef properties = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+	if (t->result == kSecTrustResultInvalid)
+		evaluate(t);
+	CFArrayRef chain = currentChain(t);
+	for (CFIndex i = 0; i < CFArrayGetCount(chain); i++) {
+		SecCertificateRef cert = (SecCertificateRef)CFArrayGetValueAtIndex(chain, i);
+		CFMutableDictionaryRef item = CFDictionaryCreateMutable(
+		    NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		CFStringRef title = SecCertificateCopySubjectSummary(cert);
+		if (title) {
+			CFDictionarySetValue(item, kSecPropertyTypeTitle, title);
+			CFRelease(title);
+		}
+		if (i == 0) {
+			CFStringRef error = copyTrustPropertyError(t);
+			if (error) {
+				CFDictionarySetValue(item, kSecPropertyTypeError, error);
+				CFRelease(error);
+			}
+		}
+		CFArrayAppendValue(properties, item);
+		CFRelease(item);
+	}
+	return properties;
+}
 /* Serialized trust: a binary property list of the certificates, anchors,
  * policy properties and verify date. Finch's own format (Apple's is a DER
  * plist from securityd's encoding); round trips within Finch. */

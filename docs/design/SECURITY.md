@@ -71,6 +71,15 @@ policies. The tests run against Finch's shared frameworks; the root-store test a
 in QEMU (2026-10-11). Passing these tests
 does not establish secure key storage or a complete authorization system.
 
+On 2026-10-15, the Security comparison test also checks macOS-style trust
+property arrays and sealed bundle resource checks. `SecCodeValidateFileResource`
+checks the supplied bytes against the signed resource hash and requires the
+resource to be a plain file in the bundle. XPC-message code lookup remains out
+because Finch has no trustworthy way to read the sender's audit token from an
+XPC message. Apple-format trust exceptions and the old CSSM, search, and
+transform APIs remain unsupported; hardware keys and Apple assessment services
+also remain unavailable.
+
 ## Console access
 
 Normal `finch-init` boots now start `/usr/bin/login`. A missing or failed login
@@ -175,3 +184,12 @@ host. It checks local preferences, refused writes, hostname, real interfaces
 and addresses, pattern queries and the loopback route. The host route check
 needs access outside the network sandbox. All 64 names in the captured
 bundled-app import list are exported. These results were checked on 2026-10-09.
+
+Host API work (2026-10-15) adds editable services, protocols, sets, interface
+settings, computer names and local hostnames through `SCPreferences`. MTU reads
+use the kernel; setting or clearing an MTU changes only the saved preference.
+Media subtype helpers filter and de-duplicate caller-supplied lists. Apple's
+host comparison passes for all 193 lines in `sysconfig-test`; the API audit now
+finds 426 of 467 public C functions. The remaining 41 include bond and VLAN
+controls, link-media controls, PPP layering, daemon-backed connections, and
+legacy refresh calls that need hardware or services Finch does not provide.

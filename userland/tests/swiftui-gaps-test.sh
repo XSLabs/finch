@@ -43,11 +43,32 @@ has stepper "stepper: 1"
 has stepper "stepper: 0"
 has stepper "editing: true"
 
+run checkbox click:118,182 output
+has checkbox "checkbox: true"
+
 run editor click:60,150 type:Finch output
 has editor "editor: FinchEdit me"
 
 run scroll scroll:150,166,0,-90 output
 has scroll "scroll: false -> true"
+
+run bounce-default scroll:150,166,0,90 wait:250 output
+if grep -Fq 'bounce:' "${TMP}/bounce-default.out"; then
+    cat "${TMP}/bounce-default.out"
+    echo "bounce-default: short content should not bounce automatically" >&2
+    exit 1
+fi
+
+run bounce-size scroll:150,166,0,90 wait:250 output
+if grep -Fq 'bounce:' "${TMP}/bounce-size.out"; then
+    cat "${TMP}/bounce-size.out"
+    echo "bounce-size: short content should not bounce when based on size" >&2
+    exit 1
+fi
+
+run bounce-always scroll:150,166,0,90 wait:250 output
+has bounce-always "bounce: false -> true"
+has bounce-always "bounce: true -> false"
 
 run move click:150,172 output
 has move "move: ACB"
@@ -62,4 +83,4 @@ active_count="$(grep -Fc 'hover: active' "${TMP}/hover.out" || true)"
     exit 1
 }
 
-echo "SwiftUI gaps: Canvas fill, Stepper, TextEditor, scroll geometry, collection move, and continuous hover passed"
+echo "SwiftUI gaps: Canvas fill, Stepper, TextEditor, scroll geometry and bounce, checkbox style, collection move, and continuous hover passed"

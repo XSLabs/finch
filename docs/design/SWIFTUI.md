@@ -338,3 +338,17 @@ QuartzCore draws layers through CoreGraphics, and AppKit is Finch's own.
   Coverage moved from 3286 (71%) to 3302 (71%) of 4589 imported symbols. UIKit and Catalyst
   gaps remain outside this Mac pass.
 
+- 2026-10-15: scroll bounce settings and the checkbox toggle style. `.checkbox` draws the
+  bound state with AppKit's native checkbox, including mixed state. `ScrollBounceBehavior`
+  sets bounce rules per axis; Finch's scroll views apply elastic movement for the selected
+  mode, then spring back after the wheel stops. The headless gap test checks a
+  checkbox click, short-content behavior, and the bounce and return under `.always`, along
+  with the earlier SwiftUI gaps. Full import coverage rose from 3302/4589 (71%) to 3310/4589
+  (72%).
+
+  `Text.accessibilityLabel` and `View.tableStyle` remain the next tied gaps, each imported
+  by five apps. Finch's text accessibility resolver does not yet turn a text label into an
+  accessibility string, so adding only the `Text` method would store metadata without
+  giving the accessibility tree a working label. Finch's `Table` also has no style path that
+  changes its layout or drawing, so a public table style would not have real effect yet.
+

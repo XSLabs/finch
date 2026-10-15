@@ -142,3 +142,18 @@ CoreVideo declarations and 717 of 738 CoreMedia declarations exported. Remaining
 CoreVideo gaps are OpenGL and Metal buffer APIs; CoreMedia still lacks multiview
 HEVC tag extraction and the specialized big-endian text, timecode, metadata and
 closed-caption bridge functions.
+
+## 2026-10-15: AudioToolbox C API follow-up
+
+AudioToolbox now creates built-in components through its asynchronous API, reports unit
+property changes, and calls render notifications around each render. `AudioConverterPrepare`
+builds and keeps a filter table for the common 44.1-to-48 kHz float PCM conversion; later
+converters reuse it. AudioFile global queries now report supported file types, their names,
+and their extensions. The comparison tests cover these calls and match Apple's. The audit
+now reports 127 of 365 public functions and variables exported, up from 119.
+
+The remaining gaps include audio-device services Finch cannot provide yet, old component
+and graph APIs, codec plug-ins, and MIDI sequence/player support. The MIDI APIs need a real
+track, event, tempo and playback model; Finch does not have that model yet, so those calls
+remain absent rather than returning pretend success. MP3 and MPEG-4 audio reading also
+waits for the open decoders listed above.

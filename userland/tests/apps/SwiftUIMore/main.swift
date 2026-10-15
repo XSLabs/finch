@@ -175,6 +175,7 @@ private func gapLog(_ message: String) {
 struct SwiftUIGapsView: View {
     @State private var count = 0
     @State private var text = "Edit me"
+    @State private var checked = false
 
     var body: some View {
         let stage = ProcessInfo.processInfo.environment["SWIFTUI_GAPS_STAGE"] ?? "all"
@@ -184,6 +185,12 @@ struct SwiftUIGapsView: View {
                     Text("Count: \(count)")
                 }
                 .onChange(of: count) { _, value in gapLog("stepper: \(value)") }
+            }
+
+            if stage == "checkbox" {
+                Toggle("Checkbox", isOn: $checked)
+                    .toggleStyle(.checkbox)
+                    .onChange(of: checked) { _, value in gapLog("checkbox: \(value)") }
             }
 
             if stage == "all" || stage == "editor" {
@@ -222,8 +229,25 @@ struct SwiftUIGapsView: View {
                     }
                 }
                 .frame(height: 60)
+                .scrollBounceBehavior(.basedOnSize)
                 .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 5 } action: { old, new in
                     gapLog("scroll: \(old) -> \(new)")
+                }
+            }
+
+            if stage == "bounce-default" || stage == "bounce-size" || stage == "bounce-always" {
+                let behavior: ScrollBounceBehavior = switch stage {
+                case "bounce-always": .always
+                case "bounce-size": .basedOnSize
+                default: .automatic
+                }
+                ScrollView {
+                    Text("Short content").frame(height: 30)
+                }
+                .frame(height: 60)
+                .scrollBounceBehavior(behavior)
+                .onScrollGeometryChange(for: Bool.self) { abs($0.contentOffset.y) > 5 } action: { old, new in
+                    gapLog("bounce: \(old) -> \(new)")
                 }
             }
 

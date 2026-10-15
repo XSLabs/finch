@@ -874,3 +874,83 @@ CFStringRef SCPreferencesPathCreateUniqueChild(SCPreferencesRef ref, CFStringRef
 	CFRelease(empty);
 	return path;
 }
+
+static Boolean setNamedPreference(SCPreferencesRef ref, CFStringRef path, CFStringRef key, CFTypeRef value)
+{
+	if (!ref || CFGetTypeID(ref) != SCPreferencesGetTypeID()) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	CFDictionaryRef old = SCPreferencesPathGetValue(ref, path);
+	CFMutableDictionaryRef changed = old ? CFDictionaryCreateMutableCopy(NULL, 0, old)
+	    : CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	if (value)
+		CFDictionarySetValue(changed, key, value);
+	else
+		CFDictionaryRemoveValue(changed, key);
+	Boolean ok = SCPreferencesPathSetValue(ref, path, changed);
+	CFRelease(changed);
+	return ok;
+}
+
+Boolean SCPreferencesSetComputerName(SCPreferencesRef ref, CFStringRef name, CFStringEncoding nameEncoding)
+{
+	if (name && CFGetTypeID(name) != CFStringGetTypeID()) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	if (!ref || CFGetTypeID(ref) != SCPreferencesGetTypeID()) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	if (name && CFStringGetLength(name) == 0)
+		name = NULL;
+	if (!setNamedPreference(ref, CFSTR("/System/System"), kSCPropSystemComputerName, name))
+		return false;
+	if (!name) {
+		if (!setNamedPreference(ref, CFSTR("/System/System"), kSCPropSystemComputerNameEncoding, NULL))
+			return false;
+		return setNamedPreference(ref, CFSTR("/System/System"), CFSTR("ComputerNameRegion"), NULL);
+	}
+	int32_t encoding = (int32_t)nameEncoding;
+	CFNumberRef number = CFNumberCreate(NULL, kCFNumberSInt32Type, &encoding);
+	Boolean ok = setNamedPreference(ref, CFSTR("/System/System"), kSCPropSystemComputerNameEncoding, number);
+	CFRelease(number);
+	return ok && setNamedPreference(ref, CFSTR("/System/System"), CFSTR("ComputerNameRegion"), NULL);
+}
+
+static bool validLocalHostName(CFStringRef name)
+{
+	CFIndex length = CFStringGetLength(name);
+	if (length > 63)
+		return false;
+	for (CFIndex i = 0; i < length; i++) {
+		UniChar c = CFStringGetCharacterAtIndex(name, i);
+		bool letter = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+		bool digit = c >= '0' && c <= '9';
+		if (!letter && !digit && c != '-')
+			return false;
+		if (c == '-' && (i == 0 || i == length - 1))
+			return false;
+	}
+	return true;
+}
+
+Boolean SCPreferencesSetLocalHostName(SCPreferencesRef ref, CFStringRef name)
+{
+	if (name && CFGetTypeID(name) != CFStringGetTypeID()) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	if (!ref || CFGetTypeID(ref) != SCPreferencesGetTypeID()) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	if (name && CFStringGetLength(name) == 0)
+		name = NULL;
+	if (name && !validLocalHostName(name)) {
+		_SCErrorSet(kSCStatusInvalidArgument);
+		return false;
+	}
+	return setNamedPreference(ref, CFSTR("/System/Network/HostNames"), kSCPropNetLocalHostName, name);
+}

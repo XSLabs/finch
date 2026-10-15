@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
 /* Compare PCM, G.711, channel maps and callback conversion with the host. */
 #include <AudioToolbox/AudioToolbox.h>
+#include <dispatch/dispatch.h>
 #include <dlfcn.h>
 #include <math.h>
 #include <stdint.h>
@@ -439,12 +440,27 @@ entrypoints(void)
     check(AudioConverterDispose(c));
 }
 
+static void
+prepare(void)
+{
+    dispatch_semaphore_t completed = dispatch_semaphore_create(0);
+    __block OSStatus result = -1;
+    AudioConverterPrepare(0, NULL, ^(OSStatus status) {
+        result = status;
+        dispatch_semaphore_signal(completed);
+    });
+    long wait = dispatch_semaphore_wait(completed, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
+    printf("prepare %d\n", wait ? -1 : (int)result);
+    dispatch_release(completed);
+}
+
 int
 main(void)
 {
     Dl_info info = {0};
     dladdr((void *)AudioConverterNew, &info);
     printf("AudioConverter: %s\n", info.dli_fname);
+    prepare();
     int16_t *all = malloc(65536 * sizeof(*all));
     if (!all)
         return 1;

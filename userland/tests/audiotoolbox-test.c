@@ -334,6 +334,46 @@ files(void)
         read_back(names[i]);
 }
 
+static void
+global_file_types(void)
+{
+    const AudioFileTypeID types[] = {
+        kAudioFileAIFFType, kAudioFileAIFCType, kAudioFileWAVEType,
+        kAudioFileCAFType, kAudioFileNextType
+    };
+    for (size_t i = 0; i < sizeof types / sizeof types[0]; i++) {
+        CFStringRef name = NULL;
+        UInt32 size = 0;
+        OSStatus sizeStatus = AudioFileGetGlobalInfoSize(kAudioFileGlobalInfo_FileTypeName,
+            sizeof types[i], (void *)&types[i], &size);
+        OSStatus status = sizeStatus ? sizeStatus : AudioFileGetGlobalInfo(kAudioFileGlobalInfo_FileTypeName,
+            sizeof types[i], (void *)&types[i], &size, &name);
+        char text[128] = "";
+        if (name)
+            CFStringGetCString(name, text, sizeof text, kCFStringEncodingUTF8);
+        printf("global file type %s: size %d/%u name %d %s\n", code(types[i]), (int)sizeStatus,
+            (unsigned)size, (int)status, text);
+        if (name)
+            CFRelease(name);
+
+        CFArrayRef extensions = NULL;
+        size = sizeof extensions;
+        status = AudioFileGetGlobalInfo(kAudioFileGlobalInfo_ExtensionsForType,
+            sizeof types[i], (void *)&types[i], &size, &extensions);
+        printf("  extensions %d", (int)status);
+        if (!status && extensions) {
+            for (CFIndex j = 0; j < CFArrayGetCount(extensions); j++) {
+                char extension[32] = "";
+                CFStringGetCString(CFArrayGetValueAtIndex(extensions, j), extension,
+                    sizeof extension, kCFStringEncodingUTF8);
+                printf(" %s", extension);
+            }
+            CFRelease(extensions);
+        }
+        printf("\n");
+    }
+}
+
 int
 main(void)
 {
@@ -343,6 +383,7 @@ main(void)
     printf("%s\n", info.dli_fname);
     formats();
     layouts();
+    global_file_types();
     files();
     return 0;
 }

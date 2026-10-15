@@ -47,11 +47,11 @@ COMPARE=(
     "appkit-text-test|${B}/appkit-text-test.nib" "appkit-document-test|${B}" "nib-test|${B}/nib-test.nib"
     "appkit-layout-test|${B}" "appkit-bindings-test|${B}/appkit-bindings-test.nib" "appkit-panels-test|"
     "textkit2-test|" "appkit-tables-test|" "appkit-containers2-test|" "appkit-controls2-test|" "imagekit-test|"
-    "coreservices-test|build/coreservices-test" "security-test|" "sysconfig-test|" "markdown-test|" "rtf-test|" "filecoordinator-test|" "textfinder-test|" "ruler-test|" "textblock-test|" "combine-test|" "cftokenizer-test|" "urlsession-trust-test|" "urlsession-test|" "swift-overlay-test|" "swift-runtime-test|"
+    "coreservices-test|build/coreservices-test" "security-test|build/userland/apps/SecurityResourceTest.app" "sysconfig-test|" "markdown-test|" "rtf-test|" "filecoordinator-test|" "textfinder-test|" "ruler-test|" "textblock-test|" "combine-test|" "cftokenizer-test|" "urlsession-trust-test|" "urlsession-test|" "swift-overlay-test|" "swift-runtime-test|"
 )
 # Finch-only window-server tests and their expected output
 EXPECT=(window controls-window menu-window text-window panels-window tables-window statusbar drag-window screencapture avplayer opengl)
-FINCH_ONLY=("security-keychain-encryption-test|" "keychain-crypto-test|" "security-keychain-storage-test|" "security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "avaudio-services-test|" "configd-daemon-test|" "console-policy-test|")
+FINCH_ONLY=("security-core-test|" "security-keychain-encryption-test|" "keychain-crypto-test|" "security-keychain-storage-test|" "security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "avaudio-services-test|" "configd-daemon-test|" "console-policy-test|")
 
 want() {
     [[ $# -eq 0 || -z "${SELECTED}" ]] && return 0

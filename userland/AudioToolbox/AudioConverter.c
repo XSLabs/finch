@@ -2,7 +2,9 @@
 /* Audio sample conversion, Finch's. PCM and G.711 need no external codec.
    Integer paths preserve bits; float paths follow the host's rounding and clipping. */
 #include <AudioToolbox/AudioToolbox.h>
+#include <dispatch/dispatch.h>
 #include <math.h>
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -16,6 +18,7 @@ struct OpaqueAudioConverter {
     Float64 initialPhase;
     UInt32 srcRadius, srcTaps;
     Float64 *srcFilter;
+    Boolean sharedSrcFilter;
     Float64 *srcSamples;
     Float64 *ditherError;
     UInt32 srcFrames;
@@ -29,6 +32,21 @@ struct OpaqueAudioConverter {
 #define SRC_QUEUE_FRAMES 384
 #define SRC_CALLBACK_FRAMES 256
 #define SRC_MAX_RADIUS 64
+
+static pthread_mutex_t prepared_filter_lock = PTHREAD_MUTEX_INITIALIZER;
+static Float64 *prepared_44k1_to_48k_filter;
+static OSStatus prepare_common_filter(void);
+
+void
+AudioConverterPrepare(UInt32 inFlags, void *ioReserved, void (^inCompletionBlock)(OSStatus))
+{
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+        OSStatus status = inFlags || ioReserved ? kAudio_ParamError : prepare_common_filter();
+        if (!inCompletionBlock)
+            return;
+        inCompletionBlock(status);
+    });
+}
 
 static bool
 planar(const AudioStreamBasicDescription *a)
@@ -100,11 +118,29 @@ build_src_filter(AudioConverterRef c)
 {
     if (c->input.mSampleRate == c->output.mSampleRate ||
         c->complexity == kAudioConverterSampleRateConverterComplexity_Linear) {
-        free(c->srcFilter);
+        if (!c->sharedSrcFilter)
+            free(c->srcFilter);
         c->srcFilter = NULL;
+        c->sharedSrcFilter = false;
         c->srcRadius = 1;
         c->srcTaps = 2;
         return noErr;
+    }
+    if (c->input.mSampleRate == 44100.0 && c->output.mSampleRate == 48000.0 &&
+        c->complexity == kAudioConverterSampleRateConverterComplexity_Normal &&
+        c->quality == kAudioConverterQuality_Medium) {
+        pthread_mutex_lock(&prepared_filter_lock);
+        Float64 *prepared = prepared_44k1_to_48k_filter;
+        pthread_mutex_unlock(&prepared_filter_lock);
+        if (prepared) {
+            if (!c->sharedSrcFilter)
+                free(c->srcFilter);
+            c->srcFilter = prepared;
+            c->sharedSrcFilter = true;
+            c->srcRadius = 32;
+            c->srcTaps = 64;
+            return noErr;
+        }
     }
     UInt32 radius = c->complexity == kAudioConverterSampleRateConverterComplexity_Mastering ? SRC_MAX_RADIUS :
         c->quality >= kAudioConverterQuality_Max ? SRC_MAX_RADIUS :
@@ -137,10 +173,46 @@ build_src_filter(AudioConverterRef c)
             for (UInt32 tap = 0; tap < taps; tap++)
                 filter[(size_t)phase * taps + tap] /= sum;
     }
-    free(c->srcFilter);
+    if (!c->sharedSrcFilter)
+        free(c->srcFilter);
     c->srcFilter = filter;
+    c->sharedSrcFilter = false;
     c->srcRadius = radius;
     c->srcTaps = taps;
+    return noErr;
+}
+
+static OSStatus
+prepare_common_filter(void)
+{
+    pthread_mutex_lock(&prepared_filter_lock);
+    Boolean alreadyPrepared = prepared_44k1_to_48k_filter != NULL;
+    pthread_mutex_unlock(&prepared_filter_lock);
+    if (alreadyPrepared)
+        return noErr;
+
+    AudioStreamBasicDescription input = {44100.0, kAudioFormatLinearPCM,
+        kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked, 8, 1, 8, 2, 32, 0};
+    AudioStreamBasicDescription output = input;
+    output.mSampleRate = 48000.0;
+    AudioConverterRef converter = NULL;
+    OSStatus status = AudioConverterNew(&input, &output, &converter);
+    if (status)
+        return status;
+
+    Float64 *filter = converter->srcFilter;
+    converter->srcFilter = NULL;
+    AudioConverterDispose(converter);
+    if (!filter)
+        return kAudioConverterErr_FormatNotSupported;
+
+    pthread_mutex_lock(&prepared_filter_lock);
+    if (!prepared_44k1_to_48k_filter) {
+        prepared_44k1_to_48k_filter = filter;
+        filter = NULL;
+    }
+    pthread_mutex_unlock(&prepared_filter_lock);
+    free(filter);
     return noErr;
 }
 
@@ -234,7 +306,8 @@ AudioConverterDispose(AudioConverterRef c)
     free(c->inputList);
     free(c->outputList);
     free(c->srcSamples);
-    free(c->srcFilter);
+    if (!c->sharedSrcFilter)
+        free(c->srcFilter);
     free(c->ditherError);
     free(c->map);
     free(c);

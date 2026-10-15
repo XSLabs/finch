@@ -1584,3 +1584,146 @@ AudioFileSetProperty(AudioFileID inAudioFile, AudioFilePropertyID inPropertyID, 
     }
     return kAudioFileUnsupportedPropertyError;
 }
+
+struct FileTypeInfo {
+    AudioFileTypeID type;
+    const char *name;
+    const char *const *extensions;
+    size_t extensionCount;
+};
+
+static const char *const wave_extensions[] = {"wav"};
+static const char *const aiff_extensions[] = {"aiff", "aif"};
+static const char *const aifc_extensions[] = {"aifc", "aiff", "aif"};
+static const char *const caf_extensions[] = {"caf", "caff"};
+static const char *const next_extensions[] = {"snd", "au"};
+
+static const struct FileTypeInfo file_types[] = {
+    {kAudioFileAIFFType, "AIFF", aiff_extensions, sizeof aiff_extensions / sizeof aiff_extensions[0]},
+    {kAudioFileAIFCType, "AIFC", aifc_extensions, sizeof aifc_extensions / sizeof aifc_extensions[0]},
+    {kAudioFileWAVEType, "WAVE", wave_extensions, sizeof wave_extensions / sizeof wave_extensions[0]},
+    {kAudioFileCAFType, "CAF", caf_extensions, sizeof caf_extensions / sizeof caf_extensions[0]},
+    {kAudioFileNextType, "NeXT/Sun", next_extensions, sizeof next_extensions / sizeof next_extensions[0]},
+};
+
+static const AudioFileTypeID supported_file_types[] = {
+    kAudioFileWAVEType, kAudioFileAIFFType, kAudioFileAIFCType, kAudioFileCAFType, kAudioFileNextType
+};
+
+static const struct FileTypeInfo *
+file_type_info(AudioFileTypeID type)
+{
+    for (size_t i = 0; i < sizeof file_types / sizeof file_types[0]; i++)
+        if (file_types[i].type == type)
+            return &file_types[i];
+    return NULL;
+}
+
+static OSStatus
+global_type_specifier(UInt32 specifierSize, const void *specifier, AudioFileTypeID *type)
+{
+    if (!specifier || specifierSize != sizeof(*type))
+        return kAudio_ParamError;
+    memcpy(type, specifier, sizeof(*type));
+    return file_type_info(*type) ? noErr : kAudioFileUnsupportedFileTypeError;
+}
+
+static CFArrayRef
+copy_type_extensions(const struct FileTypeInfo *info)
+{
+    CFStringRef values[4];
+    const void *items[4];
+    if (info->extensionCount > sizeof values / sizeof values[0])
+        return NULL;
+    for (size_t i = 0; i < info->extensionCount; i++) {
+        values[i] = CFStringCreateWithCString(NULL, info->extensions[i], kCFStringEncodingUTF8);
+        if (!values[i]) {
+            while (i)
+                CFRelease(values[--i]);
+            return NULL;
+        }
+        items[i] = values[i];
+    }
+    CFArrayRef result = CFArrayCreate(NULL, items, info->extensionCount, &kCFTypeArrayCallBacks);
+    for (size_t i = 0; i < info->extensionCount; i++)
+        CFRelease(values[i]);
+    return result;
+}
+
+OSStatus
+AudioFileGetGlobalInfoSize(AudioFilePropertyID inPropertyID, UInt32 inSpecifierSize,
+    void *inSpecifier, UInt32 *outDataSize)
+{
+    if (!outDataSize)
+        return kAudio_ParamError;
+    switch (inPropertyID) {
+    case kAudioFileGlobalInfo_ReadableTypes:
+    case kAudioFileGlobalInfo_WritableTypes:
+        if (inSpecifierSize || inSpecifier)
+            return kAudio_ParamError;
+        *outDataSize = sizeof supported_file_types;
+        return noErr;
+    case kAudioFileGlobalInfo_FileTypeName: {
+        AudioFileTypeID type;
+        OSStatus status = global_type_specifier(inSpecifierSize, inSpecifier, &type);
+        if (status)
+            return status;
+        *outDataSize = sizeof(CFStringRef);
+        return noErr;
+    }
+    case kAudioFileGlobalInfo_ExtensionsForType: {
+        AudioFileTypeID type;
+        OSStatus status = global_type_specifier(inSpecifierSize, inSpecifier, &type);
+        if (status)
+            return status;
+        *outDataSize = sizeof(CFArrayRef);
+        return noErr;
+    }
+    default:
+        return kAudioFileUnsupportedPropertyError;
+    }
+}
+
+OSStatus
+AudioFileGetGlobalInfo(AudioFilePropertyID inPropertyID, UInt32 inSpecifierSize,
+    void *inSpecifier, UInt32 *ioDataSize, void *outPropertyData)
+{
+    if (!ioDataSize || !outPropertyData)
+        return kAudio_ParamError;
+    if (inPropertyID == kAudioFileGlobalInfo_ReadableTypes ||
+        inPropertyID == kAudioFileGlobalInfo_WritableTypes) {
+        if (inSpecifierSize || inSpecifier)
+            return kAudio_ParamError;
+        return give(outPropertyData, ioDataSize, supported_file_types, sizeof supported_file_types);
+    }
+    AudioFileTypeID type;
+    OSStatus status = global_type_specifier(inSpecifierSize, inSpecifier, &type);
+    if (status)
+        return status;
+    const struct FileTypeInfo *info = file_type_info(type);
+    if (inPropertyID == kAudioFileGlobalInfo_FileTypeName) {
+        CFStringRef name = CFStringCreateWithCString(NULL, info->name, kCFStringEncodingUTF8);
+        if (!name)
+            return kAudioFileUnspecifiedError;
+        if (*ioDataSize < sizeof name) {
+            CFRelease(name);
+            return kAudioFileBadPropertySizeError;
+        }
+        *(CFStringRef *)outPropertyData = name;
+        *ioDataSize = sizeof name;
+        return noErr;
+    }
+    if (inPropertyID == kAudioFileGlobalInfo_ExtensionsForType) {
+        CFArrayRef extensions = copy_type_extensions(info);
+        if (!extensions)
+            return kAudioFileUnspecifiedError;
+        if (*ioDataSize < sizeof extensions) {
+            CFRelease(extensions);
+            return kAudioFileBadPropertySizeError;
+        }
+        *(CFArrayRef *)outPropertyData = extensions;
+        *ioDataSize = sizeof extensions;
+        return noErr;
+    }
+    return kAudioFileUnsupportedPropertyError;
+}

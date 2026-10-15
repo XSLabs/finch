@@ -6,6 +6,7 @@
  * attenuates, a pitch shift doubles the frequency, a delay delays).
  */
 #include <AudioToolbox/AudioToolbox.h>
+#include <dispatch/dispatch.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -447,9 +448,103 @@ sampler(void)
     AudioComponentInstanceDispose(u);
 }
 
+struct PropertyObservation {
+    UInt32 calls;
+    AudioUnitScope scope;
+    AudioUnitElement element;
+};
+
+static void
+property_changed(void *context, AudioUnit unit, AudioUnitPropertyID property,
+    AudioUnitScope scope, AudioUnitElement element)
+{
+    (void)unit;
+    (void)property;
+    struct PropertyObservation *observation = context;
+    observation->calls++;
+    observation->scope = scope;
+    observation->element = element;
+}
+
+struct RenderObservation {
+    UInt32 before, after, errors;
+};
+
+static OSStatus
+render_notified(void *context, AudioUnitRenderActionFlags *flags, const AudioTimeStamp *time,
+    UInt32 bus, UInt32 frames, AudioBufferList *data)
+{
+    (void)time;
+    (void)bus;
+    (void)frames;
+    (void)data;
+    struct RenderObservation *observation = context;
+    if (flags && (*flags & kAudioUnitRenderAction_PreRender))
+        observation->before++;
+    if (flags && (*flags & kAudioUnitRenderAction_PostRender))
+        observation->after++;
+    if (flags && (*flags & kAudioUnitRenderAction_PostRenderError))
+        observation->errors++;
+    return noErr;
+}
+
+static void
+api_plumbing(void)
+{
+    AudioComponentDescription description = {'aufx', 'lpas', kAudioUnitManufacturer_Apple, 0, 0};
+    AudioComponent component = AudioComponentFindNext(NULL, &description);
+    dispatch_semaphore_t completed = dispatch_semaphore_create(0);
+    __block AudioComponentInstance instance = NULL;
+    __block OSStatus instantiateStatus = -1;
+    AudioComponentInstantiate(component, 0, ^(AudioComponentInstance result, OSStatus status) {
+        instance = result;
+        instantiateStatus = status;
+        dispatch_semaphore_signal(completed);
+    });
+    long wait = dispatch_semaphore_wait(completed, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
+    printf("component instantiate: %d %d %d\n", wait ? -1 : (int)instantiateStatus,
+        instance != NULL, instance && AudioComponentInstanceGetComponent(instance) == component);
+    if (instance)
+        AudioComponentInstanceDispose(instance);
+    dispatch_release(completed);
+
+    AudioUnit unit = make('aufx', 'lpas');
+    struct PropertyObservation property = {0};
+    OSStatus addProperty = AudioUnitAddPropertyListener(unit, kAudioUnitProperty_StreamFormat,
+        property_changed, &property);
+    AudioStreamBasicDescription format = {0};
+    UInt32 size = sizeof format;
+    AudioUnitGetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0,
+        &format, &size);
+    format.mSampleRate = 48000;
+    OSStatus setProperty = AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat,
+        kAudioUnitScope_Input, 0, &format, sizeof format);
+    OSStatus removeProperty = AudioUnitRemovePropertyListenerWithUserData(unit,
+        kAudioUnitProperty_StreamFormat, property_changed, &property);
+    format.mSampleRate = 32000;
+    OSStatus afterRemove = AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat,
+        kAudioUnitScope_Input, 0, &format, sizeof format);
+    printf("property listener: %d %d calls %u scope %u element %u remove %d after remove %d\n",
+        (int)addProperty, (int)setProperty, property.calls, (unsigned)property.scope,
+        (unsigned)property.element, (int)removeProperty, (int)afterRemove);
+    AudioComponentInstanceDispose(unit);
+
+    unit = make('aufx', 'lpas');
+    struct RenderObservation renderObservation = {0};
+    OSStatus addRender = AudioUnitAddRenderNotify(unit, render_notified, &renderObservation);
+    Source sourceInput = {0, 440, 0.5, 0, 0, 0};
+    OSStatus renderStatus = render(unit, &sourceInput, out, SLICE);
+    OSStatus removeRender = AudioUnitRemoveRenderNotify(unit, render_notified, &renderObservation);
+    printf("render notifications: %d %d before %u after %u errors %u remove %d\n",
+        (int)addRender, (int)renderStatus, renderObservation.before, renderObservation.after,
+        renderObservation.errors, (int)removeRender);
+    AudioComponentInstanceDispose(unit);
+}
+
 int
 main(void)
 {
+    api_plumbing();
     for (size_t i = 0; i < sizeof units / sizeof units[0]; i++)
         describe(units[i][0], units[i][1]);
     filters();

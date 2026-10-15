@@ -3,6 +3,7 @@
    instrument units' processing is in AudioUnitEffects.c. */
 #include <AudioToolbox/AudioToolbox.h>
 #include "AudioUnitEffects.h"
+#include <dispatch/dispatch.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdbool.h>
@@ -14,6 +15,7 @@
 #define FINCH_MAX_INPUTS 16
 #define FINCH_MAX_CHANNELS 32
 #define FINCH_MAX_INSTANCES 256
+#define FINCH_MAX_PROPERTY_LISTENERS 64
 #define FINCH_DEFAULT_MAX_FRAMES 4096
 #define FINCH_MAX_FRAMES 65536
 #define FINCH_MAX_INPUT_FRAMES (1U << 20)
@@ -32,6 +34,23 @@ struct ComponentRecord {
     UInt32 version;
     enum UnitKind kind;
     const struct EffectTable *effect;
+};
+
+struct PropertyListener {
+    AudioUnitPropertyID property;
+    AudioUnitPropertyListenerProc proc;
+    void *userData;
+};
+
+struct RenderNotifier {
+    AURenderCallback proc;
+    void *userData;
+};
+
+struct RenderNotifierSnapshot {
+    struct RenderNotifierSnapshot *next;
+    UInt32 count;
+    struct RenderNotifier notifiers[];
 };
 
 static const struct ComponentRecord base_components[] = {
@@ -104,6 +123,11 @@ struct UnitInstance {
     Float32 *mixScratch;
     struct Effect *effect;
     float *effectOut[FINCH_MAX_CHANNELS];
+    pthread_mutex_t notificationLock;
+    struct PropertyListener propertyListeners[FINCH_MAX_PROPERTY_LISTENERS];
+    UInt32 propertyListenerCount;
+    _Atomic(struct RenderNotifierSnapshot *) renderNotifierSnapshot;
+    struct RenderNotifierSnapshot *renderNotifierSnapshots;
 };
 
 typedef struct {
@@ -348,6 +372,11 @@ AudioComponentInstanceNew(AudioComponent inComponent, AudioComponentInstance *ou
     struct UnitInstance *unit = calloc(1, sizeof(*unit));
     if (!unit)
         return kAudioUnitErr_FailedInitialization;
+    if (pthread_mutex_init(&unit->notificationLock, NULL)) {
+        free(unit);
+        return kAudioUnitErr_FailedInitialization;
+    }
+    atomic_init(&unit->renderNotifierSnapshot, NULL);
     unit->signature = FINCH_UNIT_SIGNATURE;
     unit->component = record;
     unit->inputCount = 1;
@@ -361,6 +390,7 @@ AudioComponentInstanceNew(AudioComponent inComponent, AudioComponentInstance *ou
         format.mFormatFlags |= kAudioFormatFlagIsNonInterleaved;
         format.mBytesPerPacket = format.mBytesPerFrame = 4;
         if (!(unit->effect = _FinchEffectNew(record->effect))) {
+            pthread_mutex_destroy(&unit->notificationLock);
             free(unit);
             return kAudioUnitErr_FailedInitialization;
         }
@@ -380,6 +410,7 @@ AudioComponentInstanceNew(AudioComponent inComponent, AudioComponentInstance *ou
     if (slot == FINCH_MAX_INSTANCES) {
         pthread_mutex_unlock(&instance_registry_lock);
         _FinchEffectDispose(unit->effect);
+        pthread_mutex_destroy(&unit->notificationLock);
         free(unit);
         return kAudioUnitErr_FailedInitialization;
     }
@@ -415,8 +446,32 @@ AudioComponentInstanceDispose(AudioComponentInstance inInstance)
     pthread_mutex_unlock(&instance_registry_lock);
     unit->signature = 0;
     _FinchEffectDispose(unit->effect);
+    struct RenderNotifierSnapshot *snapshot = unit->renderNotifierSnapshots;
+    while (snapshot) {
+        struct RenderNotifierSnapshot *next = snapshot->next;
+        free(snapshot);
+        snapshot = next;
+    }
+    pthread_mutex_destroy(&unit->notificationLock);
     free(unit);
     return noErr;
+}
+
+void
+AudioComponentInstantiate(AudioComponent inComponent, AudioComponentInstantiationOptions inOptions,
+    void (^inCompletionHandler)(AudioComponentInstance, OSStatus))
+{
+    if (!inCompletionHandler)
+        return;
+    const UInt32 validOptions = kAudioComponentInstantiation_LoadOutOfProcess |
+        kAudioComponentInstantiation_LoadInProcess;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+        AudioComponentInstance instance = NULL;
+        OSStatus status = (inOptions & ~validOptions) || inOptions == validOptions ? kAudio_ParamError :
+            AudioComponentInstanceNew(inComponent, &instance);
+        /* The built-in version 2 units have no extension host and use the in-process path. */
+        inCompletionHandler(instance, status);
+    });
 }
 
 AudioComponent
@@ -632,6 +687,164 @@ AudioUnitGetProperty(AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope 
     }
 }
 
+static Boolean
+has_property(struct UnitInstance *unit, AudioUnitPropertyID property)
+{
+    const AudioUnitScope scopes[] = {
+        kAudioUnitScope_Global, kAudioUnitScope_Input, kAudioUnitScope_Output
+    };
+    for (size_t i = 0; i < sizeof scopes / sizeof scopes[0]; i++) {
+        UInt32 size = 0;
+        if (!property_info(unit, property, scopes[i], 0, &size, NULL))
+            return true;
+    }
+    return false;
+}
+
+OSStatus
+AudioUnitAddPropertyListener(AudioUnit inUnit, AudioUnitPropertyID inID,
+    AudioUnitPropertyListenerProc inProc, void *inProcUserData)
+{
+    struct UnitInstance *unit = unit_instance(inUnit);
+    if (!unit || !inProc)
+        return kAudio_ParamError;
+    if (!has_property(unit, inID))
+        return kAudioUnitErr_InvalidProperty;
+    pthread_mutex_lock(&unit->notificationLock);
+    if (unit->propertyListenerCount == FINCH_MAX_PROPERTY_LISTENERS) {
+        pthread_mutex_unlock(&unit->notificationLock);
+        return kAudioUnitErr_FailedInitialization;
+    }
+    unit->propertyListeners[unit->propertyListenerCount++] =
+        (struct PropertyListener){inID, inProc, inProcUserData};
+    pthread_mutex_unlock(&unit->notificationLock);
+    return noErr;
+}
+
+OSStatus
+AudioUnitRemovePropertyListenerWithUserData(AudioUnit inUnit, AudioUnitPropertyID inID,
+    AudioUnitPropertyListenerProc inProc, void *inProcUserData)
+{
+    struct UnitInstance *unit = unit_instance(inUnit);
+    if (!unit || !inProc)
+        return kAudio_ParamError;
+    pthread_mutex_lock(&unit->notificationLock);
+    for (UInt32 i = 0; i < unit->propertyListenerCount; i++) {
+        struct PropertyListener *listener = &unit->propertyListeners[i];
+        if (listener->property == inID && listener->proc == inProc && listener->userData == inProcUserData) {
+            memmove(listener, listener + 1,
+                (unit->propertyListenerCount - i - 1) * sizeof(*listener));
+            unit->propertyListenerCount--;
+            pthread_mutex_unlock(&unit->notificationLock);
+            return noErr;
+        }
+    }
+    pthread_mutex_unlock(&unit->notificationLock);
+    return kAudioUnitErr_InvalidParameter;
+}
+
+OSStatus
+AudioUnitAddRenderNotify(AudioUnit inUnit, AURenderCallback inProc, void *inProcUserData)
+{
+    struct UnitInstance *unit = unit_instance(inUnit);
+    if (!unit || !inProc)
+        return kAudio_ParamError;
+    pthread_mutex_lock(&unit->notificationLock);
+    struct RenderNotifierSnapshot *current = atomic_load_explicit(
+        &unit->renderNotifierSnapshot, memory_order_relaxed);
+    UInt32 count = current ? current->count : 0;
+    if (count == UINT32_MAX) {
+        pthread_mutex_unlock(&unit->notificationLock);
+        return kAudioUnitErr_FailedInitialization;
+    }
+    struct RenderNotifierSnapshot *next = calloc(1, sizeof(*next) +
+        (count + 1) * sizeof(*next->notifiers));
+    if (!next) {
+        pthread_mutex_unlock(&unit->notificationLock);
+        return kAudioUnitErr_FailedInitialization;
+    }
+    next->count = count + 1;
+    if (current)
+        memcpy(next->notifiers, current->notifiers, count * sizeof(*next->notifiers));
+    next->notifiers[count] = (struct RenderNotifier){inProc, inProcUserData};
+    next->next = unit->renderNotifierSnapshots;
+    unit->renderNotifierSnapshots = next;
+    atomic_store_explicit(&unit->renderNotifierSnapshot, next, memory_order_release);
+    pthread_mutex_unlock(&unit->notificationLock);
+    return noErr;
+}
+
+OSStatus
+AudioUnitRemoveRenderNotify(AudioUnit inUnit, AURenderCallback inProc, void *inProcUserData)
+{
+    struct UnitInstance *unit = unit_instance(inUnit);
+    if (!unit || !inProc)
+        return kAudio_ParamError;
+    pthread_mutex_lock(&unit->notificationLock);
+    struct RenderNotifierSnapshot *current = atomic_load_explicit(
+        &unit->renderNotifierSnapshot, memory_order_relaxed);
+    UInt32 count = current ? current->count : 0;
+    for (UInt32 i = 0; i < count; i++) {
+        struct RenderNotifier *notifier = &current->notifiers[i];
+        if (notifier->proc == inProc && notifier->userData == inProcUserData) {
+            struct RenderNotifierSnapshot *next = NULL;
+            if (count > 1) {
+                next = calloc(1, sizeof(*next) + (count - 1) * sizeof(*next->notifiers));
+                if (!next) {
+                    pthread_mutex_unlock(&unit->notificationLock);
+                    return kAudioUnitErr_FailedInitialization;
+                }
+                next->count = count - 1;
+                if (i)
+                    memcpy(next->notifiers, current->notifiers, i * sizeof(*next->notifiers));
+                if (i + 1 < count)
+                    memcpy(next->notifiers + i, current->notifiers + i + 1,
+                        (count - i - 1) * sizeof(*next->notifiers));
+                next->next = unit->renderNotifierSnapshots;
+                unit->renderNotifierSnapshots = next;
+            }
+            atomic_store_explicit(&unit->renderNotifierSnapshot, next, memory_order_release);
+            pthread_mutex_unlock(&unit->notificationLock);
+            return noErr;
+        }
+    }
+    pthread_mutex_unlock(&unit->notificationLock);
+    return kAudioUnitErr_InvalidParameter;
+}
+
+static void
+notify_property(struct UnitInstance *unit, AudioUnitPropertyID property,
+    AudioUnitScope scope, AudioUnitElement element)
+{
+    struct PropertyListener listeners[FINCH_MAX_PROPERTY_LISTENERS];
+    UInt32 count = 0;
+    pthread_mutex_lock(&unit->notificationLock);
+    for (UInt32 i = 0; i < unit->propertyListenerCount; i++)
+        if (unit->propertyListeners[i].property == property)
+            listeners[count++] = unit->propertyListeners[i];
+    pthread_mutex_unlock(&unit->notificationLock);
+    AudioUnit handle = (AudioUnit)(void *)unit;
+    for (UInt32 i = 0; i < count; i++)
+        listeners[i].proc(listeners[i].userData, handle, property, scope, element);
+}
+
+static OSStatus
+notify_render(struct UnitInstance *unit, AudioUnitRenderActionFlags *flags,
+    const AudioTimeStamp *time, UInt32 bus, UInt32 frames, AudioBufferList *data)
+{
+    struct RenderNotifierSnapshot *snapshot = atomic_load_explicit(
+        &unit->renderNotifierSnapshot, memory_order_acquire);
+    if (!snapshot)
+        return noErr;
+    for (UInt32 i = 0; i < snapshot->count; i++) {
+        OSStatus status = snapshot->notifiers[i].proc(snapshot->notifiers[i].userData,
+            flags, time, bus, frames, data);
+        if (status)
+            return status;
+    }
+    return noErr;
+}
+
 OSStatus
 AudioUnitSetProperty(AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope inScope,
     AudioUnitElement inElement, const void *inData, UInt32 inDataSize)
@@ -647,8 +860,12 @@ AudioUnitSetProperty(AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope 
     if (!writable)
         return kAudioUnitErr_PropertyNotWritable;
     /* (an effect's own properties can change while it renders) */
-    if (unit->effect && _FinchEffectPropertyInfo(unit->effect, inID, inScope, inElement, &size, NULL) == noErr)
-        return _FinchEffectSetProperty(unit->effect, inID, inScope, inElement, inData, inDataSize);
+    if (unit->effect && _FinchEffectPropertyInfo(unit->effect, inID, inScope, inElement, &size, NULL) == noErr) {
+        status = _FinchEffectSetProperty(unit->effect, inID, inScope, inElement, inData, inDataSize);
+        if (!status)
+            notify_property(unit, inID, inScope, inElement);
+        return status;
+    }
     if (!inData || inDataSize != size)
         return kAudioUnitErr_InvalidPropertyValue;
     if (unit->initialized)
@@ -667,16 +884,19 @@ AudioUnitSetProperty(AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope 
             unit->inputFormats[inElement] = *format;
         else
             unit->outputFormat = *format;
+        notify_property(unit, inID, inScope, inElement);
         return noErr;
     }
     case kAudioUnitProperty_SetRenderCallback:
         unit->inputCallbacks[inElement] = *(const AURenderCallbackStruct *)inData;
+        notify_property(unit, inID, inScope, inElement);
         return noErr;
     case kAudioUnitProperty_ElementCount: {
         UInt32 count = *(const UInt32 *)inData;
         if (!count || count > FINCH_MAX_INPUTS)
             return kAudioUnitErr_InvalidPropertyValue;
         unit->inputCount = count;
+        notify_property(unit, inID, inScope, inElement);
         return noErr;
     }
     case kAudioUnitProperty_MaximumFramesPerSlice: {
@@ -684,6 +904,7 @@ AudioUnitSetProperty(AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope 
         if (!frames || frames > FINCH_MAX_FRAMES)
             return kAudioUnitErr_InvalidPropertyValue;
         unit->maximumFrames = frames;
+        notify_property(unit, inID, inScope, inElement);
         return noErr;
     }
     case kAudioUnitProperty_RenderQuality: {
@@ -691,6 +912,7 @@ AudioUnitSetProperty(AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope 
         if (quality > 127)
             return kAudioUnitErr_InvalidPropertyValue;
         unit->renderQuality = quality;
+        notify_property(unit, inID, inScope, inElement);
         return noErr;
     }
     default:
@@ -1229,8 +1451,16 @@ AudioUnitRender(AudioUnit inUnit, AudioUnitRenderActionFlags *ioActionFlags,
         return noErr;
     }
 
+    AudioUnitRenderActionFlags notifyFlags = ioActionFlags ? *ioActionFlags : 0;
+    notifyFlags |= kAudioUnitRenderAction_PreRender;
+    OSStatus status = notify_render(unit, &notifyFlags, inTimeStamp, inOutputBusNumber,
+        inNumberFrames, ioData);
+    if (status) {
+        unit->lastRenderError = status;
+        return status;
+    }
+
     unit->lastRenderError = noErr;
-    OSStatus status;
     if (unit->component->kind == UnitEffect) {
         status = render_effect(unit, ioActionFlags, inTimeStamp, inNumberFrames, ioData);
     } else if (unit->component->kind == UnitMixer) {
@@ -1279,6 +1509,14 @@ render_finished:
         if (status && valid_output_list(&unit->outputFormat, inNumberFrames, ioData))
             clear_output_list(&unit->outputFormat, inNumberFrames, ioData);
     }
+    notifyFlags = ioActionFlags ? *ioActionFlags : 0;
+    notifyFlags |= kAudioUnitRenderAction_PostRender;
+    if (status)
+        notifyFlags |= kAudioUnitRenderAction_PostRenderError;
+    OSStatus notifyStatus = notify_render(unit, &notifyFlags, inTimeStamp, inOutputBusNumber,
+        inNumberFrames, ioData);
+    if (!status)
+        status = notifyStatus;
     unit->lastRenderError = status;
     return status;
 }

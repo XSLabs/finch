@@ -450,6 +450,19 @@ $(OUT)/finch-security-test: security-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-unused-result -Wno-deprecated-declarations -o $@ $< -framework Foundation -framework Security
 
+# A signed test bundle with one plain resource for SecCodeValidateFileResource.
+SECURITY_RESOURCE_APP := $(OUT)/apps/SecurityResourceTest.app
+SECURITY_RESOURCE_EXEC := $(SECURITY_RESOURCE_APP)/Contents/MacOS/finch-security-test
+all: $(SECURITY_RESOURCE_EXEC)
+$(SECURITY_RESOURCE_EXEC): $(OUT)/finch-security-test security-resource-fixture/Info.plist security-resource-fixture/marker.txt
+	rm -rf $(SECURITY_RESOURCE_APP)
+	mkdir -p $(SECURITY_RESOURCE_APP)/Contents/MacOS $(SECURITY_RESOURCE_APP)/Contents/Resources
+	cp security-resource-fixture/Info.plist $(SECURITY_RESOURCE_APP)/Contents/Info.plist
+	cp security-resource-fixture/marker.txt $(SECURITY_RESOURCE_APP)/Contents/Resources/marker.txt
+	ln -s marker.txt $(SECURITY_RESOURCE_APP)/Contents/Resources/link.txt
+	cp $(OUT)/finch-security-test $@
+	codesign -f -s - -i org.finch.test.security-resource $(SECURITY_RESOURCE_APP)
+
 $(OUT)/finch-sysconfig-test: sysconfig-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-unused-result -Wno-deprecated-declarations -o $@ $< -framework Foundation -framework SystemConfiguration
@@ -761,7 +774,7 @@ $(OUT)/finch-audiotoolbox-test: audiotoolbox-test.c
 # AudioConverter: compare samples, channel maps and callback reads with the host.
 $(OUT)/finch-audioconverter-test: audioconverter-test.c
 	@mkdir -p $(OUT)
-	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework AudioToolbox
+	$(CC) $(CFLAGS) -fblocks -Wno-deprecated-declarations -o $@ $< -framework AudioToolbox
 
 # Test encrypted bytes without opening any keychain files.
 all: $(OUT)/finch-keychain-crypto-test
@@ -981,7 +994,7 @@ $(OUT)/finch-extaudiofile-test: extaudiofile-test.c
 	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework AudioToolbox -framework CoreFoundation
 $(OUT)/finch-audiounit-effects-test: audiounit-effects-test.c
 	@mkdir -p $(OUT)
-	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework AudioToolbox -framework CoreFoundation
+	$(CC) $(CFLAGS) -fblocks -Wno-deprecated-declarations -o $@ $< -framework AudioToolbox -framework CoreFoundation
 
 $(OUT)/finch-audiounit-test: audiounit-test.c
 	@mkdir -p $(OUT)
