@@ -469,8 +469,10 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         ⌘4, over a detail column as wide as Calculator's keypad) lays the columns out beside
         each other and grows the window to fit them, so the difference is likely macOS 26's
         sidebar floating over the detail column, which Calculator meets through
-        GeometryProxy.safeAreaInsets, where Finch's places the columns side by side; keys typed with finch-app-test's type: don't reach the calculator;
-        the scientific and
+        GeometryProxy.safeAreaInsets, where Finch's places the columns side by side.
+        Typing works (2026-10-15): CalculateUI's editable expression view takes the keys
+        that name calculator keys (7+2= shows 9), and SwiftUI buttons' keyboard shortcuts,
+        with or without modifiers, work anywhere in their window. The scientific and
         programmer keypads took most of a minute to build in QEMU. On the host,
         `SwiftUIKeypad` (a toolbar picker over a Grid of 20 or 60 buttons, timing each
         switch) showed the window never settling after it grew: the toolbar laid its
