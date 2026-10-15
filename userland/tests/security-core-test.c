@@ -84,12 +84,15 @@ int main(void)
 	CFDateRef late = CFDateCreate(NULL, 1000000000);
 	assert(!SecTrustSetVerifyDate(trust, late));
 	assert(!SecTrustEvaluateWithError(trust, NULL));
-	AuthorizationRef auth = (AuthorizationRef)1;
-	assert(AuthorizationCreate(NULL, NULL, 0, &auth) != 0 && auth == NULL);
+	/* as Apple's: an authorization that asks for no rights is made at once, and freed */
+	AuthorizationRef auth = NULL;
+	assert(AuthorizationCreate(NULL, NULL, 0, &auth) == errAuthorizationSuccess && auth);
+	assert(AuthorizationFree(auth, kAuthorizationFlagDefaults) == errAuthorizationSuccess);
+	/* a query names its item class; without one it is a parameter error, before any search */
 	CFTypeRef output = (CFTypeRef)1;
 	CFDictionaryRef query = CFDictionaryCreate(
 	    NULL, NULL, NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-	assert(SecItemCopyMatching(query, &output) == errSecNotAvailable && output == NULL);
+	assert(SecItemCopyMatching(query, &output) == errSecParam && output == NULL);
 	CFRelease(query);
 	CFRelease(late);
 	CFRelease(wrong);
@@ -102,6 +105,6 @@ int main(void)
 	CFRelease(leaf);
 	CFRelease(rd);
 	CFRelease(ld);
-	puts("security-core: PASS (RSA, EC, tampering, trust, denied rights)");
+	puts("security-core: PASS (RSA, EC, tampering, trust, authorization, item queries)");
 	return 0;
 }

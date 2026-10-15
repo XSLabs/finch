@@ -4,6 +4,9 @@
 #include <assert.h>
 #include <stdio.h>
 #include <arpa/inet.h>
+/* Run as root in the VM, with configd running: preferences edited in memory, and the dynamic
+   store taking root's values (Apple's refuse those to other users). Commits are checked by
+   finch-configd-service-test (tools/vm/test-settings.sh), with a configd of its own. */
 int main(void)
 {
 	SCPreferencesRef p = SCPreferencesCreate(
@@ -13,7 +16,6 @@ int main(void)
 	    NULL, NULL, NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 	assert(SCPreferencesSetValue(p, CFSTR("Nested"), empty));
 	assert(SCPreferencesPathGetValue(p, CFSTR("/Nested")));
-	assert(!SCPreferencesCommitChanges(p) && SCError() == kSCStatusNoStoreServer);
 	CFArrayRef keys = SCPreferencesCopyKeyList(p);
 	assert(keys &&
 	    CFArrayContainsValue(keys, CFRangeMake(0, CFArrayGetCount(keys)), CFSTR("Nested")));
@@ -35,8 +37,13 @@ int main(void)
 	assert(values && CFDictionaryGetCount(values) == CFArrayGetCount(keys));
 	CFRelease(values);
 	CFRelease(keys);
-	assert(!SCDynamicStoreSetValue(store, CFSTR("test"), CFSTR("value")) &&
-	    SCError() == kSCStatusNoStoreServer);
+	CFStringRef key = CFSTR("State:/Finch/sysconfig-core-test");
+	assert(SCDynamicStoreSetValue(store, key, CFSTR("value")));
+	CFPropertyListRef got = SCDynamicStoreCopyValue(store, key);
+	assert(got && CFEqual(got, CFSTR("value")));
+	CFRelease(got);
+	assert(SCDynamicStoreRemoveValue(store, key));
+	assert(!SCDynamicStoreCopyValue(store, key));
 	CFRelease(store);
 	struct sockaddr_in address = {.sin_len = sizeof(address), .sin_family = AF_INET};
 	inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
@@ -56,6 +63,6 @@ int main(void)
 	}
 	CFRelease(all);
 	puts(
-	    "sysconfig-core: PASS (preferences, live interfaces, address reads, route, unavailable writes)");
+	    "sysconfig-core: PASS (preferences in memory, live interfaces, address reads, route, store writes)");
 	return 0;
 }

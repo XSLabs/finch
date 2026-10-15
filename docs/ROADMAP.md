@@ -1078,6 +1078,11 @@ that every app works. These release checks were missing from the Phase 5 list:
 - [ ] **System services:** cron, configd, disk mounting and Bonjour; network settings
       that persist and notify apps when they change. Framework clients alone do not
       complete these services. See [Security and SystemConfiguration](design/SECURITY.md).
+      Found in the test pass (2026-10-15): the VM image has no real, root-owned
+      /Library/Preferences/SystemConfiguration, so its configd can't commit system
+      preferences (tools/vm/test-settings.sh runs a configd of its own to check them);
+      and SCPreferences of a root process's own file, which Apple's write in-process,
+      go to configd, which serves only the system folder, and are refused.
 - [ ] **Trust and access:** a maintained system certificate store, persistent key storage,
       authorization, code-signature checks and enforced app restrictions. Test refused
       access as well as allowed access. Finch now has pinned web roots, a file
@@ -1100,8 +1105,9 @@ that every app works. These release checks were missing from the Phase 5 list:
       test the Makefile builds is run by one suite (`--coverage`). Release pass: host 148
       passed; VM 160 passed and the four setup scripts passed. Recorded exceptions:
       `tools/host-test-exceptions.txt` (four frame and window-placement comparisons that
-      only differ while this Mac's main display is 1x) and `tools/vm/vm-test-exceptions.txt`
-      (two tests written before configd and authd ran in the VM). Machine-dependent
+      only differ while this Mac's main display is 1x); `tools/vm/vm-test-exceptions.txt`
+      is empty, since security-core-test and sysconfig-core-test, written before authd
+      and configd ran in the VM, now check them as Apple's behave. Machine-dependent
       fields are masked in both suites (`tools/test-masks.txt`). The pass also fixed
       NSFileCoordinator (a deletion's reacquirer, and an intent, wait for the next
       coordination, as Apple's do), made filecoordinator-test's presenter callbacks and

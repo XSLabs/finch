@@ -2085,6 +2085,10 @@ OSStatus SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result)
 		*result = NULL;
 	if (!isType(query, CFDictionaryGetTypeID()))
 		return errSecParam;
+	/* as Apple's: a query names its class (or the item itself), checked before any search */
+	if (!CFDictionaryGetValue(query, kSecValuePersistentRef) && !CFDictionaryGetValue(query, kSecValueRef) &&
+	    !isClass(CFDictionaryGetValue(query, kClass)))
+		return errSecParam;
 #ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
 	if (keychainServiceActive())
 		return serviceItemCall(CFSTR("item.copy"), query, NULL, result);
