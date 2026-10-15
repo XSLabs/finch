@@ -28,7 +28,17 @@ private struct _FinchButtonStylesKey: EnvironmentKey {
     static var defaultValue: [_FinchAnyButtonStyle] { [] }
 }
 
+private struct _FinchShortcutAnsweredKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 extension EnvironmentValues {
+    /// Inside a button whose keyboard shortcut is answered already.
+    var _finchShortcutAnswered: Bool {
+        get { self[_FinchShortcutAnsweredKey.self] }
+        set { self[_FinchShortcutAnsweredKey.self] = newValue }
+    }
+
     /// The button styles in force, innermost last.
     var _finchButtonStyles: [_FinchAnyButtonStyle] {
         get { self[_FinchButtonStylesKey.self] }
@@ -54,11 +64,22 @@ struct _FinchStyledButton<Label: View>: View {
     var label: Label
     @Environment(\._finchButtonStyles) private var styles
 
+    @Environment(\.keyboardShortcut) private var shortcut
+    @Environment(\._finchShortcutAnswered) private var answered
+
     var body: some View {
         let style = styles.last ?? _FinchAnyButtonStyle(primitive: DefaultButtonStyle())
         style.body(configuration)
             .environment(\._finchButtonStyles, Array(styles.dropLast()))
+            // (a style's own Button(configuration) is a styled button inside this one: the
+            // outermost answers the shortcut)
+            .environment(\._finchShortcutAnswered, answered || shortcut != nil)
             .viewAlias(PrimitiveButtonStyleConfiguration.Label.self) { label }
+            .background {
+                if let shortcut, !answered {
+                    _FinchShortcutResponder(shortcut: shortcut, action: configuration.trigger)
+                }
+            }
     }
 }
 
@@ -120,6 +141,52 @@ struct _FinchPressTracker: NSViewRepresentable {
         view.pressed = { if binding.wrappedValue != $0 { binding.wrappedValue = $0 } }
         view.action = action
     }
+}
+
+/// A button's keyboard shortcut, as Apple's: it works anywhere in the button's window, with or
+/// without modifiers (Calculator's digit keys have none), whatever the button's style.
+struct _FinchShortcutResponder: NSViewRepresentable {
+    var shortcut: KeyboardShortcut
+    var action: () -> Void
+
+    final class ResponderView: NSView {
+        var shortcut: KeyboardShortcut?
+        var isEnabled = true
+        var action: () -> Void = {}
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            guard let shortcut, isEnabled, window != nil, !isHiddenOrHasHiddenAncestor,
+                  _finchMatches(shortcut, event) else { return super.performKeyEquivalent(with: event) }
+            action()
+            return true
+        }
+    }
+
+    func makeNSView(context: Context) -> ResponderView { ResponderView() }
+
+    func updateNSView(_ view: ResponderView, context: Context) {
+        view.shortcut = shortcut
+        view.isEnabled = context.environment.isEnabled
+        view.action = action
+    }
+}
+
+/// Does a key-down event press this shortcut? Its character (as typed, or without modifiers)
+/// and its modifiers; Shift is left out when it only makes the character (+, ?).
+func _finchMatches(_ shortcut: KeyboardShortcut, _ event: NSEvent) -> Bool {
+    let key = String(shortcut.key.character)
+    let typed = event.characters ?? "", plain = event.charactersIgnoringModifiers ?? ""
+    guard key == typed || key.lowercased() == plain.lowercased() else { return false }
+    var wanted: NSEvent.ModifierFlags = []
+    if shortcut.modifiers.contains(.command) { wanted.insert(.command) }
+    if shortcut.modifiers.contains(.option) { wanted.insert(.option) }
+    if shortcut.modifiers.contains(.control) { wanted.insert(.control) }
+    if shortcut.modifiers.contains(.shift) { wanted.insert(.shift) }
+    var have = event.modifierFlags.intersection([.command, .option, .control, .shift])
+    if !wanted.contains(.shift) && key == typed && key != plain { have.remove(.shift) }
+    return have == wanted
 }
 
 // MARK: - The bordered bezel

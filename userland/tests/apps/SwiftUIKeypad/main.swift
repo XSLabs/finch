@@ -137,6 +137,18 @@ struct KeypadView: View {
     }
 }
 
+struct DigitShortcut: ViewModifier {
+    let digit: Int?
+
+    func body(content: Content) -> some View {
+        if let digit, ProcessInfo.processInfo.environment["KEYPAD_KEYS"] != nil {
+            content.keyboardShortcut(KeyEquivalent(Character("\(digit)")), modifiers: [])
+        } else {
+            content
+        }
+    }
+}
+
 struct Keys: View {
     let model: Model
     let pad: Pad
@@ -166,12 +178,16 @@ struct Keys: View {
                         let n = row * pad.columns + column
                         Button {
                             model.display = model.display == "0" ? "\(n)" : model.display + "\(n)"
+                            report("key \(n): display \(model.display)")
                         } label: {
                             Text("\(n)")
                                 .font(.system(size: 18))
                                 .frame(minWidth: 44, maxWidth: .infinity, minHeight: 36)
                         }
                         .buttonStyle(.bordered)
+                        // KEYPAD_KEYS=1: keys 0-9 are their digits' shortcuts with no modifiers, as
+                        // Calculator's are
+                        .modifier(DigitShortcut(digit: n < 10 ? n : nil))
                     }
                 }
             }

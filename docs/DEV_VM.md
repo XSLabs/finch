@@ -234,6 +234,9 @@ An uncaught exception prints its first throw call stack, as on macOS.
 
 Other switches for an AppKit app (they work on the host too):
 
+- `FINCH_TRACE_KEYS=1`: each key-down, the responder it went to, and whether a key
+  equivalent in the window took it when it came back to the window.
+
 - `FINCH_PROFILE_MAIN=SECONDS[,COUNT]`: after that long, samples the main thread COUNT
   times (100) 20 ms apart and prints the functions seen, most frequent first (inclusive,
   then leaf), and how long five blocks sent to the main queue waited. For an app that is

@@ -163,6 +163,74 @@ public struct CalculateExpressionView: View {
             .multilineTextAlignment(textAlignment)
             .frame(maxWidth: .infinity, alignment: frameAlignment)
             .accessibilityLabel(Text(String(expression.accessibilityMathEquationDescription.characters)))
+            .background {
+                if isEditable {
+                    _ExpressionKeys(expression: expression, callback: operationCallback)
+                }
+            }
+    }
+}
+
+/// An editable expression takes what's typed in its window, as Apple's: each key that names a
+/// calculator key is that key's operation, applied to the expression and then reported to the
+/// calculator. (Keys nothing else in the window takes come to its views as key equivalents.)
+struct _ExpressionKeys: NSViewRepresentable {
+    var expression: CalculateExpression
+    var callback: ((CalculateExpression.Operation) -> Void)?
+
+    final class KeyView: NSView {
+        var expression: CalculateExpression?
+        var callback: ((CalculateExpression.Operation) -> Void)?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            guard window != nil, !isHiddenOrHasHiddenAncestor,
+                  event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
+                  let typed = event.characters, typed.count == 1,
+                  let operation = _ExpressionKeys.operation(for: typed.first!), let expression
+            else { return super.performKeyEquivalent(with: event) }
+            if expression.update(operation) {
+                callback?(operation)
+            }
+            return true
+        }
+    }
+
+    static func operation(for c: Character) -> CalculateExpression.Operation? {
+        switch c {
+        case "0": .digit0
+        case "1": .digit1
+        case "2": .digit2
+        case "3": .digit3
+        case "4": .digit4
+        case "5": .digit5
+        case "6": .digit6
+        case "7": .digit7
+        case "8": .digit8
+        case "9": .digit9
+        case ".", ",": .decimal
+        case "+": .add
+        case "-": .subtract
+        case "*": .multiply
+        case "/": .divide
+        case "%": .percent
+        case "^": .power
+        case "(": .openParenthesis
+        case ")": .closeParenthesis
+        case "!": .factorial
+        case "=", "\r", "\u{3}": .equals
+        case "\u{7F}", "\u{8}": .delete
+        case "\u{1B}": .clear
+        default: nil
+        }
+    }
+
+    func makeNSView(context: Context) -> KeyView { KeyView() }
+
+    func updateNSView(_ view: KeyView, context: Context) {
+        view.expression = expression
+        view.callback = callback
     }
 }
 

@@ -2147,6 +2147,10 @@ track(NSView *view, NSPoint inWindow, NSEvent *event, NSInteger window, BOOL inW
         [[self _finchViewAt:[event locationInWindow]] scrollWheel:event];
         break;
     case NSEventTypeKeyDown:
+        /* FINCH_TRACE_KEYS: where key-downs go */
+        if (getenv("FINCH_TRACE_KEYS"))
+            fprintf(stderr, "keys: '%s' flags %#lx to %s\n", [[event characters] UTF8String],
+                    (unsigned long)[event modifierFlags], class_getName([_firstResponder class]));
         if ([event modifierFlags] & NSEventModifierFlagCommand) {
             if ([self performKeyEquivalent:event])
                 break;
@@ -2200,7 +2204,11 @@ track(NSView *view, NSPoint inWindow, NSEvent *event, NSInteger window, BOOL inW
     if ([self _finchKeyViewNavigation:event])
         return;
     /* Keys nothing took: key equivalents without Command (Return for the default button, Escape for Cancel). */
-    if ([self performKeyEquivalent:event])
+    BOOL taken = [self performKeyEquivalent:event];
+    if (getenv("FINCH_TRACE_KEYS"))
+        fprintf(stderr, "keys: '%s' reached the window; key equivalent %s\n", [[event characters] UTF8String],
+                taken ? "taken" : "none");
+    if (taken)
         return;
     NSString *chars = [event charactersIgnoringModifiers];
     if ([chars length] == 1 && [chars characterAtIndex:0] == 0x1b) {
