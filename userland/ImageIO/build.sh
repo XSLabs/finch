@@ -35,7 +35,7 @@ COMMON=(-arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -Os -g -fn
 CFLAGS=("${COMMON[@]}" -std=c17)
 CXXFLAGS=("${COMMON[@]}" -std=c++20 -fno-exceptions -fno-rtti -Wno-missing-field-initializers -Wno-deprecated-anon-enum-enum-conversion
     -I"${SKIA_SRC}" -I"${SKIA_SRC}/third_party/libpng" -I"${EXT}/libpng" -I"${EXT}/libjpeg-turbo/src"
-    -I"${EXT}/zlib" -I"${EXT}/libwebp/src"
+    -I"${EXT}/zlib" -I"${EXT}/libwebp/src" -I"${SDKROOT}/usr/include/libxml2"
     $(cd "${SKIA_SRC}" && bin/gn desc "${SKIA_OBJ}" //:skia defines | grep -v SKIA_IMPLEMENTATION | sed 's/^/-D/'))
 
 log "compiling"
@@ -57,7 +57,7 @@ mkdir -p "${FW}/Versions/A"
     "${SKIA_OBJ}/libskia.a" "${SKIA_OBJ}/libskcms.a" \
     "${SKIA_OBJ}/libpng.a" "${SKIA_OBJ}/libjpeg.a" "${SKIA_OBJ}/libwebp.a" \
     "${SKIA_OBJ}/libwebp_sse41.a" "${SKIA_OBJ}/libwuffs.a" "${SKIA_OBJ}/libzlib.a" \
-    -F"${FWS}" -framework CoreGraphics -framework CoreFoundation -lc++ -lSystem
+    -L"${ROOT}/usr/lib" -lxml2 -F"${FWS}" -framework CoreGraphics -framework CoreFoundation -lc++ -lSystem
 ln -sfn A "${FW}/Versions/Current"
 ln -sfn Versions/Current/ImageIO "${FW}/ImageIO"
 "${FINCH_ROOT}/tools/mkframeworkplist.sh" "${FW}" A ImageIO com.apple.ImageIO ImageIO 3.3.0 2784.4.14 English

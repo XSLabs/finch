@@ -494,3 +494,6 @@ The tests follow Foundation's:
   connected-component grouping; the HDR and display-service gaps need support
   Finch does not yet have. `finch-cg-test` compares these path results with
   Apple's.
+- 2026-10-15: ImageIO now stores metadata tags, reads and writes XMP packets,
+  maps common image properties to metadata tags and runs GIF animation callbacks.
+  All 808 public C declarations are exported, and `imageio-test` matches Apple's.

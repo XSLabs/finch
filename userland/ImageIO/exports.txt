@@ -1,6 +1,7 @@
 _CGImageSource*
 _CGImageDestination*
 _CGImageMetadata*
+_CGAnimateImage*
 _kCGImage*
 _kCGComputeHDRStats
 _kCFErrorDomainCGImageMetadata

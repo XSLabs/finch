@@ -252,7 +252,7 @@ $(OUT)/finch-appkit-draw-test: appkit-draw-test.m
 # (diff host and VM runs; on the host, Finch's with DYLD_FRAMEWORK_PATH).
 $(OUT)/finch-imageio-test: imageio-test.c
 	@mkdir -p $(OUT)
-	$(CC) $(CFLAGS) -Wno-unused-parameter -Wno-deprecated-declarations -o $@ $< -framework ImageIO -framework CoreGraphics -framework CoreFoundation   # deprecated keys are still API
+	$(CC) $(CFLAGS) -fblocks -Wno-unused-parameter -Wno-deprecated-declarations -o $@ $< -framework ImageIO -framework CoreGraphics -framework CoreFoundation   # deprecated keys are still API
 
 # CoreText: fonts, lines, runs, frames (diff host and VM runs).
 $(OUT)/finch-ct-test: ct-test.c

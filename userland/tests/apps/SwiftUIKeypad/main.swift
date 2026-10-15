@@ -95,11 +95,17 @@ struct SplitKeypadView: View {
                     .onChange(of: g.size.width) { sidebarWidth = g.size.width } })
         } detail: {
             // as wide as Calculator's keypad, so the sidebar doesn't fit beside it in the window
-            // (KEYPAD_SPLIT_GRID=1: no minimum, the width the scientific keypad's grid needs)
+            // (KEYPAD_SPLIT_GRID=1: no minimum, the width the scientific keypad's grid needs;
+            // KEYPAD_SPLIT_IGNORE=1: as Calculator, the keypad ignores the safe area and reads
+            // its insets through onGeometryChange)
+            if ProcessInfo.processInfo.environment["KEYPAD_SPLIT_IGNORE"] != nil {
+                IgnoringKeypad(model: model)
+            } else {
             KeypadView(model: model)
                 .frame(minWidth: ProcessInfo.processInfo.environment["KEYPAD_SPLIT_GRID"] != nil ? nil : 760)
                 .background(GeometryReader { g in Color.clear.onAppear { detailWidth = g.size.width; detailInset = g.safeAreaInsets.leading }
                     .onChange(of: g.size.width) { detailWidth = g.size.width; detailInset = g.safeAreaInsets.leading } })
+            }
         }
         .onAppear {
             guard ProcessInfo.processInfo.environment["KEYPAD_SPLIT"] == "probe" else { return }
@@ -117,6 +123,25 @@ struct SplitKeypadView: View {
                 }
             }
         }
+    }
+}
+
+/// The keypad under a safe area it ignores, padded by the insets onGeometryChange reports.
+struct IgnoringKeypad: View {
+    let model: Model
+    @State private var insets = EdgeInsets()
+    @State private var size = CGSize.zero
+
+    var body: some View {
+        KeypadView(model: model)
+            .padding(.leading, insets.leading)
+            .ignoresSafeArea()
+            .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets = $0 }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: {
+                size = $0
+                report("ignoring keypad: size \(Int($0.width))x\(Int($0.height)) insets \(Int(insets.leading)) top \(Int(insets.top))")
+            }
+            .onChange(of: insets) { report("ignoring keypad: insets leading \(Int(insets.leading)) top \(Int(insets.top)) size \(Int(size.width))") }
     }
 }
 

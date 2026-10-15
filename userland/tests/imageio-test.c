@@ -21,6 +21,7 @@
 #include <ImageIO/ImageIO.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <dlfcn.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -3370,6 +3371,135 @@ constants(void)
         printf("%s = %s\n", consts[i].name, cstr(*consts[i].value));
 }
 
+static void
+metadata(void)
+{
+    CGMutableImageMetadataRef m = CGImageMetadataCreateMutable();
+    CFNumberRef orientation = inum(6);
+    CGImageMetadataTagRef tag = CGImageMetadataTagCreate(kCGImageMetadataNamespaceTIFF, NULL, CFSTR("Orientation"),
+        kCGImageMetadataTypeDefault, orientation);
+    printf("metadata types: %d %d\n", CFGetTypeID(m) == CGImageMetadataGetTypeID(),
+        CFGetTypeID(tag) == CGImageMetadataTagGetTypeID());
+    CFStringRef prefix = CGImageMetadataTagCopyPrefix(tag), xmlns = CGImageMetadataTagCopyNamespace(tag);
+    CFStringRef name = CGImageMetadataTagCopyName(tag), value = CGImageMetadataTagCopyValue(tag);
+    printf("tag: %s %s %s %d %s\n", cstr(prefix), cstr(xmlns), cstr(name), (int)CGImageMetadataTagGetType(tag), cstr(value));
+    CFRelease(prefix); CFRelease(xmlns); CFRelease(name); CFRelease(value);
+    printf("set tag: %d\n", CGImageMetadataSetTagWithPath(m, NULL, CFSTR("tiff:Orientation"), tag));
+    printf("tag value: %s\n", cstr(CGImageMetadataCopyStringValueWithPath(m, NULL, CFSTR("tiff:Orientation"))));
+    CFArrayRef tags = CGImageMetadataCopyTags(m);
+    printf("tag count: %ld\n", (long)CFArrayGetCount(tags));
+    __block int visited = 0;
+    CGImageMetadataEnumerateTagsUsingBlock(m, NULL, NULL, ^bool(CFStringRef path, CGImageMetadataTagRef found) {
+        visited++;
+        CFStringRef name = CGImageMetadataTagCopyName(found);
+        printf("enumerated: %s %s\n", cstr(path), cstr(name));
+        CFRelease(name);
+        return true;
+    });
+    printf("enumerated count: %d\n", visited);
+
+    CFErrorRef error = NULL;
+    bool registered = CGImageMetadataRegisterNamespaceForPrefix(m, CFSTR("urn:finch:one"), CFSTR("finch"), &error);
+    bool conflict = CGImageMetadataRegisterNamespaceForPrefix(m, CFSTR("urn:finch:two"), CFSTR("finch"), &error);
+    printf("namespace registration: %d %d %ld\n", registered, conflict, error ? (long)CFErrorGetCode(error) : -1L);
+    if (error) CFRelease(error);
+
+    CFDataRef packet = CGImageMetadataCreateXMPData(m, NULL);
+    CGImageMetadataRef parsed = packet ? CGImageMetadataCreateFromXMPData(packet) : NULL;
+    CFStringRef parsedValue = parsed ? CGImageMetadataCopyStringValueWithPath(parsed, NULL, CFSTR("tiff:Orientation")) : NULL;
+    printf("xmp round trip: %d %s\n", parsed != NULL, cstr(parsedValue));
+    if (parsedValue) CFRelease(parsedValue);
+
+    CGMutableImageMetadataRef copy = CGImageMetadataCreateMutableCopy(m);
+    CFArrayRef copiedTags = CGImageMetadataCopyTags(copy);
+    printf("mutable copy: %ld\n", (long)CFArrayGetCount(copiedTags));
+    CFRelease(copiedTags);
+    printf("image property set: %d\n", CGImageMetadataSetValueMatchingImageProperty(copy, kCGImagePropertyTIFFDictionary,
+        kCGImagePropertyTIFFMake, CFSTR("Finch")));
+    CGImageMetadataTagRef mapped = CGImageMetadataCopyTagMatchingImageProperty(copy, kCGImagePropertyTIFFDictionary,
+        kCGImagePropertyTIFFMake);
+    CFStringRef mappedName = CGImageMetadataTagCopyName(mapped), mappedValue = CGImageMetadataTagCopyValue(mapped);
+    printf("image property tag: %s %s\n", cstr(mappedName), cstr(mappedValue));
+    CFRelease(mappedName); CFRelease(mappedValue);
+    bool removed = CGImageMetadataRemoveTagWithPath(copy, NULL, CFSTR("tiff:Orientation"));
+    copiedTags = CGImageMetadataCopyTags(copy);
+    printf("remove tag: %d %ld\n", removed, (long)CFArrayGetCount(copiedTags));
+    CFRelease(copiedTags);
+
+    if (mapped) CFRelease(mapped);
+    if (copy) CFRelease(copy);
+    if (parsed) CFRelease(parsed);
+    if (packet) CFRelease(packet);
+    if (tags) CFRelease(tags);
+    if (tag) CFRelease(tag);
+    if (orientation) CFRelease(orientation);
+    if (m) CFRelease(m);
+}
+
+static void
+animation(void)
+{
+    CFDataRef data = file_data("anim.gif");
+    CFMutableDictionaryRef options = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks);
+    CFNumberRef zero = num(0);
+    CFDictionarySetValue(options, kCGImageAnimationDelayTime, zero);
+    __block int dataFrames = 0;
+    __block size_t dataIndex = SIZE_MAX;
+    OSStatus dataStatus = CGAnimateImageDataWithBlock(data, options, ^(size_t index, CGImageRef image, bool *stop) {
+        (void)image;
+        dataFrames++;
+        dataIndex = index;
+        *stop = true;
+    });
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
+    printf("image animation data: %d %d %zu\n", (int)dataStatus, dataFrames, dataIndex);
+
+    char cwd[PATH_MAX];
+    char path[PATH_MAX];
+    if (getcwd(cwd, sizeof cwd) && snprintf(path, sizeof path, "%s/build/imageio-animation.gif", cwd) < (int)sizeof path) {
+        FILE *file = fopen(path, "wb");
+        if (file) {
+            fwrite(CFDataGetBytePtr(data), 1, (size_t)CFDataGetLength(data), file);
+            fclose(file);
+        }
+        CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)path, strlen(path), false);
+        __block int urlFrames = 0;
+        __block size_t urlIndex = SIZE_MAX;
+        OSStatus urlStatus = CGAnimateImageAtURLWithBlock(url, options, ^(size_t index, CGImageRef image, bool *stop) {
+            (void)image;
+            urlFrames++;
+            urlIndex = index;
+            *stop = true;
+        });
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
+        printf("image animation url: %d %d %zu\n", (int)urlStatus, urlFrames, urlIndex);
+        unlink(path);
+        if (url) CFRelease(url);
+    } else {
+        printf("image animation url: unavailable\n");
+    }
+
+    CFDataRef nullData = NULL;
+    OSStatus nullStatus = CGAnimateImageDataWithBlock(nullData, NULL, ^(size_t index, CGImageRef image, bool *stop) {
+        (void)index;
+        (void)image;
+        *stop = true;
+    });
+    printf("image animation null data: %d\n", (int)nullStatus);
+    CFDataRef still = file_data("rgb8.png");
+    OSStatus stillStatus = CGAnimateImageDataWithBlock(still, NULL, ^(size_t index, CGImageRef image, bool *stop) {
+        (void)index;
+        (void)image;
+        *stop = true;
+    });
+    printf("image animation png: %d\n", (int)stillStatus);
+    CFRelease(still);
+    CFRelease(zero);
+    CFRelease(options);
+    CFRelease(data);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -3390,6 +3520,8 @@ main(int argc, char **argv)
     thumbnails();
     incrementals();
     destinations();
+    animation();
+    metadata();
     constants();
     return 0;
 }

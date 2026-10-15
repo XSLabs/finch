@@ -205,6 +205,11 @@ still link. That's the work list for "nothing closed". On 2026-10-08 it found 14
   `CFLocaleCopyCurrent` was the empty root locale. Patch 0008 reads `AppleLocale` and the
   user's overrides (measurement and temperature units, first weekday, 12/24-hour time,
   ICU format strings, languages, collation), as Apple's CoreFoundation does.
+- 2026-10-15: typed allocator helpers, checked variadic formatting, localized bundle
+  lookup and the calendar and user-notification key strings now match Apple's in
+  `cf-test`. The public C API audit has 1,146 of 1,193 entries; the 47 remaining need
+  CFXML, bundle resource maps and load checks, user-notification services, or locale
+  hyphenation support.
 
 ## Run-time loads of closed frameworks
 

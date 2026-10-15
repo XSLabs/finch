@@ -20,7 +20,9 @@ CFTypeRef _CFXPCCreateCFObjectFromXPCObject(xpc_object_t);
 xpc_object_t _CFXPCCreateXPCMessageWithCFObject(CFTypeRef);
 CFTypeRef _CFXPCCreateCFObjectFromXPCMessage(xpc_object_t);
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 static int failures;
@@ -194,6 +196,128 @@ time_and_locale(void)
 	    && !CFCharacterSetIsCharacterMember(CFCharacterSetGetPredefined(kCFCharacterSetLetter), '1'));
 }
 
+static CFStringRef
+validated_string(CFStringRef allowed, CFStringRef format, CFErrorRef *error, ...)
+{
+	va_list arguments;
+	va_start(arguments, error);
+	CFStringRef result = CFStringCreateStringWithValidatedFormatAndArguments(NULL, NULL, allowed, format, arguments, error);
+	va_end(arguments);
+	return result;
+}
+
+static Boolean
+write_test_file(const char *path, const char *contents)
+{
+	FILE *file = fopen(path, "w");
+	if (!file)
+		return false;
+	Boolean ok = fputs(contents, file) >= 0 && fclose(file) == 0;
+	return ok;
+}
+
+static void
+public_c_apis(void)
+{
+	void *typed = CFAllocatorAllocateTyped(kCFAllocatorSystemDefault, 8, 0x434654455354ULL, 0);
+	if (typed)
+		((unsigned char *)typed)[0] = 0x5a;
+	typed = CFAllocatorReallocateTyped(kCFAllocatorSystemDefault, typed, 16, 0x434654455354ULL, 0);
+	printf("typed allocator: %d %d\n", typed != NULL, typed && ((unsigned char *)typed)[0] == 0x5a);
+	CFAllocatorDeallocate(kCFAllocatorSystemDefault, typed);
+	void *bytes = CFAllocatorAllocateBytes(kCFAllocatorSystemDefault, 8, 0);
+	bytes = CFAllocatorReallocateBytes(kCFAllocatorSystemDefault, bytes, 16, 0);
+	printf("byte allocator: %d\n", bytes != NULL);
+	CFAllocatorDeallocate(kCFAllocatorSystemDefault, bytes);
+
+	CFErrorRef error = NULL;
+	CFStringRef formatted = validated_string(CFSTR("d@"), CFSTR("value %d %@"), &error, 17, CFSTR("ok"));
+	put("validated format", formatted);
+	if (formatted)
+		CFRelease(formatted);
+	if (error) {
+		CFRelease(error);
+		error = NULL;
+	}
+	formatted = validated_string(CFSTR("d"), CFSTR("%s"), &error, "unused");
+	printf("validated rejects disallowed: %d\n", formatted == NULL);
+	if (formatted)
+		CFRelease(formatted);
+	if (error)
+		CFRelease(error);
+
+	put("calendar bangla", kCFBanglaCalendar);
+	put("calendar dangi", kCFDangiCalendar);
+	put("calendar gujarati", kCFGujaratiCalendar);
+	put("calendar kannada", kCFKannadaCalendar);
+	put("calendar malayalam", kCFMalayalamCalendar);
+	put("calendar marathi", kCFMarathiCalendar);
+	put("calendar odia", kCFOdiaCalendar);
+	put("calendar tamil", kCFTamilCalendar);
+	put("calendar telugu", kCFTeluguCalendar);
+	put("calendar vietnamese", kCFVietnameseCalendar);
+	put("calendar vikram", kCFVikramCalendar);
+
+	put("notification topmost", kCFUserNotificationAlertTopMostKey);
+	put("notification alternate", kCFUserNotificationAlternateButtonTitleKey);
+	put("notification checkboxes", kCFUserNotificationCheckBoxTitlesKey);
+	put("notification default", kCFUserNotificationDefaultButtonTitleKey);
+	put("notification icon", kCFUserNotificationIconURLKey);
+	put("notification keyboards", kCFUserNotificationKeyboardTypesKey);
+	put("notification localization", kCFUserNotificationLocalizationURLKey);
+	put("notification other", kCFUserNotificationOtherButtonTitleKey);
+	put("notification popup selection", kCFUserNotificationPopUpSelectionKey);
+	put("notification popup titles", kCFUserNotificationPopUpTitlesKey);
+	put("notification progress", kCFUserNotificationProgressIndicatorValueKey);
+	put("notification sound", kCFUserNotificationSoundURLKey);
+	put("notification text titles", kCFUserNotificationTextFieldTitlesKey);
+	put("notification text values", kCFUserNotificationTextFieldValuesKey);
+
+	char root[] = "/tmp/finch-cf-localization.XXXXXX";
+	char bundlePath[PATH_MAX], contentsPath[PATH_MAX], resourcesPath[PATH_MAX];
+	char enPath[PATH_MAX], frPath[PATH_MAX], infoPath[PATH_MAX], enStrings[PATH_MAX], frStrings[PATH_MAX];
+	Boolean made = mkdtemp(root) != NULL;
+	if (made) {
+		snprintf(bundlePath, sizeof(bundlePath), "%s/Sample.bundle", root);
+		snprintf(contentsPath, sizeof(contentsPath), "%s/Contents", bundlePath);
+		snprintf(resourcesPath, sizeof(resourcesPath), "%s/Resources", contentsPath);
+		snprintf(enPath, sizeof(enPath), "%s/en.lproj", resourcesPath);
+		snprintf(frPath, sizeof(frPath), "%s/fr.lproj", resourcesPath);
+		snprintf(infoPath, sizeof(infoPath), "%s/Info.plist", contentsPath);
+		snprintf(enStrings, sizeof(enStrings), "%s/Localizable.strings", enPath);
+		snprintf(frStrings, sizeof(frStrings), "%s/Localizable.strings", frPath);
+		made = mkdir(bundlePath, 0700) == 0 && mkdir(contentsPath, 0700) == 0 && mkdir(resourcesPath, 0700) == 0 &&
+		    mkdir(enPath, 0700) == 0 && mkdir(frPath, 0700) == 0 &&
+		    write_test_file(infoPath, "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>org.finch.cf-localization-test</string><key>CFBundlePackageType</key><string>BNDL</string><key>CFBundleDevelopmentRegion</key><string>en</string></dict></plist>") &&
+		    write_test_file(enStrings, "{ greeting = hello; }\n") && write_test_file(frStrings, "{ greeting = bonjour; }\n");
+	}
+	CFBundleRef bundle = NULL;
+	if (made) {
+		CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)bundlePath, (CFIndex)strlen(bundlePath), true);
+		bundle = CFBundleCreate(NULL, url);
+		CFRelease(url);
+	}
+	const void *preference = CFSTR("fr-CA");
+	CFArrayRef preferences = CFArrayCreate(NULL, &preference, 1, &kCFTypeArrayCallBacks);
+	CFStringRef greeting = bundle ? CFBundleCopyLocalizedStringForLocalizations(bundle, CFSTR("greeting"), CFSTR("fallback"), CFSTR("Localizable"), preferences) : NULL;
+	put("explicit localization", greeting);
+	check("localization fixture", bundle && greeting && CFEqual(greeting, CFSTR("bonjour")));
+	if (greeting) CFRelease(greeting);
+	CFRelease(preferences);
+	if (bundle) CFRelease(bundle);
+	if (made) {
+		unlink(enStrings);
+		unlink(frStrings);
+		unlink(infoPath);
+		rmdir(enPath);
+		rmdir(frPath);
+		rmdir(resourcesPath);
+		rmdir(contentsPath);
+		rmdir(bundlePath);
+		rmdir(root);
+	}
+}
+
 static void
 urls(void)
 {
@@ -329,6 +453,7 @@ main(int argc, char **argv)
 	plists();
 	time_and_locale();
 	urls();
+	public_c_apis();
 	runloop();
 	file_descriptor();
 	objc_bridge();

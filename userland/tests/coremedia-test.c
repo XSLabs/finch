@@ -446,6 +446,55 @@ formats(void)
         show("plain", d);
         CFRelease(d);
     }
+    CFDictionaryRef box = dict(4, kCMTextFormatDescriptionRect_Top, num(20), kCMTextFormatDescriptionRect_Left, num(10),
+                              kCMTextFormatDescriptionRect_Bottom, num(80), kCMTextFormatDescriptionRect_Right, num(90));
+    CFDictionaryRef color = dict(4, kCMTextFormatDescriptionColor_Red, num(255), kCMTextFormatDescriptionColor_Green, num(128),
+                                kCMTextFormatDescriptionColor_Blue, num(0), kCMTextFormatDescriptionColor_Alpha, num(255));
+    CFDictionaryRef style = dict(4, kCMTextFormatDescriptionStyle_Font, num(7), kCMTextFormatDescriptionStyle_FontFace, num(7),
+                                 kCMTextFormatDescriptionStyle_FontSize, num(18), kCMTextFormatDescriptionStyle_ForegroundColor, color);
+    CFDictionaryRef fontTable = dict(1, CFSTR("7"), CFSTR("Finch Test Font"));
+    CFDictionaryRef textExt = dict(7, kCMTextFormatDescriptionExtension_DisplayFlags, num(kCMTextDisplayFlag_fillTextRegion),
+                                   kCMTextFormatDescriptionExtension_DefaultTextBox, box, kCMTextFormatDescriptionExtension_DefaultStyle, style,
+                                   kCMTextFormatDescriptionExtension_HorizontalJustification, num(kCMTextJustification_centered),
+                                   kCMTextFormatDescriptionExtension_VerticalJustification, num(kCMTextJustification_bottom_right),
+                                   kCMTextFormatDescriptionExtension_FontTable, fontTable,
+                                   kCMTextFormatDescriptionExtension_DefaultFontName, CFSTR("Fallback Font"));
+    CMFormatDescriptionRef text = NULL;
+    CMFormatDescriptionCreate(NULL, kCMMediaType_Text, kCMTextFormatType_3GText, textExt, &text);
+    CMTextDisplayFlags textFlags = 0;
+    CMTextJustificationValue horizontal = 0, vertical = 0;
+    CGRect textBox = CGRectMake(0, 0, 0, 0);
+    uint16_t fontID = 0;
+    Boolean bold = false, italic = false, underline = false;
+    CGFloat fontSize = 0, components[4] = {0};
+    CFStringRef fontName = NULL;
+    OSStatus displayStatus = CMTextFormatDescriptionGetDisplayFlags(text, &textFlags);
+    OSStatus justificationStatus = CMTextFormatDescriptionGetJustification(text, &horizontal, &vertical);
+    OSStatus boxStatus = CMTextFormatDescriptionGetDefaultTextBox(text, true, 200, &textBox);
+    OSStatus styleStatus = CMTextFormatDescriptionGetDefaultStyle(text, &fontID, &bold, &italic, &underline, &fontSize, components);
+    OSStatus fontStatus = CMTextFormatDescriptionGetFontName(text, 7, &fontName);
+    printf("text getters: %d %d %d %d %d\n", (int)displayStatus, (int)justificationStatus, (int)boxStatus, (int)styleStatus, (int)fontStatus);
+    printf("text values: flags %u justify %d %d box %g %g %g %g style %u %d %d %d %g color %g %g %g %g font %s\n",
+           textFlags, horizontal, vertical, textBox.origin.x, textBox.origin.y, textBox.size.width, textBox.size.height, fontID,
+           bold, italic, underline, fontSize, components[0], components[1], components[2], components[3], desc(fontName));
+    OSStatus bottomBoxStatus = CMTextFormatDescriptionGetDefaultTextBox(text, false, 200, &textBox);
+    printf("text box bottom origin: %d %g %g %g %g\n", (int)bottomBoxStatus, textBox.origin.x, textBox.origin.y, textBox.size.width,
+           textBox.size.height);
+    CFDictionaryRef qtJustifyExt = dict(1, kCMTextFormatDescriptionExtension_TextJustification, num(kCMTextJustification_left_top));
+    CMFormatDescriptionRef qtText = NULL;
+    CMFormatDescriptionCreate(NULL, kCMMediaType_Text, kCMTextFormatType_QTText, qtJustifyExt, &qtText);
+    OSStatus qtJustifyStatus = CMTextFormatDescriptionGetJustification(qtText, &horizontal, &vertical);
+    printf("qt justification: %d %d %d\n", (int)qtJustifyStatus, horizontal, vertical);
+    CFDictionaryRef defaultFontExt = dict(1, kCMTextFormatDescriptionExtension_DefaultFontName, CFSTR("Fallback Font"));
+    CMFormatDescriptionRef defaultFontText = NULL;
+    CMFormatDescriptionCreate(NULL, kCMMediaType_Text, kCMTextFormatType_QTText, defaultFontExt, &defaultFontText);
+    CFStringRef defaultFontName = NULL;
+    OSStatus defaultFontStatus = CMTextFormatDescriptionGetFontName(defaultFontText, 0, &defaultFontName);
+    printf("default text font: %d %s\n", (int)defaultFontStatus, desc(defaultFontName));
+    if (text) CFRelease(text);
+    if (qtText) CFRelease(qtText);
+    if (defaultFontText) CFRelease(defaultFontText);
+    CFRelease(defaultFontExt); CFRelease(qtJustifyExt); CFRelease(textExt); CFRelease(fontTable); CFRelease(style); CFRelease(color); CFRelease(box);
     CMTimeCodeFormatDescriptionRef tc = NULL;
     printf("time code %d\n", (int)CMTimeCodeFormatDescriptionCreate(NULL, kCMTimeCodeFormatType_TimeCode32, CMTimeMake(1001, 30000), 30,
                                                                      kCMTimeCodeFlag_DropFrame, NULL, &tc));
@@ -471,6 +520,25 @@ formats(void)
     l.mChannelLayoutTag = kAudioChannelLayoutTag_UseChannelBitmap;
     l.mChannelBitmap = kAudioChannelBit_Left | kAudioChannelBit_Right;
     audio(2, kAudioFormatMPEG4AAC, &l, sizeof l, true);
+    AudioStreamBasicDescription summaryASBDs[2] = {
+        {44100, kAudioFormatLinearPCM, kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked, 8, 1, 8, 2, 32, 0},
+        {48000, kAudioFormatLinearPCM, kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked, 24, 1, 24, 6, 32, 0},
+    };
+    CMAudioFormatDescriptionRef summaryInputs[2] = {NULL, NULL}, summary = NULL;
+    AudioChannelLayout summarySurround = {kAudioChannelLayoutTag_MPEG_5_1_A, 0, 0, {}};
+    CMAudioFormatDescriptionCreate(NULL, &summaryASBDs[0], 0, NULL, 0, NULL, NULL, &summaryInputs[0]);
+    CMAudioFormatDescriptionCreate(NULL, &summaryASBDs[1], sizeof summarySurround, &summarySurround, 0, NULL, NULL, &summaryInputs[1]);
+    CFArrayRef summaryArray = CFArrayCreate(NULL, (const void **)summaryInputs, 2, &kCFTypeArrayCallBacks);
+    OSStatus summaryStatus = CMAudioFormatDescriptionCreateSummary(NULL, summaryArray, 0, &summary);
+    const AudioStreamBasicDescription *summaryASBD = summary ? CMAudioFormatDescriptionGetStreamBasicDescription(summary) : NULL;
+    const AudioChannelLayout *summaryLayout = summary ? CMAudioFormatDescriptionGetChannelLayout(summary, NULL) : NULL;
+    printf("audio summary: %d %g %u %u %x\n", (int)summaryStatus, summaryASBD ? summaryASBD->mSampleRate : 0,
+           summaryASBD ? summaryASBD->mChannelsPerFrame : 0, summaryASBD ? summaryASBD->mBitsPerChannel : 0,
+           summaryLayout ? (unsigned)summaryLayout->mChannelLayoutTag : 0);
+    if (summaryArray) CFRelease(summaryArray);
+    if (summaryInputs[0]) CFRelease(summaryInputs[0]);
+    if (summaryInputs[1]) CFRelease(summaryInputs[1]);
+    if (summary) CFRelease(summary);
     CMAudioFormatDescriptionRef au = NULL;
     const AudioStreamBasicDescription *none = NULL;
     printf("audio without a description %d\n", (int)CMAudioFormatDescriptionCreate(NULL, none, 0, NULL, 0, NULL, NULL, &au));

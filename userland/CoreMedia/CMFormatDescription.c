@@ -667,6 +667,208 @@ CMAudioFormatDescriptionGetMostCompatibleFormat(CMAudioFormatDescriptionRef desc
     return list && size >= sizeof *list ? &list[size / sizeof *list - 1] : NULL;
 }
 
+static UInt32
+channel_count(AudioChannelLayoutTag tag, const AudioChannelLayout *layout)
+{
+    if (tag == kAudioChannelLayoutTag_UseChannelDescriptions)
+        return layout ? layout->mNumberChannelDescriptions : 0;
+    if (tag == kAudioChannelLayoutTag_UseChannelBitmap)
+        return layout ? (UInt32)__builtin_popcount(layout->mChannelBitmap) : 0;
+    return AudioChannelLayoutTag_GetNumberOfChannels(tag);
+}
+
+OSStatus
+CMAudioFormatDescriptionCreateSummary(CFAllocatorRef allocator, CFArrayRef formatDescriptionArray, uint32_t flags,
+                                      CMAudioFormatDescriptionRef *formatDescriptionOut)
+{
+    if (!formatDescriptionOut)
+        return kCMFormatDescriptionError_InvalidParameter;
+    *formatDescriptionOut = NULL;
+    if (!formatDescriptionArray || CFGetTypeID(formatDescriptionArray) != CFArrayGetTypeID() || !CFArrayGetCount(formatDescriptionArray) || flags)
+        return kCMFormatDescriptionError_InvalidParameter;
+
+    double sampleRate = 0;
+    UInt32 fallbackChannels = 0, layoutChannels = 0;
+    CMFormatDescriptionRef layoutDescription = NULL;
+    AudioChannelLayoutTag layoutTag = kAudioChannelLayoutTag_Unknown;
+    for (CFIndex i = 0; i < CFArrayGetCount(formatDescriptionArray); i++) {
+        CMFormatDescriptionRef desc = (CMFormatDescriptionRef)CFArrayGetValueAtIndex(formatDescriptionArray, i);
+        if (!desc || CFGetTypeID(desc) != CMFormatDescriptionGetTypeID() || desc->kind != KIND_AUDIO || !desc->specific)
+            return kCMFormatDescriptionError_InvalidParameter;
+        const AudioStreamBasicDescription *asbd = &desc->audio.asbd;
+        if (asbd->mSampleRate > sampleRate)
+            sampleRate = asbd->mSampleRate;
+        if (asbd->mChannelsPerFrame > fallbackChannels)
+            fallbackChannels = asbd->mChannelsPerFrame;
+
+        const AudioFormatListItem *item = CMAudioFormatDescriptionGetMostCompatibleFormat(desc);
+        AudioChannelLayoutTag tag = item ? item->mChannelLayoutTag : kAudioChannelLayoutTag_Unknown;
+        UInt32 count = channel_count(tag, desc->audio.layout);
+        if (count > layoutChannels ||
+            (count && count == layoutChannels && desc->audio.layout && (!layoutDescription || !layoutDescription->audio.layout))) {
+            layoutChannels = count;
+            layoutTag = tag;
+            layoutDescription = desc;
+        }
+    }
+    UInt32 channels = layoutChannels ? layoutChannels : fallbackChannels;
+    if (!channels || sampleRate <= 0)
+        return kCMFormatDescriptionError_InvalidParameter;
+
+    AudioStreamBasicDescription summary = {0};
+    summary.mSampleRate = sampleRate;
+    summary.mFormatID = kAudioFormatLinearPCM;
+    summary.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked;
+    summary.mBytesPerPacket = summary.mBytesPerFrame = channels * sizeof(float);
+    summary.mFramesPerPacket = 1;
+    summary.mChannelsPerFrame = channels;
+    summary.mBitsPerChannel = sizeof(float) * 8;
+
+    AudioChannelLayout generatedLayout = {0};
+    const AudioChannelLayout *layout = NULL;
+    size_t layoutSize = 0;
+    if (layoutDescription) {
+        layout = layoutDescription->audio.layout;
+        layoutSize = layoutDescription->audio.layoutSize;
+        if (!layout) {
+            generatedLayout.mChannelLayoutTag = layoutTag;
+            layout = &generatedLayout;
+            layoutSize = offsetof(AudioChannelLayout, mChannelDescriptions);
+        }
+    }
+    return CMAudioFormatDescriptionCreate(allocator, &summary, layoutSize, layout, 0, NULL, NULL, formatDescriptionOut);
+}
+
+static CFDictionaryRef
+text_dictionary(CMFormatDescriptionRef desc, CFStringRef key)
+{
+    if (!desc || desc->kind != KIND_TEXT || !desc->extensions)
+        return NULL;
+    CFTypeRef value = CFDictionaryGetValue(desc->extensions, key);
+    return value && CFGetTypeID(value) == CFDictionaryGetTypeID() ? (CFDictionaryRef)value : NULL;
+}
+
+static bool
+text_number(CFDictionaryRef dict, CFStringRef key, double *value)
+{
+    CFTypeRef numberValue = dict ? CFDictionaryGetValue(dict, key) : NULL;
+    return numberValue && CFGetTypeID(numberValue) == CFNumberGetTypeID() &&
+           CFNumberGetValue((CFNumberRef)numberValue, kCFNumberDoubleType, value);
+}
+
+OSStatus
+CMTextFormatDescriptionGetDisplayFlags(CMFormatDescriptionRef desc, CMTextDisplayFlags *displayFlagsOut)
+{
+    if (!displayFlagsOut || !desc || desc->kind != KIND_TEXT)
+        return kCMFormatDescriptionError_InvalidParameter;
+    double value;
+    if (!number(desc->extensions, kCMTextFormatDescriptionExtension_DisplayFlags, &value))
+        return kCMFormatDescriptionError_InvalidParameter;
+    *displayFlagsOut = (CMTextDisplayFlags)value;
+    return noErr;
+}
+
+OSStatus
+CMTextFormatDescriptionGetJustification(CMFormatDescriptionRef desc, CMTextJustificationValue *horizontalOut,
+                                        CMTextJustificationValue *verticalOut)
+{
+    if (!desc || desc->kind != KIND_TEXT)
+        return kCMFormatDescriptionError_InvalidParameter;
+    double horizontal, vertical = kCMTextJustification_left_top;
+    if (desc->subType == kCMTextFormatType_QTText) {
+        if (!number(desc->extensions, kCMTextFormatDescriptionExtension_TextJustification, &horizontal))
+            return kCMFormatDescriptionError_InvalidParameter;
+    } else if (desc->subType == kCMTextFormatType_3GText) {
+        if (!number(desc->extensions, kCMTextFormatDescriptionExtension_HorizontalJustification, &horizontal) ||
+            !number(desc->extensions, kCMTextFormatDescriptionExtension_VerticalJustification, &vertical))
+            return kCMFormatDescriptionError_InvalidParameter;
+    } else {
+        return kCMFormatDescriptionError_InvalidParameter;
+    }
+    if (horizontalOut)
+        *horizontalOut = (CMTextJustificationValue)horizontal;
+    if (verticalOut)
+        *verticalOut = (CMTextJustificationValue)vertical;
+    return noErr;
+}
+
+OSStatus
+CMTextFormatDescriptionGetDefaultTextBox(CMFormatDescriptionRef desc, Boolean originIsAtTopLeft, CGFloat heightOfTextTrack,
+                                          CGRect *defaultTextBoxOut)
+{
+    if (!defaultTextBoxOut || !desc || desc->kind != KIND_TEXT)
+        return kCMFormatDescriptionError_InvalidParameter;
+    CFDictionaryRef box = text_dictionary(desc, kCMTextFormatDescriptionExtension_DefaultTextBox);
+    double top, left, bottom, right;
+    if (!box || !text_number(box, kCMTextFormatDescriptionRect_Top, &top) ||
+        !text_number(box, kCMTextFormatDescriptionRect_Left, &left) || !text_number(box, kCMTextFormatDescriptionRect_Bottom, &bottom) ||
+        !text_number(box, kCMTextFormatDescriptionRect_Right, &right))
+        return kCMFormatDescriptionError_InvalidParameter;
+    *defaultTextBoxOut = CGRectMake(left, originIsAtTopLeft ? top : heightOfTextTrack - top, right - left, bottom - top);
+    return noErr;
+}
+
+OSStatus
+CMTextFormatDescriptionGetDefaultStyle(CMFormatDescriptionRef desc, uint16_t *localFontIDOut, Boolean *boldOut, Boolean *italicOut,
+                                       Boolean *underlineOut, CGFloat *fontSizeOut, CGFloat colorComponentsOut[4])
+{
+    if (!desc || desc->kind != KIND_TEXT)
+        return kCMFormatDescriptionError_InvalidParameter;
+    CFDictionaryRef style = text_dictionary(desc, kCMTextFormatDescriptionExtension_DefaultStyle);
+    if (!style)
+        return kCMFormatDescriptionError_InvalidParameter;
+    double fontID = 0, face = 0, size = 0;
+    number(style, kCMTextFormatDescriptionStyle_Font, &fontID);
+    number(style, kCMTextFormatDescriptionStyle_FontFace, &face);
+    number(style, kCMTextFormatDescriptionStyle_FontSize, &size);
+    if (localFontIDOut) *localFontIDOut = (uint16_t)fontID;
+    if (boldOut) *boldOut = ((uint32_t)face & 1) != 0;
+    if (italicOut) *italicOut = ((uint32_t)face & 2) != 0;
+    if (underlineOut) *underlineOut = ((uint32_t)face & 4) != 0;
+    if (fontSizeOut) *fontSizeOut = size;
+    if (colorComponentsOut) {
+        CFTypeRef colorValue = CFDictionaryGetValue(style, kCMTextFormatDescriptionStyle_ForegroundColor);
+        CFDictionaryRef color = colorValue && CFGetTypeID(colorValue) == CFDictionaryGetTypeID() ? (CFDictionaryRef)colorValue : NULL;
+        double scale = desc->subType == kCMTextFormatType_3GText ? 255.0 : 65535.0;
+        double components[4] = {0, 0, 0, 1};
+        CFStringRef keys[] = {kCMTextFormatDescriptionColor_Red, kCMTextFormatDescriptionColor_Green,
+                              kCMTextFormatDescriptionColor_Blue, kCMTextFormatDescriptionColor_Alpha};
+        for (size_t i = 0; i < 4; i++) {
+            double value;
+            if (text_number(color, keys[i], &value))
+                components[i] = value / scale;
+        }
+        for (size_t i = 0; i < 4; i++)
+            colorComponentsOut[i] = components[i];
+    }
+    return noErr;
+}
+
+OSStatus
+CMTextFormatDescriptionGetFontName(CMFormatDescriptionRef desc, uint16_t localFontID, CFStringRef *fontNameOut)
+{
+    if (!fontNameOut || !desc || desc->kind != KIND_TEXT)
+        return kCMFormatDescriptionError_InvalidParameter;
+    *fontNameOut = NULL;
+    CFDictionaryRef fonts = text_dictionary(desc, kCMTextFormatDescriptionExtension_FontTable);
+    if (!fonts && localFontID == 0) {
+        CFTypeRef fallback = desc->extensions ? CFDictionaryGetValue(desc->extensions, kCMTextFormatDescriptionExtension_DefaultFontName) : NULL;
+        if (fallback && CFGetTypeID(fallback) == CFStringGetTypeID()) {
+            *fontNameOut = (CFStringRef)fallback;
+            return noErr;
+        }
+    }
+    if (!fonts)
+        return kCMFormatDescriptionError_InvalidParameter;
+    CFStringRef key = CFStringCreateWithFormat(NULL, NULL, CFSTR("%u"), (unsigned)localFontID);
+    CFTypeRef value = CFDictionaryGetValue(fonts, key);
+    CFRelease(key);
+    if (!value || CFGetTypeID(value) != CFStringGetTypeID())
+        return kCMFormatDescriptionError_InvalidParameter;
+    *fontNameOut = (CFStringRef)value;
+    return noErr;
+}
+
 Boolean
 CMAudioFormatDescriptionEqual(CMAudioFormatDescriptionRef formatDescription, CMAudioFormatDescriptionRef otherFormatDescription,
                               CMAudioFormatDescriptionMask equalityMask, CMAudioFormatDescriptionMask *equalityMaskOut)

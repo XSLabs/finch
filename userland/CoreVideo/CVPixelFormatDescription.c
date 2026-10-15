@@ -102,6 +102,17 @@ CVPixelFormatDescriptionRegisterDescriptionWithPixelFormatType(CFDictionaryRef d
     CFRelease(n);
 }
 
+CFStringRef
+CVPixelFormatTypeCopyFourCharCodeString(OSType pixelFormat)
+{
+    UniChar chars[4] = {(UniChar)(pixelFormat >> 24), (UniChar)((pixelFormat >> 16) & 0xff),
+                        (UniChar)((pixelFormat >> 8) & 0xff), (UniChar)(pixelFormat & 0xff)};
+    for (size_t i = 0; i < 4; i++)
+        if (chars[i] < 0x20 || chars[i] > 0x7e)
+            return CFStringCreateWithFormat(NULL, NULL, CFSTR("%u"), (unsigned)pixelFormat);
+    return CFStringCreateWithCharacters(NULL, chars, 4);
+}
+
 Boolean
 CVIsCompressedPixelFormatAvailable(OSType pixelFormatType)
 {

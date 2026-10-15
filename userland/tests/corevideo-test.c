@@ -342,6 +342,22 @@ descriptions(void)
 }
 
 static void
+four_char_codes(void)
+{
+    const OSType formats[] = {kCVPixelFormatType_32BGRA, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, 'abcd', 0x00001234,
+                              0x410a4243};
+    for (size_t i = 0; i < sizeof formats / sizeof formats[0]; i++) {
+        CFStringRef s = CVPixelFormatTypeCopyFourCharCodeString(formats[i]);
+        char value[128] = "(null)";
+        if (s)
+            CFStringGetCString(s, value, sizeof value, kCFStringEncodingUTF8);
+        printf("fourcc %s: %s\n", code(formats[i]), value);
+        if (s)
+            CFRelease(s);
+    }
+}
+
+static void
 colors(void)
 {
     CFStringRef (*names[])(int) = {CVYCbCrMatrixGetStringForIntegerCodePoint, CVColorPrimariesGetStringForIntegerCodePoint,
@@ -388,6 +404,7 @@ main(void)
     attachments();
     pools();
     descriptions();
+    four_char_codes();
     colors();
     return 0;
 }

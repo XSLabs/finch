@@ -131,3 +131,14 @@ dynamically linked where their licence asks for it (see `docs/LICENSING.md`):
 H.264 (openh264, BSD-2), AV1 (dav1d, BSD-2), VP8/VP9 (libvpx, BSD-3), Opus, Vorbis and
 FLAC (BSD), MP3 (minimp3, CC0); HEVC and AAC from LGPL decoders, linked dynamically.
 Each is pinned to an exact release.
+
+## 2026-10-15: CoreVideo and CoreMedia C APIs
+
+CoreVideo now formats printable FourCC values and uses decimal text for control
+codes. CoreMedia now builds summary PCM descriptions and reads text display flags,
+justification, boxes, styles and font names from format extensions. The CoreVideo
+and CoreMedia comparison tests match Apple's. The API audits report 270 of 302
+CoreVideo declarations and 717 of 738 CoreMedia declarations exported. Remaining
+CoreVideo gaps are OpenGL and Metal buffer APIs; CoreMedia still lacks multiview
+HEVC tag extraction and the specialized big-endian text, timecode, metadata and
+closed-caption bridge functions.
