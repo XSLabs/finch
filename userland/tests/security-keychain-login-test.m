@@ -19,6 +19,8 @@ static const char testHome[] = "/private/var/rw/Users/finchconsole";
 static const char loginPassword[] = "Finch local password test 2026";
 static const char wrongPassword[] = "Finch wrong password test 2026";
 static const char alternatePassword[] = "alternate-keychain-password";
+/* (the account's password after passwd changes it) */
+static const char changedPassword[] = "Finch changed password test 2026";
 static const char serviceName[] = "org.finch.security-keychain-login-test";
 static const char accountName[] = "login-probe";
 static const char secretValue[] = "dummy login keychain secret";
@@ -344,19 +346,61 @@ static int runVerifyAlternate(void)
 	return finish();
 }
 
+/* After passwd: the keychain takes the new password, not the old one. */
+static int runVerifyChanged(void)
+{
+	SecKeychainRef keychain = NULL;
+	char path[PATH_MAX];
+	if (!openDefault(&keychain, path)) {
+		if (keychain)
+			CFRelease(keychain);
+		return finish();
+	}
+	OSStatus status = SecKeychainLock(keychain);
+	checkStatus("lock the re-keyed keychain", status, errSecSuccess);
+	status = SecKeychainUnlock(keychain, sizeof(loginPassword) - 1, loginPassword, false);
+	checkStatus("the old login password no longer unlocks it", status, errSecAuthFailed);
+	status = SecKeychainUnlock(keychain, sizeof(changedPassword) - 1, changedPassword, false);
+	checkStatus("the new login password unlocks it", status, errSecSuccess);
+	status = SecKeychainLock(keychain);
+	checkStatus("leave it locked for the next login", status, errSecSuccess);
+	CFRelease(keychain);
+	return finish();
+}
+
+/* After a login with the new password: PAM unlocked the keychain with it. */
+static int runVerifyUnlocked(void)
+{
+	SecKeychainRef keychain = NULL;
+	char path[PATH_MAX];
+	if (!openDefault(&keychain, path)) {
+		if (keychain)
+			CFRelease(keychain);
+		return finish();
+	}
+	SecKeychainStatus state = 0;
+	OSStatus status = SecKeychainGetStatus(keychain, &state);
+	checkStatus("check keychain state after the new-password login", status, errSecSuccess);
+	check("PAM unlocked it with the new password", status == errSecSuccess && (state & kSecUnlockStateStatus));
+	CFRelease(keychain);
+	return finish();
+}
+
 int main(int argc, char **argv)
 {
 	const char *mode = "default";
 	if (argc == 2)
 		mode = argv[1];
 	else if (argc != 1) {
-		fprintf(stderr, "usage: %s [--lock-default|--seed-alternate-password|--verify-alternate-password]\n",
+		fprintf(stderr, "usage: %s [--lock-default|--seed-alternate-password|--verify-alternate-password|"
+		    "--verify-changed-password|--verify-unlocked]\n",
 		    argv[0]);
 		return 64;
 	}
 	if (strcmp(mode, "default") != 0 && strcmp(mode, "--lock-default") != 0 &&
 	    strcmp(mode, "--seed-alternate-password") != 0 &&
-	    strcmp(mode, "--verify-alternate-password") != 0) {
+	    strcmp(mode, "--verify-alternate-password") != 0 &&
+	    strcmp(mode, "--verify-changed-password") != 0 && strcmp(mode, "--verify-unlocked") != 0) {
 		fprintf(stderr, "unknown test mode: %s\n", mode);
 		return 64;
 	}
@@ -378,5 +422,9 @@ int main(int argc, char **argv)
 		return runSeedAlternate();
 	if (strcmp(mode, "--verify-alternate-password") == 0)
 		return runVerifyAlternate();
+	if (strcmp(mode, "--verify-changed-password") == 0)
+		return runVerifyChanged();
+	if (strcmp(mode, "--verify-unlocked") == 0)
+		return runVerifyUnlocked();
 	return runLoginTest();
 }

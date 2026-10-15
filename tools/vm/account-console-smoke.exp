@@ -3,7 +3,9 @@
 # Prove the real console login rejects a bad password and opens a user shell, and that
 # PAM's keychain module makes the user's login keychain with the login password and
 # unlocks it at each login, but leaves one with another password locked
-# (finch-security-keychain-login-test, run as the user after each login).
+# (finch-security-keychain-login-test, run as the user after each login), and that the
+# user's own passwd (a setuid copy, root's, on the guest tmpfs) changes the password and
+# their keychain's with it, so the next login unlocks it with the new one.
 # Run under tools/vm/with-vm-lock.sh. All test files live in guest tmpfs.
 set timeout 300
 log_user 1
@@ -80,8 +82,9 @@ proc user_run {command label} {
 }
 
 # Log out of the user shell and back in with the right password.
-proc relogin {label} {
+proc relogin {label {password ""}} {
     global user_prompt login_prompt root_prompt password_prompt username test_password
+    if {$password eq ""} { set password $test_password }
     send -s -- "exit\r"
     expect {
         -re $root_prompt {}
@@ -99,7 +102,7 @@ proc relogin {label} {
         -re $password_prompt {}
         timeout { fail "login did not ask for the password for $label" }
     }
-    send -s -- "$test_password\r"
+    send -s -- "$password\r"
     expect {
         -exact "FINCH_LOGIN_PROFILE_READY" {}
         "Login incorrect" { fail "login refused the password for $label" }
@@ -192,6 +195,8 @@ run_checked {test "$(stat -f %Sp /usr/lib/pam/pam_unix.so.2 | cut -c 6,9)" = -- 
 # accountctl makes the user's password hash in the same protected store that
 # login and PAM will read. The home and startup file exist only in guest tmpfs.
 run_checked {mkdir /private/var/rw/Users/finchconsole && chown 6000:20 /private/var/rw/Users/finchconsole && chmod 700 /private/var/rw/Users/finchconsole && test "$(stat -f %u:%g:%Lp /private/var/rw/Users/finchconsole)" = 6000:20:700 && printf '%s\n' 'echo FINCH_LOGIN_PROFILE_READY' "PS1='FINCH_LOGIN_USER> '" 'export PS1' > /private/var/rw/Users/finchconsole/.profile && chown 6000:20 /private/var/rw/Users/finchconsole/.profile && chmod 600 /private/var/rw/Users/finchconsole/.profile && test "$(stat -f %u:%g:%Lp /private/var/rw/Users/finchconsole/.profile)" = 6000:20:600} prepare-user-home
+# passwd as installed: setuid root (the image's own files can't be root's; this copy is)
+run_checked {mkdir /private/var/rw/finch-passwd && chown 0:0 /private/var/rw/finch-passwd && chmod 755 /private/var/rw/finch-passwd && cp /usr/bin/passwd /private/var/rw/finch-passwd/passwd && chown 0:0 /private/var/rw/finch-passwd/passwd && chmod 4555 /private/var/rw/finch-passwd/passwd && test -u /private/var/rw/finch-passwd/passwd && test "$(stat -f %u /private/var/rw/finch-passwd/passwd)" = 0} stage-setuid-passwd
 send -s -- "/usr/sbin/accountctl -d /private/etc create $username 6000 20 'Finch Console Smoke' '$home' /bin/sh; finch_accountctl_status=\$?; printf '\\nFINCH_VM_STATUS_accountctl=%d\\n' \$finch_accountctl_status\r"
 expect {
     -exact "New password: " {}
@@ -315,6 +320,25 @@ user_run "$kc" keychain-relogin
 user_run "$kc --seed-alternate-password" keychain-seed-alternate
 relogin "the alternate-password login"
 user_run "$kc --verify-alternate-password" keychain-alternate-stays-locked
+# The user changes their own password; the keychain follows, and the next login uses it.
+set changed_password "Finch changed password test 2026"
+send -s -- "/private/var/rw/finch-passwd/passwd; printf '\\nFINCH_USER_STATUS_passwd=%d\\n' \$?\r"
+expect {
+    -re {(New|new|Retype|Repeat)[^\r\n]*assword:[[:blank:]]*$} { send -s -- "$changed_password\r"; exp_continue }
+    -re {assword:[[:blank:]]*$} { send -s -- "$test_password\r"; exp_continue }
+    -re {FINCH_USER_STATUS_passwd=([0-9]+)} {
+        if {$expect_out(1,string) != 0} { fail "passwd failed with exit status $expect_out(1,string)" }
+    }
+    eof { fail "VM exited during passwd" }
+    timeout { fail "passwd did not finish" }
+}
+expect {
+    -exact $user_prompt {}
+    timeout { fail "user shell did not return after passwd" }
+}
+user_run "$kc --verify-changed-password" keychain-changed-password
+relogin "the new-password login" $changed_password
+user_run "$kc --verify-unlocked" keychain-new-password-login
 send -s -- "exit\r"
 expect {
     -re $root_prompt {}
@@ -325,4 +349,4 @@ expect {
 }
 send -- "\x01x"
 expect eof
-puts "console login: wrong password refused; correct password opened UID 6000, GID 20 shell in its own home; the login keychain was made and unlocked at login, unlocked again after a relogin, and one with another password left locked; logout returned to the setup shell"
+puts "console login: wrong password refused; correct password opened UID 6000, GID 20 shell in its own home; the login keychain was made and unlocked at login, unlocked again after a relogin, and one with another password left locked; passwd changed the password and the keychain's, which the next login unlocked; logout returned to the setup shell"

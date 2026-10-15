@@ -11,10 +11,15 @@
 
 #include <limits.h>
 #include <pwd.h>
+#include <string.h>
 #include <stdint.h>
 #include <unistd.h>
 
 #include "pam_keychain_data.h"
+
+/* Apple's SPI (SecKeychainPriv.h), which Finch's Security exports. */
+OSStatus SecKeychainChangePassword(SecKeychainRef keychain, UInt32 oldPasswordLength, const void *oldPassword,
+    UInt32 newPasswordLength, const void *newPassword);
 
 #ifndef PAM_EXTERN
 #define PAM_EXTERN
@@ -110,6 +115,43 @@ pam_sm_close_session(pam_handle_t *pamh, int flags, int argc,
 	(void)argc;
 	(void)argv;
 	(void)finch_pam_keychain_password_clear(pamh);
+	return PAM_SUCCESS;
+}
+
+/* A user's own password change (the old one proven to pam_unix) changes their login keychain's
+   password too, as that user. A reset by root, with no old password, leaves the keychain on
+   its old password. Keychain errors don't fail the change, which has already been made. */
+PAM_EXTERN int
+pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, const char *argv[])
+{
+	const void *oldPassword = NULL, *newPassword = NULL;
+	const char *username = NULL;
+	struct passwd *account;
+	SecKeychainRef keychain = NULL;
+	uid_t originalEUID = geteuid();
+	(void)argc;
+	(void)argv;
+
+	if (!(flags & PAM_UPDATE_AUTHTOK))
+		return PAM_SUCCESS;
+	if (pam_get_item(pamh, PAM_OLDAUTHTOK, &oldPassword) != PAM_SUCCESS || !oldPassword ||
+	    pam_get_item(pamh, PAM_AUTHTOK, &newPassword) != PAM_SUCCESS || !newPassword ||
+	    pam_get_user(pamh, &username, NULL) != PAM_SUCCESS || !username ||
+	    (account = getpwnam(username)) == NULL || account->pw_uid == 0 ||
+	    getuid() != account->pw_uid ||
+	    (originalEUID != 0 && originalEUID != account->pw_uid))
+		return PAM_SUCCESS;
+	if (originalEUID == 0 && seteuid(account->pw_uid) != 0)
+		return PAM_SUCCESS;
+	size_t oldLength = strlen(oldPassword), newLength = strlen(newPassword);
+	if (oldLength && newLength && oldLength <= UINT32_MAX && newLength <= UINT32_MAX &&
+	    SecKeychainCopyDefault(&keychain) == errSecSuccess && keychain)
+		(void)SecKeychainChangePassword(keychain, (UInt32)oldLength, oldPassword,
+		    (UInt32)newLength, newPassword);
+	if (keychain)
+		CFRelease(keychain);
+	if (originalEUID == 0 && seteuid(originalEUID) != 0)
+		return PAM_SYSTEM_ERR;
 	return PAM_SUCCESS;
 }
 

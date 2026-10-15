@@ -19,7 +19,7 @@ import tarfile
 import tempfile
 
 REPO = Path(__file__).resolve().parents[2]
-SETUID = {'usr/bin/at', 'usr/bin/atq', 'usr/bin/atrm', 'usr/bin/crontab', 'usr/bin/su', 'usr/bin/login'}
+SETUID = {'usr/bin/at', 'usr/bin/atq', 'usr/bin/atrm', 'usr/bin/crontab', 'usr/bin/su', 'usr/bin/login', 'usr/bin/passwd'}
 PRIVATE = {'private/etc/master.passwd', 'private/var/root', 'usr/lib/cron/tabs', 'usr/lib/cron/tmp'}
 VOLATILE = {'private/tmp', 'private/var/tmp'}
 ROOTS = {'System', 'Library', 'usr', 'bin', 'sbin', 'private'}

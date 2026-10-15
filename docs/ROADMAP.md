@@ -1137,8 +1137,8 @@ that every app works. These release checks were missing from the Phase 5 list:
       QEMU checks, including shared unlock and lock through a per-user service.
       The login keychain is made and unlocked with the login password at a real console
       login, and one with another password stays locked (tools/vm/test-login.sh,
-      2026-10-15). Changing the keychain's password with the login password, shared
-      authorization, certificate updates and enforced app restrictions remain open.
+      2026-10-15). passwd is built, and a user's own password change re-keys their
+      keychain (same test). Shared authorization, certificate updates and enforced app restrictions remain open.
 - [ ] **Updates:** signed update files, interrupted-download recovery, safe installation,
       rollback to a working system and preservation of user files and settings.
       Signed updates and rollback (2026-10-15): tools/release/sign-update.sh signs an

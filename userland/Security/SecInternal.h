@@ -41,4 +41,8 @@ SEC_HIDDEN CFDataRef _SecCertificateCopyPublicKeySHA1(SecCertificateRef c);
 /* Keychain (SecKeychain.c) */
 SEC_HIDDEN SecIdentityRef _SecIdentityCreate(SecCertificateRef cert, SecKeyRef key);
 
+/* Apple's SPI (SecKeychainPriv.h): a keychain's password changed, old to new. */
+OSStatus SecKeychainChangePassword(SecKeychainRef keychain, UInt32 oldPasswordLength, const void *oldPassword,
+    UInt32 newPasswordLength, const void *newPassword);
+
 #endif

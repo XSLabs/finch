@@ -49,7 +49,10 @@ refused and left unchanged; migration and a password dialog remain open. At logi
 login password, or unlocks it with that password, and leaves a keychain with another
 password locked. tools/vm/test-login.sh checks this through Finch's real console login
 in QEMU, over three logins, with `finch-security-keychain-login-test` run as the user
-(2026-10-15). A password change doesn't yet change the keychain's password. Focused host and QEMU checks pass for password rejection,
+(2026-10-15). A user's own `passwd` changes the login keychain's password too
+(`pam_keychain` in `/etc/pam.d/passwd`, through `SecKeychainChangePassword`), and the next
+login unlocks it with the new one; a reset by root, with no old password, leaves the
+keychain on its old password, as on macOS. Focused host and QEMU checks pass for password rejection,
 locked reads and writes, changed-file rejection, alias locking, concurrent saves,
 file permissions and unsafe paths (2026-10-13). Filename-case checks pass on both
 systems. These checks use dummy secrets in private temporary folders.

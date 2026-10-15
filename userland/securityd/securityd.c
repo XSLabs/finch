@@ -163,6 +163,18 @@ static OSStatus dispatchRequest(const char *operation, CFDictionaryRef request,
 		return SecKeychainUnlock((SecKeychainRef)keychain,
 		    (UInt32)CFDataGetLength(password), CFDataGetBytePtr(password), usePassword);
 	}
+	if (strcmp(operation, "keychain.change-password") == 0) {
+		CFTypeRef keychain = field(request, CFSTR("keychain"));
+		CFDataRef oldPassword = (CFDataRef)field(request, CFSTR("oldPassword"));
+		CFDataRef newPassword = (CFDataRef)field(request, CFSTR("newPassword"));
+		if ((keychain && CFGetTypeID(keychain) != SecKeychainGetTypeID()) ||
+		    !validType(oldPassword, CFDataGetTypeID()) || CFDataGetLength(oldPassword) <= 0 ||
+		    !validType(newPassword, CFDataGetTypeID()) || CFDataGetLength(newPassword) <= 0)
+			return errSecParam;
+		return SecKeychainChangePassword((SecKeychainRef)keychain,
+		    (UInt32)CFDataGetLength(oldPassword), CFDataGetBytePtr(oldPassword),
+		    (UInt32)CFDataGetLength(newPassword), CFDataGetBytePtr(newPassword));
+	}
 	if (strcmp(operation, "item.add") == 0) {
 		CFTypeRef attributes = field(request, CFSTR("attributes"));
 		bool wantsResult = false;

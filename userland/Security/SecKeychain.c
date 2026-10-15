@@ -1589,6 +1589,94 @@ OSStatus SecKeychainUnlock(SecKeychainRef keychain, UInt32 passwordLength, const
 	CFRelease(kc);
 	return err;
 }
+/* (Apple's SPI, SecKeychainPriv.h) The keychain's password changed: it is opened with the
+   old one and sealed again under a key from the new one, and left unlocked. */
+OSStatus SecKeychainChangePassword(SecKeychainRef keychain, UInt32 oldPasswordLength, const void *oldPassword,
+    UInt32 newPasswordLength, const void *newPassword)
+{
+	if (!oldPassword || !oldPasswordLength || !newPassword || !newPasswordLength)
+		return errSecPassphraseRequired;
+	if (oldPasswordLength > SEC_KEYCHAIN_CRYPTO_MAX_PASSWORD_BYTES ||
+	    newPasswordLength > SEC_KEYCHAIN_CRYPTO_MAX_PASSWORD_BYTES)
+		return errSecParam;
+#ifndef FINCH_KEYCHAIN_SERVICE_BACKEND
+	if (keychainServiceActive()) {
+		if (keychain && !isType(keychain, SecKeychainGetTypeID()))
+			return errSecInvalidKeychain;
+		CFDataRef oldData = CFDataCreate(NULL, oldPassword, oldPasswordLength);
+		CFDataRef newData = CFDataCreate(NULL, newPassword, newPasswordLength);
+		CFMutableDictionaryRef request = newServiceRequest();
+		OSStatus status = errSecAllocate;
+		if (oldData && newData && request) {
+			if (keychain)
+				CFDictionarySetValue(request, CFSTR("keychain"), keychain);
+			CFDictionarySetValue(request, CFSTR("oldPassword"), oldData);
+			CFDictionarySetValue(request, CFSTR("newPassword"), newData);
+			status = keychainServiceCall(CFSTR("keychain.change-password"), request, NULL);
+		}
+		if (oldData) CFRelease(oldData);
+		if (newData) CFRelease(newData);
+		if (request) CFRelease(request);
+		return status;
+	}
+#endif
+	SecKeychainRef kc = keychain ? (SecKeychainRef)CFRetain(keychain) : defaultKeychain();
+	if (!isType(kc, SecKeychainGetTypeID())) {
+		if (kc)
+			CFRelease(kc);
+		return errSecInvalidKeychain;
+	}
+	Store s;
+	OSStatus err = storeAcquire(kc, true, false, false, &s);
+	uint8_t salt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES], key[SEC_KEYCHAIN_CRYPTO_KEY_BYTES];
+	uint8_t newSalt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES], newKey[SEC_KEYCHAIN_CRYPTO_KEY_BYTES];
+	uint8_t *envelope = NULL, *plaintext = NULL;
+	size_t envelopeLength = 0, plaintextLength = 0;
+	OPENSSL_cleanse(salt, sizeof(salt));
+	OPENSSL_cleanse(key, sizeof(key));
+	OPENSSL_cleanse(newSalt, sizeof(newSalt));
+	OPENSSL_cleanse(newKey, sizeof(newKey));
+	if (!err)
+		err = readEnvelope(&s, &envelope, &envelopeLength);
+	if (!err) {
+		SecKeychainCryptoStatus crypto = finch_keychain_crypto_unlock(envelope, envelopeLength,
+		    oldPassword, oldPasswordLength, salt, key, &plaintext, &plaintextLength);
+		if (crypto == SEC_KEYCHAIN_CRYPTO_AUTH_FAILED)
+			err = errSecAuthFailed;
+		else if (crypto == SEC_KEYCHAIN_CRYPTO_NO_MEMORY)
+			err = errSecAllocate;
+		else if (crypto != SEC_KEYCHAIN_CRYPTO_OK)
+			err = errSecInvalidKeychain;
+	}
+	free(envelope);
+	if (!err)
+		err = parseDatabase(plaintext, plaintextLength, &s);
+	if (plaintext)
+		finch_keychain_crypto_clear_free(plaintext, plaintextLength);
+	if (!err) {
+		SecKeychainCryptoStatus crypto = finch_keychain_crypto_create_key(newPassword,
+		    newPasswordLength, newSalt, newKey);
+		if (crypto != SEC_KEYCHAIN_CRYPTO_OK)
+			err = crypto == SEC_KEYCHAIN_CRYPTO_NO_MEMORY ? errSecAllocate : errSecIO;
+	}
+	if (!err) {
+		memcpy(s.salt, newSalt, sizeof(s.salt));
+		memcpy(s.key, newKey, sizeof(s.key));
+		s.hasKey = true;
+		s.dirty = true;
+		err = storeCommit(&s);
+	}
+	if (!err)
+		err = keyCacheSet(s.cachePath, newSalt, newKey);
+	storeDispose(&s);
+	OPENSSL_cleanse(salt, sizeof(salt));
+	OPENSSL_cleanse(key, sizeof(key));
+	OPENSSL_cleanse(newSalt, sizeof(newSalt));
+	OPENSSL_cleanse(newKey, sizeof(newKey));
+	CFRelease(kc);
+	return err;
+}
+
 OSStatus SecKeychainGetVersion(UInt32 *returnVers)
 {
 	if (!returnVers)

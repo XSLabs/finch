@@ -8,21 +8,34 @@
  * libfinchaccount, as Finch's pam_unix does. Sessions, nodes and records are CF types, so
  * callers CFRelease them as with Apple's.
  *
- * Implemented (what Finch's binaries import, chkpasswd's -i od): sessions,
- * nodes by type or name (the local and authentication nodes, which here are
- * the same), user records by name, password verification. The rest comes as
- * something needs it, along with opendirectoryd and directory services proper.
+ * Implemented (what Finch's binaries import: chkpasswd's -i od, and passwd run by
+ * root): sessions, nodes by type or name (the local and authentication nodes,
+ * which here are the same), user records by name and their standard attributes,
+ * password verification, and password changes, by root only (the account files
+ * are root's; there is no opendirectoryd to make a user's own change, which goes
+ * through PAM instead). The rest comes as something needs it, along with
+ * opendirectoryd and directory services proper.
  */
 
 #include <CFOpenDirectory/CFOpenDirectory.h>
 #include <CoreFoundation/CFRuntime.h>
 #include <account_tools.h>
 #include <pwd.h>
+#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 
 const CFStringRef kODErrorDomainFramework = CFSTR("com.apple.OpenDirectory");
 const ODRecordType kODRecordTypeUsers = CFSTR("dsRecTypeStandard:Users");
+ODSessionRef kODSessionDefault = NULL; /* (the one session, which needs no object) */
+const ODAttributeType kODAttributeTypeRecordName = CFSTR("dsAttrTypeStandard:RecordName");
+const ODAttributeType kODAttributeTypeUniqueID = CFSTR("dsAttrTypeStandard:UniqueID");
+const ODAttributeType kODAttributeTypePrimaryGroupID = CFSTR("dsAttrTypeStandard:PrimaryGroupID");
+const ODAttributeType kODAttributeTypeFullName = CFSTR("dsAttrTypeStandard:RealName");
+const ODAttributeType kODAttributeTypeNFSHomeDirectory = CFSTR("dsAttrTypeStandard:NFSHomeDirectory");
+const ODAttributeType kODAttributeTypeUserShell = CFSTR("dsAttrTypeStandard:UserShell");
+const ODAttributeType kODAttributeTypeMetaNodeLocation = CFSTR("dsAttrTypeStandard:AppleMetaNodeLocation");
+const ODAttributeType kODAttributeTypeAuthenticationAuthority = CFSTR("dsAttrTypeStandard:AuthenticationAuthority");
 
 #define LOCAL_NODE_NAME CFSTR("/Local/Default")
 
@@ -146,5 +159,80 @@ bool ODRecordVerifyPassword(ODRecordRef record, CFStringRef password, CFErrorRef
     bool ok = at_password_verify(pass, hash);
     at_secure_clear(pass, sizeof(pass));
     if (!ok) set_error(error, kODErrorCredentialsInvalid, CFSTR("Credentials could not be verified"));
+    return ok;
+}
+
+/* A user record's attribute, from the account database: its values as strings. */
+CFArrayRef ODRecordCopyValues(ODRecordRef record, ODAttributeType attribute, CFErrorRef *error) {
+    char name[256], number[32];
+    struct passwd *pw;
+    if (!attribute || !CFEqual(record->type, kODRecordTypeUsers) || !c_name(record->name, name, sizeof(name)) ||
+        (pw = getpwnam(name)) == NULL) {
+        set_error(error, kODErrorRecordNoLongerExists, CFSTR("Record no longer exists"));
+        return NULL;
+    }
+    CFStringRef value = NULL;
+    if (CFEqual(attribute, kODAttributeTypeRecordName))
+        value = CFStringCreateCopy(NULL, record->name);
+    else if (CFEqual(attribute, kODAttributeTypeUniqueID) || CFEqual(attribute, kODAttributeTypePrimaryGroupID)) {
+        snprintf(number, sizeof(number), "%u", CFEqual(attribute, kODAttributeTypeUniqueID) ? pw->pw_uid : pw->pw_gid);
+        value = CFStringCreateWithCString(NULL, number, kCFStringEncodingUTF8);
+    } else if (CFEqual(attribute, kODAttributeTypeFullName))
+        value = CFStringCreateWithCString(NULL, pw->pw_gecos ? pw->pw_gecos : "", kCFStringEncodingUTF8);
+    else if (CFEqual(attribute, kODAttributeTypeNFSHomeDirectory))
+        value = CFStringCreateWithCString(NULL, pw->pw_dir ? pw->pw_dir : "", kCFStringEncodingUTF8);
+    else if (CFEqual(attribute, kODAttributeTypeUserShell))
+        value = CFStringCreateWithCString(NULL, pw->pw_shell ? pw->pw_shell : "", kCFStringEncodingUTF8);
+    else if (CFEqual(attribute, kODAttributeTypeMetaNodeLocation))
+        value = CFRetain(LOCAL_NODE_NAME);
+    else if (CFEqual(attribute, kODAttributeTypeAuthenticationAuthority))
+        value = CFRetain(CFSTR(";ShadowHash;"));
+    if (!value)
+        return CFArrayCreate(NULL, NULL, 0, &kCFTypeArrayCallBacks);
+    CFArrayRef values = CFArrayCreate(NULL, (const void **)&value, 1, &kCFTypeArrayCallBacks);
+    CFRelease(value);
+    return values;
+}
+
+/* Authenticate to the node as another user (passwd -u): their password must verify. */
+bool ODRecordSetNodeCredentials(ODRecordRef record, CFStringRef username, CFStringRef password, CFErrorRef *error) {
+    ODNodeRef node = local_node(CFGetAllocator(record));
+    ODRecordRef as = node ? ODNodeCopyRecord(node, kODRecordTypeUsers, username, NULL, NULL) : NULL;
+    bool ok = as && ODRecordVerifyPassword(as, password, error);
+    if (!as)
+        set_error(error, kODErrorCredentialsInvalid, CFSTR("Credentials could not be verified"));
+    if (as) CFRelease(as);
+    if (node) CFRelease(node);
+    return ok;
+}
+
+/* A user's password changed, in the account files (root's): by root, with or without the
+   old password, which must verify when given. */
+bool ODRecordChangePassword(ODRecordRef record, CFStringRef oldPassword, CFStringRef newPassword, CFErrorRef *error) {
+    char name[256], old[AT_PASSWORD_MAX + 1] = {0}, new[AT_PASSWORD_MAX + 1] = {0}, message[256] = {0};
+    bool ok = false;
+    if (geteuid() != 0) {
+        set_error(error, kODErrorCredentialsNotAuthorized, CFSTR("Changing a password here needs root; use passwd"));
+        return false;
+    }
+    if (!CFEqual(record->type, kODRecordTypeUsers) || !c_name(record->name, name, sizeof(name)) ||
+        !c_name(newPassword, new, sizeof(new)) || (oldPassword && !c_name(oldPassword, old, sizeof(old)))) {
+        set_error(error, kODErrorCredentialsInvalid, CFSTR("Credentials could not be verified"));
+        goto done;
+    }
+    struct at_store store = { .directory_fd = -1 };
+    if (at_store_open(&store, "/private/etc", message, sizeof(message)) != 0) {
+        set_error(error, kODErrorCredentialsServerError, CFSTR("The account files could not be opened"));
+        goto done;
+    }
+    ok = at_store_change_password(&store, name, getuid(), oldPassword == NULL, oldPassword ? old : NULL, new,
+        message, sizeof(message)) == 0;
+    at_store_close(&store);
+    if (!ok)
+        set_error(error, oldPassword ? kODErrorCredentialsInvalid : kODErrorCredentialsPasswordQualityFailed,
+            CFSTR("The password could not be changed"));
+done:
+    at_secure_clear(old, sizeof(old));
+    at_secure_clear(new, sizeof(new));
     return ok;
 }

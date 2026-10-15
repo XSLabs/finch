@@ -114,14 +114,17 @@ exactly them to fail.
 
 | Tool | Project | Blocker |
 |---|---|---|
-| passwd, chpass | system_cmds | Private OpenDirectory write and credential APIs; Finch currently provides lookup and verification only |
+| chpass | system_cmds | Private OpenDirectory record-editing APIs; Finch provides lookup, verification and password changes only |
 | bintrans tests (not the command) | text_cmds | Apple-internal `darwintest.h`; `bintrans` itself is built and staged |
 | zprint, zlog | system_cmds | CoreSymbolication (closed) |
 
 su and login build and use Finch's PAM: libpam from Apple's OpenPAM, the pam_modules
 that don't need closed frameworks (rootok, uwtmp, self, env, group, nologin, sacl),
 Finch's copy of OpenPAM's pam_unix in place of pam_opendirectory, and Finch's `/etc/pam.d` stacks
-(`userland/pam`). login weak-links libEndpointSecuritySystem, which the image doesn't have.
+(`userland/pam`). passwd builds with an empty stand-in for `OpenDirectoryPriv.h`: run by root
+it changes a password through Finch's OpenDirectory; run by a user, through PAM
+(`/etc/pam.d/passwd`), setuid root as installed, and pam_keychain re-keys the user's login
+keychain. (Apple's warning that it doesn't update the keychain is printed regardless.) login weak-links libEndpointSecuritySystem, which the image doesn't have.
 PAM and OpenDirectory share `libfinchaccount` for Finch PBKDF2 password hashes
 and old DES hash checks. `accountctl` writes an explicitly named account folder;
 it does not install users' home folders or grant admin rights. See
