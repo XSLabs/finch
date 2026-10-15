@@ -60,7 +60,7 @@ mkdir -p "${FW}/Versions/C"
     "${OBJ}"/*.o "${SWIFTOBJ}/Foundation-swift.o" "${SWIFTOBJ}"/cshims/*.o -o "${FW}/Versions/C/Foundation" -licucore -lxml2 -lcompression -Wl,-no_warn_inits \
     -L"${OPENSSL}" -Wl,-hidden-lssl -Wl,-hidden-lcrypto \
     -L"${SWIFTOBJ}/coll" -Wl,-hidden-lCollectionsInternal -L"${SDKROOT}/usr/lib/swift" \
-    -F"${ROOT}/System/Library/Frameworks" -Wl,-reexport_framework,CoreFoundation -Wl,-reexport-lobjc -lSystem -framework Combine \
+    -F"${ROOT}/System/Library/Frameworks" -Wl,-reexport_framework,CoreFoundation -Wl,-reexport-lobjc -lSystem -framework Combine -framework Security \
     -F"${ROOT}/System/Library/PrivateFrameworks" -Wl,-weak_framework,CoreAutoLayout \
     -Wl,-reexported_symbols_list,"${HERE}/CoreAutoLayout.reexports"
 # Foundation carries the URL loading system itself: nothing may come from Apple's CFNetwork.

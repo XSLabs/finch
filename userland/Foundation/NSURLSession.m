@@ -12,11 +12,11 @@
  * Tasks run on a private queue; completion handlers and delegate calls go to the
  * session's delegate queue. Responses are cached and custom protocols answer requests
  * through NSURLCache.m. Cookies are sent and kept through the session's cookie storage
- * (NSHTTPCookie.m). Basic and Digest authentication challenges work; NTLM, server-trust,
+ * (NSHTTPCookie.m). Basic, Digest and server-trust authentication challenges work; NTLM,
  * HTTP/2 and background sessions aren't there yet.
  */
 #import <Foundation/Foundation.h>
-#include "../certificates/ca-bundle.h"
+#import <Security/Security.h>
 #include <netdb.h>
 #include <fcntl.h>
 #include <stdatomic.h>
@@ -527,6 +527,8 @@ typedef struct {
     SSL_CTX *ctx;
 } Connection;
 
+static NSInteger conn_server_trust(Connection *c, NSURL *url);
+
 static ssize_t
 conn_read(Connection *c, void *buf, size_t n)
 {
@@ -633,20 +635,16 @@ conn_open(Connection *c, NSURL *url, NSTimeInterval timeout)
         return 0;
     c->ctx = SSL_CTX_new(TLS_client_method());
     SSL_CTX_set_min_proto_version(c->ctx, TLS1_2_VERSION);
-    char caPath[PATH_MAX];
-    const char *caFile = finch_ca_bundle((const void *)conn_open, caPath);
-    if (!caFile || SSL_CTX_load_verify_locations(c->ctx, caFile, NULL) != 1)
-        return NSURLErrorSecureConnectionFailed;
-    SSL_CTX_set_verify(c->ctx, SSL_VERIFY_PEER, NULL);
+    /* Security evaluates the peer chain after the handshake so a delegate can accept it. */
+    SSL_CTX_set_verify(c->ctx, SSL_VERIFY_NONE, NULL);
     c->ssl = SSL_new(c->ctx);
     SSL_set_tlsext_host_name(c->ssl, [host UTF8String]);
-    SSL_set1_host(c->ssl, [host UTF8String]);
     BIO *bio = BIO_new(fd_bio_method());
     BIO_set_data(bio, (void *)(intptr_t)c->fd);
     BIO_set_init(bio, 1);
     SSL_set_bio(c->ssl, bio, bio);
     if (SSL_connect(c->ssl) != 1)
-        return SSL_get_verify_result(c->ssl) != X509_V_OK ? NSURLErrorServerCertificateUntrusted : NSURLErrorSecureConnectionFailed;
+        return NSURLErrorSecureConnectionFailed;
     return 0;
 }
 
@@ -791,6 +789,8 @@ load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outRespons
 {
     Connection c;
     NSInteger err = conn_open(&c, url, [request timeoutInterval] > 0 ? [request timeoutInterval] : 60);
+    if (!err)
+        err = conn_server_trust(&c, url);
     if (err) {
         conn_close(&c);
         *outError = err;
@@ -1135,6 +1135,123 @@ credential_store(void)
     [self answer:NSURLSessionAuthChallengeRejectProtectionSpace credential:nil];
 }
 @end
+
+@interface NSURLProtectionSpace (FinchServerTrust)
+- (void)_finchSetServerTrust:(SecTrustRef)trust;
+@end
+
+@interface NSURLCredential (FinchServerTrust)
+- (SecTrustRef)_finchTrust;
+@end
+
+static SecCertificateRef
+certificate_from_x509(X509 *certificate)
+{
+    unsigned char *bytes = NULL;
+    int length = i2d_X509(certificate, &bytes);
+    if (length <= 0)
+        return NULL;
+    CFDataRef data = CFDataCreate(NULL, bytes, length);
+    OPENSSL_free(bytes);
+    if (!data)
+        return NULL;
+    SecCertificateRef result = SecCertificateCreateWithData(NULL, data);
+    CFRelease(data);
+    return result;
+}
+
+/* Turn the server's presented chain into the trust object NSURLSession gives its delegate. */
+static SecTrustRef
+server_trust(Connection *c, NSURL *url)
+{
+    X509 *leaf = SSL_get1_peer_certificate(c->ssl);
+    if (!leaf)
+        return NULL;
+    CFMutableArrayRef certificates = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+    if (!certificates) {
+        X509_free(leaf);
+        return NULL;
+    }
+    SecCertificateRef first = certificate_from_x509(leaf);
+    if (first) {
+        CFArrayAppendValue(certificates, first);
+        CFRelease(first);
+    }
+    STACK_OF(X509) *chain = SSL_get_peer_cert_chain(c->ssl);
+    for (int i = 0; chain && i < sk_X509_num(chain); i++) {
+        X509 *certificate = sk_X509_value(chain, i);
+        if (X509_cmp(certificate, leaf) == 0)
+            continue;
+        SecCertificateRef item = certificate_from_x509(certificate);
+        if (!item) {
+            CFRelease(certificates);
+            certificates = NULL;
+            break;
+        }
+        CFArrayAppendValue(certificates, item);
+        CFRelease(item);
+    }
+    X509_free(leaf);
+    if (!certificates || !CFArrayGetCount(certificates)) {
+        if (certificates)
+            CFRelease(certificates);
+        return NULL;
+    }
+    SecPolicyRef policy = SecPolicyCreateSSL(true, (CFStringRef)[url host]);
+    SecTrustRef trust = NULL;
+    if (policy)
+        SecTrustCreateWithCertificates(certificates, policy, &trust);
+    if (policy)
+        CFRelease(policy);
+    CFRelease(certificates);
+    return trust;
+}
+
+static NSInteger
+conn_server_trust(Connection *c, NSURL *url)
+{
+    if (!c->ssl)
+        return 0;
+    SecTrustRef trust = server_trust(c, url);
+    if (!trust)
+        return NSURLErrorSecureConnectionFailed;
+    BOOL trusted = SecTrustEvaluateWithError(trust, NULL);
+    NSURLSessionAuthChallengeDisposition disposition = NSURLSessionAuthChallengePerformDefaultHandling;
+    NSURLCredential *credential = nil;
+    if (current_hooks && current_hooks->challenge) {
+        NSString *scheme = [[url scheme] lowercaseString];
+        NSInteger port = [url port] ? [[url port] integerValue] : 443;
+        NSURLProtectionSpace *space = [[[NSURLProtectionSpace alloc]
+            initWithHost:[url host]
+                    port:port
+                protocol:scheme
+                   realm:nil
+      authenticationMethod:NSURLAuthenticationMethodServerTrust] autorelease];
+        [space _finchSetServerTrust:trust];
+        FinchChallengeSender *sender = [[FinchChallengeSender new] autorelease];
+        NSURLAuthenticationChallenge *challenge = [[[NSURLAuthenticationChallenge alloc]
+            initWithProtectionSpace:space
+                 proposedCredential:nil
+               previousFailureCount:0
+                    failureResponse:nil
+                              error:nil
+                             sender:sender] autorelease];
+        disposition = current_hooks->challenge(challenge, &credential);
+    }
+    NSInteger error = 0;
+    if (disposition == NSURLSessionAuthChallengeCancelAuthenticationChallenge)
+        error = NSURLErrorCancelled;
+    else if (disposition == NSURLSessionAuthChallengeRejectProtectionSpace)
+        error = NSURLErrorServerCertificateUntrusted;
+    else if (disposition == NSURLSessionAuthChallengeUseCredential && !trusted) {
+        SecTrustRef credentialTrust = [credential _finchTrust];
+        if (!credentialTrust || !CFEqual(credentialTrust, trust))
+            error = NSURLErrorServerCertificateUntrusted;
+    } else if (!trusted)
+        error = NSURLErrorServerCertificateUntrusted;
+    CFRelease(trust);
+    return error;
+}
 
 /* Load a request, following up to 16 redirects (the delegate may stop one) and answering
    Basic and Digest password challenges: the delegate's credential, or by default the
@@ -1537,18 +1654,27 @@ on_delegate_queue(NSURLSession *session, void (^block)(dispatch_semaphore_t done
           });
           return [chosen autorelease];
         } copy] autorelease];
-    if ([d respondsToSelector:@selector(URLSession:task:didReceiveChallenge:completionHandler:)])
+    BOOL taskChallenge = [d respondsToSelector:@selector(URLSession:task:didReceiveChallenge:completionHandler:)];
+    BOOL sessionChallenge = !taskChallenge && [d respondsToSelector:@selector(URLSession:didReceiveChallenge:completionHandler:)];
+    if (taskChallenge || sessionChallenge)
         h->challenge = [[^NSURLSessionAuthChallengeDisposition(NSURLAuthenticationChallenge *challenge, NSURLCredential **out) {
           __block NSURLSessionAuthChallengeDisposition disposition = NSURLSessionAuthChallengePerformDefaultHandling;
           __block NSURLCredential *credential = nil;
-          on_delegate_queue(session, ^(dispatch_semaphore_t done) {
-            [(id<NSURLSessionTaskDelegate>)d URLSession:session task:self didReceiveChallenge:challenge
-                                      completionHandler:^(NSURLSessionAuthChallengeDisposition answer, NSURLCredential *c) {
-                                        disposition = answer;
-                                        credential = [c retain];
-                                        dispatch_semaphore_signal(done);
-                                      }];
-          });
+          dispatch_semaphore_t done = dispatch_semaphore_create(0);
+          void (^completion)(NSURLSessionAuthChallengeDisposition, NSURLCredential *) = [[^
+              (NSURLSessionAuthChallengeDisposition answer, NSURLCredential *c) {
+                  disposition = answer;
+                  credential = [c retain];
+                  dispatch_semaphore_signal(done);
+              } copy] autorelease];
+          [session.delegateQueue addOperationWithBlock:^{
+            if (taskChallenge)
+                [(id<NSURLSessionTaskDelegate>)d URLSession:session task:self didReceiveChallenge:challenge completionHandler:completion];
+            else
+                [(id<NSURLSessionDelegate>)d URLSession:session didReceiveChallenge:challenge completionHandler:completion];
+          }];
+          dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+          dispatch_release(done);
           *out = [credential autorelease];
           return disposition;
         } copy] autorelease];

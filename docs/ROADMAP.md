@@ -1050,7 +1050,10 @@ and AppKit come in Phase 2).
         `qop=auth`; credentials, protection spaces, challenges and credential storage);
         delegate responses, streamed data, redirects and download progress;
         `urlsession-test` matches Apple's (2026-10-15)
-  - [ ] NTLM and server-trust challenges, HTTP/2, WebSocket and stream tasks
+  - [x] HTTPS server-trust challenges, with task-level and session-level delegates,
+        trust credentials, default validation, cancellation and rejection matching Apple's
+        generated-certificate comparison (2026-10-15)
+  - [ ] NTLM, HTTP/2, WebSocket and stream tasks
 - [ ] AVFoundation / CoreAudio / CoreMedia ([media plan](design/MEDIA.md))
   - [x] CoreMedia and CoreVideo's buffer, time and format operations (2026-10-10).
   - [x] AudioToolbox format properties and PCM audio files (2026-10-10).

@@ -93,8 +93,9 @@ GNUstep is LGPL and isn't copied (`docs/LICENSING.md`).
   `NSURLResponse`, `NSHTTPURLResponse`, and `NSURLSession` with its configuration and its
   data, upload and download tasks, which report through completion handlers or delegates.
   Sessions load `file:` and `data:` URLs and HTTP/1.1, following redirects and decoding
-  chunked bodies. HTTPS runs over OpenSSL, linked in with its symbols hidden, and verifies
-  servers against `/etc/ssl/cert.pem`; Finch's image doesn't ship a CA bundle yet.
+  chunked bodies. HTTPS runs over OpenSSL, linked in with its symbols hidden. Finch Security
+  builds an SSL `SecTrust` from the peer chain and checks it against the pinned CA bundle,
+  allowing a session or task delegate to answer a server-trust challenge.
   Swift gets `URLRequest`, from the historical overlay, and Finch's async methods
   (`data(for:)`, `download(for:)`, `bytes(for:)`). Finch also adds Foundation's async byte
   sequences, `FileHandle.bytes`, `URL.resourceBytes` and `lines`, with their frozen
@@ -112,8 +113,12 @@ GNUstep is LGPL and isn't copied (`docs/LICENSING.md`).
   `NSURLAuthenticationMethodHTTPDigest` to the delegate. A data task's delegate gets the
   response (and may cancel it) and the body as it arrives; any task's delegate may stop a
   redirect; a download's gets
-  progress and where a resume began. `finch-urlsession-test` matches Apple's run for all of
-  it. NTLM and server-trust challenges are still to come.
+  progress and where a resume began. HTTPS server-trust challenges now go to a task delegate,
+  or to the session delegate when it has no task-level handler. `credentialForTrust:` accepts
+  the peer; default handling checks it with `SecTrust`, while cancellation and rejection fail
+  as Apple's do. The existing `finch-urlsession-test` still matches Apple's run;
+  `finch-urlsession-trust-test` matches Apple's with a generated self-signed certificate.
+  NTLM remains to come.
 - 2026-10-09: Foundation's Combine integration (`swift/Finch/Foundation+Combine.swift`):
   the KVO, notification, timer and URL session publishers, the coder conformances, and the
   run loop and operation queue schedulers. Foundation links Combine, as Apple's does.

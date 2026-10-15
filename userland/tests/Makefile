@@ -10,6 +10,7 @@ all: $(OUT)/finch-appkit-containers2-test $(OUT)/finch-appkit-misc2-test $(OUT)/
 all: $(OUT)/finch-appkit-containers2-render-test $(OUT)/finch-appkit-controls2-render-test $(OUT)/finch-appkit-color-browser-render-test
 all: $(OUT)/finch-console-policy-test
 all: $(OUT)/finch-appkit-gaps-test
+all: $(OUT)/finch-urlsession-trust-test
 
 $(OUT)/finch-console-policy-test: console-policy-test.c ../finch-init/console-policy.h
 	@mkdir -p $(OUT)
@@ -457,6 +458,11 @@ $(OUT)/finch-sysconfig-test: sysconfig-test.m
 $(OUT)/finch-urlsession-test: urlsession-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-unused-result -Wno-deprecated-declarations -o $@ $< -framework Foundation
+
+# HTTPS server-trust challenges, compared with Apple's using a local TLS server.
+$(OUT)/finch-urlsession-trust-test: urlsession-trust-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-unused-result -Wno-deprecated-declarations -o $@ $< -framework Foundation -framework Security
 
 # NSTextFinder and the find bar through NSTextView (diff Apple's run and Finch's).
 $(OUT)/finch-textfinder-test: textfinder-test.m
