@@ -17,6 +17,7 @@
  */
 #import <Foundation/Foundation.h>
 #import <Security/Security.h>
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <fcntl.h>
 #include <stdatomic.h>
@@ -469,6 +470,320 @@ extension_for_mime(NSString *type)
 
 #pragma mark - Loading
 
+typedef NS_ENUM(NSUInteger, FinchMetricDateField) {
+    FinchMetricFetchStart,
+    FinchMetricDomainLookupStart,
+    FinchMetricDomainLookupEnd,
+    FinchMetricConnectStart,
+    FinchMetricConnectEnd,
+    FinchMetricSecureConnectionStart,
+    FinchMetricSecureConnectionEnd,
+    FinchMetricRequestStart,
+    FinchMetricRequestEnd,
+    FinchMetricResponseStart,
+    FinchMetricResponseEnd,
+};
+
+@interface NSURLSessionTaskTransactionMetrics (Finch)
+- (instancetype)_finchInitWithRequest:(NSURLRequest *)request;
+- (void)_finchSetDate:(NSDate *)date field:(FinchMetricDateField)field;
+- (void)_finchSetResponse:(NSURLResponse *)response;
+- (void)_finchSetNetworkProtocolName:(NSString *)name;
+- (void)_finchSetResourceFetchType:(NSURLSessionTaskMetricsResourceFetchType)type;
+- (void)_finchSetRequestHeaderBytes:(int64_t)bytes bodyBytes:(int64_t)bodyBytes;
+- (void)_finchSetResponseHeaderBytes:(int64_t)headerBytes bodyBytes:(int64_t)bodyBytes decodedBytes:(int64_t)decodedBytes;
+- (void)_finchSetAddressesWithSocket:(int)fd;
+- (void)_finchSetTLSVersion:(uint16_t)version cipherSuite:(uint16_t)cipherSuite;
+@end
+
+@interface NSURLSessionTaskMetrics (Finch)
+- (instancetype)_finchInitWithStartDate:(NSDate *)startDate endDate:(NSDate *)endDate
+                      transactionMetrics:(NSArray *)transactionMetrics redirectCount:(NSUInteger)redirectCount;
+@end
+
+@interface FinchURLTaskMetricsCollector : NSObject
+- (instancetype)initWithTaskStartDate:(NSDate *)startDate;
+- (NSURLSessionTaskTransactionMetrics *)beginTransactionForRequest:(NSURLRequest *)request;
+- (void)recordRedirect;
+- (NSURLSessionTaskMetrics *)metricsForEndDate:(NSDate *)endDate request:(NSURLRequest *)request response:(NSURLResponse *)response;
+@end
+
+@implementation NSURLSessionTaskTransactionMetrics {
+    NSURLRequest *_request;
+    NSURLResponse *_response;
+    NSDate *_fetchStartDate, *_domainLookupStartDate, *_domainLookupEndDate, *_connectStartDate, *_connectEndDate;
+    NSDate *_secureConnectionStartDate, *_secureConnectionEndDate, *_requestStartDate, *_requestEndDate;
+    NSDate *_responseStartDate, *_responseEndDate;
+    NSString *_networkProtocolName, *_localAddress, *_remoteAddress;
+    NSNumber *_localPort, *_remotePort, *_negotiatedTLSProtocolVersion, *_negotiatedTLSCipherSuite;
+    NSURLSessionTaskMetricsResourceFetchType _resourceFetchType;
+    int64_t _requestHeaderBytes, _requestBodyBytes, _responseHeaderBytes, _responseBodyBytes, _decodedBodyBytes;
+    NSURLSessionTaskMetricsDomainResolutionProtocol _domainResolutionProtocol;
+}
+
+- (instancetype)_finchInitWithRequest:(NSURLRequest *)request
+{
+    if ((self = [super init])) {
+        _request = [request copy];
+        _fetchStartDate = [[NSDate date] retain];
+        _resourceFetchType = NSURLSessionTaskMetricsResourceFetchTypeUnknown;
+        _domainResolutionProtocol = NSURLSessionTaskMetricsDomainResolutionProtocolUnknown;
+    }
+    return self;
+}
+
+- (instancetype)init
+{
+    @throw [NSException exceptionWithName:NSInvalidArgumentException reason:@"NSURLSessionTaskTransactionMetrics cannot be initialized directly" userInfo:nil];
+}
+
+- (void)dealloc
+{
+    [_request release];
+    [_response release];
+    [_fetchStartDate release];
+    [_domainLookupStartDate release];
+    [_domainLookupEndDate release];
+    [_connectStartDate release];
+    [_connectEndDate release];
+    [_secureConnectionStartDate release];
+    [_secureConnectionEndDate release];
+    [_requestStartDate release];
+    [_requestEndDate release];
+    [_responseStartDate release];
+    [_responseEndDate release];
+    [_networkProtocolName release];
+    [_localAddress release];
+    [_remoteAddress release];
+    [_localPort release];
+    [_remotePort release];
+    [_negotiatedTLSProtocolVersion release];
+    [_negotiatedTLSCipherSuite release];
+    [super dealloc];
+}
+
+- (NSURLRequest *)request { return _request; }
+- (NSURLResponse *)response { return _response; }
+- (NSDate *)fetchStartDate { return _fetchStartDate; }
+- (NSDate *)domainLookupStartDate { return _domainLookupStartDate; }
+- (NSDate *)domainLookupEndDate { return _domainLookupEndDate; }
+- (NSDate *)connectStartDate { return _connectStartDate; }
+- (NSDate *)connectEndDate { return _connectEndDate; }
+- (NSDate *)secureConnectionStartDate { return _secureConnectionStartDate; }
+- (NSDate *)secureConnectionEndDate { return _secureConnectionEndDate; }
+- (NSDate *)requestStartDate { return _requestStartDate; }
+- (NSDate *)requestEndDate { return _requestEndDate; }
+- (NSDate *)responseStartDate { return _responseStartDate; }
+- (NSDate *)responseEndDate { return _responseEndDate; }
+- (NSString *)networkProtocolName { return _networkProtocolName; }
+- (BOOL)isProxyConnection { return NO; }
+- (BOOL)isReusedConnection { return NO; }
+- (NSURLSessionTaskMetricsResourceFetchType)resourceFetchType { return _resourceFetchType; }
+- (int64_t)countOfRequestHeaderBytesSent { return _requestHeaderBytes; }
+- (int64_t)countOfRequestBodyBytesSent { return _requestBodyBytes; }
+- (int64_t)countOfRequestBodyBytesBeforeEncoding { return [_request.HTTPBody length]; }
+- (int64_t)countOfResponseHeaderBytesReceived { return _responseHeaderBytes; }
+- (int64_t)countOfResponseBodyBytesReceived { return _responseBodyBytes; }
+- (int64_t)countOfResponseBodyBytesAfterDecoding { return _decodedBodyBytes; }
+- (NSString *)localAddress { return _localAddress; }
+- (NSNumber *)localPort { return _localPort; }
+- (NSString *)remoteAddress { return _remoteAddress; }
+- (NSNumber *)remotePort { return _remotePort; }
+- (NSNumber *)negotiatedTLSProtocolVersion { return _negotiatedTLSProtocolVersion; }
+- (NSNumber *)negotiatedTLSCipherSuite { return _negotiatedTLSCipherSuite; }
+- (BOOL)isCellular { return NO; }
+- (BOOL)isExpensive { return NO; }
+- (BOOL)isConstrained { return NO; }
+- (BOOL)isMultipath { return NO; }
+- (NSURLSessionTaskMetricsDomainResolutionProtocol)domainResolutionProtocol { return _domainResolutionProtocol; }
+
+- (void)_finchSetDate:(NSDate *)date field:(FinchMetricDateField)field
+{
+    NSDate **slot = NULL;
+    switch (field) {
+    case FinchMetricFetchStart: slot = &_fetchStartDate; break;
+    case FinchMetricDomainLookupStart: slot = &_domainLookupStartDate; break;
+    case FinchMetricDomainLookupEnd: slot = &_domainLookupEndDate; break;
+    case FinchMetricConnectStart: slot = &_connectStartDate; break;
+    case FinchMetricConnectEnd: slot = &_connectEndDate; break;
+    case FinchMetricSecureConnectionStart: slot = &_secureConnectionStartDate; break;
+    case FinchMetricSecureConnectionEnd: slot = &_secureConnectionEndDate; break;
+    case FinchMetricRequestStart: slot = &_requestStartDate; break;
+    case FinchMetricRequestEnd: slot = &_requestEndDate; break;
+    case FinchMetricResponseStart: slot = &_responseStartDate; break;
+    case FinchMetricResponseEnd: slot = &_responseEndDate; break;
+    }
+    [*slot release];
+    *slot = [date copy];
+}
+
+- (void)_finchSetResponse:(NSURLResponse *)response
+{
+    [_response release];
+    _response = [response copy];
+}
+
+- (void)_finchSetNetworkProtocolName:(NSString *)name
+{
+    [_networkProtocolName release];
+    _networkProtocolName = [name copy];
+}
+
+- (void)_finchSetResourceFetchType:(NSURLSessionTaskMetricsResourceFetchType)type { _resourceFetchType = type; }
+- (void)_finchSetRequestHeaderBytes:(int64_t)bytes bodyBytes:(int64_t)bodyBytes
+{
+    _requestHeaderBytes = bytes;
+    _requestBodyBytes = bodyBytes;
+}
+- (void)_finchSetResponseHeaderBytes:(int64_t)headerBytes bodyBytes:(int64_t)bodyBytes decodedBytes:(int64_t)decodedBytes
+{
+    _responseHeaderBytes = headerBytes;
+    _responseBodyBytes = bodyBytes;
+    _decodedBodyBytes = decodedBytes;
+}
+
+- (void)_finchSetAddressesWithSocket:(int)fd
+{
+    struct sockaddr_storage address;
+    socklen_t length = sizeof(address);
+    char text[INET6_ADDRSTRLEN];
+    if (getsockname(fd, (struct sockaddr *)&address, &length) == 0) {
+        const void *bytes = address.ss_family == AF_INET ? (const void *)&((struct sockaddr_in *)&address)->sin_addr :
+                                                            (const void *)&((struct sockaddr_in6 *)&address)->sin6_addr;
+        if (inet_ntop(address.ss_family, bytes, text, sizeof(text))) {
+            [_localAddress release];
+            _localAddress = [[NSString alloc] initWithUTF8String:text];
+        }
+        uint16_t port = address.ss_family == AF_INET ? ntohs(((struct sockaddr_in *)&address)->sin_port) :
+                                                        ntohs(((struct sockaddr_in6 *)&address)->sin6_port);
+        [_localPort release];
+        _localPort = [[NSNumber alloc] initWithUnsignedShort:port];
+    }
+    length = sizeof(address);
+    if (getpeername(fd, (struct sockaddr *)&address, &length) == 0) {
+        const void *bytes = address.ss_family == AF_INET ? (const void *)&((struct sockaddr_in *)&address)->sin_addr :
+                                                            (const void *)&((struct sockaddr_in6 *)&address)->sin6_addr;
+        if (inet_ntop(address.ss_family, bytes, text, sizeof(text))) {
+            [_remoteAddress release];
+            _remoteAddress = [[NSString alloc] initWithUTF8String:text];
+        }
+        uint16_t port = address.ss_family == AF_INET ? ntohs(((struct sockaddr_in *)&address)->sin_port) :
+                                                        ntohs(((struct sockaddr_in6 *)&address)->sin6_port);
+        [_remotePort release];
+        _remotePort = [[NSNumber alloc] initWithUnsignedShort:port];
+    }
+}
+
+- (void)_finchSetTLSVersion:(uint16_t)version cipherSuite:(uint16_t)cipherSuite
+{
+    [_negotiatedTLSProtocolVersion release];
+    [_negotiatedTLSCipherSuite release];
+    _negotiatedTLSProtocolVersion = [[NSNumber alloc] initWithUnsignedShort:version];
+    _negotiatedTLSCipherSuite = [[NSNumber alloc] initWithUnsignedShort:cipherSuite];
+}
+
+@end
+
+@implementation NSURLSessionTaskMetrics {
+    NSArray *_transactionMetrics;
+    NSDateInterval *_taskInterval;
+    NSUInteger _redirectCount;
+}
+
+- (instancetype)_finchInitWithStartDate:(NSDate *)startDate endDate:(NSDate *)endDate
+                      transactionMetrics:(NSArray *)transactionMetrics redirectCount:(NSUInteger)redirectCount
+{
+    if ((self = [super init])) {
+        _transactionMetrics = [transactionMetrics copy];
+        _taskInterval = [[NSDateInterval alloc] initWithStartDate:startDate endDate:endDate];
+        _redirectCount = redirectCount;
+    }
+    return self;
+}
+
+- (instancetype)init
+{
+    @throw [NSException exceptionWithName:NSInvalidArgumentException reason:@"NSURLSessionTaskMetrics cannot be initialized directly" userInfo:nil];
+}
+
+- (void)dealloc
+{
+    [_transactionMetrics release];
+    [_taskInterval release];
+    [super dealloc];
+}
+
+- (NSArray *)transactionMetrics { return _transactionMetrics; }
+- (NSDateInterval *)taskInterval { return _taskInterval; }
+- (NSUInteger)redirectCount { return _redirectCount; }
+
+@end
+
+@implementation FinchURLTaskMetricsCollector {
+    NSDate *_taskStartDate;
+    NSMutableArray *_transactionMetrics;
+    NSUInteger _redirectCount;
+}
+
+- (instancetype)initWithTaskStartDate:(NSDate *)startDate
+{
+    if ((self = [super init])) {
+        _taskStartDate = [startDate copy];
+        _transactionMetrics = [NSMutableArray new];
+    }
+    return self;
+}
+
+- (void)dealloc
+{
+    [_taskStartDate release];
+    [_transactionMetrics release];
+    [super dealloc];
+}
+
+- (NSURLSessionTaskTransactionMetrics *)beginTransactionForRequest:(NSURLRequest *)request
+{
+    NSURLSessionTaskTransactionMetrics *metrics = [[NSURLSessionTaskTransactionMetrics alloc] _finchInitWithRequest:request];
+    @synchronized(self) {
+        [_transactionMetrics addObject:metrics];
+    }
+    return [metrics autorelease];
+}
+
+- (void)recordRedirect
+{
+    @synchronized(self) { _redirectCount++; }
+}
+
+- (NSURLSessionTaskMetrics *)metricsForEndDate:(NSDate *)endDate request:(NSURLRequest *)request response:(NSURLResponse *)response
+{
+    NSArray *transactions;
+    NSUInteger redirects;
+    @synchronized(self) {
+        if (![_transactionMetrics count] && response && request) {
+            NSURLSessionTaskTransactionMetrics *metrics = [[NSURLSessionTaskTransactionMetrics alloc] _finchInitWithRequest:request];
+            [metrics _finchSetDate:_taskStartDate field:FinchMetricFetchStart];
+            [metrics _finchSetResponse:response];
+            [metrics _finchSetDate:endDate field:FinchMetricResponseEnd];
+            [_transactionMetrics addObject:metrics];
+            [metrics autorelease];
+        }
+        transactions = [_transactionMetrics copy];
+        redirects = _redirectCount;
+    }
+    NSURLSessionTaskMetrics *metrics = [[NSURLSessionTaskMetrics alloc] _finchInitWithStartDate:_taskStartDate endDate:endDate
+                                                                           transactionMetrics:transactions redirectCount:redirects];
+    [transactions release];
+    return [metrics autorelease];
+}
+
+@end
+
+static __thread FinchURLTaskMetricsCollector *current_metrics_collector;
+static __thread NSURLSessionTaskTransactionMetrics *current_transaction_metrics;
+
+static NSDate *metric_now(void) { return [NSDate date]; }
+
 static NSError *
 url_error(NSInteger code, NSURL *url, NSString *description)
 {
@@ -525,6 +840,7 @@ typedef struct {
     int fd;
     SSL *ssl;
     SSL_CTX *ctx;
+    uint64_t bytesWritten;
 } Connection;
 
 static NSInteger conn_server_trust(Connection *c, NSURL *url);
@@ -543,6 +859,7 @@ conn_write(Connection *c, const void *buf, size_t n)
         ssize_t w = c->ssl ? SSL_write(c->ssl, p, (int)n) : write(c->fd, p, n);
         if (w <= 0)
             return NO;
+        c->bytesWritten += (uint64_t)w;
         p += w;
         n -= (size_t)w;
     }
@@ -604,6 +921,7 @@ conn_open(Connection *c, NSURL *url, NSTimeInterval timeout)
     c->fd = -1;
     c->ssl = NULL;
     c->ctx = NULL;
+    c->bytesWritten = 0;
     BOOL tls = [[[url scheme] lowercaseString] isEqualToString:@"https"];
     NSString *host = [url host];
     if (![host length])
@@ -613,8 +931,18 @@ conn_open(Connection *c, NSURL *url, NSTimeInterval timeout)
     hints.ai_socktype = SOCK_STREAM;
     char portStr[8];
     snprintf(portStr, sizeof portStr, "%d", port);
-    if (getaddrinfo([host UTF8String], portStr, &hints, &res) != 0 || !res)
+    struct in_addr ipv4;
+    struct in6_addr ipv6;
+    BOOL literalAddress = inet_pton(AF_INET, [host UTF8String], &ipv4) == 1 || inet_pton(AF_INET6, [host UTF8String], &ipv6) == 1;
+    if (current_transaction_metrics && !literalAddress)
+        [current_transaction_metrics _finchSetDate:metric_now() field:FinchMetricDomainLookupStart];
+    int lookup = getaddrinfo([host UTF8String], portStr, &hints, &res);
+    if (lookup != 0 || !res)
         return NSURLErrorCannotFindHost;
+    if (current_transaction_metrics && !literalAddress)
+        [current_transaction_metrics _finchSetDate:metric_now() field:FinchMetricDomainLookupEnd];
+    if (current_transaction_metrics)
+        [current_transaction_metrics _finchSetDate:metric_now() field:FinchMetricConnectStart];
     for (struct addrinfo *a = res; a; a = a->ai_next) {
         int fd = socket(a->ai_family, a->ai_socktype, a->ai_protocol);
         if (fd < 0)
@@ -631,6 +959,10 @@ conn_open(Connection *c, NSURL *url, NSTimeInterval timeout)
     freeaddrinfo(res);
     if (c->fd < 0)
         return NSURLErrorCannotConnectToHost;
+    if (current_transaction_metrics) {
+        [current_transaction_metrics _finchSetDate:metric_now() field:FinchMetricConnectEnd];
+        [current_transaction_metrics _finchSetAddressesWithSocket:c->fd];
+    }
     if (!tls)
         return 0;
     c->ctx = SSL_CTX_new(TLS_client_method());
@@ -643,8 +975,16 @@ conn_open(Connection *c, NSURL *url, NSTimeInterval timeout)
     BIO_set_data(bio, (void *)(intptr_t)c->fd);
     BIO_set_init(bio, 1);
     SSL_set_bio(c->ssl, bio, bio);
+    if (current_transaction_metrics)
+        [current_transaction_metrics _finchSetDate:metric_now() field:FinchMetricSecureConnectionStart];
     if (SSL_connect(c->ssl) != 1)
         return NSURLErrorSecureConnectionFailed;
+    if (current_transaction_metrics) {
+        [current_transaction_metrics _finchSetDate:metric_now() field:FinchMetricSecureConnectionEnd];
+        const SSL_CIPHER *cipher = SSL_get_current_cipher(c->ssl);
+        [current_transaction_metrics _finchSetTLSVersion:(uint16_t)SSL_version(c->ssl)
+                                               cipherSuite:cipher ? SSL_CIPHER_get_protocol_id(cipher) : 0];
+    }
     return 0;
 }
 
@@ -787,6 +1127,8 @@ body_feed(Body *b, const char *p, size_t n)
 static NSData *
 load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outResponse, NSInteger *outError, NSMutableArray *setCookies)
 {
+    if (current_transaction_metrics)
+        [current_transaction_metrics _finchSetResourceFetchType:NSURLSessionTaskMetricsResourceFetchTypeNetworkLoad];
     Connection c;
     NSInteger err = conn_open(&c, url, [request timeoutInterval] > 0 ? [request timeoutInterval] : 60);
     if (!err)
@@ -819,11 +1161,23 @@ load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outRespons
         [head appendFormat:@"Content-Length: %lu\r\n", (unsigned long)[body length]];
     [head appendString:@"Connection: close\r\n\r\n"];
     NSData *headData = [head dataUsingEncoding:NSUTF8StringEncoding];
-    if (!conn_write(&c, [headData bytes], [headData length]) || (body && !conn_write(&c, [body bytes], [body length]))) {
+    if (current_transaction_metrics) {
+        [current_transaction_metrics _finchSetDate:metric_now() field:FinchMetricRequestStart];
+        [current_transaction_metrics _finchSetRequestHeaderBytes:0 bodyBytes:0];
+    }
+    BOOL wroteHead = conn_write(&c, [headData bytes], [headData length]);
+    uint64_t headerBytes = c.bytesWritten;
+    BOOL wroteBody = wroteHead && (!body || conn_write(&c, [body bytes], [body length]));
+    if (current_transaction_metrics)
+        [current_transaction_metrics _finchSetRequestHeaderBytes:(int64_t)headerBytes
+                                                       bodyBytes:(int64_t)(c.bytesWritten - headerBytes)];
+    if (!wroteHead || !wroteBody) {
         conn_close(&c);
         *outError = NSURLErrorNetworkConnectionLost;
         return nil;
     }
+    if (current_transaction_metrics)
+        [current_transaction_metrics _finchSetDate:metric_now() field:FinchMetricRequestEnd];
     Download *download = current_download;
     if (download) {
         os_unfair_lock_lock(&download->lock);
@@ -839,7 +1193,12 @@ load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outRespons
     ssize_t n;
     NSUInteger end = 0;
     BOOL found = NO;
+    BOOL recordedResponseStart = NO;
     while (!found && (n = conn_read(&c, buf, sizeof buf)) > 0) {
+        if (!recordedResponseStart && current_transaction_metrics) {
+            [current_transaction_metrics _finchSetDate:metric_now() field:FinchMetricResponseStart];
+            recordedResponseStart = YES;
+        }
         NSUInteger from = [all length] > 3 ? [all length] - 3 : 0;
         [all appendBytes:buf length:(NSUInteger)n];
         const char *b = [all bytes];
@@ -889,6 +1248,14 @@ load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outRespons
     }
     *outResponse = [[[NSHTTPURLResponse alloc] initWithURL:url statusCode:[status[1] integerValue] HTTPVersion:status[0]
                                               headerFields:h] autorelease];
+    if (current_transaction_metrics) {
+        NSString *protocol = [status[0] lowercaseString];
+        if ([protocol hasPrefix:@"http/"])
+            protocol = [protocol substringFromIndex:5];
+        [current_transaction_metrics _finchSetNetworkProtocolName:[@"http/" stringByAppendingString:protocol]];
+        [current_transaction_metrics _finchSetResponse:*outResponse];
+        [current_transaction_metrics _finchSetResponseHeaderBytes:(int64_t)(end + 4) bodyBytes:0 decodedBytes:0];
+    }
     /* the body */
     NSInteger code = [*outResponse statusCode];
     Body rb = {.length = -1, .memory = [NSMutableData data]};
@@ -927,8 +1294,19 @@ load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outRespons
     }
     if (!failure) {
         body_feed(&rb, bytes + end + 4, len - end - 4);
-        while (!rb.done && !rb.failed && (n = conn_read(&c, buf, sizeof buf)) > 0)
+    }
+    int64_t responseBodyWireBytes = (int64_t)(len - end - 4);
+    if (!failure) {
+        while (!rb.done && !rb.failed && (n = conn_read(&c, buf, sizeof buf)) > 0) {
+            responseBodyWireBytes += n;
             body_feed(&rb, buf, (size_t)n);
+        }
+    }
+    if (current_transaction_metrics) {
+        int64_t decodedBytes = rb.download ? MAX((int64_t)0, rb.download->written - rb.download->offset) : (int64_t)[rb.memory length];
+        [current_transaction_metrics _finchSetResponseHeaderBytes:(int64_t)(end + 4) bodyBytes:responseBodyWireBytes decodedBytes:decodedBytes];
+        if (rb.done || (!rb.chunked && rb.length == 0))
+            [current_transaction_metrics _finchSetDate:metric_now() field:FinchMetricResponseEnd];
     }
     BOOL cancelled = NO;
     if (download) {
@@ -1265,20 +1643,39 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
     *outResponse = nil;
     *outError = nil;
     if ([url isFileURL]) {
+        NSURLSessionTaskTransactionMetrics *metrics = [current_metrics_collector beginTransactionForRequest:request];
+        current_transaction_metrics = metrics;
+        [metrics _finchSetDate:metric_now() field:FinchMetricRequestStart];
         NSError *e = nil;
         NSData *d = [NSData dataWithContentsOfURL:url options:0 error:&e];
         if (!d) {
             *outError = url_error(NSURLErrorFileDoesNotExist, url, @"The requested URL was not found on this server.");
+            current_transaction_metrics = nil;
             return nil;
         }
+        [metrics _finchSetDate:metric_now() field:FinchMetricRequestEnd];
+        [metrics _finchSetDate:metric_now() field:FinchMetricResponseStart];
         *outResponse = [[[NSURLResponse alloc] initWithURL:url MIMEType:mime_for_extension([url pathExtension])
                                      expectedContentLength:(NSInteger)[d length] textEncodingName:nil] autorelease];
+        [metrics _finchSetResponse:*outResponse];
+        [metrics _finchSetResponseHeaderBytes:0 bodyBytes:(int64_t)[d length] decodedBytes:(int64_t)[d length]];
+        [metrics _finchSetDate:metric_now() field:FinchMetricResponseEnd];
+        current_transaction_metrics = nil;
         return d;
     }
     if ([scheme isEqualToString:@"data"]) {
+        NSURLSessionTaskTransactionMetrics *metrics = [current_metrics_collector beginTransactionForRequest:request];
+        current_transaction_metrics = metrics;
+        [metrics _finchSetDate:metric_now() field:FinchMetricRequestStart];
         NSData *d = load_data_url(url, outResponse);
         if (!d)
             *outError = url_error(NSURLErrorBadURL, url, @"bad URL");
+        [metrics _finchSetDate:metric_now() field:FinchMetricRequestEnd];
+        [metrics _finchSetDate:metric_now() field:FinchMetricResponseStart];
+        [metrics _finchSetResponse:*outResponse];
+        [metrics _finchSetResponseHeaderBytes:0 bodyBytes:(int64_t)[d length] decodedBytes:(int64_t)[d length]];
+        [metrics _finchSetDate:metric_now() field:FinchMetricResponseEnd];
+        current_transaction_metrics = nil;
         return d;
     }
     if (![scheme isEqualToString:@"http"] && ![scheme isEqualToString:@"https"]) {
@@ -1291,6 +1688,8 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
     NSURLProtectionSpace *usedSpace = nil;
     NSInteger failures = 0;
     for (int hops = 0; hops < 16 + 8; hops++) {
+        NSURLSessionTaskTransactionMetrics *metrics = [current_metrics_collector beginTransactionForRequest:r];
+        current_transaction_metrics = metrics;
         NSHTTPURLResponse *resp = nil;
         NSInteger code = 0;
         NSHTTPCookieStorage *jar = [r HTTPShouldHandleCookies] ? cookie_store() : nil;
@@ -1301,6 +1700,8 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
         }
         NSMutableArray *setCookies = [NSMutableArray array];
         NSData *d = load_http_once(r, [r URL], &resp, &code, setCookies);
+        [metrics _finchSetResponse:resp];
+        current_transaction_metrics = nil;
         if (jar && !code)
             for (NSString *line in setCookies)
                 [jar setCookies:[NSHTTPCookie cookiesWithResponseHeaderFields:@{@"Set-Cookie" : line} forURL:[r URL]]
@@ -1394,6 +1795,7 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
                 chosen = hooks->redirect(resp, next);
             if (chosen) {
                 r = [[chosen mutableCopy] autorelease];
+                [current_metrics_collector recordRedirect];
                 continue;
             }
         }
@@ -1517,6 +1919,8 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
     NSDictionary *_resumeInfo;       /* a resumed download's resume data */
     void (^_resumeHandler)(NSData *); /* cancelByProducingResumeData:'s */
     BOOL _loadsToFile;               /* (an http(s) download, which counts its bytes as it writes) */
+    FinchURLTaskMetricsCollector *_metricsCollector;
+    NSURLSessionTaskMetrics *_taskMetrics;
 }
 
 - (instancetype)_finchInitWithSession:(NSURLSession *)session request:(NSURLRequest *)request identifier:(NSUInteger)ident
@@ -1531,6 +1935,7 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
         _state = NSURLSessionTaskStateSuspended;
         _expected = NSURLSessionTransferSizeUnknown;
         _priority = NSURLSessionTaskPriorityDefault;
+        _metricsCollector = [[FinchURLTaskMetricsCollector alloc] initWithTaskStartDate:[NSDate date]];
     }
     return self;
 }
@@ -1545,6 +1950,8 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
     [_description release];
     [_resumeInfo release];
     [_resumeHandler release];
+    [_metricsCollector release];
+    [_taskMetrics release];
     [super dealloc];
 }
 
@@ -1601,7 +2008,10 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
       [self _finchHooks:&hooks dataDelegate:!download];
       /* (through the cache and any protocol classes, NSURLCache.m) */
       [self _finchEnterLoad:configuration hooks:&hooks];
+      current_metrics_collector = _metricsCollector;
       NSData *data = _FinchURLLoad(configuration, self, request, &response, &error, load);
+      current_transaction_metrics = nil;
+      current_metrics_collector = nil;
       [self _finchLeaveLoad];
       /* (what the cache or a protocol answered, the delegate gets now) */
       if (data && hooks.response && !hooks.delivered) {
@@ -1809,9 +2219,12 @@ on_delegate_queue(NSURLSession *session, void (^block)(dispatch_semaphore_t done
     Hooks hooks = {0};
     [self _finchHooks:&hooks dataDelegate:NO];
     [self _finchEnterLoad:configuration hooks:&hooks];
+    current_metrics_collector = _metricsCollector;
     current_download = &dl;
     load(request, &response, &error);
     current_download = NULL;
+    current_transaction_metrics = nil;
+    current_metrics_collector = nil;
     [self _finchLeaveLoad];
     void (^handler)(NSData *) = nil;
     BOOL finished;
@@ -1899,6 +2312,8 @@ on_delegate_queue(NSURLSession *session, void (^block)(dispatch_semaphore_t done
         if (_state == NSURLSessionTaskStateCompleted)
             return;
         _state = NSURLSessionTaskStateCompleted;
+        [_taskMetrics release];
+        _taskMetrics = [[_metricsCollector metricsForEndDate:[NSDate date] request:_original response:response] retain];
         if (response) {
             [_response release];
             _response = [response retain];
@@ -1920,6 +2335,8 @@ on_delegate_queue(NSURLSession *session, void (^block)(dispatch_semaphore_t done
               [d respondsToSelector:@selector(URLSession:downloadTask:didFinishDownloadingToURL:)])
               [(id<NSURLSessionDownloadDelegate>)d URLSession:session downloadTask:(NSURLSessionDownloadTask *)self
                                     didFinishDownloadingToURL:result];
+          if ([d respondsToSelector:@selector(URLSession:task:didFinishCollectingMetrics:)])
+              [(id<NSURLSessionTaskDelegate>)d URLSession:session task:self didFinishCollectingMetrics:_taskMetrics];
           if ([d respondsToSelector:@selector(URLSession:task:didCompleteWithError:)])
               [(id<NSURLSessionTaskDelegate>)d URLSession:session task:self didCompleteWithError:error];
       }

@@ -510,6 +510,17 @@ edit_runs(NSMutableAttributedString *self, NSRange range, void (^edit)(NSMutable
     [self replaceCharactersInRange:NSMakeRange([self length], 0) withAttributedString:attrString];
 }
 
+- (void)appendLocalizedFormat:(NSAttributedString *)format, ...
+{
+    va_list arguments;
+    va_start(arguments, format);
+    NSAttributedString *formatted = [[[NSAttributedString alloc] initWithFormat:format options:0
+                                                                          locale:[NSLocale currentLocale]
+                                                                       arguments:arguments] autorelease];
+    va_end(arguments);
+    [self appendAttributedString:formatted];
+}
+
 - (void)deleteCharactersInRange:(NSRange)range
 {
     [self replaceCharactersInRange:range withString:@""];

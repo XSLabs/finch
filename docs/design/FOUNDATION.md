@@ -533,7 +533,7 @@ optional attribute providers; it does not load a missing UI framework.
   intents. Markdown constructors now use cmark-gfm; Apple's custom
   extended-attribute syntax remains unsupported. Cloud-backed bundle, ubiquity,
   app-group and file-provider services
-  remain out because Finch has no matching cloud service. Localized attributed
+  remain out because Finch has no matching cloud service. Grammatical
   formatting and inflection remain out until Finch has the required language
   rules. Distributed Objects, scripting, garbage collection and private-looking
   audit entries remain skipped. The Foundation audit fell from 44 missing
@@ -541,3 +541,19 @@ optional attribute providers; it does not load a missing UI framework.
   `finch-foundation-gaps-test`, `finch-foundation-test`,
   `finch-foundation-more-test`, `finch-foundation-audit-test`, `finch-misc-test`
   and `finch-intl-test` all match Apple's host run.
+- 2026-10-15: another Foundation API-gap pass. `NSDistributedLock` uses an
+  atomically-created marker so processes cannot take the same lock at once;
+  `lockDate` keeps the lock file's last acquisition time, and `breakLock`
+  removes the marker so another process can take over. `NSURLSessionTaskMetrics`
+  and its transaction records report request/response objects, redirect counts,
+  timing through DNS, connection, TLS and transfer, socket addresses, byte
+  counts, and the delegate callback before task completion. The comparison test
+  also checks regular-expression capture ranges, the stored state in
+  `NSUserActivity`, and `appendLocalizedFormat:` preserving the format's
+  attributes. Those classes and the length, mass and energy formatters were
+  already implemented. The seven requested Foundation host comparisons match
+  Apple's output. The API audit moved from 38 missing classes and 86 missing
+  methods to 35 classes and 85 methods. `NSPurgeableData` is hidden in
+  the current macOS SDK behind a disabled declaration. Finch's Swift morphology
+  values can store grammatical data, but Finch has no language rules to apply
+  it, so the Objective-C morphology wrappers and actual inflection remain out.
