@@ -1119,7 +1119,10 @@ that every app works. These release checks were missing from the Phase 5 list:
       configd, diskarbitrationd, mDNSResponder and cron are running, and that cron runs a
       job from a crontab. Found in the test pass: the VM image has no real, root-owned
       /Library/Preferences/SystemConfiguration, so its configd can't commit system
-      preferences (tools/vm/test-settings.sh runs a configd of its own to check them);
+      preferences (tools/vm/test-settings.sh runs a configd of its own to check them). The
+      image is built without root, so its /Library isn't root's, and it is read-only; System
+      Policy refuses a tmpfs on /Library (tried 2026-10-15). An installed system's /Library,
+      root's on a writable volume, is the release image's to give;
       and SCPreferences of a root process's own file, which Apple's write in-process,
       go to configd, which serves only the system folder, and are refused.
 - [ ] **Trust and access:** a maintained system certificate store, persistent key storage,
