@@ -1122,9 +1122,12 @@ that every app works. These release checks were missing from the Phase 5 list:
       preferences (tools/vm/test-settings.sh runs a configd of its own to check them). The
       image is built without root, so its /Library isn't root's, and it is read-only; System
       Policy refuses a tmpfs on /Library (tried 2026-10-15). An installed system's /Library,
-      root's on a writable volume, is the release image's to give;
-      and SCPreferences of a root process's own file, which Apple's write in-process,
-      go to configd, which serves only the system folder, and are refused.
+      root's on a writable volume, is the release image's to give.
+      SCPreferences of a root process's own file (an absolute path outside the system
+      folder) are now read, locked and written in the process, as Apple's are, with or
+      without configd; other users' locks on such a file are refused, as Apple's are
+      (finch-sysconfig-test against Apple's on the host, configd-service-test as root in
+      the VM, 2026-10-15).
 - [ ] **Trust and access:** a maintained system certificate store, persistent key storage,
       authorization, code-signature checks and enforced app restrictions. Test refused
       access as well as allowed access. Finch now has pinned web roots, a file

@@ -4,6 +4,13 @@
  * local edits until the daemon commits them. System preferences are writable
  * only by a root connection. If configd is absent, reads can still use the
  * readable file, but writes fail with kSCStatusNoStoreServer.
+ *
+ * A preferences file of the caller's own, an absolute path outside the system
+ * folder, is read in the process and, by root, locked (PATH.lock, flock'd, as
+ * configd does) and written (atomically, by renaming) there too, as Apple's
+ * are; anyone else's lock is refused (kSCStatusAccessError), as Apple's is
+ * without an authorization. A commit without the lock takes it for the commit,
+ * as with Apple's.
  */
 #include "SCFinch.h"
 #include <errno.h>
@@ -13,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -63,11 +71,15 @@ typedef struct {
 	CFRunLoopRef runLoop;
 	CFStringRef runLoopMode;
 	dispatch_source_t watcher;
+	bool local;                     /* the caller's own file, handled here */
+	int lockFD;                     /* a local session's lock */
 } Prefs;
 
 static void prefsFree(CFTypeRef o)
 {
 	Prefs *p = (Prefs *)o;
+	if (p->local && p->lockFD >= 0)
+		close(p->lockFD);
 	if (p->watcher) {
 		dispatch_source_cancel(p->watcher);
 		dispatch_release(p->watcher);
@@ -113,6 +125,15 @@ static CFDataRef signatureOf(const char *path)
 
 static CFMutableDictionaryRef access_(Prefs *p)
 {
+	if (!p->prefs && p->local) {
+		p->prefs = readPlist(p->path);
+		if (!p->prefs)
+			p->prefs = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		if (p->signature)
+			CFRelease(p->signature);
+		p->signature = signatureOf(p->path);
+		p->changed = false;
+	}
 	if (!p->prefs) {
 		xpc_object_t request = _SCConfigdCreateRequest("prefs.read");
 		int status = kSCStatusNoStoreServer;
@@ -167,6 +188,8 @@ SCPreferencesRef SCPreferencesCreateWithOptions(CFAllocatorRef allocator, CFStri
 		strlcpy(p->path, id, sizeof(p->path));
 	else
 		snprintf(p->path, sizeof(p->path), "%s/%s", kSystemPrefsDir, id);
+	p->local = strncmp(p->path, kSystemPrefsDir "/", sizeof(kSystemPrefsDir "/") - 1) != 0;
+	p->lockFD = -1;
 	_SCErrorSet(kSCStatusOK);
 	return (SCPreferencesRef)p;
 }
@@ -279,6 +302,89 @@ void SCPreferencesSynchronize(SCPreferencesRef ref)
 	_SCErrorSet(kSCStatusOK);
 }
 
+static int statusForErrno(int err)
+{
+	return err == EACCES || err == EPERM || err == EROFS ? kSCStatusAccessError : kSCStatusFailed;
+}
+
+static bool sameSignature(Prefs *p)
+{
+	CFDataRef now = signatureOf(p->path);
+	bool same = p->signature && CFEqual(now, p->signature);
+	CFRelease(now);
+	return same;
+}
+
+static int localLock(Prefs *p, bool wait)
+{
+	if (geteuid() != 0)
+		return kSCStatusAccessError;
+	char lockPath[PATH_MAX];
+	if ((size_t)snprintf(lockPath, sizeof(lockPath), "%s.lock", p->path) >= sizeof(lockPath))
+		return kSCStatusInvalidArgument;
+	int fd = open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+	if (fd < 0)
+		return statusForErrno(errno);
+	if (flock(fd, LOCK_EX | (wait ? 0 : LOCK_NB)) < 0) {
+		int err = errno;
+		close(fd);
+		return err == EWOULDBLOCK || err == EAGAIN ? kSCStatusPrefsBusy : kSCStatusFailed;
+	}
+	if (!sameSignature(p)) {
+		close(fd);
+		return kSCStatusStale;
+	}
+	p->lockFD = fd;
+	return kSCStatusOK;
+}
+
+static void localUnlock(Prefs *p)
+{
+	if (p->lockFD >= 0) {
+		(void)flock(p->lockFD, LOCK_UN);
+		close(p->lockFD);
+	}
+	p->lockFD = -1;
+}
+
+/* The file replaced by a new one, renamed into place, with the old one's mode. */
+static int localWrite(Prefs *p)
+{
+	CFDataRef bytes = CFPropertyListCreateData(NULL, p->prefs, kCFPropertyListBinaryFormat_v1_0, 0, NULL);
+	if (!bytes)
+		return kSCStatusInvalidArgument;
+	char temp[PATH_MAX];
+	snprintf(temp, sizeof(temp), "%s.XXXXXX", p->path);
+	int fd = mkstemp(temp);
+	if (fd < 0) {
+		CFRelease(bytes);
+		return statusForErrno(errno);
+	}
+	struct stat st;
+	mode_t mode = stat(p->path, &st) == 0 ? (st.st_mode & 0777) : 0644;
+	const UInt8 *b = CFDataGetBytePtr(bytes);
+	size_t left = (size_t)CFDataGetLength(bytes);
+	bool ok = fchmod(fd, mode) == 0;
+	while (ok && left) {
+		ssize_t n = write(fd, b, left);
+		if (n < 0 && errno == EINTR)
+			continue;
+		ok = n > 0;
+		if (ok)
+			b += n, left -= (size_t)n;
+	}
+	ok = ok && fsync(fd) == 0;
+	int err = errno;
+	ok = close(fd) == 0 && ok;
+	ok = ok && rename(temp, p->path) == 0;
+	if (!ok) {
+		err = errno ? errno : err;
+		unlink(temp);
+	}
+	CFRelease(bytes);
+	return ok ? kSCStatusOK : statusForErrno(err);
+}
+
 Boolean SCPreferencesLock(SCPreferencesRef ref, Boolean wait)
 {
 	Prefs *p = valid(ref);
@@ -292,6 +398,12 @@ Boolean SCPreferencesLock(SCPreferencesRef ref, Boolean wait)
 	if (p->signature == NULL) {
 		_SCErrorSet(kSCStatusFailed);
 		return false;
+	}
+	if (p->local) {
+		int status = localLock(p, wait);
+		p->locked = status == kSCStatusOK;
+		_SCErrorSet(status);
+		return p->locked;
 	}
 	xpc_object_t request = _SCConfigdCreateRequest("prefs.lock");
 	if (request == NULL) {
@@ -325,6 +437,12 @@ Boolean SCPreferencesUnlock(SCPreferencesRef ref)
 		_SCErrorSet(kSCStatusNeedLock);
 		return false;
 	}
+	if (p->local) {
+		localUnlock(p);
+		p->locked = false;
+		_SCErrorSet(kSCStatusOK);
+		return true;
+	}
 	xpc_object_t request = _SCConfigdCreateRequest("prefs.unlock");
 	if (request == NULL) {
 		_SCErrorSet(kSCStatusFailed);
@@ -345,6 +463,8 @@ Boolean SCPreferencesUnlock(SCPreferencesRef ref)
 	return true;
 }
 
+static Boolean commit(Prefs *p);
+
 Boolean SCPreferencesCommitChanges(SCPreferencesRef ref)
 {
 	Prefs *p = valid(ref);
@@ -357,6 +477,30 @@ Boolean SCPreferencesCommitChanges(SCPreferencesRef ref)
 	if (p->signature == NULL || p->prefs == NULL) {
 		_SCErrorSet(kSCStatusFailed);
 		return false;
+	}
+	if (p->locked)
+		return commit(p);
+	/* (locked for the commit alone) */
+	if (!SCPreferencesLock(ref, true))
+		return false;
+	Boolean ok = commit(p);
+	int status = SCError();
+	SCPreferencesUnlock(ref);
+	_SCErrorSet(status);
+	return ok;
+}
+
+static Boolean commit(Prefs *p)
+{
+	if (p->local) {
+		int status = sameSignature(p) ? localWrite(p) : kSCStatusStale;
+		if (status == kSCStatusOK) {
+			CFRelease(p->signature);
+			p->signature = signatureOf(p->path);
+			p->changed = false;
+		}
+		_SCErrorSet(status);
+		return status == kSCStatusOK;
 	}
 	xpc_object_t request = _SCConfigdCreateRequest("prefs.commit");
 	bool encoded = request != NULL;
@@ -405,6 +549,11 @@ Boolean SCPreferencesApplyChanges(SCPreferencesRef ref)
 	if (p->changed) {
 		_SCErrorSet(kSCStatusFailed);
 		return false;
+	}
+	if (p->local) {
+		/* (nothing to apply a file of the caller's own to) */
+		_SCErrorSet(kSCStatusOK);
+		return true;
 	}
 	xpc_object_t request = _SCConfigdCreateRequest("prefs.apply");
 	if (request == NULL) {

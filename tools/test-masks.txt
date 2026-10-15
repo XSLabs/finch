@@ -20,3 +20,6 @@ ruler-test s#units (Centimeters|Inches|Points|Picas)#units UNITS#
 coreservices-test s#^(kMDItem[A-Za-z]+): .*#\1: X#
 # this Mac's window list changes between the test's calls as other apps open and close windows
 utilities-test s#^window list: .*#window list: X#
+# whether a dynamic store can watch keys: only with configd, which Apple's host has and the
+# host run of Finch's doesn't
+sysconfig-test s#^notification keys [01]$#notification keys X#

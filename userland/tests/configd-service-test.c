@@ -404,6 +404,43 @@ runNotificationListener(int parentRead, int parentWrite, CFStringRef notifyKey,
 	return notified ? 0 : 7;
 }
 
+/* A root process's preferences file of its own is written in the process, as Apple's is: with
+   or without configd, and with stale changes refused. */
+static bool
+testRootOwnFile(void)
+{
+	char path[PATH_MAX];
+	snprintf(path, sizeof(path), "/tmp/finch-own-prefs-%d.plist", getpid());
+	unlink(path);
+	CFStringRef id = CFStringCreateWithCString(NULL, path, kCFStringEncodingUTF8);
+	SCPreferencesRef mine = SCPreferencesCreate(NULL, CFSTR("Finch own preferences"), id);
+	SCPreferencesRef other = SCPreferencesCreate(NULL, CFSTR("Finch own preferences, other"), id);
+	bool ok = mine && other &&
+	    SCPreferencesGetValue(other, CFSTR("Name")) == NULL &&
+	    SCPreferencesSetValue(mine, CFSTR("Name"), CFSTR("first")) &&
+	    SCPreferencesCommitChanges(mine) && access(path, F_OK) == 0;
+	SCPreferencesSynchronize(other);
+	CFPropertyListRef seen = ok ? SCPreferencesGetValue(other, CFSTR("Name")) : NULL;
+	ok = ok && seen && CFEqual(seen, CFSTR("first"));
+	ok = ok && SCPreferencesLock(mine, false) &&
+	    !SCPreferencesLock(other, false) && SCError() == kSCStatusPrefsBusy &&
+	    SCPreferencesSetValue(mine, CFSTR("Name"), CFSTR("second")) &&
+	    SCPreferencesCommitChanges(mine) && SCPreferencesApplyChanges(mine) &&
+	    SCPreferencesUnlock(mine);
+	ok = ok && SCPreferencesSetValue(other, CFSTR("Name"), CFSTR("third")) &&
+	    !SCPreferencesCommitChanges(other) && SCError() == kSCStatusStale;
+	SCPreferencesSynchronize(other);
+	seen = ok ? SCPreferencesGetValue(other, CFSTR("Name")) : NULL;
+	ok = ok && seen && CFEqual(seen, CFSTR("second"));
+	if (mine) CFRelease(mine);
+	if (other) CFRelease(other);
+	CFRelease(id);
+	unlink(path);
+	strlcat(path, ".lock", sizeof(path));
+	unlink(path);
+	return ok;
+}
+
 static bool
 testRootPreferences(bool restartService)
 {
@@ -772,6 +809,7 @@ testUnavailable(void)
 	CFRelease(store);
 	check(noStoreServer && noPrefsServer,
 	    "dynamic-store and preferences writes report an unavailable service");
+	check(testRootOwnFile(), "a root process's own preferences file is written without configd");
 	puts("configd-service: PASS (unavailable service)");
 	return 0;
 }
@@ -815,6 +853,7 @@ main(int argc, char **argv)
 	    "use no option, --store-only, --preferences-restart, --subscription-restart, or --unavailable");
 	check(geteuid() == 0, "run service tests as root inside Finch");
 	check(testRootPreferences(false), "root preference commit and readback");
+	check(testRootOwnFile(), "a root process's own preferences file is written in the process");
 	check(testNonrootWriteDenied(), "nonroot system preference writes are denied");
 	check(testDynamicStorePermissions(), "root and nonroot dynamic-store access");
 	check(testCrossProcessStore(), "cross-process notification and temporary-key cleanup");
