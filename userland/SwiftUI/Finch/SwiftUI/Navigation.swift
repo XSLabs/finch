@@ -694,13 +694,15 @@ struct _FinchSplitView: View {
                 }
                 .padding(.bottom, titleInset)
                 ._safeAreaInsets(EdgeInsets(top: 0, leading: showsSidebar ? width.ideal + 8 : 0, bottom: 0, trailing: 0))
+                // (a width the detail gives its own column isn't the sidebar's)
+                .transformPreference(_FinchColumnWidthKey.self) { $0 = nil }
                 if showsSidebar {
                     column(sidebar, width: sidebarWidth, default: width)
+                        .onPreferenceChange(_FinchColumnWidthKey.self) { sidebarWidth = $0 }
                         .background(Color(nsColor: .underPageBackgroundColor))
                         .environment(\._finchListStyle, SidebarListStyle().appearance)
                 }
             }
-            .onPreferenceChange(_FinchColumnWidthKey.self) { if content == nil { sidebarWidth = $0 } }
             .background(_FinchTitleInsetReader(inset: $titleInset))
             .environment(\._finchNavigator, navigator))
         }

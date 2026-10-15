@@ -491,8 +491,11 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         sidebar's width + 8 as its leading safe area (`_safeAreaInsets`, which counts
         towards size), and SwiftUIKeypad's KEYPAD_SPLIT=probe prints Apple's numbers on
         Finch (detail 760, inset 228). Calculator's keypad still runs under its history and
-        the window doesn't grow, so it doesn't take its width from that safe area; next is
-        finding what it reads.
+        the window doesn't grow, so it doesn't take its width from that safe area. (The
+        sidebar's width comes from the sidebar alone now: Calculator's keypad gives its own
+        column a width, which had stood in for the history's.) Its keypad and toolbar start
+        59 points in whatever the inset; next is finding, in Calculator's code, what it
+        reads.
         Typing works (2026-10-15): CalculateUI's editable expression view takes the keys
         that name calculator keys (7+2= shows 9), and SwiftUI buttons' keyboard shortcuts,
         with or without modifiers, work anywhere in their window. Edit > Copy copies the
