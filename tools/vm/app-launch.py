@@ -7,7 +7,7 @@ user's install at image build time, never the repository.
   FINCH_HOST_APPS="Calculator,TextEdit" tools/vm/mkramdisk.sh
   tools/vm/app-launch.py Calculator TextEdit          (names as FINCH_HOST_APPS takes them)
   tools/vm/app-launch.py --ready                      (docs/APPS.md's "Ready" apps)
-  tools/vm/app-launch.py --seconds 40 ...             (time each app runs; 25 by default)
+  tools/vm/app-launch.py --seconds 40 ...             (time each app runs; 45 by default)
 
 Prints one line per app: "up" with its windows' titles, "no window", "crashed" (with the
 runner's status) or "not in the image". Exits non-zero if any app isn't up.
@@ -40,7 +40,7 @@ def ready_apps():
 
 def main():
     argv = sys.argv[1:]
-    seconds = 25
+    seconds = 45  # (Terminal takes about 30 on its first launch in QEMU)
     if '--seconds' in argv:
         i = argv.index('--seconds')
         seconds = int(argv[i + 1])

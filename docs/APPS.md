@@ -14,16 +14,16 @@ run and checked (`docs/ROADMAP.md`, the app milestone).
 ## Launched in the VM
 
 The "Ready" apps, launched one after another in QEMU by `tools/vm/app-launch.py --ready` (each
-copied into the image from this Mac with `FINCH_HOST_APPS`, run for 25 seconds; "up" is still
-running with a titled window). As of 2026-10-15, 12 of 19 are up:
+copied into the image from this Mac with `FINCH_HOST_APPS`, run for 45 seconds; "up" is still
+running with a titled window). As of 2026-10-15, 13 of 19 are up:
 
 | App | Result |
 |---|---|
-| AirPort Utility, Calculator, ColorSync Utility, Console, Digital Color Meter, Font Book, Grapher, Image Capture, Magnifier, Script Editor, Stickies, TextEdit | up |
+| AirPort Utility, Calculator, ColorSync Utility, Console, Digital Color Meter, Font Book, Grapher, Image Capture, Magnifier, Script Editor, Stickies, Terminal, TextEdit | up (Terminal's window takes about 30 seconds on its first launch, archiving its settings; it can't find the system alert sound) |
 | Screenshot | its full-screen capture overlay (level 1000), as on macOS |
 | Bluetooth File Exchange | a panel (level 8) and no document window |
 | Mission Control, Apps | no window (macOS shows neither a normal window) |
-| Terminal, Siri, Time Machine | no window: to look into |
+| Siri, Time Machine | no window in a minute (each needs its service: Siri, a backup disk) |
 
 Calculator and TextEdit are checked further by `tools/vm/test-calculator.sh` and
 `tools/vm/test-textedit.sh`.
