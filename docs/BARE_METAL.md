@@ -96,6 +96,14 @@ kernel should be `xnu-12377.121.6` (to confirm with `uname -v` on the installed
 system); metal kernel builds move to that tag, while QEMU keeps `xnu-12377.101.15`.
 Delete `/Volumes/Finch/installer` once the install is done.
 
+**Status (2026-10-14, paused):** the install finished, but the installer pulled a later
+build, so the drive runs **26.7.1 (25G241)**, not 26.5.2. Metal kernel builds must match
+26.7.1's XNU tag. It booted normally with Full Security. After step 4 (Reduced Security,
+kext box ticked, `csrutil disable`) it boot-loops: every 145 s it reaches loginwindow,
+then hard-resets with no panic report saved. Next, in order: boot with
+`nvram boot-args="-v keepsyms=1"` and film the last screen; then go back to Full
+Security and re-apply step 4 one setting at a time to find which one causes it.
+
 ### 3. First boot of the Finch install
 
 When setup finishes, the Mac boots into the new install. Walk through Setup Assistant:
