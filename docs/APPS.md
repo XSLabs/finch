@@ -8,6 +8,20 @@ main executable and the frameworks it carries; weak imports don't count. Regener
 in any commit that changes what Finch's frameworks export. Third-party apps are swept
 the same way locally (`tools/app-sweep.py` with no arguments) but aren't listed here.
 
+## The 1.0 app set
+
+Chosen 2026-10-15: Apple's own apps (`/System/Applications` and Utilities, these tables),
+including the 19 "Ready" ones, and the build Mac's most-used third-party apps: cmux,
+ChatGPT, Claude, Claude Usage, Google Chrome, Discord, Dialpad, Zed, Gemini, Tailscale and
+Xcode (Minecraft and Steam as games). The aim is that any Mac app runs as on macOS, by
+matching Apple's frameworks, not by tuning Finch to these apps; they're the acceptance
+tests. Chrome, Discord, Claude and Dialpad carry Chromium (Electron), so they share one
+target. Third-party apps are mostly plain arm64 (Apple's are arm64e); both run on the
+arm64e system images, and `tools/check-imports.py` reads whichever slice an app has. A
+local sweep of /Applications (2026-10-15) finds 6 of 36 apps with every import, the rest
+blocked most by WebKit (17 apps), VideoToolbox (14), Accelerate and MetalKit (13 each),
+CoreData, AuthenticationServices and SecurityInterface (11 each).
+
 Having every import is the first gate, not the last: an app that passes still has to be
 run and checked (`docs/ROADMAP.md`, the app milestone).
 

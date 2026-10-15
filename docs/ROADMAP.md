@@ -1163,6 +1163,8 @@ that every app works. These release checks were missing from the Phase 5 list:
       `finch-update fetch` resumes a download cut short, over Finch's NSURLSession's resume
       data (2026-10-15). Open: switching the booted system.
 - [ ] **App checks:** name and pin the Phase 4 app set, record what works in each app,
+      (named 2026-10-15: Apple's apps and the build Mac's most-used ones, docs/APPS.md;
+      the aim is any Mac app running as on macOS, the set being acceptance tests)
       and test launch, open/save, clipboard, printing, network access and media where
       used. Track missing APIs and failed checks rather than counting exported names.
 - [ ] **Daily use:** persistent accounts and settings, accessibility, keyboard navigation,

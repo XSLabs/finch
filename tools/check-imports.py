@@ -26,9 +26,10 @@ class InspectionError(RuntimeError):
 
 def run(*args):
     result = subprocess.run(args, capture_output=True, text=True)
+    arch = args[2] if args[1:2] == ("-arch",) else "arm64e"
     # Binaries built for the current arm64e ABI report their slice as "arm64e.v1", which
     # "-arch arm64e" doesn't select; a single-slice binary is read without the filter.
-    if args[1:3] == ("-arch", "arm64e") and len(result.stdout.splitlines()) <= 1:
+    if args[1:2] == ("-arch",) and len(result.stdout.splitlines()) <= 1:
         result = subprocess.run(args[:1] + args[3:], capture_output=True, text=True)
     if result.returncode != 0:
         detail = result.stderr.strip() or f"exit {result.returncode}"
@@ -37,9 +38,9 @@ def run(*args):
     # fallback, or accept a different architecture as Finch's target.
     slices = re.findall(r"^.* \[([^\]]+)\]:\s*$", result.stdout, re.MULTILINE)
     action = args[-2]
-    if len(slices) != 1 or not re.fullmatch(r"arm64e(?:\.v[0-9]+)?", slices[0]) or \
+    if len(slices) != 1 or not re.fullmatch(re.escape(arch) + r"(?:\.v[0-9]+)?", slices[0]) or \
             not re.search(r"^\s*" + re.escape(action) + r":\s*$", result.stdout, re.MULTILINE):
-        raise InspectionError(f"cannot inspect {args[-1]}: no single arm64e {action} result")
+        raise InspectionError(f"cannot inspect {args[-1]}: no single {arch} {action} result")
     return result.stdout
 
 
@@ -101,7 +102,11 @@ def check(binary, root=ROOT):
     missing_libs listing (short name, install name, import count) for libraries with no image."""
     libs = {}
     weak = set()
-    for line in run("dyld_info", "-arch", "arm64e", "-linked_dylibs", binary).splitlines():
+    # (an app's own slice: arm64e, as Apple's apps, or plain arm64, as most others; either
+    # runs on the arm64e system images, Apple's and Finch's)
+    archs = subprocess.run(["lipo", "-archs", binary], capture_output=True, text=True).stdout.split()
+    arch = "arm64e" if "arm64e" in archs or not archs else "arm64" if "arm64" in archs else archs[0]
+    for line in run("dyld_info", "-arch", arch, "-linked_dylibs", binary).splitlines():
         m = re.match(r"\s+((?:weak-link|upward|re-export|reexport)\s+)*([/@].*?)\s*$", line)
         if m:
             libs[os.path.basename(m.group(2))] = m.group(2)
@@ -110,7 +115,7 @@ def check(binary, root=ROOT):
     # (libraries the app carries itself, @rpath/... and the like, aren't Finch's to provide)
     bundled = {short for short, install in libs.items() if install.startswith("@")}
     imports = collections.defaultdict(list)
-    for line in run("dyld_info", "-arch", "arm64e", "-imports", binary).splitlines():
+    for line in run("dyld_info", "-arch", arch, "-imports", binary).splitlines():
         m = re.match(r"\s+0x[0-9A-Fa-f]+\s+(\S+)\s+(\[weak-import\]\s+)?\(from ([^)]+)\)", line)
         if m:
             # (an import bound with an addend, as a vtable's address point, is "name+0x10")
