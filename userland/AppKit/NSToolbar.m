@@ -631,6 +631,9 @@ natural_width(NSToolbarItem *i)
 
 - (void)layout
 {
+    /* the engine's frames first, then the items' places over them: placed after, the engine
+       would put an item view back where it was a pass ago, and they would never settle */
+    [super layout];
     NSArray *items = [_toolbar visibleItems];
     CGFloat fixed = 0;
     NSInteger flexible = 0;
@@ -660,7 +663,6 @@ natural_width(NSToolbarItem *i)
         }
         x += w + 8;
     }
-    [super layout];
 }
 
 - (void)drawRect:(NSRect)dirty

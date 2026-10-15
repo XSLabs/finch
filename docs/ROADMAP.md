@@ -456,9 +456,14 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         draws light text on a light background; RPN mode (⌘R) shows its stack and keypad,
         but Calculator gives the stack white text and separators (a dark backdrop Finch
         doesn't draw yet) and "enter" is cut to "e…"; conversion mode, history; the scientific and
-        programmer keypads take most of a minute to build in QEMU (profiled: AppKit's
-        Auto Layout sync re-reads every view's intrinsic size and re-adds constraints on
-        each pass, over a few hundred platform views).
+        programmer keypads took most of a minute to build in QEMU. On the host,
+        `SwiftUIKeypad` (a toolbar picker over a Grid of 20 or 60 buttons, timing each
+        switch) showed the window never settling after it grew: the toolbar laid its
+        item views out and then applied the engine's older frames over them, so every
+        pass moved them back and the window laid out and redrew at full CPU forever.
+        Fixed (2026-10-14): the 60-key switch now takes 175 ms of CPU and the app goes
+        idle. To re-check in QEMU with Calculator. Auto Layout itself was a small part:
+        making its syncs incremental saved no measurable time, so they stay as they are.
   - [x] Drop-in check: `tools/app-sweep.py` runs the import check over every app and the
         frameworks it carries, and ranks what's missing by apps blocked. Apple's apps are
         recorded in [`docs/APPS.md`](APPS.md) (2026-10-12: 11 of 65 have every import;
