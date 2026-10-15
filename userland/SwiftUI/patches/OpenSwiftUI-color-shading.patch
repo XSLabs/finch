@@ -1,0 +1,14 @@
+diff --git a/Sources/SwiftUICore/Graphic/GraphicsContext.swift b/Sources/SwiftUICore/Graphic/GraphicsContext.swift
+--- a/Sources/SwiftUICore/Graphic/GraphicsContext.swift
++++ b/Sources/SwiftUICore/Graphic/GraphicsContext.swift
+@@ -521,2 +521,8 @@
+-    // FIXME
+-    public struct Shading: Sendable {}
++    // Finch's CoreGraphics renderer needs to keep the color until the path is drawn.
++    public struct Shading: Sendable {
++        var finchColor: Color?
++
++        init(_finchColor: Color) {
++            finchColor = _finchColor
++        }
++    }

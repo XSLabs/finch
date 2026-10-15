@@ -21,6 +21,10 @@ fi
 mkdir -p "${PKG}"
 rsync -a --delete --exclude .build --exclude .git "${SRC}/" "${PKG}/src/"
 python3 "${HERE}/adapt.py" "${PKG}/src"
+# Shading's value storage is part of Finch's GraphicsContext.color implementation.
+for p in "${HERE}"/patches/OpenSwiftUI*.patch; do
+    patch -p1 -i "${p}" -d "${PKG}/src"
+done
 log "building (SwiftPM)"
 cd "${PKG}/src"
 # every switch is read as OPENSWIFTUI_<name>, by OpenSwiftUI and its dependencies alike

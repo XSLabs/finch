@@ -19,6 +19,7 @@ struct _FinchClipScroll<Content: View>: View {
     var axes: Axis.Set = .vertical
     var showsIndicators = true
     var isDisabled = false
+    var geometryObservers: [_FinchScrollGeometryObserver] = []
     @State private var offset: CGPoint = .zero
     @State private var contentSize: CGSize = .zero
     @State private var viewport: CGSize = .zero
@@ -28,6 +29,11 @@ struct _FinchClipScroll<Content: View>: View {
     private var maxOffset: CGPoint {
         CGPoint(x: axes.contains(.horizontal) ? max(0, contentSize.width - viewport.width) : 0,
                 y: axes.contains(.vertical) ? max(0, contentSize.height - viewport.height) : 0)
+    }
+
+    private var scrollGeometry: ScrollGeometry {
+        ScrollGeometry(contentOffset: offset, contentSize: contentSize, contentInsets: .zero,
+                       containerSize: viewport)
     }
 
     private func clamped(_ p: CGPoint) -> CGPoint {
@@ -61,6 +67,11 @@ struct _FinchClipScroll<Content: View>: View {
             // along the scrolling axes, the content's ideal size
             .fixedSize(horizontal: axes.contains(.horizontal), vertical: axes.contains(.vertical))
             .onGeometryChange(for: CGSize.self, of: { $0.size }) { contentSize = $0; target.contentSize = $0 }
+            .onChange(of: scrollGeometry) { _, geometry in
+                for observer in geometryObservers {
+                    observer.report(geometry)
+                }
+            }
             .offset(x: -shown.x, y: -shown.y)
             // as small as offered along the scrolling axes (a frame is otherwise at least its
             // content's size); across them, the content's size

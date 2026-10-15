@@ -328,3 +328,13 @@ QuartzCore draws layers through CoreGraphics, and AppKit is Finch's own.
   - Observation tracking and update-cycle detectors asked for the view graph; in a scene's
     body (an @Observable model, onChange) the current graph is the app's.
 
+- 2026-10-15: common Mac app gaps. `Stepper` uses AppKit's native stepper and updates its
+  bound value by the requested step. `TextEditor` uses an AppKit text view, so typing,
+  selection and scrolling work with bound text. Canvas can fill a path with a solid color.
+  `onScrollGeometryChange` reports offset and size changes for Finch's scroll views;
+  `MutableCollection.move` reorders the requested elements; `onContinuousHover` reports
+  pointer entry, movement and exit. `userland/tests/swiftui-gaps-test.sh` drives all six
+  features in a headless app, including checking the Canvas pixel and the view callbacks.
+  Coverage moved from 3286 (71%) to 3302 (71%) of 4589 imported symbols. UIKit and Catalyst
+  gaps remain outside this Mac pass.
+

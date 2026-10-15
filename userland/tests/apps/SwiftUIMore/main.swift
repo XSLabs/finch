@@ -28,9 +28,13 @@ struct SwiftUIMoreApp: App {
     }
     var body: some Scene {
         WindowGroup("SwiftUI More") {
-            More()
-                .environmentObject(library)
-                .onAppear { library.reset() }
+            if ProcessInfo.processInfo.environment["SWIFTUI_GAPS_TEST"] != nil {
+                SwiftUIGapsView()
+            } else {
+                More()
+                    .environmentObject(library)
+                    .onAppear { library.reset() }
+            }
         }
         .commands {
             SidebarCommands()
@@ -161,6 +165,90 @@ struct MoreCommands: Commands {
 
 extension FocusedValues {
     @Entry var moreCount: Int?
+}
+
+private func gapLog(_ message: String) {
+    fputs(message + "\n", stderr)
+}
+
+/// A small headless test surface for the views and drawing APIs added by Finch.
+struct SwiftUIGapsView: View {
+    @State private var count = 0
+    @State private var text = "Edit me"
+
+    var body: some View {
+        let stage = ProcessInfo.processInfo.environment["SWIFTUI_GAPS_STAGE"] ?? "all"
+        VStack(alignment: .leading, spacing: 8) {
+            if stage == "all" || stage == "stepper" {
+                Stepper(value: $count, in: 0...3, onEditingChanged: { gapLog("editing: \($0)") }) {
+                    Text("Count: \(count)")
+                }
+                .onChange(of: count) { _, value in gapLog("stepper: \(value)") }
+            }
+
+            if stage == "all" || stage == "editor" {
+                TextEditor(text: $text)
+                    .frame(height: 64)
+                    .onChange(of: text) { _, value in gapLog("editor: \(value)") }
+            }
+
+            if stage == "all" || stage.hasPrefix("canvas") {
+                Canvas { context, _ in
+                    switch stage {
+                    case "canvas-empty":
+                        break
+                    case "canvas-shade":
+                        _ = GraphicsContext.Shading.color(.red)
+                    case "canvas-path":
+                        _ = Path(CGRect(x: 0, y: 0, width: 48, height: 20))
+                    case "canvas-cg":
+                        context.withCGContext { cg in
+                            cg.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+                            cg.fill(CGRect(x: 0, y: 0, width: 48, height: 20))
+                        }
+                    default:
+                        context.fill(Path(CGRect(x: 0, y: 0, width: 48, height: 20)), with: .color(.red))
+                    }
+                }
+                .frame(width: 48, height: 20)
+            }
+
+            if stage == "all" || stage == "scroll" {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(0..<8) { index in
+                            Text("Row \(index)").frame(height: 30)
+                        }
+                    }
+                }
+                .frame(height: 60)
+                .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 5 } action: { old, new in
+                    gapLog("scroll: \(old) -> \(new)")
+                }
+            }
+
+            if stage == "all" || stage == "move" {
+                Button("Move collection") {
+                    var values = ["A", "B", "C"]
+                    values.move(fromOffsets: IndexSet(integer: 1), toOffset: 3)
+                    gapLog("move: \(values.joined())")
+                }
+            }
+
+            if stage == "hover" {
+                Text("Hover here")
+                    .frame(width: 120, height: 60)
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let point): gapLog("hover: active \(Int(point.x)),\(Int(point.y))")
+                        case .ended: gapLog("hover: ended")
+                        }
+                    }
+            }
+        }
+        .padding()
+        .frame(width: 300, height: 300)
+    }
 }
 
 struct More: View {

@@ -82,6 +82,7 @@ struct _FinchScrollView<Content: View>: View {
     var configuration: _FinchScrollConfiguration
     @Environment(\._finchContentMargins) private var margins
     @Environment(\._finchHiddenScrollIndicators) private var hidden
+    @Environment(\._finchScrollGeometryObservers) private var geometryObservers
 
     var body: some View {
         let insets = EdgeInsets(top: configuration.contentInsets.top + margins.top,
@@ -89,9 +90,10 @@ struct _FinchScrollView<Content: View>: View {
                                 bottom: configuration.contentInsets.bottom + margins.bottom,
                                 trailing: configuration.contentInsets.trailing + margins.trailing)
         let axes = configuration.axes
-        _FinchClipScroll(content: content.padding(insets), axes: axes,
+        let scrollContent = content.padding(insets).environment(\._finchScrollGeometryObservers, [])
+        _FinchClipScroll(content: scrollContent, axes: axes,
                          showsIndicators: configuration.showsIndicators && hidden.isDisjoint(with: axes),
-                         isDisabled: configuration.isScrollDisabled)
+                         isDisabled: configuration.isScrollDisabled, geometryObservers: geometryObservers)
     }
 }
 
