@@ -1092,9 +1092,21 @@ that every app works. These release checks were missing from the Phase 5 list:
       used. Track missing APIs and failed checks rather than counting exported names.
 - [ ] **Daily use:** persistent accounts and settings, accessibility, keyboard navigation,
       sleep/wake, shutdown, storage errors and low-space recovery on the target M4.
-- [ ] **Test runner:** a failed program must fail the run even if its partial output
-      matches. Exit checks are added and checked on the host (2026-10-11); the full
-      host and VM suites still need a release pass, with each exception recorded.
+- [x] **Test runner:** a failed program must fail the run even if its partial output
+      matches. Exit checks are added and checked on the host (2026-10-11). The VM has a
+      suite of its own (`tools/vm/vm-tests.py`, 2026-10-15): every test program in the
+      image in one boot, compared with Apple's output on the host or an expected file, or
+      by exit status, each with a time limit, plus the scripts that set up a guest. Every
+      test the Makefile builds is run by one suite (`--coverage`). Release pass: host 148
+      passed; VM 160 passed and the four setup scripts passed. Recorded exceptions:
+      `tools/host-test-exceptions.txt` (four frame and window-placement comparisons that
+      only differ while this Mac's main display is 1x) and `tools/vm/vm-test-exceptions.txt`
+      (two tests written before configd and authd ran in the VM). Machine-dependent
+      fields are masked in both suites (`tools/test-masks.txt`). The pass also fixed
+      NSFileCoordinator (a deletion's reacquirer, and an intent, wait for the next
+      coordination, as Apple's do), made filecoordinator-test's presenter callbacks and
+      appkit-menu-window-test's steps wait for the app rather than a fixed time, and
+      added console-policy-test, which no suite ran.
 
 - [ ] Fieldwork, Finch's design language (`docs/design/FIELDWORK.md`). Its parts:
   - [x] Theme tokens: Day and Night system colours, palette and metrics, in a theme file.

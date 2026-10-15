@@ -147,21 +147,18 @@ on_queue(id<NSFilePresenter> p, void (^block)(void))
 }
 
 /*
- * Reacquirers after writes wait for the next coordination that involves
- * their presenter, as Apple's do (a deletion's run at once).
+ * Reacquirers after writes wait for the next coordination, as Apple's do: a deletion's
+ * too, and even for a presenter removed since.
  */
 static NSMutableArray *deferred; /* of @[presenter, reacquirer] */
 
 static void
-flush_deferred(NSArray *ps)
+flush_deferred(void)
 {
-    NSMutableArray *run = [NSMutableArray array];
+    NSArray *run;
     @synchronized(kLock) {
-        for (NSArray *pair in [[deferred copy] autorelease])
-            if ([ps indexOfObjectIdenticalTo:pair[0]] != NSNotFound) {
-                [run addObject:pair];
-                [deferred removeObjectIdenticalTo:pair];
-            }
+        run = [[deferred copy] autorelease];
+        [deferred removeAllObjects];
     }
     for (NSArray *pair in run)
         on_queue(pair[0], pair[1]);
@@ -170,7 +167,7 @@ flush_deferred(NSArray *ps)
 /* Asks the presenters to step aside (and, before others read, to save); returns their reacquirers. */
 - (NSArray *)_relinquish:(NSArray *)ps forWriting:(BOOL)writing save:(BOOL)save
 {
-    flush_deferred(ps);
+    flush_deferred();
     NSMutableArray *reacquirers = [NSMutableArray array];
     for (id<NSFilePresenter> p in ps) {
         SEL sel = writing ? @selector(relinquishPresentedItemToWriter:) : @selector(relinquishPresentedItemToReader:);
@@ -264,10 +261,7 @@ stamp(NSURL *url)
     }
     NSArray *before = stamp(url);
     writer(url);
-    if (options & NSFileCoordinatorWritingForDeleting)
-        reacquire(re);
-    else
-        reacquire_later(re);
+    reacquire_later(re);
     if (!(options & (NSFileCoordinatorWritingForDeleting | NSFileCoordinatorWritingForMoving)) &&
         ![stamp(url) isEqualToArray:before])
         for (id<NSFilePresenter> p in ps)
@@ -322,6 +316,7 @@ stamp(NSURL *url)
 {
     NSOperationQueue *q = queue ?: [NSOperationQueue mainQueue];
     void (^run)(void) = [[^{
+        flush_deferred();
         if (_cancelled) {
             accessor([NSError errorWithDomain:NSCocoaErrorDomain code:NSUserCancelledError userInfo:nil]);
             return;

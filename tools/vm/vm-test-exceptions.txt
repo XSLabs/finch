@@ -1,0 +1,6 @@
+# Known failures of tools/vm/vm-tests.py: one per line, "test: reason".
+# Each is a release exception (docs/ROADMAP.md, Phase 5's test runner check). A test that
+# passes again fails the run until its line is removed.
+
+security-core-test: written before authd ran in the VM; asserts AuthorizationCreate fails with no server (2026-10-09)
+sysconfig-core-test: written before configd ran in the VM; asserts commits fail with no store server (2026-10-09)

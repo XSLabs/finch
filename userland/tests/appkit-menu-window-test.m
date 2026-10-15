@@ -117,6 +117,9 @@ key(unichar c, uint32_t code, uint64_t flags)
 #pragma mark - Steps, run from a timer while menus track
 
 static NSMutableArray *steps;  /* blocks, one per tick */
+/* Seconds between steps: FINCH_TEST_TICK, for a slow machine (QEMU), or 0.15. The app's own
+   delays (a submenu opening on hover) must pass within a step. */
+static double tick_seconds = 0.15;
 
 @interface Ticker : NSObject
 @end
@@ -136,8 +139,9 @@ static void
 run(NSArray *blocks)
 {
     [steps addObjectsFromArray:blocks];
-    NSDate *until = [NSDate dateWithTimeIntervalSinceNow:30];
-    while ((steps.count || [until timeIntervalSinceNow] > 29.6) && [until timeIntervalSinceNow] > 0) {
+    double limit = 30 * tick_seconds / 0.15;
+    NSDate *until = [NSDate dateWithTimeIntervalSinceNow:limit];
+    while ((steps.count || [until timeIntervalSinceNow] > limit - 0.4) && [until timeIntervalSinceNow] > 0) {
         NSEvent *e = [NSApp nextEventMatchingMask:NSEventMaskAny untilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]
                                            inMode:NSDefaultRunLoopMode dequeue:YES];
         if (e)
@@ -245,7 +249,9 @@ main(int argc, char **argv)
         log_ = [NSMutableArray array];
         steps = [NSMutableArray array];
         Ticker *ticker = [Ticker new];
-        NSTimer *timer = [NSTimer timerWithTimeInterval:0.15 target:ticker selector:@selector(tick:) userInfo:nil
+        if (getenv("FINCH_TEST_TICK") && atof(getenv("FINCH_TEST_TICK")) > 0)
+            tick_seconds = atof(getenv("FINCH_TEST_TICK"));
+        NSTimer *timer = [NSTimer timerWithTimeInterval:tick_seconds target:ticker selector:@selector(tick:) userInfo:nil
                                                 repeats:YES];
         [[NSRunLoop mainRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
         [[NSProcessInfo processInfo] setProcessName:@"Menus"];

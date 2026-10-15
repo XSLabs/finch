@@ -1,0 +1,1 @@
+console policy: login by default; root shell requires explicit development opt-in

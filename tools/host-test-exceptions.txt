@@ -1,0 +1,13 @@
+# Known failures of tools/host-tests.sh: "test: reason", or "test (1x display): reason" for
+# one that only applies while this Mac's main display isn't Retina. Each is a release
+# exception (docs/ROADMAP.md, Phase 5's test runner check). A test that passes again fails
+# the run until its line is removed.
+#
+# With a 1x main display, Apple's AppKit rounds frames to whole points and centres nib
+# windows on that screen; Finch, run with no window server, has no screen and lays out at
+# 2x, as on the built-in display (all four pass with it as the main display, 2026-10-14).
+
+appkit-layout-test (1x display): frames rounded to whole points by Apple's AppKit
+appkit-tables-test (1x display): a collection view item's frame rounded to whole points by Apple's AppKit
+compositional-test (1x display): compositional layout frames rounded to whole points by Apple's AppKit
+nib-test (1x display): Apple's AppKit places the nib's window on the 1x screen; Finch has no screen

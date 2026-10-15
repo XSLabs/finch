@@ -1,0 +1,22 @@
+# Output fields that depend on the machine a test runs on, not on whose frameworks it runs:
+# "test s#pattern#replacement#", a sed -E substitution (always # as the delimiter) applied to
+# both outputs before they are compared, so the rest of the test is still compared.
+# Read by tools/host-tests.sh and tools/vm/vm-tests.py.
+
+# whether some other app is hidden: Apple's AppKit sees this Mac's apps, Finch's doesn't
+appkit-menu-test s#^(  Show All enabled) [01]$#\1 X#
+# the VM's home is /private/var/root, which doesn't abbreviate to ~
+coreservices-test s#(/private)?/var/root#~#
+# temporary folders: the user's on this Mac, /tmp in the VM
+urlsession-test s#file:///[^ ]*/finch-urlsession-test#file:///TMP/finch-urlsession-test#
+# the VM's /private/tmp is a volume of its own
+cfurl-test s#</private/tmp>#</>#
+# the machine's model (the VM's is emulated)
+mobilegestalt-test s#^ProductType: .*#ProductType: MODEL#
+# this Mac's measurement units (Language & Region)
+ruler-test s#units (Centimeters|Inches|Points|Picas)#units UNITS#
+# Spotlight's attributes for a file just made: which of Apple's are filled in depends on how far
+# this Mac's index has got with it (the attributes' names are still compared)
+coreservices-test s#^(kMDItem[A-Za-z]+): .*#\1: X#
+# this Mac's window list changes between the test's calls as other apps open and close windows
+utilities-test s#^window list: .*#window list: X#

@@ -16,11 +16,18 @@
 @property (copy) NSString *name;
 @end
 
+/* The presenter's callbacks come on its queue, after the coordinator has returned: they are
+   kept, and each step prints them once they have stopped coming (settle), so a slow one
+   doesn't land in the next step or between the accessor's lines. */
+static NSMutableArray<NSString *> *events;
+static CFAbsoluteTime lastEvent;
+
 @implementation Presenter
 - (void)log:(NSString *)what
 {
     @synchronized([Presenter class]) {
-        printf("  %s: %s\n", self.name.UTF8String, what.UTF8String);
+        [events addObject:[NSString stringWithFormat:@"  %@: %@", self.name, what]];
+        lastEvent = CFAbsoluteTimeGetCurrent();
     }
 }
 - (void)presentedItemDidChange { [self log:@"didChange"]; }
@@ -51,10 +58,25 @@
 }
 @end
 
+/* Wait until no callback has come for half a second (three seconds at most), then print them. */
 static void
 settle(void)
 {
-    [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.4]];
+    CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
+    for (;;) {
+        [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+        CFAbsoluteTime now = CFAbsoluteTimeGetCurrent(), last;
+        @synchronized([Presenter class]) {
+            last = lastEvent;
+        }
+        if (now - MAX(last, start) >= 0.5 || now - start >= 3)
+            break;
+    }
+    @synchronized([Presenter class]) {
+        for (NSString *line in events)
+            printf("%s\n", line.UTF8String);
+        [events removeAllObjects];
+    }
 }
 
 int
@@ -62,10 +84,14 @@ main(void)
 {
     @autoreleasepool {
         setvbuf(stdout, NULL, _IOLBF, 0);
+        events = [NSMutableArray new];
         Dl_info dl;
         dladdr((__bridge void *)[NSFileCoordinator class], &dl);
         printf("%s\n", dl.dli_fname);
-        NSString *dir = [NSTemporaryDirectory() stringByAppendingPathComponent:@"finch-filecoordinator-test"];
+        /* a folder of this run's own: Apple's coordination service keeps a path's presenters a
+           while after their process has gone, and then skipped the next run's move */
+        NSString *dir = [NSTemporaryDirectory()
+            stringByAppendingPathComponent:[NSString stringWithFormat:@"finch-filecoordinator-test-%d", getpid()]];
         [[NSFileManager defaultManager] removeItemAtPath:dir error:NULL];
         [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:NULL];
         NSURL *u = [NSURL fileURLWithPath:[dir stringByAppendingPathComponent:@"doc.txt"]];

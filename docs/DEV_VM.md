@@ -83,6 +83,31 @@ link into the `/private/var/rw` tmpfs, as `/var/db` is.
 not root. Everything runs as root there, so this rarely matters. The exception is setuid
 tools used by another user, e.g. `su` run from `nobody` reports "not running setuid".
 
+## The VM test suite
+
+`tools/vm/vm-tests.py` runs every test program in the image (`tools/vm/overlay.txt`) in one
+boot and checks each: the host suite's comparison tests against Apple's output on the host
+(all but the first line, by checksum), its window-server and Finch-only tests against their
+`.expected` files, and the rest by exit status. Every check also needs exit status 0. Each test
+has 240 seconds; one that hangs is killed and the rest still run. The guest runs Finch with
+the host suite's settings (`FINCH_THEME=Classic`), and window tests take a step a second
+(`FINCH_TEST_TICK=1`), since QEMU is about fifty times slower than the M4.
+
+```sh
+tools/vm/mkramdisk.sh
+tools/vm/vm-tests.py              # every test in the image
+tools/vm/vm-tests.py cf-test      # some of them
+tools/vm/vm-tests.py --scripts    # and the test scripts that set up a guest of their own
+tools/vm/vm-tests.py --list       # how each is checked
+tools/vm/vm-tests.py --coverage   # tests the Makefile builds that no suite runs
+```
+
+A failed test's output and what it should have been are left in `build/vm-tests/`
+(`diff NAME.want NAME.vm`). Fields that depend on the machine (home and temporary folders,
+the model, this Mac's units) are masked in both outputs (`tools/test-masks.txt`, shared with
+the host suite). Known failures, each with its reason, are in `tools/vm/vm-test-exceptions.txt`;
+one that passes again fails the run until it's removed.
+
 ## Apple open-source commands
 
 ```sh

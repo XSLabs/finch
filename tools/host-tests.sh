@@ -4,7 +4,9 @@
 # against Finch's (build/root, through DYLD_FRAMEWORK_PATH), comparing all but
 # the first line (which names the image used), and each Finch-only window-server
 # test against its .expected file. Prints one line per test and a summary;
-# exits non-zero if any differ.
+# exits non-zero if any differ. Machine-dependent output fields are masked in both
+# outputs (tools/test-masks.txt); known failures, each with its reason, are listed in
+# tools/host-test-exceptions.txt (one that passes again fails the run).
 #
 #   tools/host-tests.sh [NAME...]     (NAME as in finch-NAME; default: all)
 #   FINCH_TRIAL=dir  puts dir first in DYLD_FRAMEWORK_PATH (a trial AppKit, say)
@@ -39,7 +41,7 @@ COMPARE=(
     "cf-test|" "foundation-test|" "intl-test|" "misc-test|" "data-test|" "collections-test|" "kvc-test|" "typedstream-test|" "tiff-test|" "colorsync-test|" "colorsync-devices-test|" "iconservices-test|" "smallprivate-test|" "quicklook-test|" "exports-test|" "cookies-test|" "foundation-more-test|" "appkit-values-test|" "hiservices-test|" "scripting-test|" "cfnetwork-test|" "coreimage-test|" "cgevent-test|" "keylayout-test|" "contacts-test|" "accounts-test|" "metal-test|" "iosurface-test|" "gss-test|" "cfurl-test|" "pasteboard-test|" "coremedia-test|" "corevideo-test|" "audiotoolbox-test|" "audioconverter-test|" "extaudiofile-test|" "extaudiofile-test|--src-check" "applescript-test|" "fileversion-test|" "textformats-test|" "worddoc-test|"
     "archive-test|" "predicate-test|" "measurement-test|" "bridge-test|" "streams-test|" "documents-test|"
     "files-test|" "xmlparser-test|" "cfnotify-test|" "l10n-test|" "uti-test|" "cg-test|" "imageio-test|"
-    "ct-test|" "quartzcore-test|" "calayer-test|" "uifoundation-test|" "appkit-core-test|" "appkit-draw-test|userland/tests/appkit-draw-reference.bin"
+    "ct-test|" "quartzcore-test|" "calayer-test|" "uifoundation-test|userland/tests/uifoundation-reference.bin" "appkit-core-test|" "appkit-draw-test|userland/tests/appkit-draw-reference.bin"
     "appkit-containers-test|" "appkit-controls-test|${B}/controls-test.nib" "appkit-menu-test|${B}/menu-test.nib"
     "appkit-text-test|${B}/appkit-text-test.nib" "appkit-document-test|${B}" "nib-test|${B}/nib-test.nib"
     "appkit-layout-test|${B}" "appkit-bindings-test|${B}/appkit-bindings-test.nib" "appkit-panels-test|"
@@ -48,7 +50,7 @@ COMPARE=(
 )
 # Finch-only window-server tests and their expected output
 EXPECT=(window controls-window menu-window text-window panels-window tables-window statusbar drag-window screencapture avplayer opengl)
-FINCH_ONLY=("security-keychain-encryption-test|" "keychain-crypto-test|" "security-keychain-storage-test|" "security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "avaudio-services-test|" "configd-daemon-test|")
+FINCH_ONLY=("security-keychain-encryption-test|" "keychain-crypto-test|" "security-keychain-storage-test|" "security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "avaudio-services-test|" "configd-daemon-test|" "console-policy-test|")
 
 want() {
     [[ $# -eq 0 || -z "${SELECTED}" ]] && return 0
@@ -69,11 +71,61 @@ for selected in "$@"; do
         exit 1
     fi
 done
+# Known failures (tools/host-test-exceptions.txt): "test: reason", or "test (1x display):
+# reason" for one that only fails when this Mac's main display isn't Retina (Apple's AppKit
+# then rounds frames to whole points). One that passes fails the run until it's removed.
+MAIN_1X=0
+system_profiler SPDisplaysDataType 2>/dev/null | awk '/Resolution:/ { r = $0 } /Main Display: Yes/ { print r }' |
+    grep -q Retina || MAIN_1X=1
+exception() {
+    local line name rest
+    while IFS= read -r line; do
+        [[ -z "${line}" || "${line}" == \#* ]] && continue
+        name="${line%%:*}"
+        rest="${line#*:}"
+        if [[ "${name}" == "$1 (1x display)" && "${MAIN_1X}" -eq 1 ]] || [[ "${name}" == "$1" ]]; then
+            echo "${rest# }"
+            return 0
+        fi
+    done < tools/host-test-exceptions.txt
+    return 1
+}
+# Machine-dependent output fields (tools/test-masks.txt), masked in both outputs
+masked() {
+    local expr=()
+    while read -r test sub; do
+        [[ "${test}" == "$1" ]] && expr+=(-e "${sub}")
+    done < <(grep -v '^#' tools/test-masks.txt)
+    if [[ ${#expr[@]} -gt 0 ]]; then sed -E "${expr[@]}" "$2"; else cat "$2"; fi
+}
 pass=0
 fail=0
 skip=0
+known=0
+excused=""  # set by report: what the last failure is known for
 report() {
+    local why
+    excused=""
+    if why=$(exception "$1"); then
+        case "$2" in
+        ok*)
+            printf '%-34s %s\n' "$1" "passes now: remove its exception"
+            excused="pass"
+            ;;
+        *)
+            printf '%-34s %s\n' "$1" "known: $2 (${why})"
+            excused="fail"
+            ;;
+        esac
+        return
+    fi
     printf '%-34s %s\n' "$1" "$2"
+}
+count_fail() {
+    if [[ "${excused}" == "fail" ]]; then known=$((known + 1)); else fail=$((fail + 1)); fi
+}
+count_pass() {
+    if [[ "${excused}" == "pass" ]]; then fail=$((fail + 1)); else pass=$((pass + 1)); fi
 }
 
 for entry in "${COMPARE[@]}"; do
@@ -93,20 +145,21 @@ for entry in "${COMPARE[@]}"; do
     DYLD_FRAMEWORK_PATH="${FW}" DYLD_LIBRARY_PATH="${LIBS}" FINCH_FILTER_DIRS="build/root/System/Library/Filters" FINCH_FONT_DIRS="${R}/Fonts" "${bin}" ${args} > "${TMP}/finch" 2> "${TMP}/finch.err"
     finch_status=$?
     n=$(tail -n +2 "${TMP}/apple" | wc -l | tr -d ' ')
-    d=$(diff <(tail -n +2 "${TMP}/apple") <(tail -n +2 "${TMP}/finch") | grep -c '^[<>]')
+    d=$(diff <(tail -n +2 "${TMP}/apple" > "${TMP}/a"; masked "${name}" "${TMP}/a") \
+        <(tail -n +2 "${TMP}/finch" > "${TMP}/f"; masked "${name}" "${TMP}/f") | grep -c '^[<>]')
     if [[ "${apple_status}" -ne 0 || "${finch_status}" -ne 0 ]]; then
         report "${name}" "FAILED (Apple exit ${apple_status}, Finch exit ${finch_status})"
         cat "${TMP}/apple.err" "${TMP}/finch.err" >&2
-        fail=$((fail + 1))
+        count_fail
     elif [[ "${n}" -eq 0 ]]; then
         report "${name}" "no output from Apple's run"
-        fail=$((fail + 1))
+        count_fail
     elif [[ "${d}" -eq 0 ]]; then
         report "${name}" "ok (${n} lines)"
-        pass=$((pass + 1))
+        count_pass
     else
         report "${name}" "DIFFERS (${d} lines of ${n})"
-        fail=$((fail + 1))
+        count_fail
     fi
 done
 
@@ -125,13 +178,13 @@ for name in "${EXPECT[@]}"; do
     if [[ "${finch_status}" -ne 0 ]]; then
         report "appkit-${name}-test" "FAILED (exit ${finch_status})"
         cat "${TMP}/finch.err" >&2
-        fail=$((fail + 1))
+        count_fail
     elif [[ "${d}" -eq 0 ]]; then
         report "appkit-${name}-test" "ok (expected)"
-        pass=$((pass + 1))
+        count_pass
     else
         report "appkit-${name}-test" "DIFFERS from expected (${d} lines)"
-        fail=$((fail + 1))
+        count_fail
     fi
 done
 
@@ -152,13 +205,13 @@ for entry in "${FINCH_ONLY[@]}"; do
     if [[ "${finch_status}" -ne 0 ]]; then
         report "${name}" "FAILED (exit ${finch_status})"
         cat "${TMP}/finch.err" >&2
-        fail=$((fail + 1))
+        count_fail
     elif diff -q "${TMP}/finch" "${expected}" > /dev/null; then
         report "${name}" "ok (expected)"
-        pass=$((pass + 1))
+        count_pass
     else
         report "${name}" "DIFFERS from expected"
-        fail=$((fail + 1))
+        count_fail
     fi
 done
 
@@ -169,10 +222,10 @@ if want contacts-store-test; then
     tail -n +2 "${TMP}/raw" > "${TMP}/finch"
     if [[ "${finch_status}" -eq 0 ]] && diff -q "${TMP}/finch" userland/tests/contacts-store-test.expected > /dev/null; then
         report contacts-store-test "ok (expected)"
-        pass=$((pass + 1))
+        count_pass
     else
         report contacts-store-test "DIFFERS from expected"
-        fail=$((fail + 1))
+        count_fail
     fi
 fi
 
@@ -183,10 +236,10 @@ if want metal-devices-test; then
     tail -n +2 "${TMP}/raw" > "${TMP}/finch"
     if [[ "${finch_status}" -eq 0 ]] && diff -q "${TMP}/finch" userland/tests/metal-devices-test.expected > /dev/null; then
         report metal-devices-test "ok (expected)"
-        pass=$((pass + 1))
+        count_pass
     else
         report metal-devices-test "DIFFERS from expected"
-        fail=$((fail + 1))
+        count_fail
     fi
 fi
 
@@ -198,12 +251,12 @@ if want hello-test; then
     finch_status=$?
     if [[ "${finch_status}" -eq 0 ]] && diff -q "${TMP}/finch" userland/tests/hello-test.expected > /dev/null; then
         report hello-test "ok (expected)"
-        pass=$((pass + 1))
+        count_pass
     else
         report hello-test "DIFFERS from expected"
-        fail=$((fail + 1))
+        count_fail
     fi
 fi
 
-echo "${pass} passed, ${fail} failed, ${skip} not built"
+echo "${pass} passed, ${fail} failed, ${known} known failures, ${skip} not built"
 [[ "${fail}" -eq 0 && ( $# -eq 0 || "${skip}" -eq 0 ) ]]

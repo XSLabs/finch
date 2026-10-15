@@ -114,6 +114,8 @@ build/userland/finch-appkit-menu-window-test /usr/local/bin/finch-appkit-menu-wi
 userland/tests/appkit-menu-window-test.expected /usr/local/share/finch/appkit-menu-window-test.expected
 build/userland/finch-appkit-document-test /usr/local/bin/finch-appkit-document-test
 build/userland/doc-test.nib /usr/local/share/finch/doc-test.nib
+# (and beside finch-appkit-document-test: a tool's main bundle is its folder, where it finds the nib by name)
+build/userland/doc-test.nib /usr/local/bin/doc-test.nib
 build/userland/vc-test.nib /usr/local/share/finch/vc-test.nib
 build/userland/finch-uti-test /usr/local/bin/finch-uti-test
 build/userland/finch-imageio-test /usr/local/bin/finch-imageio-test
