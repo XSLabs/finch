@@ -272,7 +272,6 @@ FINCH_CONST NSString *const NSUbiquitousUserDefaultsCompletedInitialSyncNotifica
 FINCH_CONST NSString *const NSUbiquitousUserDefaultsDidChangeAccountsNotification = @"NSUbiquitousUserDefaultsDidChangeAccountsNotification";
 FINCH_CONST NSString *const NSUbiquitousUserDefaultsNoCloudAccountNotification = @"NSUbiquitousUserDefaultsNoCloudAccountNotification";
 FINCH_CONST NSString *const NSUbiquityIdentityDidChangeNotification = @"NSUbiquityIdentityDidChangeNotification";
-FINCH_CONST NSString *const NSURLProtectionSpaceHTTP = @"http";
 
 #pragma mark - Small functions apps import
 

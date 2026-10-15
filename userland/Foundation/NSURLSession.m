@@ -19,6 +19,7 @@
 #include "../certificates/ca-bundle.h"
 #include <netdb.h>
 #include <fcntl.h>
+#include <stdatomic.h>
 #include <os/lock.h>
 #include <sys/stat.h>
 #include <openssl/err.h>
@@ -671,8 +672,33 @@ typedef struct {
     os_unfair_lock lock;
     NSHTTPURLResponse *response; /* (retained) the response whose body went into the file */
     void (^progress)(void);
+    void (^resumed)(void); /* (a 206 continuing the file) */
 } Download;
 static __thread Download *current_download;
+
+/* What a task's delegate takes part in, set on the loading thread around the task's load:
+   redirects and password challenges, and, for a data task with a delegate, the final
+   response and its body as it arrives (delivered set once the response has gone). */
+typedef struct {
+    NSURLRequest *(^redirect)(NSHTTPURLResponse *response, NSURLRequest *proposed); /* nil: stop at the redirect */
+    NSURLSessionAuthChallengeDisposition (^challenge)(NSURLAuthenticationChallenge *challenge, NSURLCredential **credential);
+    BOOL (^response)(NSURLResponse *response); /* NO: cancel the task */
+    void (^data)(NSData *data);
+    BOOL delivered;
+} Hooks;
+static __thread Hooks *current_hooks;
+static __thread NSURLCredentialStorage *current_credentials;
+static __thread BOOL current_credentials_set;
+
+/* A response load() answers itself: a redirect it follows, or a Basic password challenge. */
+static NSString *basic_realm(NSHTTPURLResponse *r);
+static BOOL
+answered_by_load(NSHTTPURLResponse *r)
+{
+    NSInteger s = [r statusCode];
+    return ((s == 301 || s == 302 || s == 303 || s == 307 || s == 308) && [r valueForHTTPHeaderField:@"Location"]) ||
+           (s == 401 && basic_realm(r));
+}
 
 /* A response body as it arrives: by its length, chunked, or to the end of the connection;
    decoded into memory or a download's file. */
@@ -685,6 +711,7 @@ typedef struct {
     int lineLength;
     NSMutableData *memory;
     Download *download;
+    Hooks *hooks; /* (the delegate gets the body as it comes, and memory keeps it for the cache) */
 } Body;
 
 static void
@@ -694,6 +721,8 @@ body_emit(Body *b, const char *p, size_t n)
         return;
     if (!b->download) {
         [b->memory appendBytes:p length:n];
+        if (b->hooks)
+            b->hooks->data([NSData dataWithBytes:p length:n]);
         return;
     }
     while (n) {
@@ -880,9 +909,19 @@ load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outRespons
             failure = NSURLErrorCannotWriteToFile;
         download->written = download->offset;
         download->expected = rb.length >= 0 ? download->offset + rb.length : -1;
+        if (!failure && download->offset > 0 && download->resumed)
+            download->resumed();
         [download->response release];
         download->response = [*outResponse retain];
         rb.download = download;
+    }
+    Hooks *hooks = current_hooks;
+    if (!failure && !rb.download && hooks && hooks->response && !answered_by_load(*outResponse)) {
+        hooks->delivered = YES;
+        if (!hooks->response(*outResponse))
+            failure = NSURLErrorCancelled;
+        else
+            rb.hooks = hooks;
     }
     if (!failure) {
         body_feed(&rb, bytes + end + 4, len - end - 4);
@@ -908,7 +947,79 @@ load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outRespons
     return rb.download ? [NSData data] : rb.memory;
 }
 
-/* Load a request, following up to 16 redirects. */
+/* A Basic challenge's realm ("" when it names none); nil for any other response. */
+static NSString *
+basic_realm(NSHTTPURLResponse *r)
+{
+    if ([r statusCode] != 401)
+        return nil;
+    NSString *h = [r valueForHTTPHeaderField:@"WWW-Authenticate"];
+    if (!h || [h rangeOfString:@"basic" options:NSCaseInsensitiveSearch | NSAnchoredSearch].location == NSNotFound)
+        return nil;
+    NSRange start = [h rangeOfString:@"realm=\"" options:NSCaseInsensitiveSearch];
+    if (start.location == NSNotFound)
+        return @"";
+    NSUInteger from = NSMaxRange(start);
+    NSRange stop = [h rangeOfString:@"\"" options:0 range:NSMakeRange(from, [h length] - from)];
+    return stop.location == NSNotFound ? [h substringFromIndex:from]
+                                       : [h substringWithRange:NSMakeRange(from, stop.location - from)];
+}
+
+static NSURLCredentialStorage *
+credential_store(void)
+{
+    return current_credentials_set ? current_credentials : [NSURLCredentialStorage sharedCredentialStorage];
+}
+
+/* The challenge's sender, for delegates that answer through it (NSURLConnection's way)
+   rather than the completion handler. */
+@interface FinchChallengeSender : NSObject <NSURLAuthenticationChallengeSender> {
+  @public
+    NSURLSessionAuthChallengeDisposition disposition;
+    NSURLCredential *credential;
+    BOOL answered;
+}
+@end
+
+@implementation FinchChallengeSender
+- (void)dealloc
+{
+    [credential release];
+    [super dealloc];
+}
+- (void)answer:(NSURLSessionAuthChallengeDisposition)d credential:(NSURLCredential *)c
+{
+    disposition = d;
+    [credential autorelease];
+    credential = [c retain];
+    answered = YES;
+}
+- (void)useCredential:(NSURLCredential *)c forAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
+{
+    [self answer:NSURLSessionAuthChallengeUseCredential credential:c];
+}
+- (void)continueWithoutCredentialForAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
+{
+    [self answer:NSURLSessionAuthChallengeUseCredential credential:nil];
+}
+- (void)cancelAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
+{
+    [self answer:NSURLSessionAuthChallengeCancelAuthenticationChallenge credential:nil];
+}
+- (void)performDefaultHandlingForAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
+{
+    [self answer:NSURLSessionAuthChallengePerformDefaultHandling credential:nil];
+}
+- (void)rejectProtectionSpaceAndContinueWithChallenge:(NSURLAuthenticationChallenge *)challenge
+{
+    [self answer:NSURLSessionAuthChallengeRejectProtectionSpace credential:nil];
+}
+@end
+
+/* Load a request, following up to 16 redirects (the delegate may stop one) and answering
+   Basic password challenges: the delegate's credential, or by default the URL's user and
+   password, then the protection space's default credential in the session's storage. A
+   credential that works is kept there, if its persistence allows. */
 static NSData *
 load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
 {
@@ -938,7 +1049,11 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
         return nil;
     }
     NSMutableURLRequest *r = [[request mutableCopy] autorelease];
-    for (int hops = 0; hops < 16; hops++) {
+    Hooks *hooks = current_hooks;
+    NSURLCredential *used = nil;
+    NSURLProtectionSpace *usedSpace = nil;
+    NSInteger failures = 0;
+    for (int hops = 0; hops < 16 + 8; hops++) {
         NSHTTPURLResponse *resp = nil;
         NSInteger code = 0;
         NSHTTPCookieStorage *jar = [r HTTPShouldHandleCookies] ? cookie_store() : nil;
@@ -962,14 +1077,88 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
         }
         NSInteger s = [resp statusCode];
         NSString *loc = [resp valueForHTTPHeaderField:@"Location"];
-        if ((s == 301 || s == 302 || s == 303 || s == 307 || s == 308) && loc) {
-            NSURL *next = [NSURL URLWithString:loc relativeToURL:[r URL]];
-            [r setURL:[next absoluteURL]];
-            if (s == 303 || ((s == 301 || s == 302) && [[r HTTPMethod] isEqualToString:@"POST"])) {
-                [r setHTTPMethod:@"GET"];
-                [r setHTTPBody:nil];
+        NSString *realm = basic_realm(resp);
+        if (realm && failures < 8) {
+            NSURL *u = [r URL];
+            NSString *scheme = [[u scheme] lowercaseString];
+            NSInteger port = [u port] ? [[u port] integerValue] : [scheme isEqualToString:@"https"] ? 443 : 80;
+            NSURLProtectionSpace *space = [[[NSURLProtectionSpace alloc]
+                        initWithHost:[u host]
+                                port:port
+                            protocol:scheme
+                               realm:[realm length] ? realm : nil
+                authenticationMethod:NSURLAuthenticationMethodHTTPBasic] autorelease];
+            NSURLCredential *proposed = used ?: [credential_store() defaultCredentialForProtectionSpace:space];
+            FinchChallengeSender *sender = [[FinchChallengeSender new] autorelease];
+            NSURLAuthenticationChallenge *challenge = [[[NSURLAuthenticationChallenge alloc]
+                initWithProtectionSpace:space
+                     proposedCredential:proposed
+                   previousFailureCount:failures
+                        failureResponse:resp
+                                  error:nil
+                                 sender:sender] autorelease];
+            NSURLCredential *credential = nil;
+            NSURLSessionAuthChallengeDisposition disposition = NSURLSessionAuthChallengePerformDefaultHandling;
+            if (hooks && hooks->challenge)
+                disposition = hooks->challenge(challenge, &credential);
+            if (disposition == NSURLSessionAuthChallengeCancelAuthenticationChallenge) {
+                *outError = url_error(NSURLErrorCancelled, u, @"cancelled");
+                return nil;
             }
-            continue;
+            if (disposition != NSURLSessionAuthChallengeUseCredential) {
+                credential = nil;
+                if (failures == 0 && [u user])
+                    credential = [NSURLCredential credentialWithUser:[[u user] stringByRemovingPercentEncoding]
+                                                            password:[[u password] stringByRemovingPercentEncoding] ?: @""
+                                                         persistence:NSURLCredentialPersistenceForSession];
+                else if (failures == 0)
+                    credential = proposed;
+            }
+            if ([credential user] && [credential password]) {
+                NSString *pair = [NSString stringWithFormat:@"%@:%@", [credential user], [credential password]];
+                [r setValue:[@"Basic " stringByAppendingString:[[pair dataUsingEncoding:NSUTF8StringEncoding] base64EncodedStringWithOptions:0]]
+                    forHTTPHeaderField:@"Authorization"];
+                used = credential;
+                usedSpace = space;
+                failures++;
+                continue;
+            }
+        }
+        if (used && s != 401 && [used persistence] != NSURLCredentialPersistenceNone) {
+            NSURLCredentialStorage *store = credential_store();
+            if (![store defaultCredentialForProtectionSpace:usedSpace])
+                [store setDefaultCredential:used forProtectionSpace:usedSpace];
+            else
+                [store setCredential:used forProtectionSpace:usedSpace];
+        }
+        if ((s == 301 || s == 302 || s == 303 || s == 307 || s == 308) && loc) {
+            NSMutableURLRequest *next = [[r mutableCopy] autorelease];
+            [next setURL:[[NSURL URLWithString:loc relativeToURL:[r URL]] absoluteURL]];
+            if (s == 303 || ((s == 301 || s == 302) && [[r HTTPMethod] isEqualToString:@"POST"])) {
+                [next setHTTPMethod:@"GET"];
+                [next setHTTPBody:nil];
+            }
+            /* (the next host gets no password meant for this one) */
+            if (![[[next URL] host] isEqualToString:[[r URL] host]])
+                [next setValue:nil forHTTPHeaderField:@"Authorization"];
+            NSURLRequest *chosen = next;
+            if (hooks && hooks->redirect)
+                chosen = hooks->redirect(resp, next);
+            if (chosen) {
+                r = [[chosen mutableCopy] autorelease];
+                continue;
+            }
+        }
+        /* a final response the delegate hasn't had yet (a redirect it stopped, a challenge
+           left unanswered) */
+        if (hooks && hooks->response && !hooks->delivered) {
+            hooks->delivered = YES;
+            if (!hooks->response(resp)) {
+                *outError = url_error(NSURLErrorCancelled, [r URL], @"cancelled");
+                return nil;
+            }
+            if ([d length])
+                hooks->data(d);
         }
         *outResponse = resp;
         return d;
@@ -988,6 +1177,7 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
 {
     NSURLSessionConfiguration *c = [[[self alloc] init] autorelease];
     c.URLCache = [NSURLCache sharedURLCache];
+    c.URLCredentialStorage = [NSURLCredentialStorage sharedCredentialStorage];
     c.HTTPCookieStorage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
     return c;
 }
@@ -998,6 +1188,7 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
     NSURLSessionConfiguration *c = [[[self alloc] init] autorelease];
     c.URLCache = [[[NSURLCache alloc] initWithMemoryCapacity:4 << 20 diskCapacity:0 directoryURL:nil] autorelease];
     c.HTTPCookieStorage = [[[NSHTTPCookieStorage alloc] init] autorelease]; /* (in memory, the session's own) */
+    c.URLCredentialStorage = [[[NSURLCredentialStorage alloc] init] autorelease];
     return c;
 }
 + (NSURLSessionConfiguration *)backgroundSessionConfigurationWithIdentifier:(NSString *)identifier
@@ -1043,6 +1234,7 @@ load(NSURLRequest *request, NSURLResponse **outResponse, NSError **outError)
     c.HTTPShouldSetCookies = self.HTTPShouldSetCookies;
     c.HTTPCookieStorage = self.HTTPCookieStorage;
     c.HTTPCookieAcceptPolicy = self.HTTPCookieAcceptPolicy;
+    c.URLCredentialStorage = self.URLCredentialStorage;
     c.HTTPMaximumConnectionsPerHost = self.HTTPMaximumConnectionsPerHost;
     return c;
 }
@@ -1076,6 +1268,7 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
     Download *_loading;              /* a download's, while it loads */
     NSDictionary *_resumeInfo;       /* a resumed download's resume data */
     void (^_resumeHandler)(NSData *); /* cancelByProducingResumeData:'s */
+    BOOL _loadsToFile;               /* (an http(s) download, which counts its bytes as it writes) */
 }
 
 - (instancetype)_finchInitWithSession:(NSURLSession *)session request:(NSURLRequest *)request identifier:(NSUInteger)ident
@@ -1146,6 +1339,7 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
     NSURLSessionConfiguration *configuration = [[_session.configuration retain] autorelease];
     NSString *scheme = [[[request URL] scheme] lowercaseString];
     if (download && ([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"])) {
+        _loadsToFile = YES;
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
           [self _finchDownload:request configuration:configuration];
           [self release];
@@ -1155,15 +1349,21 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
       NSURLResponse *response = nil;
       NSError *error = nil;
+      Hooks hooks = {0};
+      [self _finchHooks:&hooks dataDelegate:!download];
       /* (through the cache and any protocol classes, NSURLCache.m) */
-      current_cookies = configuration.HTTPShouldSetCookies && configuration.HTTPCookieAcceptPolicy != NSHTTPCookieAcceptPolicyNever
-                            ? configuration.HTTPCookieStorage
-                            : nil;
-      current_cookies_set = YES;
+      [self _finchEnterLoad:configuration hooks:&hooks];
       NSData *data = _FinchURLLoad(configuration, self, request, &response, &error, load);
-      current_cookies = nil;
-      current_cookies_set = NO;
-      id result = data;
+      [self _finchLeaveLoad];
+      /* (what the cache or a protocol answered, the delegate gets now) */
+      if (data && hooks.response && !hooks.delivered) {
+          if (hooks.response(response))
+              hooks.data(data);
+          else
+              data = nil, error = url_error(NSURLErrorCancelled, [request URL], @"cancelled");
+          hooks.delivered = YES;
+      }
+      id result = hooks.delivered ? nil : data;
       if (data && download) {
           NSString *tmp = [NSTemporaryDirectory() stringByAppendingPathComponent:
                                                       [NSString stringWithFormat:@"CFNetworkDownload_%@.tmp", [[NSUUID UUID] UUIDString]]];
@@ -1172,6 +1372,107 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
       [self _finchFinishWithResult:result response:response error:error];
       [self release];
     });
+}
+
+/* Wait on the delegate queue for what block, run there, hands to done. */
+static void
+on_delegate_queue(NSURLSession *session, void (^block)(dispatch_semaphore_t done))
+{
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    [session.delegateQueue addOperationWithBlock:^{
+      block(done);
+    }];
+    dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+    dispatch_release(done);
+}
+
+/* The hooks for what this task's delegate takes part in (dataDelegate: the response and data,
+   for a data task without a completion handler). */
+- (void)_finchHooks:(Hooks *)h dataDelegate:(BOOL)dataDelegate
+{
+    id d = [_session delegate];
+    NSURLSession *session = [[_session retain] autorelease];
+    if (!d)
+        return;
+    if ([d respondsToSelector:@selector(URLSession:task:willPerformHTTPRedirection:newRequest:completionHandler:)])
+        h->redirect = [[^NSURLRequest *(NSHTTPURLResponse *response, NSURLRequest *proposed) {
+          __block NSURLRequest *chosen = nil;
+          on_delegate_queue(session, ^(dispatch_semaphore_t done) {
+            [(id<NSURLSessionTaskDelegate>)d URLSession:session task:self willPerformHTTPRedirection:response newRequest:proposed
+                                      completionHandler:^(NSURLRequest *r) {
+                                        chosen = [r copy];
+                                        dispatch_semaphore_signal(done);
+                                      }];
+          });
+          return [chosen autorelease];
+        } copy] autorelease];
+    if ([d respondsToSelector:@selector(URLSession:task:didReceiveChallenge:completionHandler:)])
+        h->challenge = [[^NSURLSessionAuthChallengeDisposition(NSURLAuthenticationChallenge *challenge, NSURLCredential **out) {
+          __block NSURLSessionAuthChallengeDisposition disposition = NSURLSessionAuthChallengePerformDefaultHandling;
+          __block NSURLCredential *credential = nil;
+          on_delegate_queue(session, ^(dispatch_semaphore_t done) {
+            [(id<NSURLSessionTaskDelegate>)d URLSession:session task:self didReceiveChallenge:challenge
+                                      completionHandler:^(NSURLSessionAuthChallengeDisposition answer, NSURLCredential *c) {
+                                        disposition = answer;
+                                        credential = [c retain];
+                                        dispatch_semaphore_signal(done);
+                                      }];
+          });
+          *out = [credential autorelease];
+          return disposition;
+        } copy] autorelease];
+    if (!dataDelegate || _completion)
+        return;
+    BOOL asks = [d respondsToSelector:@selector(URLSession:dataTask:didReceiveResponse:completionHandler:)];
+    h->response = [[^BOOL(NSURLResponse *response) {
+      @synchronized(self) {
+          [_response autorelease];
+          _response = [response retain];
+          _expected = [response expectedContentLength];
+      }
+      if (!asks)
+          return YES;
+      __block NSURLSessionResponseDisposition disposition = NSURLSessionResponseAllow;
+      on_delegate_queue(session, ^(dispatch_semaphore_t done) {
+        [(id<NSURLSessionDataDelegate>)d URLSession:session dataTask:(NSURLSessionDataTask *)self didReceiveResponse:response
+                                  completionHandler:^(NSURLSessionResponseDisposition answer) {
+                                    disposition = answer;
+                                    dispatch_semaphore_signal(done);
+                                  }];
+      });
+      return disposition != NSURLSessionResponseCancel;
+    } copy] autorelease];
+    BOOL takes = [d respondsToSelector:@selector(URLSession:dataTask:didReceiveData:)];
+    h->data = [[^(NSData *data) {
+      @synchronized(self) {
+          _received += (int64_t)[data length];
+      }
+      if (takes)
+          [session.delegateQueue addOperationWithBlock:^{
+            [(id<NSURLSessionDataDelegate>)d URLSession:session dataTask:(NSURLSessionDataTask *)self didReceiveData:data];
+          }];
+    } copy] autorelease];
+}
+
+/* This thread's session state for a load: the cookies, credentials and delegate hooks. */
+- (void)_finchEnterLoad:(NSURLSessionConfiguration *)configuration hooks:(Hooks *)hooks
+{
+    current_cookies = configuration.HTTPShouldSetCookies && configuration.HTTPCookieAcceptPolicy != NSHTTPCookieAcceptPolicyNever
+                          ? configuration.HTTPCookieStorage
+                          : nil;
+    current_cookies_set = YES;
+    current_credentials = configuration.URLCredentialStorage;
+    current_credentials_set = YES;
+    current_hooks = hooks;
+}
+
+- (void)_finchLeaveLoad
+{
+    current_cookies = nil;
+    current_cookies_set = NO;
+    current_credentials = nil;
+    current_credentials_set = NO;
+    current_hooks = NULL;
 }
 
 /* An http(s) download: its body streamed into a file in the temporary folder (not through the
@@ -1206,26 +1507,55 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
         request = r;
     }
     __block Download *dp = &dl;
+    id delegate = [_session delegate];
+    NSURLSession *session = [[_session retain] autorelease];
+    BOOL reports = !_completion && [delegate respondsToSelector:@selector(URLSession:downloadTask:didWriteData:totalBytesWritten:totalBytesExpectedToWrite:)];
+    __block atomic_bool pending = NO;
+    __block int64_t reported = offset;
     dl.progress = ^{
       @synchronized(self) {
           _received = dp->written;
           _expected = dp->expected;
       }
+      /* (one report waiting on the delegate queue at a time, with all written by then) */
+      if (reports && !atomic_exchange(&pending, YES))
+          [session.delegateQueue addOperationWithBlock:^{
+            atomic_store(&pending, NO);
+            int64_t written, expected;
+            @synchronized(self) {
+                written = _received;
+                expected = _expected;
+            }
+            if (written == reported)
+                return;
+            [(id<NSURLSessionDownloadDelegate>)delegate URLSession:session downloadTask:(NSURLSessionDownloadTask *)self
+                                                      didWriteData:written - reported
+                                                 totalBytesWritten:written
+                                         totalBytesExpectedToWrite:expected];
+            reported = written;
+          }];
     };
+    if (!_completion && [delegate respondsToSelector:@selector(URLSession:downloadTask:didResumeAtOffset:expectedTotalBytes:)])
+        dl.resumed = ^{
+          int64_t at = dp->offset, total = dp->expected;
+          [session.delegateQueue addOperationWithBlock:^{
+            [(id<NSURLSessionDownloadDelegate>)delegate URLSession:session downloadTask:(NSURLSessionDownloadTask *)self
+                                                 didResumeAtOffset:at
+                                                expectedTotalBytes:total];
+          }];
+        };
     @synchronized(self) {
         _loading = &dl;
     }
     NSURLResponse *response = nil;
     NSError *error = nil;
-    current_cookies = configuration.HTTPShouldSetCookies && configuration.HTTPCookieAcceptPolicy != NSHTTPCookieAcceptPolicyNever
-                          ? configuration.HTTPCookieStorage
-                          : nil;
-    current_cookies_set = YES;
+    Hooks hooks = {0};
+    [self _finchHooks:&hooks dataDelegate:NO];
+    [self _finchEnterLoad:configuration hooks:&hooks];
     current_download = &dl;
     load(request, &response, &error);
     current_download = NULL;
-    current_cookies = nil;
-    current_cookies_set = NO;
+    [self _finchLeaveLoad];
     void (^handler)(NSData *) = nil;
     BOOL finished;
     @synchronized(self) {
@@ -1312,9 +1642,12 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
         if (_state == NSURLSessionTaskStateCompleted)
             return;
         _state = NSURLSessionTaskStateCompleted;
-        _response = [response retain];
+        if (response) {
+            [_response release];
+            _response = [response retain];
+        }
         _error = [error retain];
-        if (!_download || !error)
+        if (result && !_loadsToFile)
             _received = [result isKindOfClass:[NSData class]] ? (int64_t)[result length] : [response expectedContentLength];
     }
     void (^completion)(id, NSURLResponse *, NSError *) = [[_completion retain] autorelease];

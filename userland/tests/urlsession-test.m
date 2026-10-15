@@ -3,8 +3,10 @@
  * finch-urlsession-test: the URL loading system: requests and their headers,
  * responses, and NSURLSession loading file:, data: and http: URLs (from a
  * small HTTP server on the loopback interface, with redirects and chunked
- * bodies), with completion handlers and delegates, and downloads cut short (the
- * connection dropped, or the task cancelled) resumed from their resume data. Prints everything; run it
+ * bodies), with completion handlers and delegates, downloads cut short (the
+ * connection dropped, or the task cancelled) resumed from their resume data, Basic
+ * password challenges, and what a session's delegate is told: challenges, redirects,
+ * responses, data and download progress. Prints everything; run it
  * against Apple's Foundation and Finch's (DYLD_FRAMEWORK_PATH) and diff all
  * but the first line.
  */
@@ -23,7 +25,7 @@ static int port;
    one of each is cut off halfway (/big's connection closed, /stall's left hanging). */
 #define BIG 65536
 static char big_body[BIG];
-static int big_served, stall_served;
+static int big_served, stall_served, big2_served;
 static char last_range[64];
 
 static void
@@ -79,12 +81,20 @@ handle(void *arg)
         char method[16] = "";
         sscanf(req, "%15s %255s", method, path);
         char out[8192];
-        if (!strcmp(path, "/big") || !strcmp(path, "/stall")) {
-            serve_big(fd, req, !strcmp(path, "/big") ? &big_served : &stall_served);
+        if (!strcmp(path, "/big") || !strcmp(path, "/stall") || !strcmp(path, "/big2")) {
+            serve_big(fd, req, !strcmp(path, "/big") ? &big_served : !strcmp(path, "/big2") ? &big2_served : &stall_served);
             close(fd);
             return NULL;
         }
-        if (!strcmp(path, "/hello")) {
+        if (!strcmp(path, "/auth")) {
+            /* ada:secret */
+            if (strstr(req, "\r\nAuthorization: Basic YWRhOnNlY3JldA==\r\n"))
+                snprintf(out, sizeof out, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 7\r\n\r\nwelcome");
+            else
+                snprintf(out, sizeof out,
+                         "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"Finch Test\"\r\n"
+                         "Content-Type: text/plain\r\nContent-Length: 6\r\n\r\ndenied");
+        } else if (!strcmp(path, "/hello")) {
             snprintf(out, sizeof out,
                      "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 6\r\nX-Test: one\r\n\r\nhello\n");
         } else if (!strcmp(path, "/chunked")) {
@@ -188,6 +198,88 @@ load(NSString *label, NSURLRequest *request)
                                        dispatch_semaphore_signal(done);
                                      }] resume];
     dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+}
+
+/* A session delegate that says what it's told, and answers as the test sets it to. */
+@interface Watcher : NSObject <NSURLSessionDataDelegate, NSURLSessionDownloadDelegate>
+@property (retain) NSMutableData *data;
+@property (retain) dispatch_semaphore_t done;
+@property (retain) NSArray<NSURLCredential *> *credentials; /* given in turn; then cancel */
+@property BOOL stopRedirects, refuseResponse;
+@property int writes, challenges;
+@property int64_t lastWritten, lastExpected;
+@end
+
+@implementation Watcher
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didReceiveChallenge:(NSURLAuthenticationChallenge *)c
+    completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler
+{
+    NSURLProtectionSpace *space = c.protectionSpace;
+    printf("  challenge: %s realm %s host %s port ours %d protocol %s secure %d failures %ld proposed %s status %ld\n",
+           space.authenticationMethod.UTF8String, space.realm.UTF8String, space.host.UTF8String, space.port == port,
+           space.protocol.UTF8String, space.receivesCredentialSecurely, (long)c.previousFailureCount,
+           c.proposedCredential.user.UTF8String ?: "(none)", (long)((NSHTTPURLResponse *)c.failureResponse).statusCode);
+    int n = self.challenges++;
+    if (n < (int)self.credentials.count)
+        completionHandler(NSURLSessionAuthChallengeUseCredential, self.credentials[n]);
+    else
+        completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
+}
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response
+        newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completionHandler
+{
+    printf("  redirect: %ld to %s, %s\n", (long)response.statusCode, request.URL.path.UTF8String, self.stopRedirects ? "stopped" : "followed");
+    completionHandler(self.stopRedirects ? nil : request);
+}
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveResponse:(NSURLResponse *)response
+    completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler
+{
+    printf("  response: %ld task response same %d\n", (long)((NSHTTPURLResponse *)response).statusCode, task.response == response);
+    completionHandler(self.refuseResponse ? NSURLSessionResponseCancel : NSURLSessionResponseAllow);
+}
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveData:(NSData *)data
+{
+    [self.data appendData:data];
+}
+- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)task didWriteData:(int64_t)bytesWritten
+    totalBytesWritten:(int64_t)totalBytesWritten totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite
+{
+    self.writes++;
+    self.lastWritten = totalBytesWritten;
+    self.lastExpected = totalBytesExpectedToWrite;
+}
+- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)task didResumeAtOffset:(int64_t)fileOffset
+    expectedTotalBytes:(int64_t)expectedTotalBytes
+{
+    printf("  resumed at %lld of %lld\n", fileOffset, expectedTotalBytes);
+}
+- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)task didFinishDownloadingToURL:(NSURL *)location
+{
+    printf("  downloaded: progress reports %d last %lld of %lld file %lu\n", self.writes > 0, self.lastWritten, self.lastExpected,
+           (unsigned long)[NSData dataWithContentsOfURL:location].length);
+}
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error
+{
+    printf("  complete: error %ld status %ld data %s\n", (long)error.code, (long)((NSHTTPURLResponse *)task.response).statusCode,
+           [[NSString alloc] initWithData:self.data encoding:NSUTF8StringEncoding].UTF8String);
+    dispatch_semaphore_signal(self.done);
+}
+@end
+
+/* A task in a session of its own with a Watcher, run to the end. */
+static NSURLSession *
+watched(NSString *label, Watcher *w, NSURLSessionTask * (^make)(NSURLSession *))
+{
+    printf("%s:\n", label.UTF8String);
+    w.data = [NSMutableData data];
+    w.done = dispatch_semaphore_create(0);
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration ephemeralSessionConfiguration]
+                                                          delegate:w
+                                                     delegateQueue:nil];
+    [make(session) resume];
+    dispatch_semaphore_wait(w.done, DISPATCH_TIME_FOREVER);
+    [session finishTasksAndInvalidate];
+    return session;
 }
 
 /* A download that ends with resume data, resumed from it. */
@@ -346,6 +438,47 @@ main(void)
         dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
         if (resumeData)
             resumed(@"cancelled", resumeData);
+
+        /* Password challenges. */
+        load(@"auth, no password", [NSURLRequest requestWithURL:local(@"/auth")]);
+        load(@"auth, password in the URL",
+             [NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:@"http://ada:secret@127.0.0.1:%d/auth", port]]]);
+        NSURLProtectionSpace *space = [[NSURLProtectionSpace alloc] initWithHost:@"127.0.0.1" port:port protocol:@"http"
+                                                                           realm:@"Finch Test"
+                                                            authenticationMethod:NSURLAuthenticationMethodHTTPBasic];
+        printf("shared storage after: default %s count %lu\n",
+               [NSURLCredentialStorage.sharedCredentialStorage defaultCredentialForProtectionSpace:space].user.UTF8String ?: "(none)",
+               (unsigned long)[NSURLCredentialStorage.sharedCredentialStorage credentialsForProtectionSpace:space].count);
+        load(@"auth, from the storage", [NSURLRequest requestWithURL:local(@"/auth")]);
+        Watcher *w = [Watcher new];
+        w.credentials = @[ [NSURLCredential credentialWithUser:@"ada" password:@"wrong" persistence:NSURLCredentialPersistenceForSession],
+                           [NSURLCredential credentialWithUser:@"ada" password:@"secret" persistence:NSURLCredentialPersistenceForSession] ];
+        NSURLSession *ws = watched(@"delegate auth", w, ^(NSURLSession *session) { return [session dataTaskWithURL:local(@"/auth")]; });
+        printf("  session storage: default %s\n",
+               [ws.configuration.URLCredentialStorage defaultCredentialForProtectionSpace:space].user.UTF8String ?: "(none)");
+        w = [Watcher new];
+        watched(@"delegate auth cancelled", w, ^(NSURLSession *session) { return [session dataTaskWithURL:local(@"/auth")]; });
+        w = [Watcher new];
+        watched(@"delegate redirect", w, ^(NSURLSession *session) { return [session dataTaskWithURL:local(@"/redirect")]; });
+        w = [Watcher new];
+        w.stopRedirects = YES;
+        watched(@"delegate redirect stopped", w, ^(NSURLSession *session) { return [session dataTaskWithURL:local(@"/redirect")]; });
+        w = [Watcher new];
+        w.refuseResponse = YES;
+        watched(@"delegate response refused", w, ^(NSURLSession *session) { return [session dataTaskWithURL:local(@"/hello")]; });
+        w = [Watcher new];
+        watched(@"delegate chunked", w, ^(NSURLSession *session) { return [session dataTaskWithURL:local(@"/chunked")]; });
+        w = [Watcher new];
+        watched(@"delegate download", w, ^(NSURLSession *session) { return [session downloadTaskWithURL:local(@"/big")]; });
+        __block NSData *more = nil;
+        [[[NSURLSession sharedSession] downloadTaskWithURL:local(@"/big2")
+                                         completionHandler:^(NSURL *location, NSURLResponse *response, NSError *error) {
+                                           more = error.userInfo[NSURLSessionDownloadTaskResumeData];
+                                           dispatch_semaphore_signal(done);
+                                         }] resume];
+        dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+        w = [Watcher new];
+        watched(@"delegate resumed download", w, ^(NSURLSession *session) { return [session downloadTaskWithResumeData:more]; });
 
         Delegate *d = [Delegate new];
         d.data = [NSMutableData data];

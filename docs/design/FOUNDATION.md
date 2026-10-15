@@ -101,6 +101,17 @@ GNUstep is LGPL and isn't copied (`docs/LICENSING.md`).
   iterators laid out as Apple's are. `finch-urlsession-test` serves HTTP on the loopback
   interface and matches Apple's run. Still to come: caching, cookies, authentication
   challenges, HTTP/2, streaming delegate data, and WebSocket and stream tasks.
+- 2026-10-15: downloads and delegates. Download tasks stream to a file; a body cut short
+  is `NSURLErrorNetworkConnectionLost` with resume data when the response had a
+  validator, and `cancelByProducingResumeData:` and `downloadTaskWithResumeData:` resume
+  with a Range request. `NSURLCredential`, `NSURLProtectionSpace`,
+  `NSURLAuthenticationChallenge` and `NSURLCredentialStorage` (`NSURLCredential.m`, in
+  memory) are new. Basic password challenges go to the task's delegate, or by default use
+  the URL's user and password, then the storage's default credential, and a credential
+  that works is stored. A data task's delegate gets the response (and may cancel it) and
+  the body as it arrives; any task's delegate may stop a redirect; a download's gets
+  progress and where a resume began. `finch-urlsession-test` matches Apple's run for all of
+  it. Digest, NTLM and server-trust challenges are still to come.
 - 2026-10-09: Foundation's Combine integration (`swift/Finch/Foundation+Combine.swift`):
   the KVO, notification, timer and URL session publishers, the coder conformances, and the
   run loop and operation queue schedulers. Foundation links Combine, as Apple's does.
