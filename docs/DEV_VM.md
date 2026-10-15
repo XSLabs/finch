@@ -110,8 +110,8 @@ one that passes again fails the run until it's removed.
 
 Apps from this Mac's install are checked by scripts of their own, with the app in the image:
 `FINCH_HOST_APPS=TextEdit tools/vm/mkramdisk.sh && tools/vm/test-textedit.sh` opens a text file,
-saves it twice, restores the earlier version with File > Revert To > Browse All Versions, and
-checks the file after each step.
+saves it twice, restores the earlier version with File > Revert To > Browse All Versions,
+exports it as a PDF, and checks the files after each step.
 
 ## Apple open-source commands
 

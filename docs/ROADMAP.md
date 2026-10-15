@@ -416,7 +416,9 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         the VM, 2026-10-15: two saves of a text file keep two versions, File > Revert To
         greys Last Saved Version while nothing has changed, and Browse All Versions
         restores the earlier one to the file and the window; its versions show seconds, so
-        saves within a minute are told apart).
+        saves within a minute are told apart). tools/vm/test-textedit.sh checks those, and
+        Export as PDF writing a PDF, by their files. Export's save panel opens as a window of
+        its own, where macOS attaches it to the document as a sheet.
         The format bar has the font's family, size, bold, italic, underline and colour
         beside alignment and spacing, and the font and colour panels change the selection
         (NSTextView's changeFont: and changeColor: were empty). Saving shows the File Format
