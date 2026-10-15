@@ -188,7 +188,7 @@
 NSInteger __NSDateComponentsWeek(id dc) { return [(NSDateComponents *)dc week]; }
 void __NSDateComponentsSetWeek(id dc, NSInteger week) { [(NSDateComponents *)dc setWeek:week]; }
 BOOL __NSDateComponentsIsLeapMonthSet(id dc) { return [[dc valueForKey:@"_leapMonthSet"] boolValue]; }
-BOOL __NSDateComponentsIsRepeatedDaySet(id dc) { return NO; }
+BOOL __NSDateComponentsIsRepeatedDaySet(id dc) { return [[dc valueForKey:@"_repeatedDaySet"] boolValue]; }
 
 NSIndexPath *_NSIndexPathCreateFromIndexes(NSInteger index1, NSInteger index2)
 {

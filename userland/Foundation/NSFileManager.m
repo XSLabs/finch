@@ -13,6 +13,8 @@
 #include <fcntl.h>
 #include <grp.h>
 #include <pwd.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/mount.h>
 #include <sysdir.h>
 #include <sys/stat.h>
@@ -464,6 +466,67 @@ remove_tree(const char *path)
     return YES;
 }
 
+- (BOOL)linkItemAtURL:(NSURL *)src toURL:(NSURL *)dst error:(NSError **)error
+{
+    return [self linkItemAtPath:[src path] toPath:[dst path] error:error];
+}
+
+- (BOOL)getRelationship:(NSURLRelationship *)relationship ofDirectoryAtURL:(NSURL *)directoryURL
+            toItemAtURL:(NSURL *)itemURL error:(NSError **)error
+{
+    NSString *directory = [directoryURL path], *item = [itemURL path];
+    struct stat directoryStat, itemStat;
+    if (!directory || stat([directory fileSystemRepresentation], &directoryStat) != 0) {
+        if (error) *error = file_error(0, errno, directory);
+        return NO;
+    }
+    if (!item || stat([item fileSystemRepresentation], &itemStat) != 0) {
+        if (error) *error = file_error(0, errno, item);
+        return NO;
+    }
+    if (directoryStat.st_dev == itemStat.st_dev && directoryStat.st_ino == itemStat.st_ino) {
+        if (relationship) *relationship = NSURLRelationshipSame;
+        return YES;
+    }
+
+    char directoryReal[PATH_MAX], itemReal[PATH_MAX];
+    if (!realpath([directory fileSystemRepresentation], directoryReal) || !realpath([item fileSystemRepresentation], itemReal)) {
+        if (error) *error = file_error(0, errno, item);
+        return NO;
+    }
+    size_t n = strlen(directoryReal);
+    BOOL contains = strncmp(directoryReal, itemReal, n) == 0 &&
+        ((n == 1 && directoryReal[0] == '/') || itemReal[n] == '/' || itemReal[n] == '\0');
+    if (relationship) *relationship = contains ? NSURLRelationshipContains : NSURLRelationshipOther;
+    return YES;
+}
+
+- (BOOL)getRelationship:(NSURLRelationship *)relationship ofDirectory:(NSSearchPathDirectory)directory
+                inDomain:(NSSearchPathDomainMask)domain toItemAtURL:(NSURL *)itemURL error:(NSError **)error
+{
+    if (domain == 0)
+        domain = NSAllDomainsMask;
+    NSArray<NSURL *> *directories = [self URLsForDirectory:directory inDomains:domain];
+    if (![directories count]) {
+        if (error) *error = file_error(0, ENOENT, [itemURL path]);
+        return NO;
+    }
+    NSURLRelationship best = NSURLRelationshipOther;
+    for (NSURL *url in directories) {
+        NSURLRelationship current = NSURLRelationshipOther;
+        if (![self getRelationship:&current ofDirectoryAtURL:url toItemAtURL:itemURL error:error])
+            return NO;
+        if (current == NSURLRelationshipSame) {
+            best = current;
+            break;
+        }
+        if (current == NSURLRelationshipContains)
+            best = current;
+    }
+    if (relationship) *relationship = best;
+    return YES;
+}
+
 - (BOOL)createSymbolicLinkAtPath:(NSString *)path withDestinationPath:(NSString *)destPath error:(NSError **)error
 {
     if (symlink([destPath fileSystemRepresentation], [path fileSystemRepresentation]) != 0) FAIL(1, path);
@@ -552,6 +615,47 @@ remove_tree(const char *path)
     if (!showAll && [[name pathExtension] caseInsensitiveCompare:@"app"] == NSOrderedSame && name.length > 4)
         return [name stringByDeletingPathExtension];
     return name;
+}
+
+- (NSArray<NSString *> *)componentsToDisplayForPath:(NSString *)path
+{
+    if (!path)
+        return nil;
+    NSMutableArray *out = [NSMutableArray array];
+    NSString *current = @"";
+    for (NSString *component in [path pathComponents]) {
+        if ([component isEqualToString:@"/"]) {
+            current = @"/";
+            [out addObject:[self displayNameAtPath:current]];
+        } else {
+            current = [current stringByAppendingPathComponent:component];
+            [out addObject:[self displayNameAtPath:current]];
+        }
+    }
+    return out;
+}
+
+- (NSArray<NSURL *> *)mountedVolumeURLsIncludingResourceValuesForKeys:(NSArray<NSURLResourceKey> *)keys
+                                                              options:(NSVolumeEnumerationOptions)options
+{
+    struct statfs *mounts = NULL;
+    int count = getmntinfo(&mounts, MNT_NOWAIT);
+    if (count < 0)
+        return nil;
+    NSMutableArray *out = [NSMutableArray arrayWithCapacity:(NSUInteger)count];
+    for (int i = 0; i < count; i++) {
+        if ((options & NSVolumeEnumerationSkipHiddenVolumes) && (mounts[i].f_flags & MNT_DONTBROWSE))
+            continue;
+        NSURL *url = [NSURL fileURLWithPath:@(mounts[i].f_mntonname) isDirectory:YES];
+        if (options & NSVolumeEnumerationProduceFileReferenceURLs)
+            url = [url fileReferenceURL] ?: url;
+        for (NSURLResourceKey key in keys) {
+            id value = nil;
+            [url getResourceValue:&value forKey:key error:NULL];
+        }
+        [out addObject:url];
+    }
+    return out;
 }
 
 - (const char *)fileSystemRepresentationWithPath:(NSString *)path { return [path fileSystemRepresentation]; }

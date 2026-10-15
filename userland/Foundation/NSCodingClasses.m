@@ -780,7 +780,7 @@ read_leb128(const uint8_t **p, const uint8_t *end, NSUInteger *out)
 
 #define COMPONENT_FIELDS(X) \
     X(era, Era) X(year, Year) X(month, Month) X(day, Day) X(hour, Hour) X(minute, Minute) X(second, Second) \
-    X(nanosecond, Nanosecond) X(weekday, Weekday) X(weekdayOrdinal, WeekdayOrdinal) X(quarter, Quarter) \
+    X(nanosecond, Nanosecond) X(dayOfYear, DayOfYear) X(weekday, Weekday) X(weekdayOrdinal, WeekdayOrdinal) X(quarter, Quarter) \
     X(weekOfMonth, WeekOfMonth) X(weekOfYear, WeekOfYear)
 
 @implementation NSDateComponents (FinchCoding)
@@ -796,7 +796,7 @@ read_leb128(const uint8_t **p, const uint8_t *end, NSUInteger *out)
 #undef ENCODE
     if ([self yearForWeekOfYear] != NSDateComponentUndefined) [coder encodeInteger:[self yearForWeekOfYear] forKey:@"NS.yearForWOY"];
     [coder encodeInteger:[self isLeapMonth] ? 1 : 0 forKey:@"NS.leapMonth"];
-    [coder encodeBool:NO forKey:@"NS.repeatedDay"];
+    [coder encodeBool:[self isRepeatedDay] forKey:@"NS.repeatedDay"];
     if ([self calendar]) [coder encodeObject:[self calendar] forKey:@"NS.calendar"];
     if ([self timeZone]) [coder encodeObject:[self timeZone] forKey:@"NS.timezone"];
 }
@@ -811,6 +811,7 @@ read_leb128(const uint8_t **p, const uint8_t *end, NSUInteger *out)
 #undef DECODE
     if ([coder containsValueForKey:@"NS.yearForWOY"]) [self setYearForWeekOfYear:[coder decodeIntegerForKey:@"NS.yearForWOY"]];
     if ([coder decodeIntegerForKey:@"NS.leapMonth"]) [self setLeapMonth:YES];
+    if ([coder containsValueForKey:@"NS.repeatedDay"]) [self setRepeatedDay:[coder decodeBoolForKey:@"NS.repeatedDay"]];
     NSCalendar *cal = [coder decodeObjectOfClass:[NSCalendar class] forKey:@"NS.calendar"];
     NSTimeZone *tz = [coder decodeObjectOfClass:[NSTimeZone class] forKey:@"NS.timezone"];
     if (cal) [self setCalendar:cal];

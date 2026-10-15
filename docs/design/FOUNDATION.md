@@ -507,3 +507,20 @@ optional attribute providers; it does not load a missing UI framework.
   caller's domain (finch-init checks the bundle is inside the caller's app).
   Stickies' StickiesMigration service runs this way. Not yet: `NSProgress`
   returns, timeouts and code-signing requirements.
+- 2026-10-15: Foundation API gaps. Added localized bundle lookup and resource
+  paths; byte-count formatting from measurements; length, mass and energy
+  formatters; calendar date operations backed by swift-foundation; the newer
+  `NSDateComponents` day-of-year and repeated-day fields; file URL links,
+  relationships, mounted-volume listing and display paths; file-wrapper path
+  and symbolic-link methods; URL data constructors and invalid-character
+  encoding; and Markdown parsing options, source positions and presentation
+  intents. Markdown constructors remain out until Finch has a full CommonMark
+  parser. Cloud-backed bundle, ubiquity, app-group and file-provider services
+  remain out because Finch has no matching cloud service. Localized attributed
+  formatting and inflection remain out until Finch has the required language
+  rules. Distributed Objects, scripting, garbage collection and private-looking
+  audit entries remain skipped. The Foundation audit fell from 44 missing
+  classes and 132 methods to 38 classes and 89 methods.
+  `finch-foundation-gaps-test`, `finch-foundation-test`,
+  `finch-foundation-more-test`, `finch-foundation-audit-test`, `finch-misc-test`
+  and `finch-intl-test` all match Apple's host run.

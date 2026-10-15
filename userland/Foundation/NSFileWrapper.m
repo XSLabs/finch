@@ -304,6 +304,57 @@ typedef enum { KIND_FILE, KIND_DIRECTORY, KIND_LINK } Kind;
 
 - (BOOL)needsToBeUpdatedFromURL:(NSURL *)url { return ![self matchesContentsOfURL:url]; }
 
+- (instancetype)initWithPath:(NSString *)path
+{
+    return [self initWithURL:[NSURL fileURLWithPath:path] options:0 error:NULL];
+}
+
+- (instancetype)initSymbolicLinkWithDestination:(NSString *)path
+{
+    NSString *escaped = [path stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]];
+    NSURL *destination = [NSURL URLWithString:escaped ?: path];
+    return [self initSymbolicLinkWithDestinationURL:destination];
+}
+
+- (NSString *)addFileWithPath:(NSString *)path
+{
+    NSFileWrapper *child = [[[NSFileWrapper alloc] initWithPath:path] autorelease];
+    return child ? [self addFileWrapper:child] : nil;
+}
+
+- (NSString *)addSymbolicLinkWithDestination:(NSString *)path preferredFilename:(NSString *)filename
+{
+    NSFileWrapper *child = [[[NSFileWrapper alloc] initSymbolicLinkWithDestination:path] autorelease];
+    [child setPreferredFilename:filename];
+    return [self addFileWrapper:child];
+}
+
+- (BOOL)needsToBeUpdatedFromPath:(NSString *)path
+{
+    return ![self matchesContentsOfURL:[NSURL fileURLWithPath:path]];
+}
+
+- (BOOL)updateFromPath:(NSString *)path
+{
+    return [self readFromURL:[NSURL fileURLWithPath:path] options:0 error:NULL];
+}
+
+- (BOOL)writeToFile:(NSString *)path atomically:(BOOL)atomic updateFilenames:(BOOL)updateFilenames
+{
+    NSFileWrapperWritingOptions options = atomic ? NSFileWrapperWritingAtomic : 0;
+    if (updateFilenames)
+        options |= NSFileWrapperWritingWithNameUpdating;
+    return [self writeToURL:[NSURL fileURLWithPath:path] options:options originalContentsURL:nil error:NULL];
+}
+
+- (NSString *)symbolicLinkDestination
+{
+    [self requireKind:KIND_LINK cmd:_cmd];
+    if ([_destination isFileURL])
+        return [_destination path];
+    return [[_destination relativeString] stringByRemovingPercentEncoding] ?: [_destination relativeString];
+}
+
 - (NSData *)serializedRepresentation
 {
     return [NSKeyedArchiver archivedDataWithRootObject:self requiringSecureCoding:YES error:NULL];

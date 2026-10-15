@@ -155,7 +155,10 @@ split_items(NSArray *items, CFArrayRef *names, CFArrayRef *values)
 
 - (instancetype)initWithString:(NSString *)URLString encodingInvalidCharacters:(BOOL)encode
 {
-    return [self initWithString:URLString];
+    if (!encode)
+        return [self initWithString:URLString];
+    NSString *escaped = [URLString stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLFragmentAllowedCharacterSet]];
+    return [self initWithString:escaped ?: URLString];
 }
 
 + (instancetype)componentsWithURL:(NSURL *)url resolvingAgainstBaseURL:(BOOL)resolve
@@ -163,7 +166,10 @@ split_items(NSArray *items, CFArrayRef *names, CFArrayRef *values)
     return [[[self alloc] initWithURL:url resolvingAgainstBaseURL:resolve] autorelease];
 }
 + (instancetype)componentsWithString:(NSString *)s { return [[[self alloc] initWithString:s] autorelease]; }
-+ (instancetype)componentsWithString:(NSString *)s encodingInvalidCharacters:(BOOL)e { return [self componentsWithString:s]; }
++ (instancetype)componentsWithString:(NSString *)s encodingInvalidCharacters:(BOOL)e
+{
+    return [[[self alloc] initWithString:s encodingInvalidCharacters:e] autorelease];
+}
 
 - (void)dealloc { if (_c) CFRelease(_c); [super dealloc]; }
 

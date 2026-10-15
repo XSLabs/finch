@@ -283,14 +283,15 @@ enum {
     U_ERA = 1 << 1, U_YEAR = 1 << 2, U_MONTH = 1 << 3, U_DAY = 1 << 4, U_HOUR = 1 << 5, U_MINUTE = 1 << 6,
     U_SECOND = 1 << 7, U_WEEKDAY = 1 << 9, U_WEEKDAY_ORDINAL = 1 << 10, U_QUARTER = 1 << 11,
     U_WEEK_OF_MONTH = 1 << 12, U_WEEK_OF_YEAR = 1 << 13, U_YEAR_FOR_WEEK = 1 << 14, U_NANOSECOND = 1 << 15,
-    U_CALENDAR = 1 << 20, U_TIME_ZONE = 1 << 21,
+    U_DAY_OF_YEAR = 1 << 16, U_CALENDAR = 1 << 20, U_TIME_ZONE = 1 << 21,
+    U_IS_REPEATED_DAY = 1UL << 31,
 };
 
 @interface NSDateComponents : NSObject <NSCopying> {
 @public
-    NSInteger _era, _year, _month, _day, _hour, _minute, _second, _nanosecond, _weekday, _weekdayOrdinal,
+    NSInteger _era, _year, _month, _day, _hour, _minute, _second, _nanosecond, _dayOfYear, _weekday, _weekdayOrdinal,
         _quarter, _weekOfMonth, _weekOfYear, _yearForWeekOfYear, _week;
-    BOOL _leapMonth, _leapMonthSet;
+    BOOL _leapMonth, _leapMonthSet, _repeatedDay, _repeatedDaySet;
     id _calendar, _timeZone;
 }
 @end
@@ -315,6 +316,7 @@ enum {
     FIELD(_minute, "Minute")
     FIELD(_second, "Second")
     FIELD(_nanosecond, "Nanosecond")
+    FIELD(_dayOfYear, "Day of Year")
     FIELD(_quarter, "Quarter")
     FIELD(_yearForWeekOfYear, "Year for Week of Year")
     FIELD(_weekOfYear, "Week of Year")
@@ -328,7 +330,7 @@ enum {
 - (instancetype)init
 {
     if ((self = [super init])) {
-        _era = _year = _month = _day = _hour = _minute = _second = _nanosecond = _weekday = _weekdayOrdinal = _quarter =
+        _era = _year = _month = _day = _hour = _minute = _second = _nanosecond = _dayOfYear = _weekday = _weekdayOrdinal = _quarter =
             _weekOfMonth = _weekOfYear = _yearForWeekOfYear = _week = NSDateComponentUndefined;
     }
     return self;
@@ -345,6 +347,7 @@ PROP(hour, Hour, _hour)
 PROP(minute, Minute, _minute)
 PROP(second, Second, _second)
 PROP(nanosecond, Nanosecond, _nanosecond)
+PROP(dayOfYear, DayOfYear, _dayOfYear)
 PROP(weekday, Weekday, _weekday)
 PROP(weekdayOrdinal, WeekdayOrdinal, _weekdayOrdinal)
 PROP(quarter, Quarter, _quarter)
@@ -355,6 +358,8 @@ PROP(week, Week, _week)
 #undef PROP
 - (BOOL)isLeapMonth { return _leapMonth; }
 - (void)setLeapMonth:(BOOL)b { _leapMonth = b; _leapMonthSet = YES; }
+- (BOOL)isRepeatedDay { return _repeatedDay; }
+- (void)setRepeatedDay:(BOOL)b { _repeatedDay = b; _repeatedDaySet = YES; }
 - (id)calendar { return _calendar; }
 - (void)setCalendar:(id)c { id o = _calendar; _calendar = [c copy]; [o release]; }
 - (id)timeZone { return _timeZone; }
@@ -372,6 +377,7 @@ slot(NSDateComponents *c, NSUInteger unit)
     case U_MINUTE: return &c->_minute;
     case U_SECOND: return &c->_second;
     case U_NANOSECOND: return &c->_nanosecond;
+    case U_DAY_OF_YEAR: return &c->_dayOfYear;
     case U_WEEKDAY: return &c->_weekday;
     case U_WEEKDAY_ORDINAL: return &c->_weekdayOrdinal;
     case U_QUARTER: return &c->_quarter;
@@ -382,8 +388,22 @@ slot(NSDateComponents *c, NSUInteger unit)
     }
 }
 
-- (NSInteger)valueForComponent:(NSUInteger)unit { NSInteger *p = slot(self, unit); return p ? *p : NSDateComponentUndefined; }
-- (void)setValue:(NSInteger)value forComponent:(NSUInteger)unit { NSInteger *p = slot(self, unit); if (p) *p = value; }
+- (NSInteger)valueForComponent:(NSUInteger)unit
+{
+    if (unit == U_IS_REPEATED_DAY)
+        return _repeatedDaySet ? _repeatedDay : NSDateComponentUndefined;
+    NSInteger *p = slot(self, unit);
+    return p ? *p : NSDateComponentUndefined;
+}
+- (void)setValue:(NSInteger)value forComponent:(NSUInteger)unit
+{
+    if (unit == U_IS_REPEATED_DAY) {
+        [self setRepeatedDay:(BOOL)value];
+        return;
+    }
+    NSInteger *p = slot(self, unit);
+    if (p) *p = value;
+}
 
 - (id)date
 {
@@ -400,7 +420,7 @@ slot(NSDateComponents *c, NSUInteger unit)
 - (id)copyWithZone:(struct _NSZone *)zone
 {
     NSDateComponents *c = [[NSDateComponents alloc] init];
-    memcpy(&c->_era, &_era, (char *)&_leapMonthSet + sizeof(_leapMonthSet) - (char *)&_era);
+    memcpy(&c->_era, &_era, (char *)&_repeatedDaySet + sizeof(_repeatedDaySet) - (char *)&_era);
     c->_calendar = [_calendar copy];
     c->_timeZone = [_timeZone retain];
     return c;
@@ -411,7 +431,7 @@ slot(NSDateComponents *c, NSUInteger unit)
     if (other == self) return YES;
     if (![other isKindOfClass:[NSDateComponents class]]) return NO;
     NSDateComponents *o = other;
-    return memcmp(&_era, &o->_era, (char *)&_leapMonthSet + sizeof(_leapMonthSet) - (char *)&_era) == 0;
+    return memcmp(&_era, &o->_era, (char *)&_repeatedDaySet + sizeof(_repeatedDaySet) - (char *)&_era) == 0;
 }
 
 - (NSUInteger)hash { return (NSUInteger)(_year * 372 + _month * 31 + _day); }
@@ -435,7 +455,7 @@ static const struct { NSUInteger unit; CFCalendarUnit cf; char letter; } units[]
     { U_SECOND, kCFCalendarUnitSecond, 's' }, { U_WEEKDAY, kCFCalendarUnitWeekday, 'E' },
     { U_WEEKDAY_ORDINAL, kCFCalendarUnitWeekdayOrdinal, 'F' }, { U_QUARTER, kCFCalendarUnitQuarter, 'Q' },
     { U_WEEK_OF_MONTH, kCFCalendarUnitWeekOfMonth, 'W' }, { U_WEEK_OF_YEAR, kCFCalendarUnitWeekOfYear, 'w' },
-    { U_YEAR_FOR_WEEK, kCFCalendarUnitYearForWeekOfYear, 'Y' },
+    { U_YEAR_FOR_WEEK, kCFCalendarUnitYearForWeekOfYear, 'Y' }, { U_DAY_OF_YEAR, (CFCalendarUnit)(1UL << 16), 'D' },
 };
 #define NUNITS (sizeof(units) / sizeof(units[0]))
 

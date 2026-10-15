@@ -260,6 +260,30 @@ owned_url(CFURLRef u)
     for (NSURL *u in [self URLsForResourcesWithExtension:ext subdirectory:subpath]) [out addObject:[u path]];
     return out;
 }
+
+- (NSArray<NSString *> *)pathsForResourcesOfType:(NSString *)ext inDirectory:(NSString *)subpath forLocalization:(NSString *)localization
+{
+    NSMutableArray *out = [NSMutableArray array];
+    for (NSURL *u in [self URLsForResourcesWithExtension:ext subdirectory:subpath localization:localization])
+        [out addObject:[u path]];
+    return out;
+}
+
++ (NSArray<NSString *> *)pathsForResourcesOfType:(NSString *)ext inDirectory:(NSString *)subpath
+{
+    return [[self mainBundle] pathsForResourcesOfType:ext inDirectory:subpath];
+}
+
++ (NSURL *)URLForResource:(NSString *)name withExtension:(NSString *)ext subdirectory:(NSString *)subpath inBundleWithURL:(NSURL *)bundleURL
+{
+    return [[self bundleWithURL:bundleURL] URLForResource:name withExtension:ext subdirectory:subpath];
+}
+
++ (NSArray<NSURL *> *)URLsForResourcesWithExtension:(NSString *)ext subdirectory:(NSString *)subpath inBundleWithURL:(NSURL *)bundleURL
+{
+    return [[self bundleWithURL:bundleURL] URLsForResourcesWithExtension:ext subdirectory:subpath];
+}
+
 + (NSString *)pathForResource:(NSString *)name ofType:(NSString *)ext inDirectory:(NSString *)bundlePath
 {
     return [[NSBundle bundleWithPath:bundlePath] pathForResource:name ofType:ext];
@@ -313,6 +337,19 @@ extern CFStringRef CFBundleCopyLocalizedStringForLocalization(CFBundleRef bundle
         return s;
     /* a plural entry (a dictionary): a string that formats by its rules */
     return FinchLocalizedStringFromEntry(s, [[self preferredLocalizations] firstObject]) ?: (value ?: key);
+}
+
+- (NSString *)localizedStringForKey:(NSString *)key value:(NSString *)value table:(NSString *)tableName
+                      localizations:(NSArray<NSString *> *)localizations
+{
+    if (!key)
+        return value ?: @"";
+    NSArray *preferred = [NSBundle preferredLocalizationsFromArray:localizations ?: @[]
+                                                     forPreferences:[self preferredLocalizations]];
+    NSString *localization = [preferred firstObject];
+    if (!localization)
+        return value ?: key;
+    return [self localizedStringForKey:key value:value table:tableName localization:localization];
 }
 
 /* Every string in a table for a localization (nil: the preferred one), as Apple's gives

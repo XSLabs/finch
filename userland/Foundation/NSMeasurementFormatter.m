@@ -59,12 +59,20 @@ enum {
     UAMeasureFormat *_formatter;
     NSString *_formatterKey;   /* what _formatter was made from */
     NSLocale *_locale;
+    NSString *_usageOverride;
+    BOOL _hasUsageOverride;
 }
 @property NSMeasurementFormatterUnitOptions unitOptions;
 @property NSFormattingUnitStyle unitStyle;
 @property (copy) NSLocale *locale;
 @property (copy) NSNumberFormatter *numberFormatter;
 - (NSString *)stringFromUnit:(NSUnit *)unit;
+- (NSString *)stringForValue:(double)value unit:(NSInteger)unit;
+- (NSString *)usageOverride;
+- (void)setUsageOverride:(NSString *)usage;
+- (BOOL)hasUsageOverride;
+- (void)setHasUsageOverride:(BOOL)hasOverride;
+- (int)determineUnitsToFormat:(int *)units fromMeasurement:(NSMeasurement *)measurement;
 @end
 
 static BOOL
@@ -152,6 +160,7 @@ usage_for(int spec)
     [_formatterKey release];
     [_numberFormatter release];
     [_locale release];
+    [_usageOverride release];
     [super dealloc];
 }
 
@@ -162,6 +171,8 @@ usage_for(int spec)
     c->_unitStyle = _unitStyle;
     c->_locale = [_locale copy];
     c->_numberFormatter = [_numberFormatter copy];
+    c->_usageOverride = [_usageOverride copy];
+    c->_hasUsageOverride = _hasUsageOverride;
     return c;
 }
 
@@ -170,6 +181,15 @@ usage_for(int spec)
 - (NSFormattingUnitStyle)unitStyle { return _unitStyle; }
 - (void)setUnitStyle:(NSFormattingUnitStyle)s { _unitStyle = s; }
 - (NSLocale *)locale { return _locale ? _locale : [NSLocale currentLocale]; }
+- (NSString *)usageOverride { return _usageOverride; }
+- (void)setUsageOverride:(NSString *)usage
+{
+    NSString *old = _usageOverride;
+    _usageOverride = [usage copy];
+    [old release];
+}
+- (BOOL)hasUsageOverride { return _hasUsageOverride; }
+- (void)setHasUsageOverride:(BOOL)hasOverride { _hasUsageOverride = hasOverride; }
 
 - (void)setLocale:(NSLocale *)locale
 {
@@ -281,7 +301,7 @@ usage_for(int spec)
     } else if (_unitOptions & NSMeasurementFormatterUnitOptionsProvidedUnit) {
         return 1;
     }
-    const char *usage = usage_for(spec);
+    const char *usage = _hasUsageOverride ? [_usageOverride UTF8String] : usage_for(spec);
     NSString *type = [[unit class] icuType];
     if (!usage || ![type length]) return 1;
     UErrorCode err = 0;
@@ -290,6 +310,11 @@ usage_for(int spec)
     if (U_FAILURE(err) || n < 1) return 1;
     memcpy(units, found, n * sizeof(int));
     return n;
+}
+
+- (int)determineUnitsToFormat:(int *)units fromMeasurement:(NSMeasurement *)measurement
+{
+    return [self _determineUnitsToFormat:units fromMeasurement:measurement];
 }
 
 - (NSString *)stringForObjectValue:(id)obj
@@ -406,6 +431,395 @@ usage_for(int spec)
 {
     if ((self = [super init])) _formatter = [[NSUnitFormatter alloc] initWithCoder:coder];
     return self;
+}
+
+@end
+
+static NSString *
+unit_name_for_value(NSUnitFormatter *formatter, double value, NSInteger specifier)
+{
+    double pluralityValue = value == 1.0 ? 1.0 : 2.0;
+    NSString *formatted = [formatter stringForValue:pluralityValue unit:specifier];
+    NSNumberFormatter *numberFormatter = [formatter numberFormatter];
+    NSString *number = [numberFormatter stringFromNumber:[NSNumber numberWithDouble:pluralityValue]];
+    if ([formatted hasPrefix:number]) {
+        NSString *unit = [formatted substringFromIndex:[number length]];
+        return [unit stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    }
+    return [formatter stringFromUnit:FinchUnitForSpecifier(specifier)];
+}
+
+static NSString *
+string_for_measurement(NSUnitFormatter *formatter, double value, NSDimension *unit, NSString *usage)
+{
+    formatter.hasUsageOverride = YES;
+    formatter.usageOverride = usage;
+    NSMeasurement *measurement = [[[NSMeasurement alloc] initWithDoubleValue:value unit:unit] autorelease];
+    return [formatter stringForObjectValue:measurement];
+}
+
+static NSInteger
+first_unit_for_measurement(NSUnitFormatter *formatter, NSMeasurement *measurement, NSString *usage)
+{
+    formatter.hasUsageOverride = YES;
+    formatter.usageOverride = usage;
+    int units[8];
+    int count = [formatter determineUnitsToFormat:units fromMeasurement:measurement];
+    NSInteger specifier = count > 0 ? units[0] : [(NSDimension *)[measurement unit] specifier];
+    NSDimension *unit = FinchUnitForSpecifier(specifier);
+    if (unit && (formatter.unitOptions & NSMeasurementFormatterUnitOptionsNaturalScale)) {
+        NSMeasurement *converted = [measurement measurementByConvertingToUnit:unit];
+        converted = [[unit class] _measurementWithNaturalScale:converted system:system_of(specifier)];
+        if ([converted unit] != nil)
+            specifier = [(NSDimension *)[converted unit] specifier];
+    }
+    return specifier;
+}
+
+static NSInteger
+length_specifier(NSLengthFormatterUnit unit)
+{
+    switch (unit) {
+    case NSLengthFormatterUnitMillimeter: return 0x503;
+    case NSLengthFormatterUnitCentimeter: return 0x501;
+    case NSLengthFormatterUnitMeter: return 0x500;
+    case NSLengthFormatterUnitKilometer: return 0x502;
+    case NSLengthFormatterUnitInch: return 0x506;
+    case NSLengthFormatterUnitFoot: return 0x505;
+    case NSLengthFormatterUnitYard: return 0x508;
+    case NSLengthFormatterUnitMile: return 0x507;
+    }
+    return -1;
+}
+
+static NSLengthFormatterUnit
+length_unit_for_specifier(NSInteger specifier)
+{
+    switch (specifier) {
+    case 0x503: return NSLengthFormatterUnitMillimeter;
+    case 0x501: return NSLengthFormatterUnitCentimeter;
+    case 0x500: return NSLengthFormatterUnitMeter;
+    case 0x502: return NSLengthFormatterUnitKilometer;
+    case 0x506: return NSLengthFormatterUnitInch;
+    case 0x505: return NSLengthFormatterUnitFoot;
+    case 0x508: return NSLengthFormatterUnitYard;
+    case 0x507: return NSLengthFormatterUnitMile;
+    }
+    return NSLengthFormatterUnitMeter;
+}
+
+static NSInteger
+length_formatter_specifier(NSUnitFormatter *formatter, double meters, BOOL forPersonHeight)
+{
+    if ([[formatter locale] usesMetricSystem]) {
+        if (forPersonHeight) return 0x501;
+        return fabs(meters) >= 1000 ? 0x502 : 0x500;
+    }
+    if (forPersonHeight) return 0x505;
+    return fabs(meters / 0.9144) > 2000 ? 0x507 : 0x508;
+}
+
+static NSString *
+string_for_person_height(NSUnitFormatter *formatter, double meters)
+{
+    if ([[formatter locale] usesMetricSystem])
+        return [formatter stringForValue:meters * 100 unit:0x501];
+
+    double inches = fabs(meters) / 0.0254;
+    NSInteger feet = (NSInteger)floor(inches / 12);
+    NSInteger remainingInches = (NSInteger)llround(inches - feet * 12);
+    if (remainingInches == 12) {
+        feet++;
+        remainingInches = 0;
+    }
+    if (meters < 0) {
+        if (feet) feet = -feet;
+        else remainingInches = -remainingInches;
+    }
+    NSString *feetText = [formatter stringForValue:(double)feet unit:0x505];
+    NSString *inchesText = [formatter stringForValue:(double)remainingInches unit:0x506];
+    NSString *separator = formatter.unitStyle == NSFormattingUnitStyleLong ? @", " : @" ";
+    return [NSString stringWithFormat:@"%@%@%@", feetText, separator, inchesText];
+}
+
+static NSInteger
+mass_specifier(NSMassFormatterUnit unit)
+{
+    switch (unit) {
+    case NSMassFormatterUnitGram: return 0x600;
+    case NSMassFormatterUnitKilogram: return 0x601;
+    case NSMassFormatterUnitOunce: return 0x602;
+    case NSMassFormatterUnitPound: return 0x603;
+    case NSMassFormatterUnitStone: return 0x604;
+    }
+    return -1;
+}
+
+static NSMassFormatterUnit
+mass_unit_for_specifier(NSInteger specifier)
+{
+    switch (specifier) {
+    case 0x600: return NSMassFormatterUnitGram;
+    case 0x601: return NSMassFormatterUnitKilogram;
+    case 0x602: return NSMassFormatterUnitOunce;
+    case 0x603: return NSMassFormatterUnitPound;
+    case 0x604: return NSMassFormatterUnitStone;
+    }
+    return NSMassFormatterUnitKilogram;
+}
+
+static NSInteger
+energy_specifier(NSEnergyFormatterUnit unit, BOOL food)
+{
+    switch (unit) {
+    case NSEnergyFormatterUnitJoule: return 0xc02;
+    case NSEnergyFormatterUnitKilojoule: return 0xc04;
+    case NSEnergyFormatterUnitCalorie: return 0xc00;
+    case NSEnergyFormatterUnitKilocalorie: return food ? 0xc01 : 0xc03;
+    }
+    return -1;
+}
+
+static NSEnergyFormatterUnit
+energy_unit_for_specifier(NSInteger specifier)
+{
+    switch (specifier) {
+    case 0xc02: return NSEnergyFormatterUnitJoule;
+    case 0xc04: return NSEnergyFormatterUnitKilojoule;
+    case 0xc00: return NSEnergyFormatterUnitCalorie;
+    case 0xc01: case 0xc03: return NSEnergyFormatterUnitKilocalorie;
+    }
+    return NSEnergyFormatterUnitJoule;
+}
+
+@interface NSLengthFormatter () {
+    NSUnitFormatter *_formatter;
+    BOOL _forPersonHeightUse;
+}
+@end
+
+@implementation NSLengthFormatter
+
+- (instancetype)init
+{
+    if ((self = [super init])) {
+        _formatter = [[NSUnitFormatter alloc] init];
+        _formatter.unitStyle = NSFormattingUnitStyleMedium;
+        _formatter.locale = [NSLocale currentLocale];
+    }
+    return self;
+}
+
+- (void)dealloc { [_formatter release]; [super dealloc]; }
+- (id)copyWithZone:(NSZone *)zone
+{
+    NSLengthFormatter *copy = [[[self class] allocWithZone:zone] init];
+    [copy->_formatter release];
+    copy->_formatter = [_formatter copy];
+    copy->_forPersonHeightUse = _forPersonHeightUse;
+    return copy;
+}
+- (NSNumberFormatter *)numberFormatter { return [_formatter numberFormatter]; }
+- (void)setNumberFormatter:(NSNumberFormatter *)numberFormatter
+{
+    _formatter.numberFormatter = numberFormatter;
+    _formatter.locale = numberFormatter ? numberFormatter.locale : [NSLocale currentLocale];
+}
+- (NSFormattingUnitStyle)unitStyle { return _formatter.unitStyle; }
+- (void)setUnitStyle:(NSFormattingUnitStyle)style { _formatter.unitStyle = style; }
+- (BOOL)isForPersonHeightUse { return _forPersonHeightUse; }
+- (void)setForPersonHeightUse:(BOOL)value { _forPersonHeightUse = value; }
+
+- (NSString *)stringFromValue:(double)value unit:(NSLengthFormatterUnit)unit
+{
+    NSInteger specifier = length_specifier(unit);
+    return specifier < 0 ? nil : [_formatter stringForValue:value unit:specifier];
+}
+- (NSString *)unitStringFromValue:(double)value unit:(NSLengthFormatterUnit)unit
+{
+    NSInteger specifier = length_specifier(unit);
+    return specifier < 0 ? nil : unit_name_for_value(_formatter, value, specifier);
+}
+- (NSString *)stringFromMeters:(double)meters
+{
+    if (_forPersonHeightUse && ![[_formatter locale] usesMetricSystem])
+        return string_for_person_height(_formatter, meters);
+    NSInteger specifier = length_formatter_specifier(_formatter, meters, _forPersonHeightUse);
+    NSMeasurement *measurement = [[[NSMeasurement alloc] initWithDoubleValue:meters unit:[NSUnitLength meters]] autorelease];
+    NSMeasurement *converted = [measurement measurementByConvertingToUnit:FinchUnitForSpecifier(specifier)];
+    return [_formatter stringForValue:[converted doubleValue] unit:specifier];
+}
+- (NSString *)unitStringFromMeters:(double)meters usedUnit:(NSLengthFormatterUnit *)unit
+{
+    NSMeasurement *measurement = [[[NSMeasurement alloc] initWithDoubleValue:meters unit:[NSUnitLength meters]] autorelease];
+    NSInteger specifier = length_formatter_specifier(_formatter, meters, _forPersonHeightUse);
+    NSMeasurement *converted = [measurement measurementByConvertingToUnit:FinchUnitForSpecifier(specifier)];
+    if (unit) *unit = length_unit_for_specifier(specifier);
+    return unit_name_for_value(_formatter, [converted doubleValue], specifier);
+}
+- (NSString *)stringForObjectValue:(id)object
+{
+    return [object isKindOfClass:[NSNumber class]] ? [self stringFromMeters:[object doubleValue]] : nil;
+}
+- (BOOL)getObjectValue:(id *)object forString:(NSString *)string errorDescription:(NSString **)error
+{
+    if (object) *object = nil;
+    if (error) *error = nil;
+    return NO;
+}
+
+@end
+
+@interface NSMassFormatter () {
+    NSUnitFormatter *_formatter;
+    BOOL _forPersonMassUse;
+}
+@end
+
+@implementation NSMassFormatter
+
+- (instancetype)init
+{
+    if ((self = [super init])) {
+        _formatter = [[NSUnitFormatter alloc] init];
+        _formatter.unitStyle = NSFormattingUnitStyleMedium;
+        _formatter.locale = [NSLocale currentLocale];
+        _formatter.unitOptions = NSMeasurementFormatterUnitOptionsNaturalScale;
+    }
+    return self;
+}
+- (void)dealloc { [_formatter release]; [super dealloc]; }
+- (id)copyWithZone:(NSZone *)zone
+{
+    NSMassFormatter *copy = [[[self class] allocWithZone:zone] init];
+    [copy->_formatter release];
+    copy->_formatter = [_formatter copy];
+    copy->_forPersonMassUse = _forPersonMassUse;
+    return copy;
+}
+- (NSNumberFormatter *)numberFormatter { return [_formatter numberFormatter]; }
+- (void)setNumberFormatter:(NSNumberFormatter *)numberFormatter
+{
+    _formatter.numberFormatter = numberFormatter;
+    _formatter.locale = numberFormatter ? numberFormatter.locale : [NSLocale currentLocale];
+}
+- (NSFormattingUnitStyle)unitStyle { return _formatter.unitStyle; }
+- (void)setUnitStyle:(NSFormattingUnitStyle)style { _formatter.unitStyle = style; }
+- (BOOL)isForPersonMassUse { return _forPersonMassUse; }
+- (void)setForPersonMassUse:(BOOL)value { _forPersonMassUse = value; }
+- (NSString *)stringFromValue:(double)value unit:(NSMassFormatterUnit)unit
+{
+    NSInteger specifier = mass_specifier(unit);
+    return specifier < 0 ? nil : [_formatter stringForValue:value unit:specifier];
+}
+- (NSString *)unitStringFromValue:(double)value unit:(NSMassFormatterUnit)unit
+{
+    NSInteger specifier = mass_specifier(unit);
+    return specifier < 0 ? nil : unit_name_for_value(_formatter, value, specifier);
+}
+- (NSString *)stringFromKilograms:(double)kilograms
+{
+    return string_for_measurement(_formatter, kilograms, [NSUnitMass kilograms], _forPersonMassUse ? @"person" : @"default");
+}
+- (NSString *)unitStringFromKilograms:(double)kilograms usedUnit:(NSMassFormatterUnit *)unit
+{
+    NSMeasurement *measurement = [[[NSMeasurement alloc] initWithDoubleValue:kilograms unit:[NSUnitMass kilograms]] autorelease];
+    NSInteger specifier = first_unit_for_measurement(_formatter, measurement, _forPersonMassUse ? @"person" : @"default");
+    NSMeasurement *converted = [measurement measurementByConvertingToUnit:FinchUnitForSpecifier(specifier)];
+    if (unit) *unit = mass_unit_for_specifier(specifier);
+    return unit_name_for_value(_formatter, [converted doubleValue], specifier);
+}
+- (NSString *)stringForObjectValue:(id)object
+{
+    return [object isKindOfClass:[NSNumber class]] ? [self stringFromKilograms:[object doubleValue]] : nil;
+}
+- (BOOL)getObjectValue:(id *)object forString:(NSString *)string errorDescription:(NSString **)error
+{
+    if (object) *object = nil;
+    if (error) *error = nil;
+    return NO;
+}
+
+@end
+
+@interface NSEnergyFormatter () {
+    NSUnitFormatter *_formatter;
+    BOOL _forFoodEnergyUse;
+}
+@end
+
+@implementation NSEnergyFormatter
+
+- (instancetype)init
+{
+    if ((self = [super init])) {
+        _formatter = [[NSUnitFormatter alloc] init];
+        _formatter.unitStyle = NSFormattingUnitStyleMedium;
+        _formatter.locale = [NSLocale currentLocale];
+        _formatter.unitOptions = NSMeasurementFormatterUnitOptionsNaturalScale;
+    }
+    return self;
+}
+- (void)dealloc { [_formatter release]; [super dealloc]; }
+- (id)copyWithZone:(NSZone *)zone
+{
+    NSEnergyFormatter *copy = [[[self class] allocWithZone:zone] init];
+    [copy->_formatter release];
+    copy->_formatter = [_formatter copy];
+    copy->_forFoodEnergyUse = _forFoodEnergyUse;
+    return copy;
+}
+- (NSNumberFormatter *)numberFormatter { return [_formatter numberFormatter]; }
+- (void)setNumberFormatter:(NSNumberFormatter *)numberFormatter
+{
+    _formatter.numberFormatter = numberFormatter;
+    _formatter.locale = numberFormatter ? numberFormatter.locale : [NSLocale currentLocale];
+}
+- (NSFormattingUnitStyle)unitStyle { return _formatter.unitStyle; }
+- (void)setUnitStyle:(NSFormattingUnitStyle)style { _formatter.unitStyle = style; }
+- (BOOL)isForFoodEnergyUse { return _forFoodEnergyUse; }
+- (void)setForFoodEnergyUse:(BOOL)value { _forFoodEnergyUse = value; }
+- (NSString *)stringFromValue:(double)value unit:(NSEnergyFormatterUnit)unit
+{
+    NSInteger specifier = energy_specifier(unit, _forFoodEnergyUse);
+    return specifier < 0 ? nil : [_formatter stringForValue:value unit:specifier];
+}
+- (NSString *)unitStringFromValue:(double)value unit:(NSEnergyFormatterUnit)unit
+{
+    NSInteger specifier = energy_specifier(unit, _forFoodEnergyUse);
+    return specifier < 0 ? nil : unit_name_for_value(_formatter, value, specifier);
+}
+- (NSString *)stringFromJoules:(double)joules
+{
+    if (_forFoodEnergyUse) {
+        NSMeasurement *measurement = [[[NSMeasurement alloc] initWithDoubleValue:joules unit:[NSUnitEnergy joules]] autorelease];
+        NSMeasurement *foodCalories = [measurement measurementByConvertingToUnit:[NSUnitEnergy foodcalories]];
+        return [_formatter stringForValue:[foodCalories doubleValue] unit:0xc01];
+    }
+    return string_for_measurement(_formatter, joules, [NSUnitEnergy joules], @"food");
+}
+- (NSString *)unitStringFromJoules:(double)joules usedUnit:(NSEnergyFormatterUnit *)unit
+{
+    NSMeasurement *measurement = [[[NSMeasurement alloc] initWithDoubleValue:joules unit:[NSUnitEnergy joules]] autorelease];
+    if (_forFoodEnergyUse) {
+        NSMeasurement *foodCalories = [measurement measurementByConvertingToUnit:[NSUnitEnergy foodcalories]];
+        if (unit) *unit = NSEnergyFormatterUnitKilocalorie;
+        return unit_name_for_value(_formatter, [foodCalories doubleValue], 0xc01);
+    }
+    NSInteger specifier = first_unit_for_measurement(_formatter, measurement, @"food");
+    NSMeasurement *converted = [measurement measurementByConvertingToUnit:FinchUnitForSpecifier(specifier)];
+    if (unit) *unit = energy_unit_for_specifier(specifier);
+    return unit_name_for_value(_formatter, [converted doubleValue], specifier);
+}
+- (NSString *)stringForObjectValue:(id)object
+{
+    return [object isKindOfClass:[NSNumber class]] ? [self stringFromJoules:[object doubleValue]] : nil;
+}
+- (BOOL)getObjectValue:(id *)object forString:(NSString *)string errorDescription:(NSString **)error
+{
+    if (object) *object = nil;
+    if (error) *error = nil;
+    return NO;
 }
 
 @end

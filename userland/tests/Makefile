@@ -616,6 +616,11 @@ $(OUT)/finch-foundation-more-test: foundation-more-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -o $@ $< -framework Foundation
 
+all: $(OUT)/finch-foundation-gaps-test
+$(OUT)/finch-foundation-gaps-test: foundation-gaps-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework Foundation
+
 $(OUT)/finch-textformats-test: textformats-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -o $@ $< -framework Cocoa

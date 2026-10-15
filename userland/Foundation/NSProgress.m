@@ -335,6 +335,14 @@ INFO_PROPERTY(NSNumber *, fileCompletedCount, setFileCompletedCount, NSProgressF
     return [f stringFromByteCount:byteCount];
 }
 
++ (NSString *)stringFromMeasurement:(NSMeasurement<NSUnitInformationStorage *> *)measurement
+                          countStyle:(NSByteCountFormatterCountStyle)countStyle
+{
+    NSByteCountFormatter *f = [[[NSByteCountFormatter alloc] init] autorelease];
+    f.countStyle = countStyle;
+    return [f stringFromMeasurement:measurement];
+}
+
 static NSString *
 trimmed_number(double v, int decimals, BOOL pad)
 {
@@ -377,6 +385,17 @@ trimmed_number(double v, int decimals, BOOL pad)
     if (_fActual)
         s = [NSString stringWithFormat:@"%@ (%@ %@)", s, trimmed_number((double)byteCount, 0, NO), llabs(byteCount) == 1 ? @"byte" : @"bytes"];
     return s;
+}
+
+- (NSString *)stringFromMeasurement:(NSMeasurement<NSUnitInformationStorage *> *)measurement
+{
+    if (![measurement isKindOfClass:[NSMeasurement class]] ||
+        ![[measurement unit] isKindOfClass:[NSUnitInformationStorage class]])
+        return nil;
+    double bytes = [[measurement measurementByConvertingToUnit:[NSUnitInformationStorage bytes]] doubleValue];
+    if (!isfinite(bytes) || bytes >= 0x1p63 || bytes < -0x1p63)
+        return nil;
+    return [self stringFromByteCount:(long long)llround(bytes)];
 }
 
 - (NSString *)stringForObjectValue:(id)obj
