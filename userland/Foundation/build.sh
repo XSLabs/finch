@@ -20,6 +20,10 @@ ROOT="${FINCH_ROOT}/build/root"
 FW="${ROOT}/System/Library/Frameworks/Foundation.framework"
 CFFW="${ROOT}/System/Library/Frameworks/CoreFoundation.framework"
 OPENSSL="${FINCH_ROOT}/build/obj/corecrypto-openssl"
+CMARK_SRC="${FINCH_ROOT}/build/src/cmark-gfm"
+CMARK_BUILD="${FINCH_ROOT}/build/obj/cmark-gfm"
+CMARK_CORE="${CMARK_BUILD}/src/libcmark-gfm.a"
+CMARK_EXTENSIONS="${CMARK_BUILD}/extensions/libcmark-gfm-extensions.a"
 SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 CC="$(xcrun -f clang)"
 log() { echo "==> $*"; }
@@ -39,7 +43,16 @@ CFLAGS=(-arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -Os -g
     -Wno-objc-property-implementation -Wno-protocol -Wno-objc-protocol-method-implementation
     -Wno-deprecated-declarations -Wno-deprecated-implementations -Wno-objc-designated-initializers
     -Wno-objc-missing-super-calls -Wno-sign-compare -Wno-objc-method-access
-    -I"${SDKROOT}/usr/include/libxml2" -I"${OPENSSL}/include" -I"${FINCH_ROOT}/build/src/openssl/include")
+    -I"${SDKROOT}/usr/include/libxml2" -I"${OPENSSL}/include" -I"${FINCH_ROOT}/build/src/openssl/include"
+    -I"${CMARK_SRC}/src" -I"${CMARK_BUILD}/src" -I"${CMARK_SRC}/extensions" -I"${CMARK_BUILD}/extensions")
+
+# CommonMark parsing for NSAttributedString's Markdown constructors. cmark-gfm
+# is pinned in userland/third-party-projects.txt and its notice ships in the image.
+"${FINCH_ROOT}/tools/fetch-src.sh" cmark-gfm
+cmake -S "${CMARK_SRC}" -B "${CMARK_BUILD}" -DCMARK_TESTS=OFF -DCMARK_STATIC=ON -DCMARK_SHARED=OFF \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="${CC}" -DCMAKE_C_FLAGS=-fvisibility=hidden \
+    -DCMAKE_OSX_ARCHITECTURES=arm64e -DCMAKE_OSX_DEPLOYMENT_TARGET=26.0 -DCMAKE_POLICY_VERSION_MINIMUM=3.10
+cmake --build "${CMARK_BUILD}" --target libcmark-gfm_static libcmark-gfm-extensions_static --parallel 8
 
 log "compiling"
 rm -rf "${OBJ}" && mkdir -p "${OBJ}"
@@ -58,6 +71,7 @@ mkdir -p "${FW}/Versions/C"
     -install_name /System/Library/Frameworks/Foundation.framework/Versions/C/Foundation \
     -current_version 4424.1.255 -compatibility_version 300 \
     "${OBJ}"/*.o "${SWIFTOBJ}/Foundation-swift.o" "${SWIFTOBJ}"/cshims/*.o -o "${FW}/Versions/C/Foundation" -licucore -lxml2 -lcompression -Wl,-no_warn_inits \
+    "${CMARK_EXTENSIONS}" "${CMARK_CORE}" \
     -L"${OPENSSL}" -Wl,-hidden-lssl -Wl,-hidden-lcrypto \
     -L"${SWIFTOBJ}/coll" -Wl,-hidden-lCollectionsInternal -L"${SDKROOT}/usr/lib/swift" \
     -F"${ROOT}/System/Library/Frameworks" -Wl,-reexport_framework,CoreFoundation -Wl,-reexport-lobjc -lSystem -framework Combine -framework Security \
@@ -74,9 +88,10 @@ ln -sfn Versions/Current/Foundation "${FW}/Foundation"
 "${FINCH_ROOT}/tools/mkframeworkplist.sh" "${FW}" C Foundation com.apple.Foundation Foundation 6.9 4424.1.402 en_US
 codesign -f -s - -i com.apple.Foundation "${FW}/Versions/C/Foundation" 2>/dev/null
 NOTICES="${ROOT}/usr/share/finch/licenses"
-mkdir -p "${NOTICES}/openssl" "${NOTICES}/swift-foundation" "${NOTICES}/swift-collections" "${NOTICES}/swift-foundation-overlay"
+mkdir -p "${NOTICES}/openssl" "${NOTICES}/swift-foundation" "${NOTICES}/swift-collections" "${NOTICES}/swift-foundation-overlay" "${NOTICES}/cmark-gfm"
 cp "${FINCH_ROOT}/build/src/swift-foundation/"{LICENSE.md,NOTICE.txt} "${NOTICES}/swift-foundation/"
 cp "${FINCH_ROOT}/build/src/swift-collections/LICENSE.txt" "${NOTICES}/swift-collections/"
 cp "${FINCH_ROOT}/build/src/openssl/LICENSE.txt" "${NOTICES}/openssl/"
+cp "${CMARK_SRC}/COPYING" "${NOTICES}/cmark-gfm/"
 cp "${HERE}/swift/Darwin/LICENSE.txt" "${NOTICES}/swift-foundation-overlay/"
 log "installed ${FW#"${FINCH_ROOT}/"}"

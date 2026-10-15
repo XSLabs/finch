@@ -8,7 +8,8 @@ These diagrams are updated in every commit that changes the stack, and
 **As of 2026-10-15:** nothing Finch builds links a closed library
 (`tools/check-closed.py`). Finch's own Foundation covers about 140 of Apple's
 classes, on a CoreFoundation that dispatches to Objective-C objects as Apple's
-does (`docs/design/FOUNDATION.md`); its NSXMLParser and NSXMLDocument read
+does (`docs/design/FOUNDATION.md`); its Markdown constructors use cmark-gfm,
+linked privately into Foundation, and its NSXMLParser and NSXMLDocument read
 with Apple's libxml2, built by Finch. Finch's CoreGraphics has begun, over Skia
 (`docs/design/COREGRAPHICS.md`): bitmap contexts draw paths, images,
 clips, shadows and transparency layers as Apple's do, PDF contexts write
@@ -148,7 +149,7 @@ block-beta
     block:L5
         columns 4
         t5["Foundation layer"]
-        foundation["Foundation<br/>strings, numbers, decimals, threads,<br/>files, bundles, formatters, queues,<br/>KVC/KVO, JSON, archiving, regexes,<br/>attributed strings, map/hash tables,<br/>undo, proxies, transforms,<br/>file handles, pipes, tasks,<br/>predicates, progress, file wrappers,<br/>units and measurements, XML parsing,<br/>list, relative-date, interval and name formatters,<br/>linguistic tagging, metadata queries,<br/>item providers, URL resource values,<br/>NSXPCConnection, URL loading (HTTP/1.1,<br/>TLS via OpenSSL, cache, cookies,<br/>custom protocols)"]
+        foundation["Foundation<br/>strings, numbers, decimals, threads,<br/>files, bundles, formatters, queues,<br/>KVC/KVO, JSON, archiving, regexes,<br/>attributed strings and Markdown,<br/>map/hash tables, undo, proxies,<br/>transforms, file handles, pipes, tasks,<br/>predicates, progress, file wrappers,<br/>units and measurements, XML parsing,<br/>list, relative-date, interval and name formatters,<br/>linguistic tagging, metadata queries,<br/>item providers, URL resource values,<br/>NSXPCConnection, URL loading (HTTP/1.1,<br/>TLS via OpenSSL, cache, cookies,<br/>custom protocols)"]
         uti["UniformTypeIdentifiers<br/>UTType, declared and<br/>dynamic types"]
         cfnetwork["CFNetwork<br/>HTTP messages and streams,<br/>socket streams (TLS via OpenSSL),<br/>CFHost, Bonjour (dns_sd),<br/>proxies, FTP"]
         cf["CoreFoundation<br/>swift-corelibs CF + Finch ObjC:<br/>toll-free dispatch, collections,<br/>ordered sets, NSCache, NSData, NSDate,<br/>NSURL, locales, calendars, defaults,<br/>run loops, attributed strings,<br/>streams, Mach ports, notifications;<br/>bundle languages and .loctable files"]
@@ -168,7 +169,7 @@ block-beta
         comp["libcompression<br/>LZFSE, LZ4, Brotli, zlib, LZMA"]
         codecs["lzfse, lz4, brotli,<br/>liblzma, libxo, libsbuf"]
         osslibs["zlib, bzip2, libedit, libresolv,<br/>libiconv, ncurses (+ terminfo), OpenBSM,<br/>libxml2"]
-        space4[" "]
+        cmark["cmark-gfm 0.29.0.gfm.13<br/>(static, Foundation Markdown)"]
         pam["OpenPAM + pam_modules"]
         pamunix["pam_unix, Finch pam.d<br/>libfinchaccount, accountctl"]
         ess["libEndpointSecuritySystem"]
@@ -231,9 +232,9 @@ block-beta
     class apps testapp
     class opengl,later,coreimage,services,contacts,cfnetwork,appsupport,shell,uti,appkit,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
-    class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui upstream
+    class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui,cmark upstream
     class vz firmware
-    class space4,space3,space3b,space3c,space3d,space2,space2b,space2c,space1 blank
+    class space3,space3b,space3c,space3d,space2,space2b,space2c,space1 blank
 ```
 
 | Colour | Meaning |
@@ -305,6 +306,7 @@ flowchart LR
     cfnetwork["CFNetwork"]:::finch
     openssl["OpenSSL (static)"]:::upstream
     skialib["Skia, FreeType<br/>(static)"]:::upstream
+    cmark["cmark-gfm 0.29.0.gfm.13<br/>(static)"]:::upstream
     cxxlib["libc++"]:::upstream
     cf["CoreFoundation"]:::finch
     cal["CoreAutoLayout"]:::finch
@@ -339,6 +341,7 @@ flowchart LR
     appsup["CoreVideo, Accessibility,<br/>CoreTransferable,<br/>DeveloperToolsSupport"]:::finch
     ffound --> combine
     ffound --> openssl
+    ffound --> cmark
     gcore --> ffound
     gcore -.->|"linked, unused"| comp
     appkit -->|"re-exports"| ffound

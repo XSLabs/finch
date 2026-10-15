@@ -13,7 +13,7 @@ public struct PresentationIntent: Hashable, Codable, CustomDebugStringConvertibl
     public var count: Int { components.count }
 
     public var debugDescription: String {
-        components.map(\.debugDescription).joined(separator: ", ")
+        "[\(components.map(\.debugDescription).joined(separator: ", "))]"
     }
 
     public enum Kind: Hashable, Codable, CustomDebugStringConvertible, Sendable {

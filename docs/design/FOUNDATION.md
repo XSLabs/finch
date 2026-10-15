@@ -119,6 +119,17 @@ GNUstep is LGPL and isn't copied (`docs/LICENSING.md`).
   as Apple's do. The existing `finch-urlsession-test` still matches Apple's run;
   `finch-urlsession-trust-test` matches Apple's with a generated self-signed certificate.
   NTLM remains to come.
+- 2026-10-15: Markdown constructors for `NSAttributedString` and Swift's
+  `AttributedString(markdown:)` use the pinned cmark-gfm parser. Full syntax
+  maps inline styles, links, images, headings, paragraphs, lists, quotes, code
+  blocks and tables to Foundation's attributes and presentation intents.
+  Inline-only modes, base URLs, language codes, source positions, file and data
+  initializers, and malformed UTF-8 failure handling are covered by
+  `finch-markdown-test`, which compares the printed string and attributes with
+  Apple's Foundation. The parser is linked privately into Foundation and its
+  `COPYING` notice ships with the image. Apple's custom extended-attribute
+  syntax (`^[text](attribute: value)`) is not implemented; setting
+  `allowsExtendedAttributes` does not enable it.
 - 2026-10-09: Foundation's Combine integration (`swift/Finch/Foundation+Combine.swift`):
   the KVO, notification, timer and URL session publishers, the coder conformances, and the
   run loop and operation queue schedulers. Foundation links Combine, as Apple's does.
@@ -519,8 +530,9 @@ optional attribute providers; it does not load a missing UI framework.
   relationships, mounted-volume listing and display paths; file-wrapper path
   and symbolic-link methods; URL data constructors and invalid-character
   encoding; and Markdown parsing options, source positions and presentation
-  intents. Markdown constructors remain out until Finch has a full CommonMark
-  parser. Cloud-backed bundle, ubiquity, app-group and file-provider services
+  intents. Markdown constructors now use cmark-gfm; Apple's custom
+  extended-attribute syntax remains unsupported. Cloud-backed bundle, ubiquity,
+  app-group and file-provider services
   remain out because Finch has no matching cloud service. Localized attributed
   formatting and inflection remain out until Finch has the required language
   rules. Distributed Objects, scripting, garbage collection and private-looking

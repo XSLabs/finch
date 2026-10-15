@@ -480,6 +480,10 @@ $(OUT)/finch-textblock-test: textblock-test.m
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -o $@ $< -framework AppKit
 
 # NSAttributedString's document formats: RTF, RTFD, plain text (diff Apple's run and Finch's).
+$(OUT)/finch-markdown-test: markdown-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -fblocks -Wno-unused-parameter -o $@ $< -framework Foundation
+
 $(OUT)/finch-rtf-test: rtf-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -o $@ $< -framework AppKit

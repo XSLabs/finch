@@ -247,6 +247,18 @@ logger.info("Swift overlay test \(42, privacy: .public)")
 os_log("os_log from Swift: %{public}@", "ok")
 show("logger", "ok")
 
+// MARK: Markdown
+print("== markdown")
+let markdown = try! AttributedString(markdown: "# Head\n\nA **bold** [link](item.md).",
+                                     baseURL: URL(string: "https://example.test/docs/page.md"))
+show("text", String(markdown.characters))
+show("runs", markdown.runs.map { run in
+    let inline = run.inlinePresentationIntent?.rawValue.description ?? "0"
+    let block = run.presentationIntent?.debugDescription ?? "-"
+    let link = run.link?.absoluteString ?? "-"
+    return "\(String(markdown[run.range].characters)) [\(inline);\(block);\(link)]"
+}.joined(separator: "|"))
+
 // MARK: AppKit
 print("== appkit")
 let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 4, bitsPerSample: 8,
