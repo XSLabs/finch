@@ -21,12 +21,30 @@
 + (NSArray<NSString *> *)printerTypes { return @[]; }
 + (NSPrinter *)printerWithName:(NSString *)name { return nil; }
 + (NSPrinter *)printerWithType:(NSPrinterTypeName)type { return nil; }
++ (NSPrinter *)printerWithName:(NSString *)name domain:(NSString *)domain includeUnavailable:(BOOL)flag { return nil; }
 
 - (NSString *)name { return _name ?: @""; }
 - (NSPrinterTypeName)type { return _type ?: @""; }
 - (NSInteger)languageLevel { return 0; }
 - (NSSize)pageSizeForPaper:(NSPrinterPaperName)paperName { return NSZeroSize; }
 - (NSDictionary<NSDeviceDescriptionKey, id> *)deviceDescription { return @{NSDeviceIsPrinter : @"YES"}; }
+- (NSPrinterTableStatus)statusForTable:(NSString *)tableName { return NSPrinterTableNotFound; }
+- (BOOL)isKey:(NSString *)key inTable:(NSString *)table { return NO; }
+- (BOOL)booleanForKey:(NSString *)key inTable:(NSString *)table { return NO; }
+- (float)floatForKey:(NSString *)key inTable:(NSString *)table { return 0; }
+- (int)intForKey:(NSString *)key inTable:(NSString *)table { return 0; }
+- (NSRect)rectForKey:(NSString *)key inTable:(NSString *)table { return NSZeroRect; }
+- (NSSize)sizeForKey:(NSString *)key inTable:(NSString *)table { return NSZeroSize; }
+- (NSString *)stringForKey:(NSString *)key inTable:(NSString *)table { return nil; }
+- (NSArray *)stringListForKey:(NSString *)key inTable:(NSString *)table { return nil; }
+- (NSRect)imageRectForPaper:(NSString *)paperName { return NSZeroRect; }
+- (BOOL)acceptsBinary { return YES; }
+- (BOOL)isColor { return NO; }
+- (BOOL)isFontAvailable:(NSString *)faceName { return NO; }
+- (BOOL)isOutputStackInReverseOrder { return NO; }
+- (NSString *)domain { return @""; }
+- (NSString *)host { return @""; }
+- (NSString *)note { return @""; }
 
 - (void)dealloc
 {

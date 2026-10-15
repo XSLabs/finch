@@ -125,6 +125,91 @@ text_values(void)
 }
 
 static void
+appkit_additions(void)
+{
+    out(@"AppKit additions:");
+    NSAttributedString *words = [[NSAttributedString alloc] initWithString:@"one two three"];
+    NSMutableString *lineBreaks = [NSMutableString string];
+    for (NSNumber *location in @[@0, @1, @3, @4, @5, @7, @8, @9, @13])
+        [lineBreaks appendFormat:@"%lu,", (unsigned long)[words lineBreakBeforeIndex:location.unsignedIntegerValue
+                                                                             withinRange:NSMakeRange(0, words.length)]];
+    NSUInteger hyphenIndex = [[[NSAttributedString alloc] initWithString:@"cat"]
+        lineBreakByHyphenatingBeforeIndex:3 withinRange:NSMakeRange(0, 3)];
+    out(@"  line breaks %@ hyphen %lu", lineBreaks, (unsigned long)hyphenIndex);
+
+    NSMutableAttributedString *oldRead = [[NSMutableAttributedString alloc] initWithString:@"old"];
+    BOOL read = [oldRead readFromData:[@"new text" dataUsingEncoding:NSUTF8StringEncoding]
+                              options:@{NSDocumentTypeDocumentOption : NSPlainTextDocumentType}
+                   documentAttributes:NULL];
+    out(@"  old document reader %d '%@'", read, oldRead.string);
+
+    NSSpellChecker *checker = [NSSpellChecker sharedSpellChecker];
+    [checker learnWord:@"FinchSpellTest"];
+    BOOL learned = [checker hasLearnedWord:@"FinchSpellTest"];
+    [checker forgetWord:@"FinchSpellTest"];
+    BOOL forgotten = ![checker hasLearnedWord:@"FinchSpellTest"];
+    out(@"  learned word %d forgotten %d autospace %d %d", learned, forgotten,
+        [checker deletesAutospaceBetweenString:@"word " andString:@"." language:@"en"],
+        [checker deletesAutospaceBetweenString:@"word " andString:@"next" language:@"en"]);
+    NSMutableString *autospaceRules = [NSMutableString string];
+    for (NSString *next in @[@",", @".", @";", @":", @"?", @"!", @")", @"]", @"}", @"(", @"[", @"@", @"'", @"\"", @"…", @"—"])
+        [autospaceRules appendFormat:@"%d", [checker deletesAutospaceBetweenString:@"word " andString:next language:@"en"]];
+    out(@"  autospace rules %@ no prior space %d", autospaceRules,
+        [checker deletesAutospaceBetweenString:@"word" andString:@"." language:@"en"]);
+
+    NSPrinter *printer = [[NSPrinter alloc] init];
+    NSPrinter *missing = [NSPrinter printerWithName:@"Finch no such printer" domain:nil includeUnavailable:YES];
+    out(@"  printer %@ %@ language %ld color %d table %ld paper %.0f %.0f missing %d %@ %@ %@",
+        printer.name, printer.type, (long)printer.languageLevel, printer.isColor,
+        (long)[printer statusForTable:@"Finch test table"],
+        [printer pageSizeForPaper:@"na-letter"].width, [printer pageSizeForPaper:@"na-letter"].height,
+        missing != nil, printer.domain, printer.host, printer.note);
+    out(@"  printer table values %d %d %.0f %d %@ %@ binary %d font %d reverse %d image %.0f %.0f",
+        [printer isKey:@"FinchKey" inTable:@"FinchTable"], [printer booleanForKey:@"FinchKey" inTable:@"FinchTable"],
+        [printer floatForKey:@"FinchKey" inTable:@"FinchTable"], [printer intForKey:@"FinchKey" inTable:@"FinchTable"],
+        [printer stringForKey:@"FinchKey" inTable:@"FinchTable"], [printer stringListForKey:@"FinchKey" inTable:@"FinchTable"],
+        printer.acceptsBinary, [printer isFontAvailable:@"Finch Test Font"], printer.isOutputStackInReverseOrder,
+        [printer imageRectForPaper:@"na-letter"].size.width, [printer imageRectForPaper:@"na-letter"].size.height);
+
+    NSFileWrapper *wrapper = [[NSFileWrapper alloc] initRegularFileWithContents:[NSData data]];
+    NSImage *icon = [[NSImage alloc] initWithSize:NSMakeSize(8, 8)];
+    BOOL initiallyNoIcon = wrapper.icon == nil;
+    wrapper.icon = icon;
+    BOOL retainedIcon = wrapper.icon != nil && wrapper.icon.size.width == 8;
+    wrapper.icon = nil;
+    out(@"  file wrapper icon initially nil %d held %d cleared %d", initiallyNoIcon, retainedIcon, wrapper.icon == nil);
+
+    NSItemProvider *provider = [[NSItemProvider alloc] init];
+    out(@"  item provider frames %.0f %.0f %.0f %.0f size %.0f %.0f", provider.sourceFrame.origin.x,
+        provider.sourceFrame.origin.y, provider.containerFrame.size.width, provider.containerFrame.size.height,
+        provider.preferredPresentationSize.width, provider.preferredPresentationSize.height);
+
+    NSMutableDictionary *source = [NSMutableDictionary dictionaryWithDictionary:@{@"alpha" : @1, @"beta" : @2}];
+    NSDictionaryController *controller = [[NSDictionaryController alloc] initWithContent:source];
+    NSDictionaryControllerKeyValuePair *pair = [controller.arrangedObjects firstObject];
+    controller.initialKey = @"gamma";
+    controller.initialValue = @3;
+    NSDictionaryControllerKeyValuePair *fresh = [controller newObject];
+    out(@"  dictionary controller count %lu first %@=%@ localized %@ included %d new pair %d same content %d",
+        (unsigned long)[controller.arrangedObjects count], pair.key, pair.value,
+        pair.localizedKey, pair.isExplicitlyIncluded, [fresh isKindOfClass:[NSDictionaryControllerKeyValuePair class]],
+        controller.content == source);
+    controller.includedKeys = @[@"gamma"];
+    controller.excludedKeys = @[@"beta"];
+    controller.localizedKeyDictionary = @{@"alpha" : @"Alpha", @"gamma" : @"Gamma"};
+    out(@"  included keys %@ pairs %@ excluded %d", [controller.includedKeys componentsJoinedByString:@","],
+        [[controller.arrangedObjects valueForKey:@"localizedKey"] componentsJoinedByString:@","],
+        [[controller.arrangedObjects filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"key == 'beta'"]] count] > 0);
+    controller.includedKeys = @[];
+    [controller addObject:fresh];
+    out(@"  inserted dictionary %@ count %lu", controller.content, (unsigned long)[controller.arrangedObjects count]);
+    NSDictionaryControllerKeyValuePair *edited = [controller.arrangedObjects firstObject];
+    edited.value = @9;
+    edited.key = @"renamed";
+    out(@"  edited pair %@=%@ old key gone %d", edited.key, controller.content[@"renamed"], controller.content[@"alpha"] == nil);
+}
+
+static void
 table_values(void)
 {
     out(@"table diffable:");
@@ -197,6 +282,7 @@ main(void)
         [NSApplication sharedApplication];
         printing();
         text_values();
+        appkit_additions();
         table_values();
         pasteboard_values();
     }

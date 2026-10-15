@@ -2,6 +2,77 @@
 /* Small AppKit value types and adapters whose behavior is available locally. */
 #import <AppKit/AppKit.h>
 #import <CoreText/CoreText.h>
+#import <objc/runtime.h>
+
+@implementation NSAttributedString (FinchLineBreaks)
+
+- (NSUInteger)lineBreakBeforeIndex:(NSUInteger)location withinRange:(NSRange)range
+{
+    if (location > self.length || NSMaxRange(range) > self.length)
+        [NSException raise:NSRangeException format:@"line break range is outside the string"];
+    __block NSUInteger result = NSNotFound;
+    [self.string enumerateSubstringsInRange:range options:NSStringEnumerationByWords
+                                 usingBlock:^(NSString *word, NSRange wordRange, NSRange enclosingRange, BOOL *stop) {
+        if (wordRange.location < location)
+            result = wordRange.location;
+        else
+            *stop = YES;
+    }];
+    return result;
+}
+
+- (NSUInteger)lineBreakByHyphenatingBeforeIndex:(NSUInteger)location withinRange:(NSRange)range
+{
+    if (location > self.length || NSMaxRange(range) > self.length)
+        [NSException raise:NSRangeException format:@"hyphenation range is outside the string"];
+    CFLocaleRef locale = CFLocaleCopyCurrent();
+    CFIndex result = CFStringGetHyphenationLocationBeforeIndex((CFStringRef)self.string, (CFIndex)location,
+                                                                CFRangeMake((CFIndex)range.location, (CFIndex)range.length),
+                                                                0, locale, NULL);
+    if (locale)
+        CFRelease(locale);
+    return result < 0 ? NSNotFound : (NSUInteger)result;
+}
+
+@end
+
+@implementation NSMutableAttributedString (FinchLegacyDocumentReads)
+
+- (BOOL)readFromData:(NSData *)data options:(NSDictionary *)options documentAttributes:(NSDictionary **)attributes
+{
+    return [self readFromData:data options:options documentAttributes:attributes error:NULL];
+}
+
+- (BOOL)readFromURL:(NSURL *)url options:(NSDictionary *)options documentAttributes:(NSDictionary **)attributes
+{
+    return [self readFromURL:url options:options documentAttributes:attributes error:NULL];
+}
+
+@end
+
+static char file_wrapper_icon_key;
+
+@implementation NSFileWrapper (FinchAppKitIcon)
+
+- (NSImage *)icon
+{
+    return objc_getAssociatedObject(self, &file_wrapper_icon_key);
+}
+
+- (void)setIcon:(NSImage *)icon
+{
+    objc_setAssociatedObject(self, &file_wrapper_icon_key, icon, OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+
+@end
+
+@implementation NSItemProvider (FinchItemSourceInfo)
+
+- (NSRect)sourceFrame { return NSZeroRect; }
+- (NSRect)containerFrame { return NSZeroRect; }
+- (NSSize)preferredPresentationSize { return NSZeroSize; }
+
+@end
 
 @interface NSGlyphInfo ()
 - (instancetype)_initWithGlyph:(CGGlyph)glyph

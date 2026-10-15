@@ -1517,6 +1517,339 @@ static int rearrangeContext;
 
 @end
 
+#pragma mark - NSDictionaryController
+
+@interface NSDictionaryControllerKeyValuePair (FinchPrivate)
+- (instancetype)_finchInitWithController:(NSDictionaryController *)controller key:(NSString *)key value:(id)value;
+- (void)_finchSetKeyWithoutNotifying:(NSString *)key;
+- (void)_finchSetValueWithoutNotifying:(id)value;
+@end
+
+@interface NSDictionaryController (FinchPrivate)
+- (void)_finchKeyValuePair:(NSDictionaryControllerKeyValuePair *)pair changedFromKey:(NSString *)oldKey;
+- (void)_finchKeyValuePair:(NSDictionaryControllerKeyValuePair *)pair setLocalizedKey:(NSString *)localizedKey;
+@end
+
+@implementation NSDictionaryControllerKeyValuePair {
+    NSString *_key, *_localizedKey;
+    id _value;
+    __weak NSDictionaryController *_controller;
+}
+
+- (instancetype)init
+{
+    [self release];
+    [NSException raise:NSInvalidArgumentException format:@"Create dictionary key-value pairs with -[NSDictionaryController newObject]."];
+    return nil;
+}
+
+- (instancetype)_finchInitWithController:(NSDictionaryController *)controller key:(NSString *)key value:(id)value
+{
+    if ((self = [super init])) {
+        _controller = controller;
+        _key = [key copy];
+        _value = [value retain];
+    }
+    return self;
+}
+
+- (void)dealloc
+{
+    [_key release];
+    [_localizedKey release];
+    [_value release];
+    [super dealloc];
+}
+
+- (NSString *)key { return _key; }
+
+- (void)setKey:(NSString *)key
+{
+    if (_key == key || [_key isEqualToString:key])
+        return;
+    NSString *oldKey = [_key copy];
+    [_key release];
+    _key = [key copy];
+    [_controller _finchKeyValuePair:self changedFromKey:oldKey];
+    [oldKey release];
+}
+
+- (id)value { return _value; }
+
+- (void)setValue:(id)value
+{
+    if (_value == value || [_value isEqual:value])
+        return;
+    NSString *oldKey = [_key copy];
+    [value retain];
+    [_value release];
+    _value = value;
+    [_controller _finchKeyValuePair:self changedFromKey:oldKey];
+    [oldKey release];
+}
+
+- (NSString *)localizedKey
+{
+    if (_key) {
+        NSString *localized = _controller.localizedKeyDictionary[_key];
+        if (!localized && _controller.localizedKeyTable)
+            localized = [[NSBundle mainBundle] localizedStringForKey:_key value:_key table:_controller.localizedKeyTable];
+        if (localized)
+            return localized;
+    }
+    return _localizedKey ?: _key;
+}
+
+- (void)setLocalizedKey:(NSString *)localizedKey
+{
+    if ([self.localizedKey isEqualToString:localizedKey])
+        return;
+    if (!_controller) {
+        [_localizedKey release];
+        _localizedKey = [localizedKey copy];
+        return;
+    }
+    [_localizedKey release];
+    _localizedKey = nil;
+    [_controller _finchKeyValuePair:self setLocalizedKey:localizedKey];
+}
+
+- (BOOL)isExplicitlyIncluded
+{
+    return _key && [_controller.includedKeys containsObject:_key];
+}
+
+- (void)_finchSetKeyWithoutNotifying:(NSString *)key
+{
+    [_key release];
+    _key = [key copy];
+}
+
+- (void)_finchSetValueWithoutNotifying:(id)value
+{
+    [value retain];
+    [_value release];
+    _value = value;
+}
+
+@end
+
+@implementation NSDictionaryController {
+    NSMutableDictionary *_dictionary;
+    NSMutableDictionary *_includedPairs;
+    NSString *_initialKey, *_localizedKeyTable;
+    id _initialValue;
+    NSArray *_includedKeys, *_excludedKeys;
+    NSDictionary *_localizedKeyDictionary;
+}
+
+- (instancetype)initWithContent:(id)content
+{
+    return [super initWithContent:content ?: @{}];
+}
+
+- (instancetype)initWithCoder:(NSCoder *)coder
+{
+    self = [super initWithCoder:coder];
+    if (self) {
+        _initialKey = [[coder decodeObjectForKey:@"NSInitialKey"] copy];
+        _initialValue = [[coder decodeObjectForKey:@"NSInitialValue"] retain];
+        _includedKeys = [[coder decodeObjectForKey:@"NSIncludedKeys"] copy];
+        _excludedKeys = [[coder decodeObjectForKey:@"NSExcludedKeys"] copy];
+        _localizedKeyDictionary = [[coder decodeObjectForKey:@"NSLocalizedKeyDictionary"] copy];
+        _localizedKeyTable = [[coder decodeObjectForKey:@"NSLocalizedKeyTable"] copy];
+        [self _finchSetDictionary:@{}];
+    }
+    return self;
+}
+
+- (void)encodeWithCoder:(NSCoder *)coder
+{
+    [super encodeWithCoder:coder];
+    if (_initialKey) [coder encodeObject:_initialKey forKey:@"NSInitialKey"];
+    if (_initialValue) [coder encodeObject:_initialValue forKey:@"NSInitialValue"];
+    if (_includedKeys) [coder encodeObject:_includedKeys forKey:@"NSIncludedKeys"];
+    if (_excludedKeys) [coder encodeObject:_excludedKeys forKey:@"NSExcludedKeys"];
+    if (_localizedKeyDictionary) [coder encodeObject:_localizedKeyDictionary forKey:@"NSLocalizedKeyDictionary"];
+    if (_localizedKeyTable) [coder encodeObject:_localizedKeyTable forKey:@"NSLocalizedKeyTable"];
+}
+
+- (void)dealloc
+{
+    [_dictionary release];
+    [_includedPairs release];
+    [_initialKey release];
+    [_initialValue release];
+    [_includedKeys release];
+    [_excludedKeys release];
+    [_localizedKeyDictionary release];
+    [_localizedKeyTable release];
+    [super dealloc];
+}
+
+- (NSDictionary *)content { return _dictionary; }
+
+- (void)setContent:(id)content { [self _finchSetDictionary:content]; }
+- (void)_finchSetContent:(id)content { [self _finchSetDictionary:content]; }
+
+- (void)_finchSetDictionary:(id)content
+{
+    if (!content && !_dictionary)
+        content = @{};
+    if ([content isKindOfClass:[NSArray class]] && !_dictionary)
+        content = @{}; /* NSArrayController's initializer starts with an empty array. */
+    if (![content isKindOfClass:[NSDictionary class]])
+        [NSException raise:NSInvalidArgumentException format:@"NSDictionaryController content must be a dictionary."];
+
+    NSMutableDictionary *dictionary = [content isKindOfClass:[NSMutableDictionary class]] ? [content retain] : [content mutableCopy];
+    NSMutableArray *pairs = [NSMutableArray array];
+    for (NSString *key in [[dictionary allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+        NSDictionaryControllerKeyValuePair *pair = [[[NSDictionaryControllerKeyValuePair alloc]
+            _finchInitWithController:self key:key value:dictionary[key]] autorelease];
+        [pairs addObject:pair];
+    }
+    [_dictionary release];
+    _dictionary = dictionary;
+    [_includedPairs release];
+    _includedPairs = [NSMutableDictionary new];
+    [super _finchSetContent:pairs];
+}
+
+- (id)newObject
+{
+    return [[NSDictionaryControllerKeyValuePair alloc] _finchInitWithController:self key:nil value:nil];
+}
+
+- (NSArray *)arrangeObjects:(NSArray *)objects
+{
+    NSMutableArray *visible = [NSMutableArray array];
+    NSMutableSet *keys = [NSMutableSet set];
+    for (NSDictionaryControllerKeyValuePair *pair in objects) {
+        NSString *key = pair.key;
+        if (key)
+            [keys addObject:key];
+        if (key && ![_excludedKeys containsObject:key])
+            [visible addObject:pair];
+    }
+    for (NSString *key in _includedKeys) {
+        if ([keys containsObject:key] || [_excludedKeys containsObject:key])
+            continue;
+        NSDictionaryControllerKeyValuePair *pair = _includedPairs[key];
+        if (!pair) {
+            pair = [[[NSDictionaryControllerKeyValuePair alloc] _finchInitWithController:self key:key value:_dictionary[key]] autorelease];
+            _includedPairs[key] = pair;
+        }
+        [visible addObject:pair];
+    }
+    return [super arrangeObjects:visible];
+}
+
+- (void)insertObjects:(NSArray *)objects atArrangedObjectIndexes:(NSIndexSet *)indexes
+{
+    for (NSDictionaryControllerKeyValuePair *pair in objects) {
+        if (![pair isKindOfClass:[NSDictionaryControllerKeyValuePair class]])
+            [NSException raise:NSInvalidArgumentException format:@"NSDictionaryController can only insert key-value pairs."];
+        if (!pair.key && _initialKey) {
+            NSString *base = _initialKey;
+            NSString *candidate = base;
+            NSUInteger suffix = 1;
+            while (_dictionary[candidate])
+                candidate = [base stringByAppendingFormat:@"%lu", (unsigned long)suffix++];
+            [pair _finchSetKeyWithoutNotifying:candidate];
+        }
+        if (!pair.value && _initialValue)
+            [pair _finchSetValueWithoutNotifying:_initialValue];
+        if (pair.key && pair.value)
+            _dictionary[pair.key] = pair.value;
+    }
+    [super insertObjects:objects atArrangedObjectIndexes:indexes];
+}
+
+- (void)removeObjectsAtArrangedObjectIndexes:(NSIndexSet *)indexes
+{
+    NSArray *arranged = [self _finchArranged];
+    [indexes enumerateIndexesUsingBlock:^(NSUInteger index, BOOL *stop) {
+        if (index < [arranged count]) {
+            NSString *key = [[arranged objectAtIndex:index] key];
+            if (key)
+                [_dictionary removeObjectForKey:key];
+        }
+    }];
+    [super removeObjectsAtArrangedObjectIndexes:indexes];
+}
+
+- (void)removeObjects:(NSArray *)objects
+{
+    for (NSDictionaryControllerKeyValuePair *pair in objects)
+        if (pair.key)
+            [_dictionary removeObjectForKey:pair.key];
+    [super removeObjects:objects];
+}
+
+- (void)_finchKeyValuePair:(NSDictionaryControllerKeyValuePair *)pair changedFromKey:(NSString *)oldKey
+{
+    if ([[super content] indexOfObjectIdenticalTo:pair] == NSNotFound)
+        return;
+    [self willChangeValueForKey:@"content"];
+    if (oldKey && ![oldKey isEqualToString:pair.key])
+        [_dictionary removeObjectForKey:oldKey];
+    if (pair.key && pair.value)
+        _dictionary[pair.key] = pair.value;
+    else if (pair.key)
+        [_dictionary removeObjectForKey:pair.key];
+    [self didChangeValueForKey:@"content"];
+    [self rearrangeObjects];
+}
+
+- (void)_finchKeyValuePair:(NSDictionaryControllerKeyValuePair *)pair setLocalizedKey:(NSString *)localizedKey
+{
+    if (!pair.key)
+        return;
+    NSMutableDictionary *dictionary = [_localizedKeyDictionary mutableCopy] ?: [[NSMutableDictionary alloc] init];
+    if (localizedKey)
+        dictionary[pair.key] = localizedKey;
+    else
+        [dictionary removeObjectForKey:pair.key];
+    self.localizedKeyDictionary = dictionary;
+    [dictionary release];
+}
+
+- (NSString *)initialKey { return _initialKey; }
+- (void)setInitialKey:(NSString *)key { [_initialKey release]; _initialKey = [key copy]; }
+- (id)initialValue { return _initialValue; }
+- (void)setInitialValue:(id)value { [value retain]; [_initialValue release]; _initialValue = value; }
+- (NSArray *)includedKeys { return _includedKeys ?: @[]; }
+
+- (void)setIncludedKeys:(NSArray *)keys
+{
+    [_includedKeys release];
+    _includedKeys = [keys copy];
+    [self rearrangeObjects];
+}
+
+- (NSArray *)excludedKeys { return _excludedKeys ?: @[]; }
+
+- (void)setExcludedKeys:(NSArray *)keys
+{
+    [_excludedKeys release];
+    _excludedKeys = [keys copy];
+    [self rearrangeObjects];
+}
+
+- (NSDictionary *)localizedKeyDictionary { return _localizedKeyDictionary ?: @{}; }
+
+- (void)setLocalizedKeyDictionary:(NSDictionary *)dictionary
+{
+    [_localizedKeyDictionary release];
+    _localizedKeyDictionary = [dictionary copy];
+    [self rearrangeObjects];
+}
+
+- (NSString *)localizedKeyTable { return _localizedKeyTable; }
+- (void)setLocalizedKeyTable:(NSString *)table { [_localizedKeyTable release]; _localizedKeyTable = [table copy]; }
+
+@end
+
 #pragma mark - NSTreeController
 
 @class NSTreeController;

@@ -186,6 +186,7 @@ static NSInteger next_tag = 1;
 - (void)learnWord:(NSString *)word { [_learned addObject:word]; }
 - (BOOL)hasLearnedWord:(NSString *)word { return [_learned containsObject:word]; }
 - (void)unlearnWord:(NSString *)word { [_learned removeObject:word]; }
+- (void)forgetWord:(NSString *)word { [self unlearnWord:word]; }
 - (NSArray<NSString *> *)userQuotesArrayForLanguage:(NSString *)language
 {
     return @[ @"“", @"”", @"‘", @"’" ];
@@ -213,6 +214,13 @@ static NSInteger next_tag = 1;
     return _language;
 }
 - (BOOL)preventsAutocorrectionBeforeString:(NSString *)string language:(NSString *)language { return NO; }
+- (BOOL)deletesAutospaceBetweenString:(NSString *)precedingString andString:(NSString *)followingString language:(NSString *)language
+{
+    if (![followingString length])
+        return NO;
+    unichar next = [followingString characterAtIndex:0];
+    return [@".,;:!?)]}" rangeOfString:[NSString stringWithCharacters:&next length:1]].location != NSNotFound;
+}
 - (void)recordResponse:(NSCorrectionResponse)response toCorrection:(NSString *)correction forWord:(NSString *)word
               language:(NSString *)language inSpellDocumentWithTag:(NSInteger)tag
 {
