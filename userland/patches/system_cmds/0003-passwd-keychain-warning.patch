@@ -1,0 +1,14 @@
+diff --git a/passwd/passwd.c b/passwd/passwd.c
+index 877036e..4651113 100644
+--- a/passwd/passwd.c
++++ b/passwd/passwd.c
+@@ -284,7 +284,8 @@ main(int argc, char *argv[])
+ #endif
+ 	}
+ 
+-	if (res == 0)
++	/* Finch: a change through PAM updates the login keychain too (pam_keychain). */
++	if (res == 0 && infosystem != INFO_PAM)
+ 	{
+ 		printf("\n");
+ 		printf("################################### WARNING ###################################\n");

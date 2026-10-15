@@ -124,7 +124,8 @@ Finch's copy of OpenPAM's pam_unix in place of pam_opendirectory, and Finch's `/
 (`userland/pam`). passwd builds with an empty stand-in for `OpenDirectoryPriv.h`: run by root
 it changes a password through Finch's OpenDirectory; run by a user, through PAM
 (`/etc/pam.d/passwd`), setuid root as installed, and pam_keychain re-keys the user's login
-keychain. (Apple's warning that it doesn't update the keychain is printed regardless.) login weak-links libEndpointSecuritySystem, which the image doesn't have.
+keychain. (Apple's warning that it doesn't update the keychain is kept for root's
+OpenDirectory path only, userland/patches/system_cmds.) login weak-links libEndpointSecuritySystem, which the image doesn't have.
 PAM and OpenDirectory share `libfinchaccount` for Finch PBKDF2 password hashes
 and old DES hash checks. `accountctl` writes an explicitly named account folder;
 it does not install users' home folders or grant admin rights. See
