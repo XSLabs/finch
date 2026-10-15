@@ -39,6 +39,7 @@ static const CGFloat kFindRow = 32, kReplaceRow = 28;
         _searchField = [[NSSearchField alloc] initWithFrame:NSMakeRect(8, 5, 220, 22)];
         [_searchField setTarget:finder];
         [_searchField setAction:@selector(_finchSearchFieldChanged:)];
+        [_searchField setDelegate:(id)finder];
         [_searchField setAutoresizingMask:NSViewWidthSizable];
         [self addSubview:_searchField];
         /* "3 found" / "Not found", inside the search field's right end, as
@@ -398,6 +399,16 @@ find_pasteboard(void)
 }
 
 - (void)_finchDone:(id)sender { [self _hideBar]; }
+
+/* As Apple's: Escape in the search field closes the bar, the match staying selected in the
+   client, which takes the keys again. */
+- (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)selector
+{
+    if (selector != @selector(cancelOperation:))
+        return NO;
+    [self _hideBar];
+    return YES;
+}
 - (void)_finchReplace:(id)sender { [self performAction:NSTextFinderActionReplaceAndFind]; }
 - (void)_finchReplaceAll:(id)sender { [self performAction:NSTextFinderActionReplaceAll]; }
 
