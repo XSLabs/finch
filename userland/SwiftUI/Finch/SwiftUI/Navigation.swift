@@ -688,6 +688,10 @@ struct _FinchSplitView: View {
         } + views
         if content == nil {
             let width = sidebarWidth ?? _FinchColumnWidth(min: 180, ideal: 220, max: 400)
+            if ProcessInfo.processInfo.environment["FINCH_TRACE_SPLIT"] != nil {
+                FileHandle.standardError.write(Data(("FINCH_TRACE_SPLIT sidebar shown \(showsSidebar) width " +
+                    "\(String(describing: sidebarWidth)) inset \(showsSidebar ? width.ideal + 8 : 0)\n").utf8))
+            }
             return AnyView(ZStack(alignment: .topLeading) {
                 _FinchSplitDetailLayout {
                     _FinchPages(root: detail, pages: detailPages, covered: false)
