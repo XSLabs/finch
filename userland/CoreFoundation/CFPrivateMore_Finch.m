@@ -403,7 +403,7 @@ CFAttributedStringGetBidiLevelsAndResolvedDirections(CFAttributedStringRef attri
                 bidiLevels[i] = levels[i];
             if (baseDirections)
                 baseDirections[i] = para;
-            if (levels[i])
+            if (levels[i] & 1)
                 mixed = true;
         }
     }

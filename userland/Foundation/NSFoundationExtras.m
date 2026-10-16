@@ -39,7 +39,7 @@ NSString *const NSSourceFilePathErrorKey = @"NSSourceFilePathErrorKey";
 NSString *const NSDestinationFilePathErrorKey = @"NSDestinationFilePath";
 NSString *const NSFileManagerUnmountDissentingProcessIdentifierErrorKey = @"NSFileManagerUnmountDissentingProcessIdentifierErrorKey";
 
-NSExceptionName const NSInconsistentArchiveException = @"NSInconsistentArchiveException";
+NSExceptionName const NSInconsistentArchiveException = @"NSArchiverArchiveInconsistency";
 NSExceptionName const NSObjectInaccessibleException = @"NSObjectInaccessibleException";
 NSExceptionName const NSObjectNotAvailableException = @"NSObjectNotAvailableException";
 NSExceptionName const NSOldStyleException = @"NSOldStyleException";
@@ -50,9 +50,9 @@ NSExceptionName const NSPortSendException = @"NSPortSendException";
 NSExceptionName const NSPortReceiveException = @"NSPortReceiveException";
 NSExceptionName const NSFileHandleOperationException = @"NSFileHandleOperationException";
 NSExceptionName const NSFailedAuthenticationException = @"NSFailedAuthenticationException";
-NSExceptionName const NSOperationNotSupportedForKeyException = @"NSOperationNotSupportedForKeyException";
+NSExceptionName const NSOperationNotSupportedForKeyException = @"NSOperationNotSupportedForKey";
 NSExceptionName const NSInvocationOperationVoidResultException = @"NSInvocationOperationVoidResultException";
-NSExceptionName const NSInvocationOperationCancelledException = @"NSInvalidOperationCancelledException";
+NSExceptionName const NSInvocationOperationCancelledException = @"NSInvocationOperationCancelledException";
 NSString *const NSUnknownKeyException = @"NSUnknownKeyException";
 
 NSFileProtectionType const NSFileProtectionNone = @"NSFileProtectionNone";

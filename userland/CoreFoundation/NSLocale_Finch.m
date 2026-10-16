@@ -467,6 +467,14 @@ cf_unit(NSUInteger u)
     return (CFCalendarUnit)u;
 }
 
+static NSRange
+ns_range_from_cf(CFRange range)
+{
+    NSUInteger location = range.location == kCFNotFound ? NSNotFound : (NSUInteger)range.location;
+    NSUInteger length = range.length == kCFNotFound ? NSNotFound : (NSUInteger)range.length;
+    return NSMakeRange(location, length);
+}
+
 @implementation NSCalendar
 
 + (instancetype)allocWithZone:(struct _NSZone *)zone
@@ -512,8 +520,9 @@ cf_unit(NSUInteger u)
     char fmt[NUNITS + 1];
     int vals[NUNITS];
     size_t n = 0, which[NUNITS];
+    NSUInteger requestedUnits = unitFlags | ((unitFlags & U_QUARTER) ? U_MONTH : 0);
     for (size_t i = 0; i < NUNITS; i++)
-        if (unitFlags & units[i].unit) { fmt[n] = units[i].letter; which[n] = i; n++; }
+        if (requestedUnits & units[i].unit) { fmt[n] = units[i].letter; which[n] = i; n++; }
     fmt[n] = 0;
     if (n) {
         int *p[NUNITS];
@@ -533,11 +542,18 @@ cf_unit(NSUInteger u)
         case 10: ok = CFCalendarDecomposeAbsoluteTime((CFCalendarRef)self, at, fmt, P(0), P(1), P(2), P(3), P(4), P(5), P(6), P(7), P(8), P(9)); break;
         case 11: ok = CFCalendarDecomposeAbsoluteTime((CFCalendarRef)self, at, fmt, P(0), P(1), P(2), P(3), P(4), P(5), P(6), P(7), P(8), P(9), P(10)); break;
         case 12: ok = CFCalendarDecomposeAbsoluteTime((CFCalendarRef)self, at, fmt, P(0), P(1), P(2), P(3), P(4), P(5), P(6), P(7), P(8), P(9), P(10), P(11)); break;
-        default: ok = CFCalendarDecomposeAbsoluteTime((CFCalendarRef)self, at, fmt, P(0), P(1), P(2), P(3), P(4), P(5), P(6), P(7), P(8), P(9), P(10), P(11), P(12)); break;
+        case 13: ok = CFCalendarDecomposeAbsoluteTime((CFCalendarRef)self, at, fmt, P(0), P(1), P(2), P(3), P(4), P(5), P(6), P(7), P(8), P(9), P(10), P(11), P(12)); break;
+        case 14: ok = CFCalendarDecomposeAbsoluteTime((CFCalendarRef)self, at, fmt, P(0), P(1), P(2), P(3), P(4), P(5), P(6), P(7), P(8), P(9), P(10), P(11), P(12), P(13)); break;
+        default: ok = 0; break;
 #undef P
         }
         if (ok)
             for (size_t i = 0; i < n; i++) [c setValue:vals[i] forComponent:units[which[i]].unit];
+    }
+    if (unitFlags & U_QUARTER) {
+        if (c->_month != NSDateComponentUndefined)
+            c->_quarter = (c->_month - 1) / 3 + 1;
+        if (!(unitFlags & U_MONTH)) c->_month = NSDateComponentUndefined;
     }
     if (unitFlags & U_NANOSECOND) {
         double whole = floor(at);
@@ -633,23 +649,29 @@ cf_unit(NSUInteger u)
         n > 5 ? ptrs[5] : NULL, n > 6 ? ptrs[6] : NULL);
     if (ok)
         for (int i = 0; i < n; i++) [c setValue:*ptrs[i] forComponent:ws[i]];
+    if (unitFlags & U_ERA) {
+        NSDateComponents *a = [self components:U_ERA fromDate:start];
+        NSDateComponents *b = [self components:U_ERA fromDate:end];
+        if (a.era != NSDateComponentUndefined && b.era != NSDateComponentUndefined)
+            c->_era = b.era - a.era;
+    }
     return c;
 }
 
 - (NSRange)minimumRangeOfUnit:(NSUInteger)unit
 {
     CFRange r = CFCalendarGetMinimumRangeOfUnit((CFCalendarRef)self, cf_unit(unit));
-    return NSMakeRange((NSUInteger)r.location, (NSUInteger)r.length);
+    return ns_range_from_cf(r);
 }
 - (NSRange)maximumRangeOfUnit:(NSUInteger)unit
 {
     CFRange r = CFCalendarGetMaximumRangeOfUnit((CFCalendarRef)self, cf_unit(unit));
-    return NSMakeRange((NSUInteger)r.location, (NSUInteger)r.length);
+    return ns_range_from_cf(r);
 }
 - (NSRange)rangeOfUnit:(NSUInteger)smaller inUnit:(NSUInteger)larger forDate:(id)date
 {
     CFRange r = CFCalendarGetRangeOfUnit((CFCalendarRef)self, cf_unit(smaller), cf_unit(larger), [date timeIntervalSinceReferenceDate]);
-    return NSMakeRange(r.location == kCFNotFound ? NSNotFound : (NSUInteger)r.location, (NSUInteger)r.length);
+    return ns_range_from_cf(r);
 }
 - (NSUInteger)ordinalityOfUnit:(NSUInteger)smaller inUnit:(NSUInteger)larger forDate:(id)date
 {

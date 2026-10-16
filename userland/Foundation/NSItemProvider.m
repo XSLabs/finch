@@ -16,7 +16,7 @@
 #include <dlfcn.h>
 
 NSString *const NSItemProviderErrorDomain = @"NSItemProviderErrorDomain";
-NSString *const NSItemProviderPreferredImageSizeKey = @"NSItemProviderPreferredImageSizeKey";
+NSString *const NSItemProviderPreferredImageSizeKey = @"NSItemProviderPreferredImageSize";
 
 /* --- types --- */
 

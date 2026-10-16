@@ -156,7 +156,8 @@ def unavailable_on_macos(node, sources):
     return False
 
 
-def sdk_declarations(name, framework_path=None):
+def sdk_ast(name, framework_path=None):
+    """Parse the public umbrella headers once and return the AST and header map."""
     sdk = sdk_path()
     framework = (Path(framework_path) if framework_path else
                  Path(sdk) / "System/Library/Frameworks" / f"{name}.framework")
@@ -186,6 +187,11 @@ def sdk_declarations(name, framework_path=None):
     if parsed.returncode:
         raise RuntimeError(f"Clang could not parse {name}'s SDK headers:\n{parsed.stderr.strip()}")
     ast = json.loads(parsed.stdout)
+    return ast, header_root, header_paths
+
+
+def sdk_declarations(name, framework_path=None):
+    ast, header_root, header_paths = sdk_ast(name, framework_path)
     sources = {}
     header_lines, token_patterns = {}, {}
     declarations = {}
@@ -209,6 +215,152 @@ def sdk_declarations(name, framework_path=None):
 
     walk(ast)
     return {symbol: sorted(headers)[0] for symbol, headers in declarations.items()}
+
+
+def sdk_declaration_details(name):
+    """Return public C and Objective-C declaration signatures from the same SDK AST."""
+    ast, header_root, header_paths = sdk_ast(name)
+    sources = {}
+    header_lines = {path: Path(path).read_text(errors="replace").splitlines() for path in header_paths}
+    functions = {}
+    variables = {}
+    methods = {}
+    enum_values = []
+
+    def parameter(node):
+        type_info = node.get("type", {})
+        qual_type = type_info.get("qualType", "")
+        attrs = {attr.get("kind", "") for attr in node.get("inner", [])}
+        return {
+            "name": node.get("name", ""),
+            "type": qual_type,
+            "desugared_type": type_info.get("desugaredQualType", qual_type),
+            "nullable": bool(re.search(r"\b_Nullable\b|\bnullable\b", qual_type, re.I) or
+                               "NullableAttr" in attrs),
+            "nonnull": bool(re.search(r"\b_Nonnull\b|\bnonnull\b", qual_type, re.I) or
+                             "NonNullAttr" in attrs),
+            "direction": "inout" if attrs & {"InOutAttr", "ObjCInOutAttr"} else
+                        "out" if attrs & {"OutAttr", "ObjCOutAttr"} else
+                        "in" if attrs & {"InAttr", "ObjCInAttr"} else "unspecified",
+        }
+
+    def constant_value(node):
+        for child in node.get("inner", []):
+            if "value" in child:
+                return child["value"]
+            value = constant_value(child)
+            if value is not None:
+                return value
+        return None
+
+    def walk(node, class_name=None, class_header=None, enum_name=None, inside_function=False):
+        kind = node.get("kind")
+        current_class = class_name
+        current_header = class_header
+        if kind in ("ObjCInterfaceDecl", "ObjCCategoryDecl", "ObjCCategoryImplDecl"):
+            current_class = node.get("interface", {}).get("name") or node.get("name") or class_name
+            current_header = declaration_source(node, header_root, header_paths, header_lines) or class_header
+
+        if kind in ("FunctionDecl", "VarDecl") and not inside_function:
+            symbol = node.get("mangledName")
+            identifier = node.get("name", "")
+            inline = node.get("inline") or any(child.get("kind") == "CompoundStmt" for child in node.get("inner", []))
+            if (symbol and identifier and not identifier.startswith("_") and
+                    (node.get("storageClass") != "static" or inline) and
+                    not unavailable_on_macos(node, sources)):
+                path = declaration_source(node, header_root, header_paths, header_lines)
+                if path:
+                    relative = os.path.relpath(path, header_root)
+                    type_info = node.get("type", {})
+                    qual_type = type_info.get("qualType", "")
+                    if kind == "FunctionDecl":
+                        # A C function's AST type is "return-type (parameters...)".
+                        # Keep pointer returns intact; pointer-to-function returns are
+                        # intentionally left for the generator to reject as unsupported.
+                        result_type = qual_type.split("(", 1)[0].strip()
+                        params = [parameter(child) for child in node.get("inner", [])
+                                  if child.get("kind") == "ParmVarDecl"]
+                        functions.setdefault(symbol, {
+                            "name": identifier, "symbol": symbol, "header": relative,
+                            "type": qual_type, "return_type": result_type, "parameters": params,
+                            "variadic": bool(node.get("variadic")) or
+                                        any(child.get("kind") in ("...", "VariadicParamDecl") for child in node.get("inner", [])),
+                            "inline": bool(inline),
+                        })
+                    elif node.get("storageClass") != "static":
+                        variables.setdefault(symbol, {
+                            "name": identifier, "symbol": symbol, "header": relative,
+                            "type": qual_type,
+                            "desugared_type": type_info.get("desugaredQualType", qual_type),
+                        })
+
+        if kind == "ObjCMethodDecl" and current_class and not unavailable_on_macos(node, sources):
+            path = declaration_source(node, header_root, header_paths, header_lines) or current_header
+            selector = node.get("name", "")
+            if path and selector:
+                params = [parameter(child) for child in node.get("inner", [])
+                          if child.get("kind") == "ParmVarDecl"]
+                return_info = node.get("returnType", node.get("type", {}))
+                method = {
+                    "class": current_class,
+                    "selector": selector,
+                    "class_method": not bool(node.get("instance", True)),
+                    "return_type": return_info.get("qualType", ""),
+                    "parameters": params,
+                    "header": os.path.relpath(path, header_root),
+                    "variadic": bool(node.get("variadic")),
+                }
+                key = f"{current_class} {'+' if method['class_method'] else '-'}{selector}"
+                methods.setdefault(key, method)
+
+        if kind == "ObjCPropertyDecl" and current_class:
+            path = declaration_source(node, header_root, header_paths, header_lines) or current_header
+            if path:
+                property_name = node.get("name", "")
+                property_type = node.get("type", {}).get("qualType", "")
+                attrs = set(node.get("propertyAttributes", []))
+                class_method = "class" in attrs
+                prefix = "+" if class_method else "-"
+                getter = node.get("getter", {}).get("name") or property_name
+                setter = node.get("setter", {}).get("name") or f"set{property_name[:1].upper()}{property_name[1:]}:"
+                key = f"{current_class} {prefix}{getter}"
+                methods.setdefault(key, {
+                    "class": current_class, "selector": getter, "class_method": class_method,
+                    "return_type": property_type, "parameters": [],
+                    "header": os.path.relpath(path, header_root),
+                })
+                if "readonly" not in attrs:
+                    key = f"{current_class} {prefix}{setter}"
+                    methods.setdefault(key, {
+                        "class": current_class, "selector": setter, "class_method": class_method,
+                        "return_type": "void", "parameters": [
+                            {"name": property_name, "type": property_type,
+                             "desugared_type": property_type, "nullable": False, "nonnull": False}
+                        ], "header": os.path.relpath(path, header_root),
+                    })
+
+        if kind == "EnumDecl":
+            enum_name = node.get("name") or enum_name
+        if kind == "EnumConstantDecl":
+            path = declaration_source(node, header_root, header_paths, header_lines)
+            value = constant_value(node)
+            if path and value is not None:
+                enum_values.append({
+                    "name": node.get("name", ""), "enum": enum_name or "",
+                    "value": value, "header": os.path.relpath(path, header_root),
+                })
+
+        nested = inside_function or kind in ("FunctionDecl", "BlockDecl", "ObjCMethodDecl")
+        for child in node.get("inner", []):
+            walk(child, current_class, current_header, enum_name, nested)
+
+    walk(ast)
+    return {
+        "functions": sorted(functions.values(), key=lambda item: item["name"]),
+        "variables": sorted(variables.values(), key=lambda item: item["name"]),
+        "methods": methods,
+        "enum_values": enum_values,
+    }
 
 
 def finch_exports(name):

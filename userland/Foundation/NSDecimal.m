@@ -784,6 +784,8 @@ CONSTANT(minimumDecimalNumber,
 
 - (NSComparisonResult)compare:(NSNumber *)other
 {
+    double value = [other doubleValue];
+    if (isinf(value)) return value < 0 ? NSOrderedDescending : NSOrderedAscending;
     NSDecimal a = [self decimalValue], b = [other decimalValue];
     return NSDecimalCompare(&a, &b);
 }

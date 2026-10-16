@@ -32,6 +32,7 @@
     NSCalendar *_calendar;
     NSString *_format;
     NSDateFormatterStyle _dateStyle, _timeStyle;
+    NSDateFormatterBehavior _behavior;
     BOOL _lenient, _relative;
     NSDate *_defaultDate;
     NSMutableDictionary *_properties;   /* CF property -> value, re-applied after remaking */
@@ -118,6 +119,11 @@
 
 - (BOOL)getObjectValue:(out id *)obj forString:(NSString *)string range:(inout NSRange *)rangep error:(out NSError **)error
 {
+    if (!rangep) {
+        NSDate *date = [self dateFromString:string];
+        if (obj) *obj = date;
+        return date != nil;
+    }
     CFRange r = CFRangeMake((CFIndex)rangep->location, (CFIndex)rangep->length);
     CFAbsoluteTime at;
     if (!CFDateFormatterGetAbsoluteTimeFromString([self _finchFormatter], (CFStringRef)string, &r, &at)) return NO;
@@ -146,8 +152,8 @@
 
 + (NSDateFormatterBehavior)defaultFormatterBehavior { return NSDateFormatterBehavior10_4; }
 + (void)setDefaultFormatterBehavior:(NSDateFormatterBehavior)b { }
-- (NSDateFormatterBehavior)formatterBehavior { return NSDateFormatterBehavior10_4; }
-- (void)setFormatterBehavior:(NSDateFormatterBehavior)b { }
+- (NSDateFormatterBehavior)formatterBehavior { return _behavior; }
+- (void)setFormatterBehavior:(NSDateFormatterBehavior)b { _behavior = b; }
 
 - (NSString *)dateFormat
 {
@@ -249,6 +255,7 @@ PROPERTY(gregorianStartDate, GregorianStartDate, kCFDateFormatterGregorianStartD
     NSLocale *_locale;
     NSNumberFormatterStyle _style;
     NSString *_positiveFormat, *_negativeFormat;
+    NSNumberFormatterBehavior _behavior;
     NSMutableDictionary *_properties;
     NSNumber *_minimum, *_maximum;
     BOOL _allowsFloats, _generatesDecimal;
@@ -350,8 +357,8 @@ PROPERTY(gregorianStartDate, GregorianStartDate, kCFDateFormatterGregorianStartD
 
 + (NSNumberFormatterBehavior)defaultFormatterBehavior { return NSNumberFormatterBehavior10_4; }
 + (void)setDefaultFormatterBehavior:(NSNumberFormatterBehavior)b { }
-- (NSNumberFormatterBehavior)formatterBehavior { return NSNumberFormatterBehavior10_4; }
-- (void)setFormatterBehavior:(NSNumberFormatterBehavior)b { }
+- (NSNumberFormatterBehavior)formatterBehavior { return _behavior; }
+- (void)setFormatterBehavior:(NSNumberFormatterBehavior)b { _behavior = b; }
 
 - (NSNumberFormatterStyle)numberStyle { return _style; }
 - (void)setNumberStyle:(NSNumberFormatterStyle)s

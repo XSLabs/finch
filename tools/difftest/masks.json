@@ -1,1 +1,233 @@
-[]
+[
+  {
+    "framework": "CoreFoundation",
+    "item": "CFAbsoluteTimeGetCurrent",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<current time>",
+    "reason": "The clock advances between the separate Apple and Finch processes."
+  },
+  {
+    "framework": "CoreFoundation",
+    "item": "CFBundleGetAllBundles",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<loaded bundles>",
+    "reason": "The test processes load different framework sets."
+  },
+  {
+    "framework": "CoreFoundation",
+    "item": "CFDateFormatterCreateDateFormatFromTemplate",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<localized format>",
+    "reason": "The system locale and ICU data can change template expansion."
+  },
+  {
+    "framework": "CoreFoundation",
+    "item": "CFLocaleCopyAvailableLocaleIdentifiers",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<available locales>",
+    "reason": "The installed ICU data determines the available locale list."
+  },
+  {
+    "framework": "CoreFoundation",
+    "item": "CFStringGetCStringPtr",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<optional direct string pointer>",
+    "reason": "The API may return a direct pointer only when the string's storage allows it."
+  },
+  {
+    "framework": "CoreFoundation",
+    "item": "CFTimeZoneCopyAbbreviation",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<time-zone abbreviation>",
+    "reason": "Time-zone abbreviations depend on the installed time-zone database."
+  },
+  {
+    "framework": "CoreFoundation",
+    "item": "CFTimeZoneCopyAbbreviationDictionary",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<time-zone abbreviations>",
+    "reason": "The abbreviation map depends on the installed time-zone database."
+  },
+  {
+    "framework": "CoreFoundation",
+    "item": "CFTimeZoneCopyKnownNames",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<known time zones>",
+    "reason": "The list depends on the installed time-zone database."
+  },
+  {
+    "framework": "CoreFoundation",
+    "item": "CFTimeZoneCopyLocalizedName",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<localized time-zone name>",
+    "reason": "The name depends on the installed locale and time-zone data."
+  },
+  {
+    "framework": "CoreFoundation",
+    "item": "CFTimeZoneGetData",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<time-zone data>",
+    "reason": "The returned bytes depend on the installed time-zone database version."
+  },
+  {
+    "framework": "CoreFoundation",
+    "item": "CFUUIDCreate",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<random UUID>",
+    "reason": "Each call creates a random UUID."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSDate +date",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<current date>",
+    "reason": "The result depends on when each process calls the clock."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSDate +dateWithTimeIntervalSinceNow:",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<current date plus interval>",
+    "reason": "The result depends on when each process calls the clock."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSDate +timeIntervalSinceReferenceDate",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<current time interval>",
+    "reason": "The method returns the current time."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSDate -initWithTimeIntervalSinceNow:",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<current date plus interval>",
+    "reason": "The result depends on when each process calls the clock."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSDate -timeIntervalSinceNow",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<interval to current time>",
+    "reason": "The result depends on when each process calls the clock."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSCalendarDate +calendarDate",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<current date>",
+    "reason": "The method returns the current date."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSDateFormatter +dateFormatFromTemplate:options:locale:",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<localized date format>",
+    "reason": "The installed locale data controls template expansion."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSNumberFormatter +localizedStringFromNumber:numberStyle:",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<localized number>",
+    "reason": "The class method uses the current user locale."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSLocale +availableLocaleIdentifiers",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<available locales>",
+    "reason": "The installed locale database controls the available list."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSLocale +preferredLanguages",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<preferred languages>",
+    "reason": "This list comes from the user's language preferences."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSTimeZone +knownTimeZoneNames",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<known time zones>",
+    "reason": "The installed time-zone database controls the available list."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSTimeZone +abbreviationDictionary",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<time-zone abbreviations>",
+    "reason": "The abbreviation map depends on the installed time-zone database."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSTimeZone +timeZoneDataVersion",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<time-zone data version>",
+    "reason": "Finch and Apple can ship different time-zone database versions."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSTimeZone -abbreviationForDate:",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<time-zone abbreviation>",
+    "reason": "Abbreviations depend on the installed time-zone database."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSTimeZone -localizedName:locale:",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<localized time-zone name>",
+    "reason": "The name depends on installed locale and time-zone data."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSUUID +UUID",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<random UUID>",
+    "reason": "Each call creates a random UUID."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSUUID -init",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<random UUID>",
+    "reason": "Each initialization creates a random UUID."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSRealMemoryAvailable",
+    "pattern": "^\\d+\\t\\d+$",
+    "replacement": "<available memory>",
+    "reason": "The value depends on the memory reported by the host system."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSTimeZone -data",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<time-zone data>",
+    "reason": "The returned bytes depend on the installed time-zone database."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSArray -sortedArrayHint",
+    "pattern": "^\\d+\\t646174613a[0-9a-f]*$",
+    "replacement": "<opaque sorted-array hint>",
+    "reason": "The hint is private cache data made from each runtime's object hashes and is passed back to that runtime's sorter."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSLinguisticTagger +availableTagSchemesForUnit:language:",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<available linguistic schemes>",
+    "reason": "Installed language resources determine which tag schemes are available."
+  },
+  {
+    "framework": "Foundation",
+    "item": "NSLinguisticTagger +dominantLanguageForString:",
+    "pattern": "^\\d+\\t.*$",
+    "replacement": "<detected language>",
+    "reason": "The host's installed language model determines the detected language."
+  }
+]

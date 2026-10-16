@@ -68,6 +68,11 @@ extern void objc_destroyWeak(id *location);
 
 @implementation NSConcreteNotification
 
+- (instancetype)init
+{
+    FinchRaise(NSGenericException, "*** -[NSConcreteNotification init]: should never be used");
+}
+
 - (instancetype)initWithName:(NSNotificationName)name object:(id)object userInfo:(NSDictionary *)userInfo
 {
     if ((self = [super initWithName:name object:object userInfo:userInfo])) {

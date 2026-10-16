@@ -314,7 +314,7 @@ all_kind_of(id<NSFastEnumeration> objects, NSSet *classes)
 @implementation NSObject (NSKeyedArchiverObjectSubstitution)
 - (Class)classForKeyedArchiver { return [self classForCoder]; }
 - (id)replacementObjectForKeyedArchiver:(NSKeyedArchiver *)archiver { return [self replacementObjectForCoder:archiver]; }
-+ (NSArray<NSString *> *)classFallbacksForKeyedArchiver { return nil; }
++ (NSArray<NSString *> *)classFallbacksForKeyedArchiver { return @[]; }
 @end
 
 @implementation NSObject (NSKeyedUnarchiverObjectSubstitution)

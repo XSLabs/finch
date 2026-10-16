@@ -20,7 +20,7 @@
 
 #pragma mark - NSClassDescription
 
-NSNotificationName const NSClassDescriptionNeededForClassNotification = @"NSClassDescriptionNeededForClass";
+NSNotificationName const NSClassDescriptionNeededForClassNotification = @"NSClassDescriptionNeededForClassNotification";
 
 @implementation NSClassDescription
 
@@ -71,9 +71,9 @@ static NSMutableDictionary *registered_descriptions;
 @implementation NSObject (NSClassDescriptionPrimitives)
 
 - (NSClassDescription *)classDescription { return [NSClassDescription classDescriptionForClass:[self class]]; }
-- (NSArray<NSString *> *)attributeKeys { return [[self classDescription] attributeKeys] ?: @[]; }
-- (NSArray<NSString *> *)toOneRelationshipKeys { return [[self classDescription] toOneRelationshipKeys] ?: @[]; }
-- (NSArray<NSString *> *)toManyRelationshipKeys { return [[self classDescription] toManyRelationshipKeys] ?: @[]; }
+- (NSArray<NSString *> *)attributeKeys { return [[self classDescription] attributeKeys]; }
+- (NSArray<NSString *> *)toOneRelationshipKeys { return [[self classDescription] toOneRelationshipKeys]; }
+- (NSArray<NSString *> *)toManyRelationshipKeys { return [[self classDescription] toManyRelationshipKeys]; }
 - (NSString *)inverseForRelationshipKey:(NSString *)relationshipKey
 {
     return [[self classDescription] inverseForRelationshipKey:relationshipKey];

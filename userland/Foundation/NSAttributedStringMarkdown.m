@@ -687,6 +687,12 @@ utf16_length_of_codepoint_at_utf8_offset(NSString *string, NSUInteger byteOffset
 - (NSInteger)endLine { return _endLine; }
 - (NSInteger)endColumn { return _endColumn; }
 
+- (NSString *)description
+{
+    return [NSString stringWithFormat:@"%@{startLine=%ld, startColumn=%ld, endLine=%ld, endColumn=%ld}",
+        [super description], (long)_startLine, (long)_startColumn, (long)_endLine, (long)_endColumn];
+}
+
 - (NSRange)rangeInString:(NSString *)string
 {
     NSUInteger start, end, startUTF8, endUTF8;

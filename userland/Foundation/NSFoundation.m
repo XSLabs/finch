@@ -15,6 +15,7 @@
 #import <objc/message.h>
 #include <pwd.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -387,7 +388,15 @@ NSLog(NSString *format, ...)
     return [self sortedArrayUsingFunction:comparator context:context];
 }
 
-- (NSData *)sortedArrayHint { return [NSData data]; }
+- (NSData *)sortedArrayHint
+{
+    NSUInteger count = [self count];
+    NSMutableData *hint = [NSMutableData dataWithLength:count * sizeof(uint32_t)];
+    uint32_t *hashes = [hint mutableBytes];
+    for (NSUInteger i = 0; i < count; i++)
+        hashes[i] = (uint32_t)[[self objectAtIndex:i] hash];
+    return hint;
+}
 
 /* Binary search, as Apple's: the range must be sorted by `cmp`. */
 - (NSUInteger)indexOfObject:(id)obj inSortedRange:(NSRange)r options:(NSBinarySearchingOptions)opts usingComparator:(NSComparator NS_NOESCAPE)cmp

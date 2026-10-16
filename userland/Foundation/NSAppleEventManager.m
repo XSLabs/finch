@@ -13,7 +13,7 @@
 #include <objc/message.h>
 
 NSNotificationName const NSAppleEventManagerWillProcessFirstEventNotification =
-    @"NSAppleEventManagerWillProcessFirstEventNotification";
+    @"NSAppleEventManagerWillProcessFirstEvent";
 const double NSAppleEventTimeOutDefault = -1.0;
 const double NSAppleEventTimeOutNone = -2.0;
 

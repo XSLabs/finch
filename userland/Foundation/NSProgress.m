@@ -42,7 +42,7 @@ NSProgressFileOperationKind const NSProgressFileOperationKindDuplicating = @"NSP
 NSProgressUserInfoKey const NSProgressFileURLKey = @"NSProgressFileURLKey";
 NSProgressUserInfoKey const NSProgressFileTotalCountKey = @"NSProgressFileTotalCountKey";
 NSProgressUserInfoKey const NSProgressFileCompletedCountKey = @"NSProgressFileCompletedCountKey";
-NSProgressUserInfoKey const NSProgressFileAnimationImageKey = @"NSProgressFileAnimationImageKey";
+NSProgressUserInfoKey const NSProgressFileAnimationImageKey = @"NSProgressFlyToImageKey";
 NSProgressUserInfoKey const NSProgressFileAnimationImageOriginalRectKey = @"NSProgressFileAnimationImageOriginalRectKey";
 NSProgressUserInfoKey const NSProgressFileIconKey = @"NSProgressFileIconKey";
 
@@ -879,7 +879,7 @@ apply_difference(NSArray *base, NSOrderedCollectionDifference *diff)
 
 /* MARK: - NSDistributedNotificationCenter */
 
-NSDistributedNotificationCenterType const NSLocalNotificationCenterType = @"NSLocalNotificationCenterType";
+NSDistributedNotificationCenterType const NSLocalNotificationCenterType = @"_NSLocalNotificationCenter";
 
 @interface _NSLocalNotificationCenter : NSDistributedNotificationCenter
 @end
