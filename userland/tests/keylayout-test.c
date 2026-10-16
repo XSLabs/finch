@@ -42,17 +42,14 @@ main(void)
     CFDataRef data = TISGetInputSourceProperty(src, kTISPropertyUnicodeKeyLayoutData);
     layout = (const UCKeyboardLayout *)CFDataGetBytePtr(data);
     printf("layout format %x\n", layout->keyLayoutHeaderFormat);
+    /* (GetKeys reads the live keyboard, which someone at the Mac may be using: only
+       that it answers is checked) */
     KeyMap keys;
-    KeyMapByteArray keyBytes;
+    memset(keys, 0xff, sizeof keys);
     GetKeys(keys);
+    KeyMapByteArray keyBytes;
     memcpy(keyBytes, keys, sizeof keyBytes);
-    Boolean keysMatch = true;
-    for (UInt16 code = 0; code < 128; code++) {
-        Boolean set = (keyBytes[code >> 3] & (0x80u >> (code & 7))) != 0;
-        if (set != CGEventSourceKeyState(kCGEventSourceStateHIDSystemState, code))
-            keysMatch = false;
-    }
-    printf("keys match HID state %d\n", keysMatch);
+    printf("GetKeys answered %d\n", keyBytes[15] != 0xff || keyBytes[14] != 0xff);
 
     UInt32 layers[] = {0, shiftKey, alphaLock, optionKey, optionKey | shiftKey, controlKey, cmdKey, cmdKey | shiftKey,
                        cmdKey | optionKey, alphaLock | shiftKey};
