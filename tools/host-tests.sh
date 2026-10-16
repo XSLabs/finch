@@ -39,7 +39,7 @@ LIBS="build/root/usr/lib/swift:${TMP}/lib:${R}/Frameworks/OpenGL.framework/Versi
 
 # name|arguments: comparison tests (arguments are relative to the repo root)
 COMPARE=(
-    "calculate-test|" "swiftdata-test|" "tipkit-test|" "avaudio-file-test|" "avaudio-compressed-buffer-test|" "avaudio-converter-test|" "avaudio-engine-test|" "avaudio-player-test|" "avaudio-unit-test|" "audiounit-effects-test|" "itemprovider-test|" "formatters2-test|" "urlcache-test|" "appkit-small3-test|" "compositional-test|" "filepromise-test|" "appkit-swift2-test|" "private-calls-test|" "mobilegestalt-test|" "utilities-test|" "foundation-audit-test|" "tree-test|" "outline-bindings-test|" "typeselect-test|" "screencapturekit-test|" "appkit-compat-test|" "pdf-image-rep-test|" "sounddesc-test|" "avasset-test|" "avexport-test|" "avfoundation-overlay-test|" "avreader-test|" "avwriter-test|" "avimage-test|" "avplayer-test|" "opengl-test|" "appkit-typedstream-test|" "system-images-test|" "quartzfilters-test|" "printcore-test|" "symbols-test|" "xml-test|" "document-more-test|" "textview-more-test|" "windowing-more-test|" "contacts-search-links-test|" "contacts-search-links-swift-test|"
+    "constants-test|" "calculate-test|" "swiftdata-test|" "tipkit-test|" "avaudio-file-test|" "avaudio-compressed-buffer-test|" "avaudio-converter-test|" "avaudio-engine-test|" "avaudio-player-test|" "avaudio-unit-test|" "audiounit-effects-test|" "itemprovider-test|" "formatters2-test|" "urlcache-test|" "appkit-small3-test|" "compositional-test|" "filepromise-test|" "appkit-swift2-test|" "private-calls-test|" "mobilegestalt-test|" "utilities-test|" "foundation-audit-test|" "tree-test|" "outline-bindings-test|" "typeselect-test|" "screencapturekit-test|" "appkit-compat-test|" "pdf-image-rep-test|" "sounddesc-test|" "avasset-test|" "avexport-test|" "avfoundation-overlay-test|" "avreader-test|" "avwriter-test|" "avimage-test|" "avplayer-test|" "opengl-test|" "appkit-typedstream-test|" "system-images-test|" "quartzfilters-test|" "printcore-test|" "symbols-test|" "xml-test|" "document-more-test|" "textview-more-test|" "windowing-more-test|" "contacts-search-links-test|" "contacts-search-links-swift-test|"
     "cf-test|" "foundation-test|" "foundation-gaps-test|" "intl-test|" "misc-test|" "data-test|" "collections-test|" "kvc-test|" "typedstream-test|" "tiff-test|" "colorsync-test|" "colorsync-devices-test|" "iconservices-test|" "smallprivate-test|" "quicklook-test|" "exports-test|" "cookies-test|" "foundation-more-test|" "appkit-values-test|" "hiservices-test|" "scripting-test|" "cfnetwork-test|" "coreimage-test|" "cgevent-test|" "keylayout-test|" "contacts-test|" "accounts-test|" "metal-test|" "metalkit-test|" "audiounit-framework-test|" "coremidi-test|" "iosurface-test|" "gss-test|" "cfurl-test|" "pasteboard-test|" "coremedia-test|" "corevideo-test|" "audiotoolbox-test|" "audioconverter-test|" "extaudiofile-test|" "extaudiofile-test|--src-check" "applescript-test|" "fileversion-test|" "textformats-test|" "worddoc-test|" "network-test|" "coredata-test|" "cfxml-test|" "cf-bundle-arch-test|" "cf-preferences-container-test|" "videotoolbox-test|" "appintents-test|" "appintents-local-test|" "appintents-swiftui-test|"
     "archive-test|" "predicate-test|" "measurement-test|" "bridge-test|" "streams-test|" "documents-test|"
     "files-test|" "xmlparser-test|" "cfnotify-test|" "l10n-test|" "uti-test|" "cg-test|" "cg-overlay-test|" "cg-private-test|" "cg-region-test|" "foundation-overlay-test|" \
@@ -111,7 +111,7 @@ exception() {
         name="${line%%:*}"
         rest="${line#*:}"
         if [[ "${name}" == "$1 (1x display)" ]]; then
-            if [[ "${MAIN_1X}" -eq 1 || ( "$1" == "nib-test" && "${ATTACHED_1X}" -eq 1 ) ]]; then
+            if [[ "${MAIN_1X}" -eq 1 || "${ATTACHED_1X}" -eq 1 ]]; then
                 echo "display:${rest# }"
                 return 0
             fi
@@ -216,6 +216,9 @@ for entry in "${COMPARE[@]}"; do
             DYLD_FRAMEWORK_PATH="${FW}" DYLD_LIBRARY_PATH="${LIBS}" FINCH_FILTER_DIRS="build/root/System/Library/Filters" FINCH_FONT_DIRS="${R}/Fonts" "${bin}" ${args} > "${TMP}/finch" 2> "${TMP}/finch.err"
             finch_status=$?
         fi
+    fi
+    if [[ "${name}" == constants-test ]]; then
+        python3 tools/constants/record-results.py "${TMP}/apple" "${TMP}/finch"
     fi
     n=$(tail -n +2 "${TMP}/apple" | wc -l | tr -d ' ')
     tail -n +2 "${TMP}/apple" > "${TMP}/a"
