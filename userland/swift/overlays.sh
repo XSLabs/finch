@@ -115,6 +115,15 @@ overlay() {
     local mod="$1" cur="$2" compat="$3"; shift 3
     [[ "${ONLY}" == "  " || "${ONLY}" == *" ${mod} "* ]] || return 0
     local swift=() csrc=() objs=() out="${OBJ}/${mod}" flags=("${SWIFTFLAGS[@]}")
+    local swift_mod="${mod}" module_flags=()
+    if [[ "${mod}" == AVFoundation ]]; then
+        # Keep the source module distinct from the SDK module while giving it
+        # Apple's ABI name. The overlay imports AVFoundation's SDK declarations
+        # and supplies the missing Swift half itself.
+        swift_mod="FinchAVFoundation"
+        module_flags=(-Xfrontend -module-abi-name -Xfrontend AVFoundation
+            -Xfrontend -disable-autolink-library -Xfrontend swiftAVFoundation)
+    fi
     while [[ $# -gt 0 && "$1" != "--" ]]; do
         if [[ "$1" == "--no-force-load" ]]; then
             local f kept=(); for f in "${flags[@]}"; do [[ "$f" == -autolink-force-load ]] || kept+=("$f"); done
@@ -131,8 +140,8 @@ overlay() {
         objs+=("${out}/$(basename "${c%.*}").o")
     done
     log "libswift${mod}"
-    "${SWIFTC}" "${flags[@]}" -emit-library -module-name "${mod}" -module-link-name "swift${mod}" \
-        "${swift[@]}" "${objs[@]+"${objs[@]}"}" -o "${out}/libswift${mod}.dylib" \
+    "${SWIFTC}" "${flags[@]}" -emit-library -module-name "${swift_mod}" -module-link-name "swift${mod}" \
+        "${module_flags[@]+"${module_flags[@]}"}" "${swift[@]}" "${objs[@]+"${objs[@]}"}" -o "${out}/libswift${mod}.dylib" \
         -Xlinker -install_name -Xlinker "/usr/lib/swift/libswift${mod}.dylib" \
         -Xlinker -current_version -Xlinker "${cur}" -Xlinker -compatibility_version -Xlinker "${compat}" \
         > "${out}/build.log" 2>&1 || { grep -m20 -A3 'error:' "${out}/build.log"; exit 1; }
@@ -219,6 +228,12 @@ overlay OSLog 10 1 "${HERE}/OSLog/OSLog.swift" "${WEAK_FOUNDATION[@]}"
 overlay QuartzCore 5 1 "${HERE}/QuartzCore/QuartzCore.swift" -framework QuartzCore -framework Foundation \
     -Xfrontend -disable-autolink-library -Xfrontend swiftMetal  # Finch has no Metal
 overlay CoreImage 2.2 1 "${HERE}/CoreImage/CoreImage.swift"
+
+# AVFoundation's public Swift async properties and convenience methods. The
+# source in overlays/AVFoundation is Finch-written and calls Finch's ObjC APIs.
+overlay AVFoundation 2410.24.5.1 1 "${HERE}/AVFoundation/AVFoundation.swift" \
+    -F "${ROOT}/System/Library/Frameworks" -framework AVFoundation -framework Foundation \
+    -framework CoreMedia -framework CoreGraphics "${WEAK_FOUNDATION[@]}"
 
 # --- Darwin: libswiftDarwin and the _DarwinFoundation1-3 libraries it
 # re-exports (Apple's SDK splits the C library into those clang modules),

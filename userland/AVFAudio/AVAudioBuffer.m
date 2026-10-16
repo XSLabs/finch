@@ -26,7 +26,13 @@ struct AVAudioBufferStorage {
     AVAudioFrameCount frameLength;
     uint32_t bytesPerFrame;
     uint32_t bytesPerSample;
+    AudioStreamPacketDescription *packetDescriptions;
+    AVAudioPacketCount packetCapacity;
+    AVAudioPacketCount packetCount;
+    NSInteger maximumPacketSize;
+    uint32_t byteLength;
     BOOL interleaved;
+    BOOL compressed;
     BOOL ownsData;
 };
 
@@ -103,6 +109,7 @@ free_storage(struct AVAudioBufferStorage *s)
     free(s->lengthList);
     free(s->capacityList);
     free(s->deallocatorList);
+    free(s->packetDescriptions);
     free(s->channels);
     free(s->data);
     free(s);
@@ -284,5 +291,100 @@ free_storage(struct AVAudioBufferStorage *s)
 }
 
 - (id)mutableCopyWithZone:(NSZone *)zone { return [self copyWithZone:zone]; }
+
+@end
+
+@implementation AVAudioCompressedBuffer
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnonnull"
+- (instancetype)init
+{
+    return [self initWithFormat:nil packetCapacity:0 maximumPacketSize:0];
+}
+#pragma clang diagnostic pop
+
+- (instancetype)initWithFormat:(AVAudioFormat *)format packetCapacity:(AVAudioPacketCount)capacity
+{
+    const AudioStreamBasicDescription *asbd = format.streamDescription;
+    if (!format || asbd->mFormatID == kAudioFormatLinearPCM) {
+        [self release];
+        [NSException raise:NSInvalidArgumentException format:@"AVAudioCompressedBuffer requires a compressed audio format"];
+        return nil;
+    }
+    if (!asbd->mBytesPerPacket)
+        AVAUDIO_BUFFER_INIT_FAIL();
+    return [self initWithFormat:format packetCapacity:capacity maximumPacketSize:asbd->mBytesPerPacket];
+}
+
+- (instancetype)initWithFormat:(AVAudioFormat *)format packetCapacity:(AVAudioPacketCount)capacity maximumPacketSize:(NSInteger)maximumPacketSize
+{
+    if (!format || !format.streamDescription) AVAUDIO_BUFFER_INIT_FAIL();
+    if (format.streamDescription->mFormatID == kAudioFormatLinearPCM) {
+        [self release];
+        [NSException raise:NSInvalidArgumentException format:@"AVAudioCompressedBuffer cannot contain linear PCM"];
+        return nil;
+    }
+    if (maximumPacketSize <= 0 || maximumPacketSize > UINT32_MAX ||
+        (uint64_t)capacity > UINT32_MAX / (uint64_t)maximumPacketSize)
+        AVAUDIO_BUFFER_INIT_FAIL();
+
+    struct AVAudioBufferStorage *s = calloc(1, sizeof(*s));
+    if (!s) AVAUDIO_BUFFER_INIT_FAIL();
+    s->format = [format retain];
+    s->lengthList = new_buffer_list(1);
+    s->capacityList = new_buffer_list(1);
+    s->data = calloc(1, sizeof(void *));
+    s->packetCapacity = capacity;
+    s->maximumPacketSize = maximumPacketSize;
+    s->byteCapacity = (uint32_t)((uint64_t)capacity * (uint64_t)maximumPacketSize);
+    s->compressed = YES;
+    s->ownsData = YES;
+    if (!s->lengthList || !s->capacityList || !s->data) { free_storage(s); AVAUDIO_BUFFER_INIT_FAIL(); }
+    if (s->format.streamDescription->mBytesPerPacket == 0 && capacity) {
+        s->packetDescriptions = calloc(capacity, sizeof(*s->packetDescriptions));
+        if (!s->packetDescriptions) { free_storage(s); AVAUDIO_BUFFER_INIT_FAIL(); }
+    }
+    s->data[0] = calloc(1, s->byteCapacity ? s->byteCapacity : 1);
+    if (!s->data[0]) { free_storage(s); AVAUDIO_BUFFER_INIT_FAIL(); }
+    UInt32 channels = s->format.streamDescription->mChannelsPerFrame;
+    s->lengthList->mNumberBuffers = 1;
+    s->lengthList->mBuffers[0] = (AudioBuffer){channels, 0, s->data[0]};
+    s->capacityList->mNumberBuffers = 1;
+    s->capacityList->mBuffers[0] = (AudioBuffer){channels, s->byteCapacity, s->data[0]};
+
+    self = [super init];
+    if (!self) { free_storage(s); return nil; }
+    _impl = s;
+    return self;
+}
+
+- (AVAudioPacketCount)packetCapacity { return ((struct AVAudioBufferStorage *)_impl)->packetCapacity; }
+- (AVAudioPacketCount)packetCount { return ((struct AVAudioBufferStorage *)_impl)->packetCount; }
+- (void)setPacketCount:(AVAudioPacketCount)count
+{
+    struct AVAudioBufferStorage *s = _impl;
+    if (count > s->packetCapacity)
+        [NSException raise:NSInvalidArgumentException format:@"packetCount cannot exceed packetCapacity"];
+    s->packetCount = count;
+}
+- (NSInteger)maximumPacketSize { return ((struct AVAudioBufferStorage *)_impl)->maximumPacketSize; }
+- (void *)data { return ((struct AVAudioBufferStorage *)_impl)->data[0]; }
+- (uint32_t)byteCapacity { return ((struct AVAudioBufferStorage *)_impl)->byteCapacity; }
+- (uint32_t)byteLength { return ((struct AVAudioBufferStorage *)_impl)->byteLength; }
+- (void)setByteLength:(uint32_t)length
+{
+    struct AVAudioBufferStorage *s = _impl;
+    if (length > s->byteCapacity)
+        [NSException raise:NSInvalidArgumentException format:@"byteLength cannot exceed byteCapacity"];
+    s->byteLength = length;
+    s->lengthList->mBuffers[0].mDataByteSize = length;
+    s->capacityList->mBuffers[0].mDataByteSize = length;
+}
+- (AudioStreamPacketDescription *)packetDescriptions
+{
+    return ((struct AVAudioBufferStorage *)_impl)->packetDescriptions;
+}
+- (AudioStreamPacketDependencyDescription *)packetDependencies { return NULL; }
 
 @end

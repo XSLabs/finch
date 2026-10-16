@@ -91,7 +91,8 @@ CoreAudio (HAL)                devices: none until Finch has an audio driver
   time-pitch, varispeed, sampler) followed; `avaudio-unit-test` matches Apple's
   output, as do unit components and their manager. `AUAudioUnit` (the version 3
   interface), the environment node (3D mixing), the sequencer and MIDI player,
-  the recorder and compressed buffers remain open, parked behind AVFoundation.
+  and the recorder remain open. `AVAudioCompressedBuffer` now owns packet bytes
+  and packet descriptions; its comparison test matches Apple's.
 
 - CoreMedia's sound descriptions: audio format descriptions to and from QuickTime
   version 0, 1 and 2 sound descriptions and ISO audio sample entries, byte for byte as
@@ -107,8 +108,11 @@ CoreAudio (HAL)                devices: none until Finch has an audio driver
   PostNotificationWhenConsumed, EmptyMedia), JPEG frames decoded through ImageIO and PCM
   converted by AudioToolbox in 8192-frame buffers; AVAssetWriter writes QuickTime and
   MPEG-4 with Finch's own muxer (JPEG through ImageIO, PCM, stored samples, metadata);
-  AVAssetImageGenerator picks the frame on screen at a time. `avreader-test`,
-  `avwriter-test` and `avimage-test` match Apple's, and Apple's AVFoundation reads what
+  AVAssetImageGenerator picks the frame on screen at a time. `AVAssetExportSession` now
+  passes through QuickTime and MPEG-4 files using those reader and writer paths. Its Swift
+  async call and image generation call use the same Finch code. These paths do not claim
+  video or audio re-encoding. `avreader-test`, `avwriter-test`, `avimage-test` and the
+  export and Swift-overlay comparisons match Apple's, and Apple's AVFoundation reads what
   Finch writes.
 - Playback: AVPlayer, AVPlayerItem, AVQueuePlayer, AVPlayerLooper, AVPlayerItemVideoOutput
   and AVPlayerLayer, driven by the host clock and a 60 Hz main-thread timer (status and
@@ -129,11 +133,11 @@ audio stored in memory and files; hardware playback and recording remain open.
    then the remaining `ExtAudioFile`, `AudioUnit` and `AudioQueue` operations.
    Offline rendering can work without a device. Hardware playback and recording
    must report that no device is available until the driver exists.
-2. **AVFAudio** files, players and engine operations over AudioToolbox.
+2. **AVFAudio**: finish `AUAudioUnit`, the environment node, sequencer, MIDI player and recorder.
 3. **VideoToolbox**: pixel transfer (Finch's own conversion and scaling), then decoding
    and encoding through open codecs.
-4. **AVFoundation**: Finch's own MP4/QuickTime reader and writer behind assets, readers
-   and writers; players driven by CoreMedia timebases; capture with no devices.
+4. **AVFoundation**: add composition, media selection and capture as their real data
+   models and required hardware or services become available.
 5. **AVKit**.
 
 ## Codecs
@@ -169,3 +173,19 @@ and graph APIs, codec plug-ins, and MIDI sequence/player support. The MIDI APIs 
 track, event, tempo and playback model; Finch does not have that model yet, so those calls
 remain absent rather than returning pretend success. MP3 and MPEG-4 audio reading also
 waits for the open decoders listed above.
+
+## 2026-10-15: AVFAudio buffers and AVFoundation app imports
+
+AVFAudio now exports `AVAudioCompressedBuffer`, including packet storage and packet
+descriptions. AVFoundation now exports a pass-through `AVAssetExportSession` and Finch's
+Swift overlay for the async asset properties, export call and one-image request used by
+installed apps. The comparison tests cover those paths and the existing asset, reader,
+writer, image and player behavior.
+
+The app sweep moved AVFoundation from 23 apps and 58 missing symbols (196 app-symbol
+imports) to 23 apps and 57 symbols (190 imports). AVFAudio moved from one app and one
+missing symbol to none. `libswiftAVFoundation.dylib` moved from no Finch image for eight
+apps to five missing symbols across two apps. Most remaining imports need camera hardware,
+media composition, route or download services, content-key/DRM services, or data models
+Finch does not yet provide. The full symbol-to-app list and exact before/after counts are in
+[the AVFoundation import audit](AVFOUNDATION-IMPORT-AUDIT.md).

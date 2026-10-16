@@ -36,6 +36,8 @@ $(OUT)/finch-contacts-search-links-swift-test: contacts-search-links-swift-test.
 	    -framework CoreSpotlight -framework Foundation
 	codesign -f -s - -i org.finch.test.contacts-search-links-swift $@
 
+all: $(OUT)/finch-avfoundation-overlay-test
+
 # The umbrella's vDSP, vImage, vForce, BLAS and LAPACK calls, compared with Apple's.
 $(OUT)/finch-accelerate-test: accelerate-test.c
 	@mkdir -p $(OUT)
@@ -893,7 +895,8 @@ $(OUT)/finch-mdnsd-test: mdnsd-test.c
 
 # PCM files, format conversion and software audio units.
 all: $(OUT)/finch-extaudiofile-test $(OUT)/finch-audiounit-test $(OUT)/finch-avaudio-buffer-test $(OUT)/finch-audioqueue-test
-all: $(OUT)/finch-avaudio-file-test $(OUT)/finch-avaudio-converter-test $(OUT)/finch-avaudio-engine-test $(OUT)/finch-avaudio-player-test $(OUT)/finch-avaudio-services-test
+all: $(OUT)/finch-avaudio-file-test $(OUT)/finch-avaudio-converter-test $(OUT)/finch-avaudio-engine-test $(OUT)/finch-avaudio-player-test $(OUT)/finch-avaudio-services-test $(OUT)/finch-avaudio-compressed-buffer-test
+all: $(OUT)/finch-avexport-test
 all: $(OUT)/finch-audiounit-effects-test $(OUT)/finch-avaudio-unit-test
 all: $(OUT)/finch-itemprovider-test $(OUT)/finch-formatters2-test $(OUT)/finch-urlcache-test $(OUT)/finch-appkit-small3-test $(OUT)/finch-compositional-test $(OUT)/finch-filepromise-test $(OUT)/finch-appkit-swift2-test $(OUT)/finch-private-calls-test $(OUT)/finch-mobilegestalt-test $(OUT)/finch-utilities-test $(OUT)/finch-foundation-audit-test $(OUT)/finch-tree-test $(OUT)/finch-xml-test $(OUT)/finch-document-more-test $(OUT)/finch-textview-more-test $(OUT)/finch-windowing-more-test $(OUT)/finch-appkit-drag-window-test $(OUT)/finch-appkit-drag-apps-test $(OUT)/finch-outline-bindings-test $(OUT)/finch-typeselect-test $(OUT)/finch-screencapturekit-test $(OUT)/finch-appkit-screencapture-test $(OUT)/finch-appkit-compat-test $(OUT)/finch-pdf-image-rep-test $(OUT)/finch-sounddesc-test $(OUT)/finch-avasset-test $(OUT)/finch-avreader-test $(OUT)/finch-avwriter-test $(OUT)/finch-avimage-test $(OUT)/finch-avplayer-test $(OUT)/finch-appkit-avplayer-test $(OUT)/finch-opengl-test $(OUT)/finch-appkit-opengl-test $(OUT)/finch-appkit-typedstream-test $(OUT)/finch-system-images-test $(OUT)/finch-quartzfilters-test $(OUT)/finch-printcore-test $(OUT)/finch-symbols-test
 all: $(OUT)/finch-configd-service-test $(OUT)/finch-diskarbitration-session-test
@@ -993,6 +996,16 @@ $(OUT)/finch-sounddesc-test: sounddesc-test.c
 $(OUT)/finch-avasset-test: avasset-test.m avmovie.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-deprecated-declarations -Wno-four-char-constants -Wno-multichar -o $@ $< -framework AVFoundation -framework CoreMedia -framework ImageIO -framework UniformTypeIdentifiers -framework AppKit
+$(OUT)/finch-avexport-test: avexport-test.m avmovie.h avframes.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-deprecated-declarations -Wno-four-char-constants -Wno-multichar -o $@ $< -framework AVFoundation -framework CoreMedia
+$(OUT)/avfoundation-overlay-fixture.o: avfoundation-overlay-fixture.m avmovie.h avframes.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-deprecated-declarations -Wno-four-char-constants -Wno-multichar -c -o $@ $<
+$(OUT)/finch-avfoundation-overlay-test: avfoundation-overlay-test.swift avfoundation-overlay-test.h $(OUT)/avfoundation-overlay-fixture.o
+	@mkdir -p $(OUT)
+	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -parse-as-library -O -import-objc-header avfoundation-overlay-test.h -o $@ $< $(OUT)/avfoundation-overlay-fixture.o -framework AVFoundation -framework CoreMedia -framework CoreGraphics -framework ImageIO
+	codesign -f -s - -i org.finch.test.avfoundation-overlay $@
 $(OUT)/finch-avreader-test: avreader-test.m avmovie.h avframes.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-deprecated-declarations -Wno-four-char-constants -Wno-multichar -o $@ $< -framework AVFoundation -framework CoreMedia -framework CoreVideo
@@ -1059,6 +1072,9 @@ $(OUT)/finch-avaudio-services-test: avaudio-services-test.m
 $(OUT)/finch-avaudio-buffer-test: avaudio-buffer-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fno-objc-arc -fblocks -Wno-deprecated-declarations -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation -framework CoreMedia
+$(OUT)/finch-avaudio-compressed-buffer-test: avaudio-compressed-buffer-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fno-objc-arc -Wno-deprecated-declarations -o $@ $< -framework AVFAudio -framework AudioToolbox -framework Foundation
 $(OUT)/finch-audioqueue-test: audioqueue-test.c
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework AudioToolbox -framework CoreFoundation
