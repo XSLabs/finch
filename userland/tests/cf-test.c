@@ -25,6 +25,10 @@ CFTypeRef _CFXPCCreateCFObjectFromXPCMessage(xpc_object_t);
 #include <sys/stat.h>
 #include <unistd.h>
 
+CFPropertyListRef _CFPreferencesCopyAppValueWithContainer(CFStringRef key, CFStringRef applicationID, CFStringRef container);
+Boolean _CFPreferencesGetAppBooleanValueWithContainer(CFStringRef key, CFStringRef applicationID, CFStringRef container,
+                                                        Boolean *keyExistsAndHasValidFormat);
+
 static int failures;
 
 static void
@@ -440,6 +444,27 @@ objc_bridge(void)
 	printf("objc hash matches CFHash: %d\n", h == CFHash(m));
 }
 
+static void
+hyphenation(void)
+{
+	CFLocaleRef locale = CFLocaleCreate(NULL, CFSTR("zz-ZZ"));
+	printf("hyphenation unavailable locale %d\n", CFStringIsHyphenationAvailableForLocale(locale));
+	CFRelease(locale);
+}
+
+static void
+container_preferences(void)
+{
+	CFStringRef app = CFSTR("org.finch.cf-container-probe");
+	CFStringRef key = CFSTR("FinchProbeMissingValue");
+	CFStringRef container = CFSTR("/tmp/finch-cf-container-probe");
+	CFPropertyListRef value = _CFPreferencesCopyAppValueWithContainer(key, app, container);
+	Boolean valid = true;
+	Boolean booleanValue = _CFPreferencesGetAppBooleanValueWithContainer(key, app, container, &valid);
+	printf("container preferences absent: %d %d %d\n", value == NULL, booleanValue, valid);
+	if (value) CFRelease(value);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -457,6 +482,8 @@ main(int argc, char **argv)
 	runloop();
 	file_descriptor();
 	objc_bridge();
+	hyphenation();
+	container_preferences();
 	printf("%s (%d failed checks)\n", failures ? "FAILED" : "done", failures);
 	return failures != 0;
 }

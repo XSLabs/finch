@@ -77,6 +77,26 @@ hex(const void *p, size_t n)
     return s;
 }
 
+static void
+launch_option_keys(void)
+{
+    const char *symbols[] = {
+        "_kLSOpenOptionActivateKey",
+        "_kLSOpenOptionArchitectureKey",
+        "_kLSOpenOptionArchitectureSubtypeKey",
+        "_kLSOpenOptionBackgroundLaunchKey",
+        "_kLSOpenOptionIncludeCurrentEnvironmentValuesKey",
+    };
+    printf("== LaunchServices option keys\n");
+    for (size_t i = 0; i < sizeof symbols / sizeof *symbols; i++) {
+        CFStringRef *key = dlsym(RTLD_DEFAULT, symbols[i]);
+        char value[128] = "missing";
+        if (key && *key)
+            CFStringGetCString(*key, value, sizeof value, kCFStringEncodingUTF8);
+        printf("%s %s\n", symbols[i], value);
+    }
+}
+
 /* A descriptor: type, size and data bytes (for lists and records, their items). */
 static NSString *
 desc_str(const AEDesc *d)
@@ -1743,6 +1763,10 @@ main(int argc, char **argv)
         Dl_info info;
         dladdr((void *)AECreateDesc, &info);
         printf("%s\n", info.dli_fname);
+        if (argc > 1 && !strcmp(argv[1], "--only-option-keys")) {
+            launch_option_keys();
+            return 0;
+        }
         scratch = argc > 1 ? @(argv[1]) : @"/tmp/finch-coreservices-test";
         testPrivateLaunch = argc > 2 && !strcmp(argv[2], "--private-launch");
         [[NSFileManager defaultManager] createDirectoryAtPath:scratch withIntermediateDirectories:YES attributes:nil error:nil];
@@ -1751,6 +1775,7 @@ main(int argc, char **argv)
         ae_coercions();
         ae_events();
         ae_objects();
+        launch_option_keys();
         carboncore();
         uttypes();
         launchservices();

@@ -128,6 +128,8 @@ static NSURLCache *shared_cache;
 
 - (instancetype)initWithMemoryCapacity:(NSUInteger)memoryCapacity diskCapacity:(NSUInteger)diskCapacity diskPath:(NSString *)path
 {
+    if (diskCapacity && diskCapacity < (20 << 20))
+        diskCapacity = 20 << 20;
     return [self initWithMemoryCapacity:memoryCapacity diskCapacity:diskCapacity directoryURL:path ? [NSURL fileURLWithPath:path] : nil];
 }
 

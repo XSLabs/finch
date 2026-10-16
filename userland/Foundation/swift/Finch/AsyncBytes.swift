@@ -6,6 +6,8 @@
 // characters and lines. Stored layouts of the frozen iterators are Apple's; the code
 // is Finch's.
 
+import Darwin
+
 // MARK: - The buffer
 
 /// What refills an `_AsyncBytesBuffer`: the buffer's memory and a reader that fills it.
@@ -103,7 +105,7 @@ extension FileHandle {
             let fd = handle.fileDescriptor
             return Iterator(buffer: _AsyncBytesBuffer(capacity: bufferSize) { buffer in
                 while true {
-                    let n = read(fd, buffer.baseAddress, buffer.count)
+                    let n = Darwin.read(fd, buffer.baseAddress, buffer.count)
                     if n >= 0 { return n }
                     if errno != EINTR { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
                 }

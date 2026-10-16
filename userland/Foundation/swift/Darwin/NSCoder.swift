@@ -61,7 +61,7 @@ extension NSCoder {
   }
 
   @nonobjc
-  @available(macOS 10.11, iOS 9.0, *)
+  @available(macOS 11.0, iOS 14.0, *)
   public func decodeTopLevelObject() throws -> Any? {
     var error: NSError?
     let result = __NSCoderDecodeObject(self, &error)
@@ -150,6 +150,15 @@ extension NSKeyedArchiver {
 //===----------------------------------------------------------------------===//
 // NSKeyedUnarchiver
 //===----------------------------------------------------------------------===//
+
+extension NSCoder {
+  @nonobjc
+  @available(macOS 10.11, iOS 9.0, *)
+  public func decodeArrayOfObjects<DecodedObjectType>(ofClass cls: DecodedObjectType.Type, forKey key: String) -> [DecodedObjectType]?
+    where DecodedObjectType : NSObject, DecodedObjectType : NSSecureCoding {
+    return __NSCoderDecodeArrayOfObjectsOfClassForKey(self, cls, key) as? [DecodedObjectType]
+  }
+}
 
 extension NSKeyedUnarchiver {
   @nonobjc

@@ -497,3 +497,11 @@ The tests follow Foundation's:
 - 2026-10-15: ImageIO now stores metadata tags, reads and writes XMP packets,
   maps common image properties to metadata tags and runs GIF animation callbacks.
   All 808 public C declarations are exported, and `imageio-test` matches Apple's.
+- 2026-10-15: CoreGraphics now exports the private ICC-compatibility check,
+  device-color-space copy and base-CTM accessors. It also has a counted region
+  object for a single rectangle, with bounds and rectangle queries. The Swift
+  overlay adds hashable sizes and rectangles plus path union, intersection and
+  subtraction. `cg-test`, `cg-overlay-test`, `cg-private-test` and `cg-region-test`
+  match Apple's on the host. The app sweep moved from 19 apps missing 240 imports
+  across 87 names to 19 apps missing 226 imports across 82 names. Most remaining
+  imports need Finch's display, window-server or virtual-display services.

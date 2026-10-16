@@ -49,4 +49,8 @@ NS_INLINE NS_RETURNS_RETAINED _Nullable id __NSCoderDecodeObjectOfClassesForKey(
     }
 }
 
+NS_INLINE NS_RETURNS_RETAINED NSArray * _Nullable __NSCoderDecodeArrayOfObjectsOfClassForKey(NSCoder *self_, Class cls, NSString *key) {
+    return [self_ decodeArrayOfObjectsOfClass:cls forKey:key];
+}
+
 NS_END_DECLS

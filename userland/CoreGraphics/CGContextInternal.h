@@ -63,6 +63,7 @@ struct CGContext {
     /* state */
     std::vector<CGGState> *stack;
     CGAffineTransform base_ctm;   /* default user space to device (the flip) */
+    CGAffineTransform private_base_ctm;
     CGMutablePathRef path;        /* in default user space */
     CGAffineTransform text_matrix;
     void *pdf;                    /* PDF context state */

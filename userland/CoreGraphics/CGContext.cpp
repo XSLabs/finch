@@ -139,6 +139,7 @@ CGContextCreateBase(int type, size_t width, size_t height)
     g.font_size = 0;
     g.text_mode = kCGTextFill;
     c->base_ctm = CGAffineTransformMake(1, 0, 0, -1, 0, height);
+    c->private_base_ctm = CGAffineTransformIdentity;
     c->path = CGPathCreateMutable();
     c->text_matrix = CGAffineTransformIdentity;
     return c;

@@ -26,6 +26,11 @@ const CFStringRef _kLSApplicationTypeToRestoreKey = CFSTR("LSApplicationTypeToRe
 const CFStringRef _kLSExecutablePathKey = CFSTR("CFBundleExecutablePath");
 const CFStringRef _kLSApplicationIsHiddenKey = CFSTR("Hidden");
 const CFStringRef _kLSLaunchTimeKey = CFSTR("LSLaunchTime");
+const CFStringRef _kLSOpenOptionActivateKey = CFSTR("_kLSOpenOptionActivateKey");
+const CFStringRef _kLSOpenOptionArchitectureKey = CFSTR("_kLSOpenOptionArchitectureKey");
+const CFStringRef _kLSOpenOptionArchitectureSubtypeKey = CFSTR("_kLSOpenOptionArchitectureSubtypeKey");
+const CFStringRef _kLSOpenOptionBackgroundLaunchKey = CFSTR("_kLSOpenOptionBackgroundLaunchKey");
+const CFStringRef _kLSOpenOptionIncludeCurrentEnvironmentValuesKey = CFSTR("_kLSOpenOptionIncludeCurrentEnvironmentValuesKey");
 
 typedef struct {
     uint64_t major, minor, bugfix, reserved;

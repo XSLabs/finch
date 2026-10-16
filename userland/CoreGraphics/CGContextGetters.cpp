@@ -28,6 +28,9 @@ bool CGContextGetShouldSmoothFonts(CGContextRef c);
 bool CGContextGetAllowsFontSmoothing(CGContextRef c);
 int CGContextGetFontSmoothingStyle(CGContextRef c);
 void CGContextSetFontSmoothingStyle(CGContextRef c, int style);
+CGAffineTransform CGContextGetBaseCTM(CGContextRef c);
+void CGContextSetBaseCTM(CGContextRef c, CGAffineTransform transform);
+CGColorSpaceRef CGContextCopyDeviceColorSpace(CGContextRef c);
 }
 
 static const int porter_duff_blend[13] = {
@@ -72,3 +75,26 @@ bool CGContextGetShouldSmoothFonts(CGContextRef c) { return c ? CGContextState(c
 bool CGContextGetAllowsFontSmoothing(CGContextRef c) { return c ? CGContextState(c).allows_smoothing : true; }
 int CGContextGetFontSmoothingStyle(CGContextRef c) { return c ? CGContextState(c).font_smoothing_style : 48; }
 void CGContextSetFontSmoothingStyle(CGContextRef c, int style) { if (c) CGContextState(c).font_smoothing_style = style; }
+
+CGAffineTransform
+CGContextGetBaseCTM(CGContextRef c)
+{
+    return c ? c->private_base_ctm : CGAffineTransformIdentity;
+}
+
+void
+CGContextSetBaseCTM(CGContextRef c, CGAffineTransform transform)
+{
+    if (!c)
+        return;
+    c->private_base_ctm = transform;
+}
+
+CGColorSpaceRef
+CGContextCopyDeviceColorSpace(CGContextRef c)
+{
+    if (!c)
+        return NULL;
+    CGColorSpaceRef space = c->draw_space ? c->draw_space : c->space;
+    return space ? CGColorSpaceRetain(space) : NULL;
+}

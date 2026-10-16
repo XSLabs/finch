@@ -557,3 +557,11 @@ optional attribute providers; it does not load a missing UI framework.
   the current macOS SDK behind a disabled declaration. Finch's Swift morphology
   values can store grammatical data, but Finch has no language rules to apply
   it, so the Objective-C morphology wrappers and actual inflection remain out.
+- 2026-10-15: the Swift overlay now gives `FileHandle` its read, write and seek
+  calls, `URLCache` its directory initializer, `NSAttributedString` its Markdown
+  initializer, and `NSCoder` its secure array-decoding call. The older cache
+  initializer also applies Apple's minimum disk-cache size. `foundation-overlay-test`
+  matches Apple's for these calls. The app sweep moved from 19 apps missing 105
+  imports across 61 names to 17 apps missing 77 imports across 53 names. The
+  remaining top gaps are newer person-name, URL and measurement formatting APIs,
+  along with extension and security classes.

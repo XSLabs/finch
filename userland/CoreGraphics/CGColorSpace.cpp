@@ -642,6 +642,14 @@ CGColorSpaceIsWideGamutRGB(CGColorSpaceRef cs)
     return cs && cs->model == kCGColorSpaceModelRGB && cs->wide;
 }
 
+extern "C" bool
+CGColorSpaceIsICCCompatible(CGColorSpaceRef cs)
+{
+    if (!cs)
+        return false;
+    return cs->kind == CG_SPACE_ICC_LUT || (cs->kind == CG_SPACE_MATRIX && (cs->named || cs->calibrated));
+}
+
 static bool
 is_pq(CGColorSpaceRef cs)
 {

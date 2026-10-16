@@ -44,3 +44,16 @@ The test needs access to the host's LaunchServices service.
 Together with the asset work, the new exports resolve 530 previously missing
 imports across 45 bundled apps. There are still 86 missing imports in those
 areas. This checks the names apps link to; it does not prove those apps work.
+
+## App imports on 2026-10-15
+
+The rebuilt CoreServices images leave 19 apps missing 107 strong imports across
+78 names. The largest groups are private LaunchServices and code-signing helpers,
+text-encoding conversion, Metadata queries, and DictionaryServices. The saved
+before-scan report did not include direct `CoreServices.framework` imports, so it
+does not give a comparable starting count for this framework.
+
+DictionaryServices and Metadata need Finch's own dictionaries, search index and
+query service. The code-signing and LaunchServices helpers need private system
+services Finch does not have. The five LaunchServices open-option key strings now
+match Apple's in the focused comparison, but that does not supply those services.

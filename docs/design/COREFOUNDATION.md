@@ -207,9 +207,16 @@ still link. That's the work list for "nothing closed". On 2026-10-08 it found 14
   ICU format strings, languages, collation), as Apple's CoreFoundation does.
 - 2026-10-15: typed allocator helpers, checked variadic formatting, localized bundle
   lookup and the calendar and user-notification key strings now match Apple's in
-  `cf-test`. The public C API audit has 1,146 of 1,193 entries; the 47 remaining need
-  CFXML, bundle resource maps and load checks, user-notification services, or locale
-  hyphenation support.
+  `cf-test`. The public C API audit has 1,157 of 1,193 entries; 36 remain. The
+  remaining gaps include CFXML parser callbacks and URL-based parsing, bundle
+  resource maps and load checks, user-notification services, and locale hyphenation.
+- 2026-10-15: CFXML nodes and data-to-tree parsing now use Finch's libxml2. Bundle
+  architecture lookup reports the architecture Finch runs, and container preference
+  calls read and write the container's own `Library/Preferences` files. The
+  `cfxml-test`, `cf-bundle-arch-test`, `cf-preferences-container-test` and `cf-test`
+  host comparisons match Apple's. The app sweep fell from 5 apps missing 12 symbol
+  imports to 3 apps missing 3. The remaining app imports are user-notification UI
+  calls and URL security-scope handling, which Finch does not yet provide.
 
 ## Run-time loads of closed frameworks
 

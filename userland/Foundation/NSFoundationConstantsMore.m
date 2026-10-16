@@ -9,6 +9,8 @@
 
 #define FINCH_CONST __attribute__((visibility("default")))
 
+FINCH_CONST NSString *const NSURLFileScheme = @"file";
+
 FINCH_CONST NSString *const NSAppleScriptErrorAppName = @"NSAppleScriptErrorAppName";
 FINCH_CONST NSString *const NSAppleScriptErrorBriefMessage = @"NSAppleScriptErrorBriefMessage";
 FINCH_CONST NSString *const NSAppleScriptErrorMessage = @"NSAppleScriptErrorMessage";

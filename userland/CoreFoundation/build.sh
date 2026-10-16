@@ -94,7 +94,7 @@ CFLAGS=(-arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -Os -g
     -D__HAS_APPLE_ICU__=1
     -I"${OBJ}/hdr" -I"${CF}/include" -I"${CF}/internalInclude" -I"${HERE}" -fno-objc-arc
     -include "${CF}/internalInclude/CoreFoundation_Prefix.h" -include "${HERE}/finch_prefix.h"
-    -I"${OBJ}/icu" -I"${ICU}/common" -I"${ICU}/i18n" -I"${ICU}/io"
+    -I"${OBJ}/icu" -I"${ICU}/common" -I"${ICU}/i18n" -I"${ICU}/io" -I"${SDKROOT}/usr/include/libxml2"
     -idirafter "${SDK}/override" -idirafter "${SDK}/include" -idirafter "${SDK}/availability"
     -fconstant-cfstrings -fblocks -fdollars-in-identifiers -fno-common -fexceptions
     -Wno-shorten-64-to-32 -Wno-deprecated-declarations -Wno-unreachable-code
@@ -145,7 +145,7 @@ mkdir -p "${FW}/Versions/A"
     -current_version 4424.1.255 -compatibility_version 150 -Wl,-alias_list,"${OBJ}/aliases" \
     -Wl,-init,___CFInitialize \
     "${OBJ}"/o/*.o -o "${FW}/Versions/A/CoreFoundation" -lobjc \
-    -L"${ROOT}/usr/lib" -licucore -Wl,-reexport-lobjc -lSystem -Wl,-upward_library,"${OBJ}/Foundation.tbd"
+    -L"${ROOT}/usr/lib" -licucore -lxml2 -Wl,-reexport-lobjc -lSystem -Wl,-upward_library,"${OBJ}/Foundation.tbd"
 ln -sfn A "${FW}/Versions/Current"
 ln -sfn Versions/Current/CoreFoundation "${FW}/CoreFoundation"
 "${FINCH_ROOT}/tools/mkframeworkplist.sh" "${FW}" A CoreFoundation com.apple.CoreFoundation CoreFoundation 6.9 4424.1.402 en_US

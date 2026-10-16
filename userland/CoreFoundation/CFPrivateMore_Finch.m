@@ -6,7 +6,16 @@
  * yet), URL promises, quick class checks, and a few keys.
  */
 #include <CoreFoundation/CoreFoundation.h>
+#include "ForFoundationOnly.h"
 #import <objc/runtime.h>
+#include <pthread.h>
+extern SInt32 _CFBundleCurrentArchitecture(void);
+extern CFStringRef _CFPreferencesGetByHostIdentifierString(void);
+extern CFPreferencesDomainRef _CFPreferencesDomainCreate(CFTypeRef context, const _CFPreferencesDomainCallBacks *callbacks);
+extern CFTypeRef _CFPreferencesDomainCreateValueForKey(CFPreferencesDomainRef domain, CFStringRef key);
+extern void _CFPreferencesDomainSet(CFPreferencesDomainRef domain, CFStringRef key, CFTypeRef value);
+extern Boolean _CFPreferencesDomainSynchronize(CFPreferencesDomainRef domain);
+extern const _CFPreferencesDomainCallBacks __kCFXMLPropertyListDomainCallBacks;
 
 #define FINCH_EXPORT __attribute__((visibility("default")))
 
@@ -16,7 +25,18 @@ FINCH_EXPORT const CFStringRef kCFNumberFormatterMinGroupingDigits = CFSTR("kCFN
 FINCH_EXPORT const CFStringRef kCFUserNotificationAlertHeaderKey = CFSTR("AlertHeader");
 FINCH_EXPORT const CFStringRef kCFUserNotificationAlertMessageKey = CFSTR("AlertMessage");
 
+/* Finch runs one executable architecture on the machine. */
+FINCH_EXPORT cpu_type_t
+_CFBundleGetPreferredExecutableArchitecture(CFBundleRef bundle)
+{
+    (void)bundle;
+    return (cpu_type_t)_CFBundleCurrentArchitecture();
+}
+
 /* --- preferences --- */
+
+static CFPreferencesDomainRef container_preferences_domain(CFStringRef applicationID, CFStringRef user, CFStringRef host,
+                                                             CFStringRef container);
 
 /* (Finch has no managed preferences: nothing is forced) */
 FINCH_EXPORT Boolean
@@ -25,25 +45,185 @@ CFPreferencesAppValueIsForced(CFStringRef key, CFStringRef applicationID)
     return false;
 }
 
-/* (a sandbox container's preferences are the app's own: Finch keeps them in place) */
+/* A container owns a separate preferences file under its Library folder. */
 FINCH_EXPORT CFPropertyListRef
 _CFPreferencesCopyValueWithContainer(CFStringRef key, CFStringRef applicationID, CFStringRef user, CFStringRef host,
                                      CFStringRef container)
 {
-    return CFPreferencesCopyValue(key, applicationID, user, host);
+    if (!container)
+        return CFPreferencesCopyValue(key, applicationID, user, host);
+    CFPreferencesDomainRef domain = container_preferences_domain(applicationID, user, host, container);
+    return domain ? _CFPreferencesDomainCreateValueForKey(domain, key) : NULL;
 }
 
 FINCH_EXPORT void
 _CFPreferencesSetValueWithContainer(CFStringRef key, CFPropertyListRef value, CFStringRef applicationID, CFStringRef user,
                                     CFStringRef host, CFStringRef container)
 {
-    CFPreferencesSetValue(key, value, applicationID, user, host);
+    if (!container) {
+        CFPreferencesSetValue(key, value, applicationID, user, host);
+        return;
+    }
+    CFPreferencesDomainRef domain = container_preferences_domain(applicationID, user, host, container);
+    if (domain)
+        _CFPreferencesDomainSet(domain, key, value);
 }
 
 FINCH_EXPORT Boolean
 _CFPreferencesSynchronizeWithContainer(CFStringRef applicationID, CFStringRef user, CFStringRef host, CFStringRef container)
 {
-    return CFPreferencesSynchronize(applicationID, user, host);
+    if (!container)
+        return CFPreferencesSynchronize(applicationID, user, host);
+    CFPreferencesDomainRef domain = container_preferences_domain(applicationID, user, host, container);
+    return domain ? _CFPreferencesDomainSynchronize(domain) : false;
+}
+
+static pthread_mutex_t containerDomainLock = PTHREAD_MUTEX_INITIALIZER;
+static CFMutableDictionaryRef containerDomains;
+
+static CFPreferencesDomainRef
+container_preferences_domain(CFStringRef applicationID, CFStringRef user, CFStringRef host, CFStringRef container)
+{
+    if (!applicationID || !user || !host || !container || CFEqual(user, kCFPreferencesAnyUser))
+        return NULL;
+
+    CFStringRef hostID = NULL;
+    Boolean byHost = CFEqual(host, kCFPreferencesCurrentHost);
+    if (byHost)
+        hostID = _CFPreferencesGetByHostIdentifierString();
+    else if (!CFEqual(host, kCFPreferencesAnyHost))
+        hostID = host;
+
+    CFURLRef containerURL = CFURLCreateWithFileSystemPath(kCFAllocatorDefault, container, kCFURLPOSIXPathStyle, true);
+    if (!containerURL)
+        return NULL;
+    CFURLRef preferencesURL = CFURLCreateWithFileSystemPathRelativeToBase(kCFAllocatorDefault, CFSTR("Library/Preferences"),
+                                                                           kCFURLPOSIXPathStyle, true, containerURL);
+    CFRelease(containerURL);
+    if (!preferencesURL)
+        return NULL;
+
+    if (byHost) {
+        CFURLRef byHostURL = CFURLCreateWithFileSystemPathRelativeToBase(kCFAllocatorDefault, CFSTR("ByHost"),
+                                                                         kCFURLPOSIXPathStyle, true, preferencesURL);
+        CFRelease(preferencesURL);
+        preferencesURL = byHostURL;
+        if (!preferencesURL)
+            return NULL;
+    }
+
+    CFStringRef fileName = hostID ? CFStringCreateWithFormat(kCFAllocatorDefault, NULL, CFSTR("%@.%@.plist"),
+                                                              applicationID, hostID)
+                                  : CFStringCreateWithFormat(kCFAllocatorDefault, NULL, CFSTR("%@.plist"), applicationID);
+    CFURLRef fileURL = fileName ? CFURLCreateWithFileSystemPathRelativeToBase(kCFAllocatorDefault, fileName,
+                                                                              kCFURLPOSIXPathStyle, false, preferencesURL)
+                                : NULL;
+    if (fileName)
+        CFRelease(fileName);
+    CFRelease(preferencesURL);
+    if (!fileURL)
+        return NULL;
+
+    CFStringRef cacheKey = CFURLCopyFileSystemPath(fileURL, kCFURLPOSIXPathStyle);
+    CFPreferencesDomainRef domain = NULL;
+    pthread_mutex_lock(&containerDomainLock);
+    if (!containerDomains)
+        containerDomains = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks,
+                                                      &kCFTypeDictionaryValueCallBacks);
+    domain = (CFPreferencesDomainRef)CFDictionaryGetValue(containerDomains, cacheKey);
+    if (!domain) {
+        domain = _CFPreferencesDomainCreate(fileURL, &__kCFXMLPropertyListDomainCallBacks);
+        if (domain) {
+            CFDictionarySetValue(containerDomains, cacheKey, domain);
+            CFRelease(domain);
+            domain = (CFPreferencesDomainRef)CFDictionaryGetValue(containerDomains, cacheKey);
+        }
+    }
+    pthread_mutex_unlock(&containerDomainLock);
+    CFRelease(cacheKey);
+    CFRelease(fileURL);
+    return domain;
+}
+
+static Boolean
+container_boolean_value(CFPropertyListRef value, Boolean *valid)
+{
+    Boolean localValid = false;
+    if (!valid)
+        valid = &localValid;
+    if (!value) {
+        *valid = false;
+        return false;
+    }
+    CFTypeID type = CFGetTypeID(value);
+    if (type == CFStringGetTypeID()) {
+        if (CFStringCompare((CFStringRef)value, CFSTR("true"), kCFCompareCaseInsensitive) == kCFCompareEqualTo ||
+            CFStringCompare((CFStringRef)value, CFSTR("YES"), kCFCompareCaseInsensitive) == kCFCompareEqualTo) {
+            *valid = true;
+            return true;
+        }
+        if (CFStringCompare((CFStringRef)value, CFSTR("false"), kCFCompareCaseInsensitive) == kCFCompareEqualTo ||
+            CFStringCompare((CFStringRef)value, CFSTR("NO"), kCFCompareCaseInsensitive) == kCFCompareEqualTo) {
+            *valid = true;
+            return false;
+        }
+        *valid = false;
+        return false;
+    }
+    if (type == CFNumberGetTypeID()) {
+        if (CFNumberIsFloatType((CFNumberRef)value)) {
+            *valid = false;
+            return false;
+        }
+        int number = 0;
+        *valid = true;
+        CFNumberGetValue((CFNumberRef)value, kCFNumberIntType, &number);
+        return number != 0;
+    }
+    if (type == CFBooleanGetTypeID()) {
+        *valid = true;
+        return value == kCFBooleanTrue;
+    }
+    *valid = false;
+    return false;
+}
+
+/* A container is a path, with its own Library/Preferences domain. */
+FINCH_EXPORT CFPropertyListRef
+_CFPreferencesCopyAppValueWithContainer(CFStringRef key, CFStringRef applicationID, CFStringRef container)
+{
+    if (!container)
+        return CFPreferencesCopyAppValue(key, applicationID);
+    CFPreferencesDomainRef domain = container_preferences_domain(applicationID, kCFPreferencesCurrentUser,
+                                                                    kCFPreferencesAnyHost, container);
+    return domain ? _CFPreferencesDomainCreateValueForKey(domain, key) : NULL;
+}
+
+FINCH_EXPORT Boolean
+_CFPreferencesGetAppBooleanValueWithContainer(CFStringRef key, CFStringRef applicationID, CFStringRef container,
+                                             Boolean *keyExistsAndHasValidFormat)
+{
+    if (!container)
+        return CFPreferencesGetAppBooleanValue(key, applicationID, keyExistsAndHasValidFormat);
+    CFPropertyListRef value = _CFPreferencesCopyAppValueWithContainer(key, applicationID, container);
+    Boolean result = container_boolean_value(value, keyExistsAndHasValidFormat);
+    if (value)
+        CFRelease(value);
+    return result;
+}
+
+FINCH_EXPORT void
+_CFPreferencesSetAppValueWithContainer(CFStringRef key, CFPropertyListRef value, CFStringRef applicationID,
+                                       CFStringRef container)
+{
+    if (!container) {
+        CFPreferencesSetAppValue(key, value, applicationID);
+        return;
+    }
+    CFPreferencesDomainRef domain = container_preferences_domain(applicationID, kCFPreferencesCurrentUser,
+                                                                    kCFPreferencesAnyHost, container);
+    if (domain)
+        _CFPreferencesDomainSet(domain, key, value);
 }
 
 /* (no supplemental, rapid security response, version installed) */
@@ -177,6 +357,14 @@ CFStringGetHyphenationLocationBeforeIndex(CFStringRef string, CFIndex location, 
                                           CFLocaleRef locale, UTF32Char *character)
 {
     return kCFNotFound;
+}
+
+/* Finch ships no hyphenation dictionaries, so no locale has rules available. */
+Boolean
+CFStringIsHyphenationAvailableForLocale(CFLocaleRef locale)
+{
+    (void)locale;
+    return false;
 }
 
 /* Apple's ICU, declared as CF declares what it uses. */

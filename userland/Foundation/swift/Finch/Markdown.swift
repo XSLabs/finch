@@ -82,6 +82,23 @@ extension AttributedString {
 extension InlinePresentationIntent: Hashable, Codable {}
 
 @available(macOS 12, iOS 15, tvOS 15, watchOS 8, *)
+extension NSAttributedString {
+    public convenience init(markdown: String, options: AttributedString.MarkdownParsingOptions = .init(),
+                            baseURL: URL? = nil) throws {
+        var error: NSError?
+        let parsed = _finchAttributedStringFromMarkdownString(
+            markdown as NSString, Int(options.interpretedSyntax.rawValue), Int(options.failurePolicy.rawValue),
+            options.allowsExtendedAttributes, options.languageCode as NSString?,
+            options._appliesSourcePositionAttributes, baseURL as NSURL?, &error
+        )?.takeRetainedValue()
+        guard let parsed else {
+            throw error ?? CocoaError(.fileReadUnknown)
+        }
+        self.init(attributedString: parsed)
+    }
+}
+
+@available(macOS 12, iOS 15, tvOS 15, watchOS 8, *)
 internal enum _FinchMarkdown {
     static func text(_ data: Data) throws -> String {
         guard let string = String(data: data, encoding: .utf8) else {

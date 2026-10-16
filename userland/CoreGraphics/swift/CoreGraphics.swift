@@ -356,6 +356,13 @@ extension CGSize : Equatable {
   }
 }
 
+extension CGSize : Hashable {
+  public func hash(into hasher: inout Hasher) {
+    hasher.combine(width)
+    hasher.combine(height)
+  }
+}
+
 extension CGSize : Codable {
   public init(from decoder: Decoder) throws {
     var container = try decoder.unkeyedContainer()
@@ -494,6 +501,16 @@ extension CGRect : Equatable {
   }
 }
 
+extension CGRect : Hashable {
+  public func hash(into hasher: inout Hasher) {
+    let rect = standardized
+    hasher.combine(rect.origin.x)
+    hasher.combine(rect.origin.y)
+    hasher.combine(rect.size.width)
+    hasher.combine(rect.size.height)
+  }
+}
+
 extension CGRect : Codable {
   public init(from decoder: Decoder) throws {
     var container = try decoder.unkeyedContainer()
@@ -570,6 +587,15 @@ extension CGContext {
 // CGPath & CGMutablePath
 //===----------------------------------------------------------------------===//
 
+@_silgen_name("CGPathCreateCopyByUnioningPath")
+private func finchCGPathCreateCopyByUnioningPath(_ path: CGPath, _ maskPath: CGPath, _ evenOdd: Bool) -> CGPath?
+
+@_silgen_name("CGPathCreateCopyByIntersectingPath")
+private func finchCGPathCreateCopyByIntersectingPath(_ path: CGPath, _ maskPath: CGPath, _ evenOdd: Bool) -> CGPath?
+
+@_silgen_name("CGPathCreateCopyBySubtractingPath")
+private func finchCGPathCreateCopyBySubtractingPath(_ path: CGPath, _ maskPath: CGPath, _ evenOdd: Bool) -> CGPath?
+
 // TODO: Make this a nested type (CGPath.FillRule)
 public enum CGPathFillRule: Int {
   /// Nonzero winding number fill rule.
@@ -592,6 +618,18 @@ public enum CGPathFillRule: Int {
 }
 
 extension CGPath {
+  public func union(_ other: CGPath, using rule: CGPathFillRule = .winding) -> CGPath {
+    return finchCGPathCreateCopyByUnioningPath(self, other, rule == .evenOdd)!
+  }
+
+  public func intersection(_ other: CGPath, using rule: CGPathFillRule = .winding) -> CGPath {
+    return finchCGPathCreateCopyByIntersectingPath(self, other, rule == .evenOdd)!
+  }
+
+  public func subtracting(_ other: CGPath, using rule: CGPathFillRule = .winding) -> CGPath {
+    return finchCGPathCreateCopyBySubtractingPath(self, other, rule == .evenOdd)!
+  }
+
   public func copy(dashingWithPhase phase: CGFloat, lengths: [CGFloat],
    transform: CGAffineTransform = .identity) -> CGPath {
     return CGPath(__byDashing: self, transform: [transform],
