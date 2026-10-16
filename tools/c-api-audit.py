@@ -80,11 +80,7 @@ def public_headers(framework, name):
     return headers.resolve(), [str(path) for path in sorted(found)], [root.resolve() for root in roots]
 
 
-<<<<<<< ours
-def declaration_source(node, header_root, header_paths, header_lines):
-=======
 def declaration_source(node, header_root, header_paths, source_lines=None, token_patterns=None):
->>>>>>> theirs
     """Return the SDK header that owns a declaration, including macro uses."""
     locations = []
     for key in ("range", "loc"):
@@ -117,16 +113,12 @@ def declaration_source(node, header_root, header_paths, source_lines=None, token
             if token_patterns is not None:
                 token_patterns[name] = token
         for path in header_paths:
-<<<<<<< ours
-            lines = header_lines[path]
-=======
             lines = (source_lines or {}).get(path)
             if lines is None:
                 with open(path, errors="replace") as header_file:
                     lines = header_file.read().splitlines()
                 if source_lines is not None:
                     source_lines[path] = lines
->>>>>>> theirs
             if line <= len(lines) and token.search(lines[line - 1]):
                 if not column or token.search(lines[line - 1][max(0, column - 1):]):
                     candidates.append(path)
@@ -195,14 +187,7 @@ def sdk_declarations(name, framework_path=None):
         raise RuntimeError(f"Clang could not parse {name}'s SDK headers:\n{parsed.stderr.strip()}")
     ast = json.loads(parsed.stdout)
     sources = {}
-<<<<<<< ours
-    # Clang omits the file name on many AST locations after the first one in
-    # each header. Cache these lines once; without this, every declaration
-    # would reopen every SDK header while resolving its source.
-    header_lines = {path: Path(path).read_text(errors="replace").splitlines() for path in header_paths}
-=======
     header_lines, token_patterns = {}, {}
->>>>>>> theirs
     declarations = {}
 
     def walk(node, inside_function=False):
@@ -214,11 +199,7 @@ def sdk_declarations(name, framework_path=None):
             if (symbol and identifier and not identifier.startswith("_") and
                     node.get("storageClass") != "static" and not inline and
                     not unavailable_on_macos(node, sources)):
-<<<<<<< ours
-                path = declaration_source(node, header_root, header_paths, header_lines)
-=======
                 path = declaration_source(node, header_root, header_paths, header_lines, token_patterns)
->>>>>>> theirs
                 if path:
                     relative = os.path.relpath(path, header_root)
                     declarations.setdefault(symbol, set()).add(relative)
