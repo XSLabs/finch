@@ -50,6 +50,7 @@ build/userland/appkit-containers2-test.nib /usr/local/share/finch/appkit-contain
 build/userland/appkit-color-browser-test.nib /usr/local/share/finch/appkit-color-browser-test.nib
 build/userland/finch-swift-hello /usr/local/bin/finch-swift-hello
 build/userland/finch-swift-runtime-test /usr/local/bin/finch-swift-runtime-test
+build/root/System/Library/Frameworks/CryptoKit.framework/Versions/A/CryptoKit /System/Library/Frameworks/CryptoKit.framework/Versions/A/CryptoKit
 build/userland/finch-swift-overlay-test /usr/local/bin/finch-swift-overlay-test
 build/userland/finch-network-test /usr/local/bin/finch-network-test
 build/userland/finch-dlopen /usr/local/bin/finch-dlopen

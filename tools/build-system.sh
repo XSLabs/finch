@@ -215,6 +215,7 @@ steps=(
     # The Swift runtime (libobjc links it, as Apple's does)
     "swift|userland/swift/build.sh"
     "swift-overlays|userland/swift/overlays.sh"
+    "CryptoKit|userland/CryptoKit/build.sh"
     "pam_modules|oss pam_modules rootok uwtmp self env group nologin sacl launchd"
     "pam|make -s -C userland/pam"
     "libsystem-finch|make -s -C userland/libsystem"

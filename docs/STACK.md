@@ -5,7 +5,10 @@ What runs on Finch today and where each piece comes from, bottom to top.
 These diagrams are updated in every commit that changes the stack, and
 `tools/render-stack.sh` checks that they render.
 
-**As of 2026-10-15:** nothing Finch builds links a closed library
+**As of 2026-10-15:** CryptoKit is built from swift-crypto 5.0.1, with BoringSSL
+and XKCP linked privately; fixed-key host comparisons cover its hashes, HMAC, HKDF,
+AES-GCM, ChaChaPoly, and P-256, P-384 and Curve25519 keys and signatures. Nothing
+Finch builds links a closed library
 (`tools/check-closed.py`). Finch's own Foundation covers about 140 of Apple's
 classes, on a CoreFoundation that dispatches to Objective-C objects as Apple's
 does (`docs/design/FOUNDATION.md`); its Markdown constructors use cmark-gfm,
@@ -154,6 +157,7 @@ block-beta
         cfnetwork["CFNetwork<br/>HTTP messages and streams,<br/>socket streams (TLS via OpenSSL),<br/>CFHost, Bonjour (dns_sd),<br/>proxies, FTP"]
         cf["CoreFoundation<br/>swift-corelibs CF + Finch ObjC:<br/>toll-free dispatch, collections,<br/>ordered sets, NSCache, NSData, NSDate,<br/>NSURL, locales, calendars, defaults,<br/>run loops, attributed strings,<br/>streams, Mach ports, notifications;<br/>bundle languages and .loctable files"]
         security["Security<br/>keys, certificates, web roots,<br/>file keychains, signature checks,<br/>Secure Transport (OpenSSL);<br/>SecurityFoundation (SFAuthorization,<br/>certificate summaries)"]
+        cryptokit["CryptoKit<br/>hashes, HMAC, HKDF,<br/>AES-GCM, ChaChaPoly,<br/>P-256, P-384, Curve25519"]
         od["OpenDirectory<br/>CFOpenDirectory,<br/>local account password checks"]
         icu["libicucore<br/>ICU-76142.4.7"]
         objc["libobjc (objc4)"]
@@ -230,7 +234,7 @@ block-beta
     class t7,t6,t5,t4,t3,t2,t1,t0 layer
     class avplanned,kexts,metal planned
     class apps testapp
-    class opengl,later,coreimage,services,contacts,cfnetwork,appsupport,shell,uti,appkit,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd finch
+    class opengl,later,coreimage,services,contacts,cfnetwork,appsupport,shell,uti,appkit,quartzcore,coreservices,coreui,security,cryptokit,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
     class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui,cmark upstream
     class vz firmware
@@ -302,9 +306,11 @@ flowchart LR
     coreservices["CoreServices"]:::finch
     uti["UniformTypeIdentifiers"]:::finch
     security["Security"]:::finch
+    cryptokitfw["CryptoKit"]:::finch
     sysconfig["SystemConfiguration"]:::finch
     cfnetwork["CFNetwork"]:::finch
     openssl["OpenSSL (static)"]:::upstream
+    swiftcrypto["swift-crypto 5.0.1<br/>BoringSSL + XKCP (static)"]:::upstream
     skialib["Skia, FreeType<br/>(static)"]:::upstream
     cmark["cmark-gfm 0.29.0.gfm.13<br/>(static)"]:::upstream
     cxxlib["libc++"]:::upstream
@@ -398,6 +404,7 @@ flowchart LR
     uti --> ffound
     security --> cf
     security --> openssl
+    cryptokitfw --> swiftcrypto
     sysconfig --> cf
     uif --> ffound
     uif --> cgfw

@@ -108,6 +108,13 @@ $(OUT)/finch-swift-runtime-test: swift-runtime-test.swift
 	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -parse-as-library -O -o $@ $<
 	codesign -f -s - -i org.finch.test.swift-runtime $@
 
+# Swift CryptoKit through Finch's CryptoKit.framework, compared with Apple's.
+all: $(OUT)/finch-cryptokit-test
+$(OUT)/finch-cryptokit-test: cryptokit-test.swift
+	@mkdir -p $(OUT)
+	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -O -o $@ $<
+	codesign -f -s - -i org.finch.test.cryptokit $@
+
 # The Swift overlays (Foundation's and AppKit's Swift halves, /usr/lib/swift's
 # overlay libraries): same output against Apple's and Finch's. On the host:
 #   DYLD_FRAMEWORK_PATH=build/root/System/Library/Frameworks:build/root/System/Library/PrivateFrameworks \
