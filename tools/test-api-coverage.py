@@ -13,6 +13,18 @@ SCRIPT = Path(__file__).with_name("api-coverage.py")
 spec = importlib.util.spec_from_file_location("api_coverage", SCRIPT)
 coverage = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(coverage)
+DIFFTEST_SCRIPT = Path(__file__).with_name("difftest") / "run.py"
+difftest_spec = importlib.util.spec_from_file_location("difftest_run", DIFFTEST_SCRIPT)
+difftest = importlib.util.module_from_spec(difftest_spec)
+difftest_spec.loader.exec_module(difftest)
+API_AUDIT_SCRIPT = Path(__file__).with_name("c-api-audit.py")
+api_audit_spec = importlib.util.spec_from_file_location("c_api_audit", API_AUDIT_SCRIPT)
+api_audit = importlib.util.module_from_spec(api_audit_spec)
+api_audit_spec.loader.exec_module(api_audit)
+CONSTANT_RESULTS_SCRIPT = Path(__file__).with_name("constants") / "record-results.py"
+constant_results_spec = importlib.util.spec_from_file_location("constant_results", CONSTANT_RESULTS_SCRIPT)
+constant_results = importlib.util.module_from_spec(constant_results_spec)
+constant_results_spec.loader.exec_module(constant_results)
 
 
 class CoverageParsers(unittest.TestCase):
@@ -231,12 +243,130 @@ API_UNAVAILABLE_END
             result_dir = root / "build/compat-results"
             result_dir.mkdir(parents=True)
             (result_dir / "foundation.json").write_text(json.dumps({
-                "framework": "Foundation", "verified": ["objc-class:NSObject"],
-                "results": [{"id": "c:_NSLog", "passed": True}],
+                "framework": "Foundation", "verified": ["objc-class:NSObject", "c:_NSLog"],
+                "results": [{"id": "c:_NSLogResult", "passed": True}],
+                "items": {
+                    "objc-class-property:NSString:lowercaseString": {"status": "verified"},
+                    "c:_NSLog": {"status": "differs"},
+                },
             }))
             with patch.object(coverage, "ROOT", root):
                 results = coverage.verification_results()
-        self.assertEqual(results["Foundation"], {"objc-class:NSObject", "c:_NSLog"})
+        self.assertEqual(results["Foundation"], {
+            "objc-class:NSObject", "c:_NSLogResult", "objc-class-property:NSString:lowercaseString",
+        })
+
+    def test_difftest_names_map_to_coverage_item_ids(self):
+        self.assertEqual(difftest.api_item_id("CFStringCreateWithBytes"), "c:_CFStringCreateWithBytes")
+        self.assertEqual(difftest.api_item_id("NSString -commonPrefixWithString:options:"),
+                         "objc-class-method:NSString:-commonPrefixWithString:options:")
+        self.assertEqual(difftest.api_item_id("NSPasteboard +pasteboardWithName:"),
+                         "objc-class-method:NSPasteboard:+pasteboardWithName:")
+        self.assertEqual(difftest.api_item_id(
+            "NSString -lowercaseString",
+            {"NSString -lowercaseString": "objc-class-property:NSString:lowercaseString"}, set()),
+            "objc-class-property:NSString:lowercaseString")
+        self.assertIsNone(difftest.api_item_id("NSDate -timeIntervalSinceReferenceDate", {}, set()))
+        self.assertIsNone(difftest.api_item_id("Foundation.NSObject.description"))
+
+    def test_difftest_merge_preserves_other_items_and_replaces_old_status(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "Foundation.json"
+            path.write_text(json.dumps({
+                "framework": "Foundation",
+                "verified": ["c:_keep", "c:_CFStringCreateWithBytes"],
+                "items": {
+                    "c:_keep": {"status": "verified"},
+                    "c:_CFStringCreateWithBytes": {"status": "verified"},
+                    "CFStringCreateWithBytes": {"status": "verified"},
+                },
+            }))
+            difftest.write_results({
+                "framework": "Foundation", "summary": {"verified": 1},
+                "items": {
+                    "CFStringCreateWithBytes": {"status": "differs"},
+                    "NSString -commonPrefixWithString:options:": {"status": "verified"},
+                },
+            }, path)
+            document = json.loads(path.read_text())
+        self.assertEqual(document["items"]["c:_keep"], {"status": "verified"})
+        self.assertEqual(document["items"]["c:_CFStringCreateWithBytes"]["status"], "differs")
+        self.assertEqual(document["items"]["objc-class-method:NSString:-commonPrefixWithString:options:"]["status"], "verified")
+        self.assertNotIn("CFStringCreateWithBytes", document["items"])
+        self.assertEqual(document["verified"], ["c:_keep", "objc-class-method:NSString:-commonPrefixWithString:options:"])
+
+    def test_difftest_merge_removes_old_method_id_for_a_property_accessor(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "Foundation.json"
+            old_id = "objc-class-method:NSString:-lowercaseString"
+            property_id = "objc-class-property:NSString:lowercaseString"
+            path.write_text(json.dumps({"framework": "Foundation", "verified": [old_id],
+                                        "items": {old_id: {"status": "verified"}}}))
+            difftest.write_results({"framework": "Foundation", "items": {
+                "NSString -lowercaseString": {"status": "verified"},
+            }}, path, method_ids=set(), property_accessors={
+                "NSString -lowercaseString": property_id,
+            })
+            document = json.loads(path.read_text())
+        self.assertNotIn(old_id, document["items"])
+        self.assertEqual(document["items"][property_id]["status"], "verified")
+        self.assertEqual(document["verified"], [property_id])
+
+    def test_generator_skips_availability_macros_obsoleted_in_current_sdk(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "Example.h"
+            source = '''#define OBSOLETE(introduced,deprecated,removed) \\
+    __attribute__((availability(macos,introduced=introduced,deprecated=deprecated,obsoleted=removed,message="Use the replacement.")))
+int oldCall OBSOLETE(10.8,14.0,15.0);
+int futureCall OBSOLETE(10.8,14.0,30.0);
+'''
+            path.write_text(source)
+
+            def declaration(name):
+                invocation = source.index("OBSOLETE(", source.index(name))
+                spelling = source.index("availability(")
+                return {"inner": [{"kind": "AvailabilityAttr", "range": {"begin": {
+                    "spellingLoc": {"file": str(path), "offset": spelling},
+                    "expansionLoc": {"file": str(path), "offset": invocation},
+                }}}]}
+
+            with patch.object(api_audit, "macos_sdk_version", return_value="26.4"):
+                self.assertTrue(api_audit.unavailable_on_macos(declaration("oldCall"), {}, True))
+                self.assertFalse(api_audit.unavailable_on_macos(declaration("futureCall"), {}, True))
+
+    def test_constant_merge_replaces_an_old_verified_status(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            inventory_path = root / "inventory.json"
+            inventory_path.write_text(json.dumps({
+                "sdk_version": "26.4",
+                "frameworks": [{"id": "Foundation", "constants": [
+                    {"symbol": "_OLD", "testable": True},
+                    {"symbol": "_NEW", "testable": True},
+                ]}],
+            }))
+            results_dir = root / "compat-results"
+            results_dir.mkdir()
+            result_path = results_dir / "Foundation.json"
+            result_path.write_text(json.dumps({
+                "framework": "Foundation", "verified": ["c:_OLD", "c:_KEEP"],
+                "items": {
+                    "c:_OLD": {"status": "verified", "verified": True},
+                    "c:_KEEP": {"status": "verified", "verified": True},
+                },
+            }))
+            apple_path, finch_path = root / "apple.txt", root / "finch.txt"
+            apple_path.write_text("header\nFoundation\tOLD\t1\nFoundation\tNEW\t2\n")
+            finch_path.write_text("header\nFoundation\tOLD\t0\nFoundation\tNEW\t2\n")
+            with (patch.object(constant_results, "INVENTORY", inventory_path),
+                  patch.object(constant_results, "RESULTS", results_dir),
+                  patch.object(constant_results.sys, "argv", ["record-results.py", str(apple_path), str(finch_path)])):
+                self.assertEqual(constant_results.main(), 0)
+            document = json.loads(result_path.read_text())
+        self.assertEqual(document["items"]["c:_OLD"]["status"], "differs")
+        self.assertEqual(document["items"]["c:_KEEP"]["status"], "verified")
+        self.assertEqual(document["items"]["c:_NEW"]["status"], "verified")
+        self.assertEqual(document["verified"], ["c:_KEEP", "c:_NEW"])
 
 
 if __name__ == "__main__":

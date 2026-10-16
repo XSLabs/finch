@@ -358,6 +358,108 @@ def run_framework(framework: str, timeout: float, rules: list[dict], jobs: int) 
     return result
 
 
+def api_item_id(name: str, property_accessors: dict | None = None,
+                method_ids: set[str] | None = None) -> str | None:
+    """Translate a generator label to tools/api-coverage.py's item ID."""
+    method = re.fullmatch(r"([A-Za-z_]\w*) ([+-][A-Za-z_]\w*(?::[A-Za-z_]\w*)*:?)", name)
+    if method:
+        item_id = f"objc-class-method:{method.group(1)}:{method.group(2)}"
+        if method_ids is not None:
+            if item_id in method_ids:
+                return item_id
+            return (property_accessors or {}).get(name)
+        return item_id
+    if re.fullmatch(r"[A-Za-z_]\w*", name):
+        return "c:_" + name
+    return None
+
+
+def objc_property_item_ids(framework: str) -> tuple[set[str], dict[str, str]]:
+    """Read method and property IDs from the same SDK headers as the API report."""
+    path = ROOT / "tools" / "api-coverage.py"
+    spec = importlib.util.spec_from_file_location("finch_api_coverage_for_difftest", path)
+    if not spec or not spec.loader:
+        raise RuntimeError(f"cannot load API inventory parser: {path}")
+    coverage = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(coverage)
+    sdk = Path(run_checked(["xcrun", "--sdk", "macosx", "--show-sdk-path"]).stdout.strip())
+    headers = sdk / "System/Library/Frameworks" / f"{framework}.framework"
+    items, _sources, _excluded = coverage.objc_items(headers)
+    methods = {item["id"] for item in items if item["kind"] == "objc method"}
+    properties = {}
+    for item in items:
+        if item["kind"] != "objc property":
+            continue
+        check = item["check"]
+        for selector in (check.get("getter"), check.get("setter")):
+            if selector:
+                properties[f"{check['name']} {selector}"] = item["id"]
+    return methods, properties
+
+
+def result_is_verified(item: object) -> bool:
+    return item is True or item in ("verified", "passed") or (
+        isinstance(item, dict) and (item.get("verified") is True or item.get("passed") is True or
+                                    item.get("status") in ("verified", "passed")))
+
+
+def result_has_status(item: object) -> bool:
+    return item is False or item in ("verified", "passed", "differs", "crashes", "not-exercised") or (
+        isinstance(item, dict) and ("verified" in item or "passed" in item or
+                                    item.get("status") in ("verified", "passed", "differs", "crashes",
+                                                            "not-exercised")))
+
+
+def write_results(result: dict, target: Path | None = None, *,
+                  method_ids: set[str] | None = None,
+                  property_accessors: dict[str, str] | None = None) -> None:
+    """Merge this framework's latest generated checks into its shared result file."""
+    target = target or RESULTS / f"{result['framework']}.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        document = json.loads(target.read_text()) if target.is_file() else {}
+    except (OSError, json.JSONDecodeError):
+        document = {}
+
+    previous_items = document.get("items", {})
+    items = dict(previous_items) if isinstance(previous_items, dict) else {}
+    generator_items = result.get("items", {})
+    mapped_items = {}
+    obsolete_ids = set()
+    if isinstance(generator_items, dict):
+        for name, record in generator_items.items():
+            item_id = api_item_id(name, property_accessors, method_ids)
+            # Remove names written by older versions of the generator.
+            items.pop(name, None)
+            # A case this run didn't call says nothing about another source's result.
+            if (item_id and record.get("status") == "not-exercised" and
+                    item_id in items and not (isinstance(items[item_id], dict) and
+                                             "difftest_name" in items[item_id])):
+                continue
+            previous_id = api_item_id(name)
+            if previous_id:
+                obsolete_ids.add(previous_id)
+                items.pop(previous_id, None)
+            if item_id:
+                mapped_items[item_id] = {**record, "difftest_name": name}
+    items.update(mapped_items)
+
+    verified = {value for value in document.get("verified", []) if isinstance(value, str)}
+    verified.difference_update(obsolete_ids - mapped_items.keys())
+    for item_id, item in items.items():
+        if result_is_verified(item):
+            verified.add(item_id)
+        elif result_has_status(item):
+            verified.discard(item_id)
+
+    document.update({key: value for key, value in result.items() if key not in ("items", "verified")})
+    document["items"] = items
+    document["verified"] = sorted(verified)
+    temporary = target.with_suffix(target.suffix + ".tmp")
+    temporary.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n")
+    temporary.replace(target)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("framework", nargs="*", metavar="FRAMEWORK",
@@ -380,10 +482,10 @@ def main() -> int:
     try:
         for framework in args.framework or ("CoreFoundation", "Foundation"):
             result = run_framework(framework, args.timeout, rules, args.jobs)
-            target = RESULTS / f"{framework}.json"
-            temporary = target.with_suffix(".json.tmp")
-            temporary.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
-            temporary.replace(target)
+            method_ids, property_accessors = (objc_property_item_ids(framework)
+                                               if any(" " in name for name in result["items"])
+                                               else (set(), {}))
+            write_results(result, method_ids=method_ids, property_accessors=property_accessors)
             print(f"{framework}: {result['summary']}")
     except (OSError, RuntimeError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
         print(f"difftest failed: {error}", file=sys.stderr)

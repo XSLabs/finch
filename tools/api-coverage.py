@@ -972,14 +972,29 @@ def verification_results():
                     values.add(str(row["id"]))
         items = document.get("items", {})
         if isinstance(items, dict):
-            values.update(key for key, value in items.items() if value is True or
-                          (isinstance(value, dict) and (value.get("verified") is True or value.get("passed") is True)))
+            for key, value in items.items():
+                if isinstance(value, dict):
+                    status = value.get("status")
+                    if status in ("differs", "crashes", "not-exercised") or value.get("verified") is False or value.get("passed") is False:
+                        values.discard(key)
+                    elif (value.get("verified") is True or value.get("passed") is True or
+                          status in ("verified", "passed")):
+                        values.add(key)
+                elif value is False:
+                    values.discard(key)
+                elif value is True or value in ("verified", "passed"):
+                    values.add(key)
         elif isinstance(items, list):
             for row in items:
-                if isinstance(row, dict) and row.get("id") and (
-                        row.get("verified") is True or row.get("passed") is True or
-                        row.get("status") in ("verified", "passed")):
-                    values.add(str(row["id"]))
+                if not isinstance(row, dict) or not row.get("id"):
+                    continue
+                item_id = str(row["id"])
+                if (row.get("status") in ("differs", "crashes", "not-exercised") or
+                        row.get("verified") is False or row.get("passed") is False):
+                    values.discard(item_id)
+                elif (row.get("verified") is True or row.get("passed") is True or
+                      row.get("status") in ("verified", "passed")):
+                    values.add(item_id)
         verified.setdefault(framework, set()).update(values)
     return verified
 
@@ -1120,9 +1135,11 @@ def markdown_report(report):
         "subframeworks, and public dylib stubs under usr/lib, including its subfolders, "
         "are included. PrivateFrameworks "
         "and underscore-named framework bundles are excluded.", "",
-        "Behavior-verified counts come only from generated comparison results in "
-        "build/compat-results/*.json. A result file can list verified item IDs under "
-        "the verified array. The full name-by-name report is kept in build/api-coverage.json.", "",
+        "Behavior-verified counts come from item IDs in build/compat-results/*.json. "
+        "Generated comparisons and constant checks merge their item records into the same "
+        "framework file. Records with status verified (or the older verified/passed flags) "
+        "count; a later result replaces the status for that item ID. The full name-by-name "
+        "report is kept in build/api-coverage.json.", "",
         f"Overall: **{summary['percent']:.1f}%** ({summary['present']:,} of "
         f"{summary['total']:,} API items across {summary['parsed_frameworks']} "
         "parsed frameworks or dylibs).", "",

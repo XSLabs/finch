@@ -83,14 +83,17 @@ def main() -> int:
         if not isinstance(merged, dict):
             merged = {}
         merged.update(items)
-        verified = sorted(set(document.get("verified", [])) |
-                          {item_id for item_id, item in items.items() if item.get("verified")})
+        verified_ids = {item_id for item_id, item in items.items() if item.get("verified") is True}
+        verified = {value for value in document.get("verified", []) if isinstance(value, str)}
+        verified.update(verified_ids)
+        verified.difference_update(item_id for item_id, item in items.items()
+                                   if item.get("verified") is not True)
         document.update({
             "schema_version": max(1, int(document.get("schema_version", 1))),
             "framework": identifier,
             "sdk": inventory["sdk_version"],
             "items": merged,
-            "verified": verified,
+            "verified": sorted(verified),
         })
         path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n")
         verified_total += sum(item.get("verified", False) for item in items.values())

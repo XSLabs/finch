@@ -29,11 +29,21 @@ strip `DYLD_*` variables. The runner compares up to eight typed cases for each
 item, uses parallel workers, and reuses a generated binary when its source and
 SDK have not changed.
 
-Results go to `build/compat-results/<Framework>.json`. Each result has an
-`items` map keyed by the SDK name for the API. A difference records the first
-output row that does not match. Exceptions include their names and reasons.
-The program normalizes object descriptions, pointer values, addresses, and
-unordered collections before comparing results.
+Results go to `build/compat-results/<Framework>.json`, the same file used by
+the constants comparison. The `items` map uses the IDs from
+`tools/api-coverage.py`: C functions use IDs such as `c:_CFStringCreateWithBytes`,
+and Objective-C selectors use IDs such as
+`objc-class-method:NSString:-lowercaseString` or
+`objc-class-method:NSPasteboard:+pasteboardWithName:`. Selectors that are
+property accessors use the matching `objc-class-property:<Class>:<property>` ID.
+Each comparison merges its item records into that map, so running one source
+preserves the other source's results. A later result replaces the earlier status for the same ID
+when it verifies, differs or crashes; a generated case marked not exercised leaves another
+source's result for that ID in place, so the order of runs doesn't matter. The
+report counts records with `status: verified` as behavior verified. A difference
+records the first output row that does not match. Exceptions include their
+names and reasons. The program normalizes object descriptions, pointer values,
+addresses, and unordered collections before comparing results.
 
 The AppKit run covers APIs that can be checked without opening windows or
 starting a window server. It builds values for colors and color spaces, fonts,
@@ -67,8 +77,9 @@ marks a case unexercised if its requested font is missing on either side.
 ImageIO codec lists can vary with the host's installed codecs, so those
 differences are reported rather than hidden. The generator leaves an API
 unexercised when it has no safe typed input, receiver, or callable signature.
-It does not guess at invalid ranges or pass `NULL` where the declaration does
-not allow it.
+It skips declarations that the active SDK marks unavailable or already
+obsoleted, since Clang will not compile calls to them. It does not guess at
+invalid ranges or pass `NULL` where the declaration does not allow it.
 
 Security uses fixed EC and RSA key data, fixed certificates and trust anchors,
 and a fixed trust date. It checks key attributes, signatures, verification,
@@ -105,15 +116,15 @@ percentage does not mean that most of the SDK has been exercised.
 
 ## Results
 
-On macOS SDK 26.4, the merged generator reported these results. The SDK item
+On macOS SDK 26.4, the generator reported these results. The SDK item
 counts come from parsed declarations; the exercised count is the sum of
 verified, different, and crashed calls.
 
 | Framework | SDK items | Exercised | Verified | Different | Crashes | Not exercised |
 |---|---:|---:|---:|---:|---:|---:|
-| CoreFoundation | 1,227 | 792 | 790 | 2 | 0 | 435 |
-| Foundation | 8,128 | 1,984 | 1,888 | 96 | 0 | 6,144 |
-| CoreGraphics | 862 | 514 | 498 | 16 | 0 | 348 |
+| CoreFoundation | 1,227 | 796 | 794 | 2 | 0 | 431 |
+| Foundation | 8,128 | 2,010 | 1,914 | 96 | 0 | 6,118 |
+| CoreGraphics | 841 | 536 | 524 | 12 | 0 | 305 |
 | CoreText | 328 | 229 | 194 | 35 | 0 | 99 |
 | ImageIO | 808 | 785 | 781 | 4 | 0 | 23 |
 | AppKit | 9,955 | 769 | 605 | 164 | 0 | 9,186 |
@@ -122,6 +133,14 @@ verified, different, and crashed calls.
 | CoreMedia | 752 | 134 | 132 | 2 | 0 | 618 |
 | CoreServices | 1,146 | 157 | 157 | 0 | 0 | 989 |
 
+The constants run verified 10,645 values, and these generated runs verified
+4,812 calls. The compatibility report counts 13,810 verified framework/API
+rows across its 849 rows. Its six generated-test framework rows show 802 for
+CoreFoundation, 2,217 for Foundation, 538 for CoreGraphics, 194 for CoreText,
+781 for ImageIO, and 2,850 for AppKit. These report totals merge both sources
+by API ID; a shared ID is counted once in its framework, and a generated case
+without a matching public API ID does not add a report row.
+
 CoreFoundation's two differences are its hyphenation calls; Finch does not
 ship hyphenation dictionaries. Foundation's differences include XML, key-value
 coding, dates and calendars, URLs, number formatting, and string edge cases.
@@ -129,9 +148,8 @@ The merged Foundation fixes bring decimal division, byte-based data creation,
 invalid substring indexes, nil number comparisons, and spacing around a DTD
 into agreement with Apple.
 
-CoreGraphics' remaining differences are mostly font names and measurements
-because the Mac and Finch use different font files; four high dynamic-range
-color-space constants also differ. CoreText's remaining differences are mostly
+CoreGraphics' remaining differences are font and glyph names because the Mac
+and Finch use different font files. CoreText's remaining differences are mostly
 font names, traits, glyph metrics, and line layout. ImageIO's remaining
 differences are codec type lists, metadata copying, and
 `CGImageDestinationCopyImageSource`. These three frameworks had no crashes.

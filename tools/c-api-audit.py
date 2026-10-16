@@ -9,6 +9,7 @@ is checked with nm. Missing functions and variables are grouped by SDK header;
 no SDK files are copied into the repository.
 """
 import json
+from functools import lru_cache
 import os
 import re
 import subprocess
@@ -21,6 +22,11 @@ FRAMEWORKS = os.path.join(FINCH_ROOT, "build/root/System/Library/Frameworks")
 
 def run(command, **kwargs):
     return subprocess.run(command, capture_output=True, text=True, check=True, **kwargs).stdout.strip()
+
+
+@lru_cache(maxsize=1)
+def macos_sdk_version():
+    return run(["xcrun", "--sdk", "macosx", "--show-sdk-version"])
 
 
 def sdk_path():
@@ -127,13 +133,86 @@ def declaration_source(node, header_root, header_paths, source_lines=None, token
     return None
 
 
-def unavailable_on_macos(node, sources):
+def obsoleted_before_sdk(attr, sources):
+    """Check whether an availability macro obsoletes this API in the current SDK."""
+    begin = attr.get("range", {}).get("begin", {})
+    spelling = begin.get("spellingLoc", begin)
+
+    def source_at(location):
+        path = location.get("file")
+        if not path:
+            return None, None
+        source = sources.get(path)
+        if source is None:
+            try:
+                source = Path(path).read_text(errors="replace")
+            except OSError:
+                return None, None
+            sources[path] = source
+        offset = location.get("offset")
+        return source, offset if isinstance(offset, int) else None
+
+    def version_tuple(value):
+        if not re.fullmatch(r"\d+(?:\.\d+){0,2}", value.strip()):
+            return None
+        return tuple(int(part) for part in value.strip().split("."))
+
+    definition_source, definition_offset = source_at(spelling)
+    if definition_source is None or definition_offset is None:
+        return False
+    definition_text = definition_source[definition_offset:definition_offset + 400]
+    obsolete = re.search(
+        r"availability\s*\(\s*macos(?:x)?\s*,[^)]*\bobsoleted\s*=\s*([\w.]+)",
+        definition_text,
+    )
+    obsolete_version = version_tuple(obsolete.group(1)) if obsolete else None
+
+    if not obsolete_version and obsolete:
+        parameter = obsolete.group(1)
+        definitions = list(re.finditer(r"(?m)^\s*#\s*define\s+\w+\s*\(([^)]*)\)",
+                                       definition_source[:definition_offset]))
+        for macro in reversed(definitions):
+            parameters = [value.strip() for value in macro.group(1).split(",")]
+            if parameter not in parameters:
+                continue
+            body = definition_source[macro.end():definition_offset + 400]
+            declaration = re.search(
+                rf"availability\s*\(\s*macos(?:x)?\s*,[^)]*\bobsoleted\s*=\s*{re.escape(parameter)}\b",
+                body,
+            )
+            if not declaration:
+                continue
+            expansion = begin.get("expansionLoc", begin)
+            invocation_source, invocation_offset = source_at(expansion)
+            if invocation_source is None or invocation_offset is None:
+                return False
+            line_end = invocation_source.find("\n", invocation_offset)
+            if line_end < 0:
+                line_end = len(invocation_source)
+            invocation = re.match(r"\s*[A-Za-z_]\w*\s*\(([^)]*)\)",
+                                  invocation_source[invocation_offset:line_end])
+            if not invocation:
+                return False
+            arguments = [value.strip() for value in invocation.group(1).split(",")]
+            obsolete_version = version_tuple(arguments[parameters.index(parameter)]) \
+                if len(arguments) == len(parameters) else None
+            break
+
+    if not obsolete_version:
+        return False
+    target_version = version_tuple(macos_sdk_version())
+    return target_version is not None and obsolete_version <= target_version
+
+
+def unavailable_on_macos(node, sources, include_obsoleted=False):
     for attr in node.get("inner", []):
         kind = attr.get("kind")
         if kind == "UnavailableAttr":
             return True
         if kind != "AvailabilityAttr":
             continue
+        if include_obsoleted and obsoleted_before_sdk(attr, sources):
+            return True
         begin = attr.get("range", {}).get("begin", {})
         loc = begin.get("expansionLoc", begin.get("spellingLoc", begin))
         path, offset = loc.get("file"), loc.get("offset")
@@ -162,7 +241,7 @@ def sdk_ast(name, framework_path=None):
     framework = (Path(framework_path) if framework_path else
                  Path(sdk) / "System/Library/Frameworks" / f"{name}.framework")
     header_root, header_paths, roots = public_headers(Path(framework), name)
-    version = run(["xcrun", "--sdk", "macosx", "--show-sdk-version"])
+    version = macos_sdk_version()
     include_lines = []
     sdk_headers = Path(sdk) / "usr/include"
     for root in roots:
@@ -400,7 +479,7 @@ def sdk_declaration_details(name, framework_path=None):
             inline = node.get("inline") or any(child.get("kind") == "CompoundStmt" for child in node.get("inner", []))
             if (symbol and identifier and not identifier.startswith("_") and
                     (node.get("storageClass") != "static" or inline) and
-                    not unavailable_on_macos(node, sources)):
+                    not unavailable_on_macos(node, sources, include_obsoleted=True)):
                 path = declaration_source(node, header_root, header_paths, header_lines)
                 if path:
                     relative = os.path.relpath(path, header_root)
@@ -427,7 +506,8 @@ def sdk_declaration_details(name, framework_path=None):
                             "desugared_type": type_info.get("desugaredQualType", qual_type),
                         })
 
-        if kind == "ObjCMethodDecl" and current_class and not unavailable_on_macos(node, sources):
+        if kind == "ObjCMethodDecl" and current_class and not unavailable_on_macos(
+                node, sources, include_obsoleted=True):
             path = declaration_source(node, header_root, header_paths, header_lines) or current_header
             selector = node.get("name", "")
             if path and selector:
