@@ -51,6 +51,8 @@ build/userland/appkit-color-browser-test.nib /usr/local/share/finch/appkit-color
 build/userland/finch-swift-hello /usr/local/bin/finch-swift-hello
 build/userland/finch-swift-runtime-test /usr/local/bin/finch-swift-runtime-test
 build/root/System/Library/Frameworks/CryptoKit.framework/Versions/A/CryptoKit /System/Library/Frameworks/CryptoKit.framework/Versions/A/CryptoKit
+build/root/System/Library/Frameworks/Accelerate.framework/Versions/A/Accelerate /System/Library/Frameworks/Accelerate.framework/Versions/A/Accelerate
+build/userland/finch-accelerate-test /usr/local/bin/finch-accelerate-test
 build/userland/finch-swift-overlay-test /usr/local/bin/finch-swift-overlay-test
 build/userland/finch-network-test /usr/local/bin/finch-network-test
 build/userland/finch-dlopen /usr/local/bin/finch-dlopen

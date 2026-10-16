@@ -5,7 +5,7 @@ What runs on Finch today and where each piece comes from, bottom to top.
 These diagrams are updated in every commit that changes the stack, and
 `tools/render-stack.sh` checks that they render.
 
-**As of 2026-10-15:** CryptoKit is built from swift-crypto 5.0.1, with BoringSSL and
+**As of 2026-10-16:** CryptoKit is built from swift-crypto 5.0.1, with BoringSSL and
 XKCP linked privately; fixed-key host comparisons cover its hashes, HMAC, HKDF,
 AES-GCM, ChaChaPoly, and P-256, P-384 and Curve25519 keys and signatures. Nothing
 Finch builds links a closed library (`tools/check-closed.py`). MetalKit now keeps
@@ -21,7 +21,7 @@ with Apple's libxml2, built by Finch. Finch's CoreGraphics has begun, over Skia
 clips, shadows and transparency layers as Apple's do, PDF contexts write
 through Skia's PDF backend, and Finch's own parser reads and draws PDF. Finch's ImageIO reads
 PNG, JPEG, GIF, BMP, ICO and WebP and writes PNG and JPEG over the open
-codecs Skia builds, and reads and writes TIFF with its own codec, returning the CGImages and properties Apple's does. CoreText lays out text with HarfBuzz, FreeType and ICU, as Apple's does,
+codecs Skia builds, and reads and writes TIFF with its own codec, returning the CGImages and properties Apple's does. Finch's Accelerate (`docs/design/ACCELERATE.md`) supplies the vDSP, vForce, vImage, BLAS and LAPACK calls apps on this Mac import today, using Finch's own CPU routines. It does not yet include BNNS or the full public API. CoreText lays out text with HarfBuzz, FreeType and ICU, as Apple's does,
 in open fonts Finch ships in place of Apple's (Inter for the system
 font, Open Runde for rounded text, Fragment Mono for SF Mono, XCharter for
 Charter, and TeX Gyre Pagella for Palatino). Liberation stays for Helvetica,
@@ -144,6 +144,7 @@ block-beta
         appkit["AppKit<br/>apps, windows, views, events,<br/>title bars, nib-loaded toolbars,<br/>drawing, nibs, storyboards,<br/>Auto Layout, stack views, text views and<br/>scrolling, tables, outlines and<br/>collection views (flow, grid and<br/>compositional layouts), menus and a menu bar,<br/>alerts, sheets, open and save panels,<br/>NSWorkspace (on the window server);<br/>Cocoa bindings and controllers,<br/>font and color panels, search/token/date controls,<br/>grids, popovers, drawers and rule editors;<br/>rulers, the find bar, text tables;<br/>animation groups and Touch Bar state;<br/>toolbar items, titlebar accessories,<br/>row actions, scrubbers, NSPreferences,<br/>file promises, glass views (slate);<br/>drag and drop (between apps<br/>through the window server);<br/>system and symbol images<br/>(Finch's own art);<br/>Fieldwork theme (Classic for Aqua compatibility);<br/>UIFoundation: fonts, string drawing,<br/>TextKit 1 and 2; Cocoa and<br/>ApplicationServices umbrellas"]
         cg["CoreGraphics<br/>bitmap contexts, paths, images,<br/>gradients, patterns, fonts, text,<br/>shadows (over Skia, skcms);<br/>PDF writing (SkPDF), PDF reading<br/>and drawing (own parser);<br/>window server client, displays,<br/>Quartz events (posting, sources)"]
         imageio["ImageIO<br/>image sources, thumbnails,<br/>destinations, property keys<br/>(libpng, libjpeg-turbo, libwebp,<br/>wuffs, via Skia); TIFF (own codec)"]
+        accelerate["Accelerate<br/>vDSP, vForce, vImage,<br/>BLAS and LAPACK calls<br/>apps import today;<br/>Finch's CPU routines"]
         coreimage["CoreImage<br/>images as recipes, CPU rendering<br/>in linear light, ~70 filters"]
         services["UserNotifications (local),<br/>ServiceManagement (launchd jobs),<br/>CoreLocation, LocalAuthentication,<br/>CoreWLAN, IOBluetooth (and its<br/>UI's panels), StoreKit,<br/>Accounts, GSS (answering as a Mac<br/>without those services would)"]
         contacts["Contacts<br/>the user's contacts in Finch's<br/>own store, groups, change history;<br/>name and address formatters, vCard"]
@@ -244,7 +245,7 @@ block-beta
     class t7,t6,t5,t4,t3,t2,t1,t0 layer
     class avplanned,kexts,metal planned
     class apps testapp
-    class opengl,later,mediaaddons,coreimage,services,contacts,cfnetwork,appsupport,shell,uti,appkit,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit finch
+    class opengl,later,mediaaddons,coreimage,services,contacts,cfnetwork,appsupport,shell,uti,appkit,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,accelerate,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
     class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui,cmark upstream
     class vz firmware
@@ -288,6 +289,7 @@ flowchart LR
     icadevices["ICADevices"]:::finch
     ffound["Foundation"]:::finch
     cgfw["CoreGraphics"]:::finch
+    acceleratefw["Accelerate<br/>(app-imported subset)"]:::finch
     ctfw["CoreText"]:::finch
     imageio["ImageIO"]:::finch
     coreimagefw["CoreImage"]:::finch
@@ -464,6 +466,8 @@ flowchart LR
     xml --> z
     iokit --> cf
     cgfw --> cf
+    acceleratefw --> cgfw
+    acceleratefw --> cf
     ctfw --> cgfw
     ctfw --> cf
     ctfw --> icu

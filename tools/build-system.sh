@@ -109,6 +109,8 @@ steps=(
     "CoreText|userland/CoreText/build.sh"
     "WindowServer|userland/WindowServer/build.sh"
     "ImageIO|userland/ImageIO/build.sh"
+    # The app-imported CPU parts of Accelerate, over CoreGraphics and CoreFoundation.
+    "Accelerate|userland/Accelerate/build.sh"
     # CoreImage: images as recipes, filters rendered on the CPU
     "CoreImage|userland/CoreImage/build.sh"
     # ColorSync (over skcms) and HIServices, which ApplicationServices re-exports

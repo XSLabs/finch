@@ -12,6 +12,13 @@ all: $(OUT)/finch-console-policy-test
 all: $(OUT)/finch-appkit-gaps-test
 all: $(OUT)/finch-urlsession-trust-test
 all: $(OUT)/finch-network-test
+all: $(OUT)/finch-accelerate-test
+
+# The umbrella's vDSP, vImage, vForce, BLAS and LAPACK calls, compared with Apple's.
+$(OUT)/finch-accelerate-test: accelerate-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework Accelerate -framework CoreGraphics
+	codesign -f -s - -i org.finch.test.accelerate $@
 
 $(OUT)/finch-console-policy-test: console-policy-test.c ../finch-init/console-policy.h
 	@mkdir -p $(OUT)
