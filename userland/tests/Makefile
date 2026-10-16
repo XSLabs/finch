@@ -11,6 +11,7 @@ all: $(OUT)/finch-appkit-containers2-render-test $(OUT)/finch-appkit-controls2-r
 all: $(OUT)/finch-console-policy-test
 all: $(OUT)/finch-appkit-gaps-test
 all: $(OUT)/finch-urlsession-trust-test
+all: $(OUT)/finch-network-test
 
 $(OUT)/finch-console-policy-test: console-policy-test.c ../finch-init/console-policy.h
 	@mkdir -p $(OUT)
@@ -119,6 +120,12 @@ $(OUT)/finch-swift-overlay-test: swift-overlay-test.swift
 	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -O -o $@ $< \
 	    $(foreach l,Metal Spatial OSLog UniformTypeIdentifiers CoreImage QuartzCore simd,-Xfrontend -disable-autolink-library -Xfrontend swift$(l))
 	codesign -f -s - -i org.finch.test.swift-overlay $@
+
+# Network.framework's Swift API over loopback sockets, compared with Apple's.
+$(OUT)/finch-network-test: network-test.swift
+	@mkdir -p $(OUT)
+	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -O -o $@ $<
+	codesign -f -s - -i org.finch.test.network $@
 
 # Combine (Finch's from OpenCombine, docs/design/COMBINE.md): same output against Apple's and Finch's.
 $(OUT)/finch-combine-test: combine-test.swift
