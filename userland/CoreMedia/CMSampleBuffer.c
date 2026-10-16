@@ -111,7 +111,11 @@ set_timing(Mutable sb, CMItemCount count, const CMSampleTimingInfo *timing)
     if (count != 0 && count != 1 && count != sb->numSamples)
         return kCMSampleBufferError_InvalidEntryCount;
     free(sb->timing);
+    sb->timing = NULL;
+    sb->timingCount = 0;
     sb->timing = count ? malloc(sizeof *timing * (size_t)count) : NULL;
+    if (count && !sb->timing)
+        return kCMSampleBufferError_AllocationFailed;
     if (count)
         memcpy(sb->timing, timing, sizeof *timing * (size_t)count);
     sb->timingCount = count;
@@ -576,6 +580,10 @@ CMSampleBufferSetDataFailed(CMSampleBufferRef sbuf, OSStatus status)
 {
     if (!sbuf)
         return kCMSampleBufferError_RequiredParameterMissing;
+    if (!sbuf->valid)
+        return kCMSampleBufferError_Invalidated;
+    if (sbuf->data && sbuf->ready)
+        return kCMSampleBufferError_AlreadyHasDataBuffer;
     ((Mutable)sbuf)->failed = status;
     return noErr;
 }
@@ -616,6 +624,10 @@ CMSampleBufferTrackDataReadiness(CMSampleBufferRef sbuf, CMSampleBufferRef sampl
 {
     if (!sbuf || !sampleBufferToTrack)
         return kCMSampleBufferError_RequiredParameterMissing;
+    if (!sbuf->valid || !sampleBufferToTrack->valid)
+        return kCMSampleBufferError_Invalidated;
+    if (sbuf->data || sbuf->image)
+        return kCMSampleBufferError_AlreadyHasDataBuffer;
     Mutable sb = (Mutable)sbuf;
     pthread_mutex_lock(&sb->lock);
     if (sb->tracking)
@@ -714,9 +726,9 @@ timing_of(CMSampleBufferRef sb, CMItemIndex i)
         return t;
     }
     CMTime offset = CMTimeMultiply(t.duration, (int32_t)i);
-    if (CMTIME_IS_VALID(t.presentationTimeStamp))
+    if (i && CMTIME_IS_VALID(t.presentationTimeStamp))
         t.presentationTimeStamp = CMTimeAdd(t.presentationTimeStamp, offset);
-    if (CMTIME_IS_VALID(t.decodeTimeStamp))
+    if (i && CMTIME_IS_VALID(t.decodeTimeStamp))
         t.decodeTimeStamp = CMTimeAdd(t.decodeTimeStamp, offset);
     return t;
 }
@@ -868,6 +880,19 @@ CMSampleBufferGetOutputSampleTimingInfoArray(CMSampleBufferRef sbuf, CMItemCount
         return kCMSampleBufferError_Invalidated;
     if (!sbuf->timingCount)
         return kCMSampleBufferError_BufferHasNoSampleTimingInfo;
+    if (sbuf->timingCount == 1 && CMTIME_IS_NUMERIC(sbuf->timing[0].duration) &&
+        !CMTIME_IS_NUMERIC(trim(sbuf, kCMSampleBufferAttachmentKey_TrimDurationAtStart)) &&
+        !CMTIME_IS_NUMERIC(trim(sbuf, kCMSampleBufferAttachmentKey_TrimDurationAtEnd)) &&
+        speed(sbuf) == 1 && !CMTIME_IS_VALID(sbuf->outputPTS)) {
+        if (timingArrayEntriesNeededOut)
+            *timingArrayEntriesNeededOut = 1;
+        if (!timingArrayOut)
+            return noErr;
+        if (timingArrayEntries < 1)
+            return kCMSampleBufferError_ArrayTooSmall;
+        timingArrayOut[0] = sbuf->timing[0];
+        return noErr;
+    }
     CMItemCount n = sbuf->numSamples;
     if (timingArrayEntriesNeededOut)
         *timingArrayEntriesNeededOut = n;

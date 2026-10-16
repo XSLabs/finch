@@ -1770,6 +1770,9 @@ main(int argc, char **argv)
         scratch = argc > 1 ? @(argv[1]) : @"/tmp/finch-coreservices-test";
         testPrivateLaunch = argc > 2 && !strcmp(argv[2], "--private-launch");
         [[NSFileManager defaultManager] createDirectoryAtPath:scratch withIntermediateDirectories:YES attributes:nil error:nil];
+        char path[PATH_MAX];
+        if (realpath(scratch.fileSystemRepresentation, path))
+            scratch = @(path);
         ae_descriptors();
         ae_lists();
         ae_coercions();

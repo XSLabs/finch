@@ -50,6 +50,10 @@ def build_program(framework: str, source: Path) -> Path:
         "CoreGraphics": ["CoreFoundation"],
         "CoreText": ["CoreFoundation", "CoreGraphics"],
         "ImageIO": ["CoreFoundation", "CoreGraphics"],
+        "Security": ["CoreFoundation"],
+        "CoreVideo": ["CoreFoundation", "CoreGraphics", "IOSurface"],
+        "CoreMedia": ["CoreFoundation", "CoreVideo"],
+        "CoreServices": ["CoreFoundation"],
     }.get(framework, [])
     extra_frameworks = [part for dependency in dependencies for part in ("-framework", dependency)]
     build_key = hashlib.sha256(
@@ -361,7 +365,9 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=30.0, help="seconds allowed for each API item on each side")
     parser.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 1), help="API processes to compare in parallel")
     args = parser.parse_args()
-    invalid = sorted(set(args.framework) - {"CoreFoundation", "Foundation", "CoreGraphics", "CoreText", "ImageIO", "AppKit"})
+    supported = {"CoreFoundation", "Foundation", "CoreGraphics", "CoreText", "ImageIO", "AppKit",
+                 "Security", "CoreVideo", "CoreMedia", "CoreServices"}
+    invalid = sorted(set(args.framework) - supported)
     if invalid:
         parser.error(f"unknown framework: {', '.join(invalid)}")
     if args.timeout <= 0:

@@ -1,9 +1,9 @@
 # Generated compatibility tests
 
 These tests compare Finch's CoreFoundation, Foundation, CoreGraphics,
-CoreText, ImageIO, and AppKit frameworks with Apple's frameworks on the same
-Mac. They use the current macOS SDK as the API list and the source of C and
-Objective-C method signatures.
+CoreText, ImageIO, AppKit, Security, CoreVideo, CoreMedia, and CoreServices
+frameworks with Apple's frameworks on the same Mac. They use the current macOS
+SDK as the API list and the source of C and Objective-C method signatures.
 
 ## Run the comparisons
 
@@ -19,6 +19,7 @@ python3 tools/difftest/run.py CoreGraphics
 python3 tools/difftest/run.py CoreText
 python3 tools/difftest/run.py ImageIO
 python3 tools/difftest/run.py AppKit --jobs 8
+python3 tools/difftest/run.py Security CoreVideo CoreMedia CoreServices
 ```
 
 The runner builds one generated program for each framework and starts a fresh
@@ -69,6 +70,17 @@ unexercised when it has no safe typed input, receiver, or callable signature.
 It does not guess at invalid ranges or pass `NULL` where the declaration does
 not allow it.
 
+Security uses fixed EC and RSA key data, fixed certificates and trust anchors,
+and a fixed trust date. It checks key attributes, signatures, verification,
+encryption round trips, key exchange, certificate values, policies, and trust.
+Random calls check only their status and requested length. The generator does
+not use the user's keychain. CoreVideo checks pixel buffers, planes, pools,
+attachments, and format descriptions. CoreMedia checks time and range math,
+sample and block buffers, format descriptions, and timebases with fixed clocks.
+CoreServices checks UTType creation and conformance, safe URL and file-reference
+conversions in a temporary folder, and LaunchServices calls with stable answers.
+It skips lookups whose answers depend on installed apps or default handlers.
+
 The runner skips calls that can change state outside their process. This
 includes file operations, network access, user defaults, notifications,
 process creation, blocking waits, streams, autorelease-pool management,
@@ -105,6 +117,10 @@ verified, different, and crashed calls.
 | CoreText | 328 | 229 | 194 | 35 | 0 | 99 |
 | ImageIO | 808 | 785 | 781 | 4 | 0 | 23 |
 | AppKit | 9,955 | 769 | 605 | 164 | 0 | 9,186 |
+| Security | 1,804 | 140 | 140 | 0 | 0 | 1,664 |
+| CoreVideo | 302 | 205 | 205 | 0 | 0 | 97 |
+| CoreMedia | 752 | 134 | 132 | 2 | 0 | 618 |
+| CoreServices | 1,146 | 157 | 157 | 0 | 0 | 989 |
 
 CoreFoundation's two differences are its hyphenation calls; Finch does not
 ship hyphenation dictionaries. Foundation's differences include XML, key-value
@@ -127,7 +143,21 @@ and layout spacing. It had no crashes. Most of the remaining inventory has no
 safe typed input or is outside the headless scope; the JSON file lists skip
 reasons and each API's first mismatch.
 
-The requested `tools/host-tests.sh` comparisons passed: 15 passed, 0 failed,
+Security, CoreVideo, and CoreServices matched every exercised case. CoreMedia
+matched 132 of 134 exercised API items. Its two remaining differences are in
+`CMTimeMapDurationFromRangeToRange` and `CMTimeMapTimeFromRangeToRange`: a few
+results differ by about 10 nanoseconds, and some rounded-result flags differ.
+These APIs had no crashes. The JSON results show the first mismatch for each.
+
+The requested host checks for these four frameworks also passed: 9 passed,
+0 failed, 0 known failures, and 0 not built.
+
+```sh
+tools/host-tests.sh security-test security-core-test security-roots-test coremedia-test corevideo-test coreservices-test uti-test cfurl-test cryptokit-test
+```
+
+The earlier CoreFoundation, Foundation, graphics, and AppKit host comparisons
+passed: 15 passed, 0 failed,
 0 known failures, and 0 not built. The script does not register `ctfonts-test`
 or `font-replacements-test`, so those Finch-only checks were run directly. The
 CoreText font output matched `ctfonts-expected.txt`; the replacement-font test

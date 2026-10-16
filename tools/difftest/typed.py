@@ -10,6 +10,78 @@ from pathlib import Path
 
 
 MAX_CASES = 8
+
+
+FRAMEWORK_SCOPES = {
+    "Security": {
+        "functions": {
+            "SecCertificateCopyData", "SecCertificateCopyKey", "SecCertificateCopyNormalizedIssuerSequence",
+            "SecCertificateCopyNormalizedSubjectSequence", "SecCertificateCopySerialNumberData",
+            "SecCertificateCopySubjectSummary", "SecCertificateCopyValues", "SecCertificateCreateWithData",
+            "SecCertificateGetTypeID", "SecKeyCopyAttributes", "SecKeyCopyExternalRepresentation",
+            "SecKeyCopyKeyExchangeResult", "SecKeyCopyPublicKey", "SecKeyCreateDecryptedData",
+            "SecKeyCreateEncryptedData", "SecKeyCreateSignature", "SecKeyCreateWithData",
+            "SecKeyGetBlockSize", "SecKeyGetTypeID", "SecKeyIsAlgorithmSupported", "SecKeyVerifySignature",
+            "SecPolicyCopyProperties", "SecPolicyCreateBasicX509", "SecPolicyCreateSSL",
+            "SecPolicyCreateWithProperties", "SecPolicyGetTypeID", "SecRandomCopyBytes",
+            "SecTrustCopyProperties", "SecTrustCopyPublicKey", "SecTrustCreateWithCertificates",
+            "SecTrustEvaluateWithError", "SecTrustGetTrustResult", "SecTrustGetTypeID",
+            "SecTrustSetAnchorCertificates", "SecTrustSetPolicies", "SecTrustSetVerifyDate",
+        },
+        "variables": ("kSecAttrCan", "kSecAttrEffectiveKeySize", "kSecAttrIsPermanent", "kSecAttrKeyClass",
+                       "kSecAttrKeySizeInBits", "kSecAttrKeyType", "kSecKeyAlgorithmECDHKeyExchange",
+                       "kSecKeyAlgorithmECDSASignature", "kSecKeyAlgorithmRSAEncryptionOAEP",
+                       "kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA256", "kSecOIDX509V1",
+                       "kSecPolicyAppleSSL", "kSecPolicyAppleX509Basic", "kSecPolicyClient", "kSecPolicyName",
+                       "kSecPolicyOid", "kSecRandomDefault"),
+    },
+    "CoreVideo": {
+        "prefixes": ("CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelFormatDescription"),
+        "variables": ("kCVImageBuffer", "kCVPixelBuffer", "kCVPixelFormat", "kCVAttachmentMode"),
+    },
+    "CoreMedia": {
+        "prefixes": ("CMTime", "CMTimeRange", "CMTimeMapping", "CMBlockBuffer", "CMSampleBuffer",
+                     "CMFormatDescription", "CMVideoFormatDescription", "CMClock", "CMTimebase"),
+        "variables": ("kCMTime", "kCMMediaType", "kCMVideoCodecType", "kCMTimeRoundingMethod"),
+    },
+    "CoreServices": {
+        "functions": {
+            "FSCompareFSRefs", "FSIsFSRefValid", "FSPathMakeRef", "FSPathMakeRefWithOptions", "FSRefMakePath",
+            "LSCopyDisplayNameForURL", "LSCopyItemInfoForURL", "UTTypeConformsTo", "UTTypeCopyAllTagsWithClass",
+            "UTTypeCopyDeclaration", "UTTypeCopyDescription", "UTTypeCopyPreferredTagWithClass",
+            "UTTypeCreateAllIdentifiersForTag", "UTTypeCreatePreferredIdentifierForTag", "UTTypeEqual",
+            "UTTypeIsDeclared", "UTTypeIsDynamic",
+        },
+        "variables": ("kUTTagClass", "kUTType"),
+    },
+}
+
+
+def _framework_scope_reason(framework: str, name: str, *, variable: bool = False) -> str | None:
+    scope = FRAMEWORK_SCOPES.get(framework)
+    if not scope:
+        return None
+    if framework == "CoreMedia":
+        if name in {"CMClockGetTime", "CMClockGetAnchorTime"}:
+            return "reads the live host clock, so its value changes between the two runs"
+        if name == "CMClockInvalidate":
+            return "would invalidate the process-wide host clock used by other tests"
+        if name == "CMTimeCodeFormatDescriptionCreate":
+            return "needs a valid timecode format description, which the shared inputs do not build"
+    if variable:
+        if any(name.startswith(prefix) for prefix in scope.get("variables", ())):
+            return None
+    elif name in scope.get("functions", ()) or any(name.startswith(prefix) for prefix in scope.get("prefixes", ())):
+        if framework == "CoreMedia" and name.endswith("Show"):
+            return "diagnostic output is outside the selected CoreMedia scope"
+        if framework == "CoreMedia" and re.search(r"Timer|DispatchSource|Queue|MemoryPool", name):
+            return "needs a run loop, dispatch source, or queue model outside this comparison"
+        return None
+    if framework == "Security" and name.startswith("SecItem"):
+        return "keychain APIs are outside this test because they use persistent user data"
+    if framework == "CoreServices" and name.startswith("LSCopy"):
+        return "depends on the host's installed applications or default handlers"
+    return f"outside the selected deterministic {framework} API scope"
 POOL_DESCRIPTIONS = {
     "integer": [0, 1, -1, 2, -2, "minimum", "maximum"],
     "floating": [0.0, "negative-zero", "positive-infinity", "negative-infinity", "nan", "subnormal", 0.5],
@@ -126,7 +198,7 @@ def _base_type(value: str) -> str:
 
 
 def _is_cf_ref(value: str) -> bool:
-    return "*" not in value and bool(re.fullmatch(r"(?:CF|CG|CT)[A-Za-z0-9_]*Ref", _base_type(value)))
+    return "*" not in value and bool(re.fullmatch(r"(?:CF|CG|CT|CV|CM|Sec)[A-Za-z0-9_]*Ref", _base_type(value)))
 
 
 _NON_CF_GRAPHICS_REFS = {
@@ -245,6 +317,10 @@ def _int_values(parameter: dict, function_name: str = "") -> list[int]:
     desugared = _clean_type(parameter.get("desugared_type", qtype))
     typename = _base_type(desugared or qtype)
     name = parameter.get("name", "").lower()
+    if function_name.startswith("CMTime") and "scale" in name:
+        return [1, 2, 30, 60000]
+    if function_name.startswith("CVPixelBuffer") and name in {"planeindex", "plane"}:
+        return [0, 1]
     if name in {"width", "height", "widthinpixels", "heightinpixels"}:
         return [1, 2, 8]
     if name in {"bytesperrow", "rowbytes"} and function_name.startswith(("CG", "CGBitmap")):
@@ -315,19 +391,22 @@ def _scalar_kind(value: str) -> str | None:
     if base in ("CFRange", "NSRange"):
         return "range"
     if base in ("CGPoint", "CGSize", "CGRect", "NSPoint", "NSSize", "NSRect", "NSEdgeInsets",
-                "NSAffineTransformStruct", "CGAffineTransform", "CATransform3D"):
+                "NSAffineTransformStruct", "CGAffineTransform", "CATransform3D", "CMTime", "CMTimeRange",
+                "CMTimeMapping", "CMSampleTimingInfo", "CMVideoDimensions"):
         return "struct"
     if base in ("void", "id", "Class", "SEL", "instancetype"):
         return None
     if re.fullmatch(r"(?:unsigned|signed)?\s*(?:char|short|int|long|long long|size_t|ssize_t|NSUInteger|NSInteger|CFIndex|CFOptionFlags|CFTypeID|CFStringEncoding|CFNumberType|CFCalendarUnit|CFStringCompareFlags|unichar|UniChar|UTF32Char|UInt8|UInt16|UInt32|UInt64|SInt8|SInt16|SInt32|SInt64|uint8_t|uint16_t|uint32_t|uint64_t|int8_t|int16_t|int32_t|int64_t|CGGlyph|CGFontIndex|CTFontTableTag|NSComparisonResult|CFComparisonResult)", base):
         return "integer"
-    if re.fullmatch(r"(?:NS|CF|CG|CT)[A-Za-z0-9_]*(?:Options|Flags|Mask|Style|Type|Unit|Mode|Kind|Format|Encoding|Result|State|Status|Policy|Level|Order|Direction|Phase|Quality|RoundingMode|Model|Intent|Info)", base):
+    if re.fullmatch(r"(?:NS|CF|CG|CT|CV|CM|Sec)[A-Za-z0-9_]*(?:Options|Flags|Mask|Style|Type|Unit|Mode|Kind|Format|Encoding|Result|Return|State|Status|Policy|Level|Order|Direction|Phase|Quality|RoundingMode|Model|Intent|Info|Scale|Count|Index|Dimensions)", base):
+        return "integer"
+    if base in {"OSStatus", "OSErr", "OSType", "FourCharCode", "CMItemCount", "CMItemIndex", "CMTimeScale", "CMVideoCodecType", "CMMediaType", "CVReturn"}:
         return "integer"
     return None
 
 
 def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name: str,
-             nonempty_objects: bool = False) -> tuple[str, list[str], list[str]] | tuple[None, str, None]:
+             nonempty_objects: bool = False, framework: str = "") -> tuple[str, list[str], list[str]] | tuple[None, str, None]:
     """Return expression, declarations, output readers; reject unsafe unknown pointers."""
     qtype = parameter.get("type", "")
     clean = _clean_type(qtype)
@@ -338,6 +417,34 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
     local = f"typed_arg_{index}"
     if _is_function_pointer(qtype):
         return None, "callback parameters need API-specific safe blocks", None
+    if framework == "CoreServices" and base == "CFStringRef" and function_name.startswith("UTType"):
+        lower = name.lower()
+        if "tagclass" in lower:
+            return "(CFStringRef)kUTTagClassFilenameExtension", [], []
+        if "conforming" in lower:
+            return '(CFStringRef)CFSTR("public.image")', [], []
+        if "tag" in lower:
+            return f'(CFStringRef)(({case_index} & 1) ? CFSTR("png") : CFSTR("txt"))', [], []
+        if any(word in lower for word in ("uti", "identifier", "type")):
+            return f'(CFStringRef)(({case_index} & 1) ? CFSTR("public.jpeg") : CFSTR("public.plain-text"))', [], []
+    if framework == "CoreVideo" and "*" not in clean and base in {"CFDictionaryRef", "CFMutableDictionaryRef"} and function_name.startswith("CVPixelBuffer"):
+        return f"({qtype})auto_cv_attributes({case_index}, {json.dumps(function_name)}, {json.dumps(name)})", [], []
+    if "*" not in clean and base.startswith("CV") and base.endswith("Ref"):
+        if framework == "CoreVideo" or framework == "CoreMedia":
+            expr = f"({qtype})auto_cv_input(\"{base}\", {case_index}, {json.dumps(function_name)}, {json.dumps(name)})"
+            if parameter.get("nullable"):
+                expr = f"({qtype})({case_index} == 7 ? NULL : {expr})"
+            return expr, [], []
+    if "*" not in clean and base.startswith("CM") and base.endswith("Ref"):
+        expr = f"({qtype})auto_cm_input(\"{base}\", {case_index}, {json.dumps(function_name)}, {json.dumps(name)})"
+        if parameter.get("nullable"):
+            expr = f"({qtype})({case_index} == 7 ? NULL : {expr})"
+        return expr, [], []
+    if "*" not in clean and base.startswith("Sec") and base.endswith("Ref"):
+        expr = f"({qtype})auto_security_input(\"{base}\", {case_index}, {json.dumps(function_name)}, {json.dumps(name)})"
+        if parameter.get("nullable"):
+            expr = f"({qtype})({case_index} == 7 ? NULL : {expr})"
+        return expr, [], []
     if base == "CFAllocatorRef":
         if "deallocator" in name.lower():
             return "kCFAllocatorNull", [], []
@@ -437,6 +544,16 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
     if function_name == "CTFramesetterSuggestFrameSizeWithConstraints" and name.lower() == "frameattributes":
         return f"({qtype})NULL", [], []
 
+    if framework == "CoreVideo" and base == "OSType":
+        return f"({qtype})(({case_index} & 1) ? kCVPixelFormatType_32BGRA : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)", [], []
+    if framework == "CoreMedia":
+        if base in {"OSType", "FourCharCode", "CMMediaType"}:
+            if "mediaType" in name.lower():
+                return f"({qtype})kCMMediaType_Video", [], []
+            if "codec" in name.lower() or "subtype" in name.lower():
+                return f"({qtype})kCMVideoCodecType_JPEG", [], []
+            return f"({qtype})'vide'", [], []
+
     if function_name == "CFNumberCreate" and _pointer_depth(qtype) == 1 and "void" in base and "value" in name.lower():
         decl = f"static const int64_t {local}[] = {{0, 1, -1, INT64_MAX, INT64_MIN, 42, -257, 255}};"
         return f"(const void *)&{local}[{case_index} % (sizeof({local}) / sizeof({local}[0]))]", [decl], []
@@ -484,6 +601,16 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
             return f"CFRangeMake(0, (CFIndex)({case_index} & 1))", [], []
         return None, "NSRange is unavailable in this CoreFoundation C input context", None
     if scalar_kind == "struct":
+        if base == "CMTime":
+            return f"({qtype})auto_cm_time({case_index})", [], []
+        if base == "CMTimeRange":
+            return f"({qtype})auto_cm_time_range({case_index})", [], []
+        if base == "CMTimeMapping":
+            return f"({qtype})auto_cm_time_mapping({case_index})", [], []
+        if base == "CMSampleTimingInfo":
+            return f"({qtype})auto_cm_sample_timing({case_index})", [], []
+        if base == "CMVideoDimensions":
+            return f"({qtype}){{(int32_t)(320 + ({case_index} & 1) * 160), (int32_t)(240 + ({case_index} & 1) * 120)}}", [], []
         if base in ("NSRect", "NSPoint", "NSSize"):
             constructor = {"NSRect": "NSMakeRect(1, 2, 5, 7)", "NSPoint": "NSMakePoint(3, -2)",
                            "NSSize": "NSMakeSize(4, 6)"}[base]
@@ -525,6 +652,22 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
             reader = f"auto_print(auto_canonical([NSDecimalNumber decimalNumberWithDecimal:{local}]));"
             return f"({qtype})&{local}", declarations, [reader]
         pointee_type = re.sub(r"\s*\*+", "", clean).strip()
+        if framework == "CoreMedia" and depth == 1 and pointee_type in {
+            "CMTime", "CMTimeRange", "CMTimeMapping", "CMSampleTimingInfo", "CMVideoDimensions"
+        }:
+            if "const" in qtype:
+                expression = {
+                    "CMTime": f"auto_cm_time({case_index})",
+                    "CMTimeRange": f"auto_cm_time_range({case_index})",
+                    "CMTimeMapping": f"auto_cm_time_mapping({case_index})",
+                    "CMSampleTimingInfo": f"auto_cm_sample_timing({case_index})",
+                    "CMVideoDimensions": "(CMVideoDimensions){640, 480}",
+                }[pointee_type]
+                decl = f"const {pointee_type} {local} = {expression};"
+                return f"({qtype})&{local}", [decl], []
+            decl = f"{pointee_type} {local} = {{0}};"
+            reader = _c_return(pointee_type, local)[0]
+            return f"({qtype})&{local}", [decl], [reader]
         if depth == 1 and pointee_type == "CGFloat" and "const" in qtype:
             if function_name == "CGColorSpaceCreateCalibratedGray":
                 values = "0.95047, 1.0, 1.08883" if "white" in name.lower() else "0, 0, 0"
@@ -676,6 +819,16 @@ def _c_return(type_name: str, variable: str = "typed_result") -> tuple[str | Non
         return f"auto_print_cf((CFTypeRef){variable});", None
     if _is_objc_object(clean):
         return f"auto_print(auto_canonical({variable}));", None
+    if base == "CMTime":
+        return f"auto_print_cm_time({variable});", None
+    if base == "CMTimeRange":
+        return f"auto_print_cm_time_range({variable});", None
+    if base == "CMTimeMapping":
+        return f"auto_print_cm_time_mapping({variable});", None
+    if base == "CMSampleTimingInfo":
+        return f"auto_print_cm_sample_timing({variable});", None
+    if base == "CMVideoDimensions":
+        return f'printf("dimensions:%d,%d", {variable}.width, {variable}.height);', None
     if "*" in clean:
         if "char *" in clean:
             return f"auto_print_cstring((const char *){variable});", None
@@ -717,7 +870,8 @@ def _c_return(type_name: str, variable: str = "typed_result") -> tuple[str | Non
     return None, f"unsupported return type {type_name}"
 
 
-def _make_c_function(function: dict, enum_values: list[dict], finch_symbols: set[str]) -> tuple[str | None, str | None]:
+def _make_c_function(function: dict, enum_values: list[dict], finch_symbols: set[str],
+                     framework: str = "") -> tuple[str | None, str | None]:
     name = function["name"]
     reason = _skip_reason(name)
     if reason:
@@ -745,7 +899,7 @@ def _make_c_function(function: dict, enum_values: list[dict], finch_symbols: set
                            for p in parameters)
     for index, parameter in enumerate(parameters):
         declarations.append(f"const size_t typed_case_{index} = (case_index * {index * 2 + 1} + {index}) % {MAX_CASES};")
-        expr, decl, out = _c_input(parameter, index, enum_values, name, nonempty_objects)
+        expr, decl, out = _c_input(parameter, index, enum_values, name, nonempty_objects, framework)
         if expr is None:
             return None, decl
         declarations.extend(decl)
@@ -1448,6 +1602,20 @@ static CFTypeRef auto_cf_input(const char *type, size_t index, int nonempty,
     CFRelease(s); CFRelease(number); CFRelease(data); CFRelease(date); return NULL;
 }
 
+static CFStringRef auto_type_name(CFTypeID type)
+{
+    CFStringRef name = CFCopyTypeIDDescription(type);
+    if (name && CFEqual(name, CFSTR("FigClock"))) {
+        CFRelease(name);
+        return CFStringCreateCopy(kCFAllocatorDefault, CFSTR("CMClock"));
+    }
+    if (name && CFEqual(name, CFSTR("FigTimebase"))) {
+        CFRelease(name);
+        return CFStringCreateCopy(kCFAllocatorDefault, CFSTR("CMTimebase"));
+    }
+    return name;
+}
+
 static CFStringRef auto_cf_canonical(CFTypeRef value)
 {
     if (!value) return CFStringCreateCopy(kCFAllocatorDefault, CFSTR("null"));
@@ -1524,7 +1692,14 @@ static CFStringRef auto_cf_canonical(CFTypeRef value)
         CFDictionaryGetKeysAndValues(dictionary, keys, values);
         CFMutableArrayRef pairs = CFArrayCreateMutable(kCFAllocatorDefault, count, &kCFTypeArrayCallBacks);
         for (CFIndex i = 0; i < count; i++) {
-            CFStringRef key = auto_cf_canonical(keys[i]), val = auto_cf_canonical(values[i]);
+            CFStringRef key = auto_cf_canonical(keys[i]);
+            CFStringRef val;
+            if (CFGetTypeID(keys[i]) == CFStringGetTypeID() &&
+                CFEqual(keys[i], CFSTR("FillExtendedPixelsCallback")) &&
+                CFGetTypeID(values[i]) == CFDataGetTypeID())
+                val = CFStringCreateCopy(kCFAllocatorDefault, CFSTR("function-pointer"));
+            else
+                val = auto_cf_canonical(values[i]);
             CFStringRef pair = CFStringCreateWithFormat(kCFAllocatorDefault, NULL, CFSTR("%@=%@"), key, val);
             CFArrayAppendValue(pairs, pair); CFRelease(key); CFRelease(val); CFRelease(pair);
         }
@@ -1552,7 +1727,7 @@ static CFStringRef auto_cf_canonical(CFTypeRef value)
         CFStringRef result = CFStringCreateWithFormat(kCFAllocatorDefault, NULL, CFSTR("attributed:%@"), inner);
         CFRelease(inner); return result;
     }
-    CFStringRef typeName = CFCopyTypeIDDescription(type);
+    CFStringRef typeName = auto_type_name(type);
     if (!typeName) return CFStringCreateCopy(kCFAllocatorDefault, CFSTR("object:opaque"));
     CFMutableStringRef out = CFStringCreateMutable(kCFAllocatorDefault, 0);
     CFStringAppend(out, CFSTR("object:type:")); CFStringAppend(out, typeName); CFRelease(typeName);
@@ -1572,7 +1747,7 @@ static void auto_print_cf(CFTypeRef value)
 static void auto_print_typeid(CFTypeID type)
 {
     if (type == CFMessagePortGetTypeID()) { fputs("typeid:CFMessagePort", stdout); return; }
-    CFStringRef description = CFCopyTypeIDDescription(type);
+    CFStringRef description = auto_type_name(type);
     if (!description) { fputs("typeid:unknown", stdout); return; }
     CFIndex capacity = CFStringGetMaximumSizeForEncoding(CFStringGetLength(description), kCFStringEncodingUTF8) + 1;
     char *bytes = malloc((size_t)capacity);
@@ -3295,11 +3470,16 @@ def prepare(framework: str, c_items: set[str], objc_items: set[str], swift_items
     skipped: dict[str, str] = {}
 
     for name in sorted(c_items - manual_names):
+        scope_reason = _framework_scope_reason(
+            framework, name, variable=name in variable_by_name and name not in function_by_name)
+        if scope_reason:
+            skipped[name] = scope_reason
+            continue
         if framework == "AppKit" and not _appkit_c_scope(name, name in variable_by_name):
             skipped[name] = "outside the selected AppKit headless API scope"
             continue
         if name in function_by_name:
-            source, reason = _make_c_function(function_by_name[name], enum_values, finch_symbols)
+            source, reason = _make_c_function(function_by_name[name], enum_values, finch_symbols, framework)
             if source:
                 auto_c.append({"name": name, "category": f"auto/c/{_category(name)}", "source": source,
                                "kind": "function", "signature": function_by_name[name]["type"]})

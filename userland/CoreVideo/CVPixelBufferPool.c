@@ -84,6 +84,27 @@ get_size(CFDictionaryRef d, CFStringRef key, size_t *out)
     return true;
 }
 
+static CFDictionaryRef
+copy_pixel_buffer_attributes(CFAllocatorRef allocator, CFDictionaryRef attributes)
+{
+    CFMutableDictionaryRef copy = CFDictionaryCreateMutableCopy(allocator, 0, attributes);
+    if (!copy)
+        return NULL;
+    CFTypeRef surface = CFDictionaryGetValue(copy, kCVPixelBufferIOSurfacePropertiesKey);
+    if (surface && CFGetTypeID(surface) == CFDictionaryGetTypeID()) {
+        CFMutableDictionaryRef properties = CFDictionaryCreateMutableCopy(allocator, 0, surface);
+        if (properties && !CFDictionaryContainsKey(properties, CFSTR("IOSurfacePurgeWhenNotInUse"))) {
+            CFDictionarySetValue(properties, CFSTR("IOSurfacePurgeWhenNotInUse"), kCFBooleanTrue);
+            CFDictionarySetValue(copy, kCVPixelBufferIOSurfacePropertiesKey, properties);
+        }
+        if (properties)
+            CFRelease(properties);
+    }
+    CFDictionaryRef result = CFDictionaryCreateCopy(allocator, copy);
+    CFRelease(copy);
+    return result;
+}
+
 CVReturn
 CVPixelBufferPoolCreate(CFAllocatorRef allocator, CFDictionaryRef poolAttributes, CFDictionaryRef pixelBufferAttributes,
                         CVPixelBufferPoolRef *poolOut)
@@ -104,7 +125,7 @@ CVPixelBufferPoolCreate(CFAllocatorRef allocator, CFDictionaryRef poolAttributes
         return kCVReturnAllocationFailed;
     pthread_mutex_init(&p->lock, NULL);
     p->width = w, p->height = h, p->format = (OSType)f;
-    p->bufferAttributes = CFDictionaryCreateCopy(allocator, pixelBufferAttributes);
+    p->bufferAttributes = copy_pixel_buffer_attributes(allocator, pixelBufferAttributes);
     p->poolAttributes = poolAttributes ? CFDictionaryCreateCopy(allocator, poolAttributes)
                                        : CFDictionaryCreate(allocator, NULL, NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     CFTypeRef age = CFDictionaryGetValue(p->poolAttributes, kCVPixelBufferPoolMaximumBufferAgeKey);

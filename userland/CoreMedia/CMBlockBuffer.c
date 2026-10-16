@@ -440,6 +440,8 @@ CMBlockBufferFillDataBytes(char fillByte, CMBlockBufferRef destinationBuffer, si
 {
     if (!destinationBuffer)
         return kCMBlockBufferBadPointerParameterErr;
+    if (!dataLength)
+        return offsetIntoDestination <= destinationBuffer->length ? kCMBlockBufferNoErr : kCMBlockBufferBadOffsetParameterErr;
     OSStatus e = check_range(destinationBuffer, offsetIntoDestination, dataLength);
     return e ? e : each_run(destinationBuffer, offsetIntoDestination, dataLength, true, fill, &fillByte);
 }

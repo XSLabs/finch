@@ -81,7 +81,7 @@ CMTime
 CMClockMakeHostTimeFromSystemUnits(uint64_t hostTime)
 {
     mach_timebase_info_data_t i = ticks();
-    return CMTimeMake((int64_t)((__uint128_t)hostTime * i.numer / i.denom), 1000000000);
+    return CMTimeMake((int64_t)((__int128)(int64_t)hostTime * i.numer / i.denom), 1000000000);
 }
 
 uint64_t
@@ -89,8 +89,7 @@ CMClockConvertHostTimeToSystemUnits(CMTime hostTime)
 {
     if (!CMTIME_IS_NUMERIC(hostTime))
         return 0;
-    /* (by way of nanoseconds, each step truncated, as Apple's) */
-    CMTime ns = CMTimeConvertScale(hostTime, 1000000000, kCMTimeRoundingMethod_RoundTowardZero);
+    CMTime ns = CMTimeConvertScale(hostTime, 1000000000, kCMTimeRoundingMethod_Default);
     mach_timebase_info_data_t i = ticks();
     return (uint64_t)((__int128)ns.value * i.denom / i.numer);
 }

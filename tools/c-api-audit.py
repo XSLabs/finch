@@ -350,9 +350,9 @@ def sdk_declarations(name, framework_path=None):
     return {symbol: sorted(headers)[0] for symbol, headers in declarations.items()}
 
 
-def sdk_declaration_details(name):
+def sdk_declaration_details(name, framework_path=None):
     """Return public C and Objective-C declaration signatures from the same SDK AST."""
-    ast, header_root, header_paths = sdk_ast(name)
+    ast, header_root, header_paths = sdk_ast(name, framework_path)
     sources = {}
     header_lines = {path: Path(path).read_text(errors="replace").splitlines() for path in header_paths}
     functions = {}

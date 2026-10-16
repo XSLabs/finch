@@ -55,6 +55,23 @@ round_half_away(double x)
     return x < 0 ? -floor(-x + 0.5) : floor(x + 0.5);
 }
 
+static CMTime
+make_rounded_time(double seconds, int32_t timescale)
+{
+    if (timescale <= 0 || isnan(seconds))
+        return kCMTimeInvalid;
+    if (isinf(seconds))
+        return seconds > 0 ? kCMTimePositiveInfinity : kCMTimeNegativeInfinity;
+    long double exact = (long double)seconds * timescale;
+    long double rounded = exact < 0 ? ceill(exact - 0.5L) : floorl(exact + 0.5L);
+    if (rounded > (long double)INT64_MAX || rounded < (long double)INT64_MIN)
+        return rounded < 0 ? kCMTimeNegativeInfinity : kCMTimePositiveInfinity;
+    CMTime time = {(int64_t)rounded, timescale, kCMTimeFlags_Valid, 0};
+    if (rounded != exact)
+        time.flags |= kCMTimeFlags_HasBeenRounded;
+    return time;
+}
+
 CMTime
 CMTimeMakeWithSeconds(Float64 seconds, int32_t preferredTimescale)
 {
@@ -319,17 +336,20 @@ CMTimeMultiplyByFloat64(CMTime time, Float64 multiplier)
 CMTime
 CMTimeMultiplyByRatio(CMTime time, int32_t multiplier, int32_t divisor)
 {
-    if (!VALID(time) || divisor == 0)
+    if (!VALID(time))
         return kCMTimeInvalid;
     if (INDEF(time))
         return time;
     if (POSINF(time) || NEGINF(time))
         return multiplier == 0 ? kCMTimeInvalid : infinity_like(NEGINF(time) != ((multiplier < 0) != (divisor < 0)));
-    if (divisor < 0)
-        multiplier = -multiplier, divisor = -divisor;
+    if (divisor == 0)
+        return !time.value || !multiplier ? kCMTimeInvalid : infinity_like((time.value < 0) != (multiplier < 0));
+    int64_t numeratorFactor = multiplier, denominatorFactor = divisor;
+    if (denominatorFactor < 0)
+        numeratorFactor = -numeratorFactor, denominatorFactor = -denominatorFactor;
     /* the exact time: value*multiplier / (timescale*divisor), in lowest terms */
-    __int128 num = (__int128)time.value * multiplier, den = (__int128)time.timescale * divisor;
-    int64_t g = gcd(multiplier < 0 ? -(int64_t)multiplier : multiplier, divisor);
+    __int128 num = (__int128)time.value * numeratorFactor, den = (__int128)time.timescale * denominatorFactor;
+    int64_t g = gcd(numeratorFactor < 0 ? -numeratorFactor : numeratorFactor, denominatorFactor);
     if (g > 1) {
         num /= g;
         den /= g;
@@ -338,7 +358,7 @@ CMTimeMultiplyByRatio(CMTime time, int32_t multiplier, int32_t divisor)
         CMTime t = {(int64_t)num, (int32_t)den, time.flags, time.epoch};
         return t;
     }
-    if (den <= INT32_MAX && num <= INT64_MAX && num >= INT64_MIN && time.timescale * (int64_t)divisor == den && den > MAX_TIMESCALE &&
+    if (den <= INT32_MAX && num <= INT64_MAX && num >= INT64_MIN && time.timescale * denominatorFactor == den && den > MAX_TIMESCALE &&
         time.timescale > MAX_TIMESCALE) {
         CMTime t = {(int64_t)num, (int32_t)den, time.flags, time.epoch};
         return t;
@@ -505,6 +525,8 @@ const CMTimeRange kCMTimeRangeInvalid = {{0, 0, 0, 0}, {0, 0, 0, 0}};
 CMTimeRange
 CMTimeRangeMake(CMTime start, CMTime duration)
 {
+    if (!VALID(start) || !VALID(duration) || duration.epoch != 0)
+        return kCMTimeRangeInvalid;
     CMTimeRange r = {start, duration};
     return r;
 }
@@ -518,6 +540,8 @@ CMTimeRangeGetEnd(CMTimeRange range)
 CMTimeRange
 CMTimeRangeFromTimeToTime(CMTime start, CMTime end)
 {
+    if (!VALID(start) || !VALID(end) || CMTimeCompare(end, start) < 0)
+        return kCMTimeRangeInvalid;
     return CMTimeRangeMake(start, CMTimeSubtract(end, start));
 }
 
@@ -573,18 +597,25 @@ CMTimeClampToRange(CMTime time, CMTimeRange range)
 CMTime
 CMTimeMapTimeFromRangeToRange(CMTime t, CMTimeRange fromRange, CMTimeRange toRange)
 {
+    if (!NUMERIC(t) || !NUMERIC(fromRange.start) || !NUMERIC(fromRange.duration) ||
+        !NUMERIC(toRange.start) || !NUMERIC(toRange.duration) || t.epoch != fromRange.start.epoch)
+        return kCMTimeInvalid;
     CMTime offset = CMTimeSubtract(t, fromRange.start);
     double f = CMTimeGetSeconds(fromRange.duration);
     double scaled = f != 0 ? CMTimeGetSeconds(offset) * CMTimeGetSeconds(toRange.duration) / f : 0;
-    return CMTimeAdd(toRange.start, CMTimeMakeWithSeconds(scaled, MAX_TIMESCALE));
+    CMTime result = CMTimeAdd(toRange.start, make_rounded_time(scaled, MAX_TIMESCALE));
+    result.epoch = 0;
+    return result;
 }
 
 CMTime
 CMTimeMapDurationFromRangeToRange(CMTime dur, CMTimeRange fromRange, CMTimeRange toRange)
 {
+    if (!NUMERIC(dur) || !NUMERIC(fromRange.duration) || !NUMERIC(toRange.duration) || dur.epoch != 0)
+        return kCMTimeInvalid;
     double f = CMTimeGetSeconds(fromRange.duration);
     double scaled = f != 0 ? CMTimeGetSeconds(dur) * CMTimeGetSeconds(toRange.duration) / f : 0;
-    return CMTimeMakeWithSeconds(scaled, MAX_TIMESCALE);
+    return make_rounded_time(scaled, MAX_TIMESCALE);
 }
 
 /* A time folded into a range, as if the range repeated. */
@@ -601,7 +632,7 @@ CMTimeFoldIntoRange(CMTime time, CMTimeRange foldRange)
     int64_t m = x.value % y.value;
     if (m < 0)
         m += y.value;
-    CMTime folded = {m, ts, kCMTimeFlags_Valid, 0};
+    CMTime folded = {m, ts, kCMTimeFlags_Valid, time.epoch};
     return CMTimeAdd(foldRange.start, folded);
 }
 

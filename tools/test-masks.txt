@@ -18,6 +18,12 @@ ruler-test s#units (Centimeters|Inches|Points|Picas)#units UNITS#
 # Spotlight's attributes for a file just made: which of Apple's are filled in depends on how far
 # this Mac's index has got with it (the attributes' names are still compared)
 coreservices-test s#^(kMDItem[A-Za-z]+): .*#\1: X#
+# A fresh file may not be indexed yet, so these values can be absent on one run and present on
+# another. Keep the file type checks, but ignore whether Spotlight has filled in these values.
+coreservices-test s#^dates content [01] creation [01]$#dates content X creation X#
+coreservices-test s#^attributes .*#attributes X#
+coreservices-test s#^(dir type [^ ]+ count) .*#\1 X#
+coreservices-test s#^(app type [^ ]+ id) .*#\1 X#
 # this Mac's window list changes between the test's calls as other apps open and close windows
 utilities-test s#^window list: .*#window list: X#
 # whether a dynamic store can watch keys: only with configd, which Apple's host has and the

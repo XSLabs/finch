@@ -785,9 +785,7 @@ CVPixelBufferCreateResolvedAttributesDictionary(CFAllocatorRef allocator, CFArra
         }
         free(keys);
     }
-    if (CFArrayGetCount(formats) == 1)
-        CFDictionarySetValue(out, kCVPixelBufferPixelFormatTypeKey, CFArrayGetValueAtIndex(formats, 0));
-    else if (CFArrayGetCount(formats) > 1)
+    if (CFArrayGetCount(formats) > 0)
         CFDictionarySetValue(out, kCVPixelBufferPixelFormatTypeKey, formats);
     CFRelease(formats);
     *resolvedDictionaryOut = out;

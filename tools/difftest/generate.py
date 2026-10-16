@@ -29,6 +29,14 @@ _TYPED = importlib.util.module_from_spec(_TYPED_SPEC)
 sys.modules[_TYPED_SPEC.name] = _TYPED
 _TYPED_SPEC.loader.exec_module(_TYPED)
 
+_FRAMEWORKS_SPEC = importlib.util.spec_from_file_location(
+    "finch_difftest_frameworks", Path(__file__).with_name("frameworks.py"))
+if not _FRAMEWORKS_SPEC or not _FRAMEWORKS_SPEC.loader:
+    raise RuntimeError("could not load framework-specific comparison cases")
+_FRAMEWORKS = importlib.util.module_from_spec(_FRAMEWORKS_SPEC)
+sys.modules[_FRAMEWORKS_SPEC.name] = _FRAMEWORKS
+_FRAMEWORKS_SPEC.loader.exec_module(_FRAMEWORKS)
+
 WORDS = [
     "", "a", "A", "abc", "ABC", "Straße", "STRASSE", "café", "cafe\u0301",
     "Ångström", "e\u0301", "é", "İstanbul", "東京", "עברית", "العربية",
@@ -1373,7 +1381,22 @@ def c_declaration_details(framework: str) -> dict:
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    return module.sdk_declaration_details(framework)
+    details = module.sdk_declaration_details(framework)
+    if framework != "CoreServices":
+        return details
+
+    sdk = Path(subprocess.run(["xcrun", "--sdk", "macosx", "--show-sdk-path"], check=True,
+                              capture_output=True, text=True).stdout.strip())
+    nested = sdk / "System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks"
+    for child in ("CarbonCore", "LaunchServices"):
+        path = nested / f"{child}.framework"
+        child_details = module.sdk_declaration_details(child, str(path))
+        for key in ("functions", "variables", "methods"):
+            by_name = {item["name"]: item for item in details[key]}
+            by_name.update({item["name"]: item for item in child_details[key]})
+            details[key] = sorted(by_name.values(), key=lambda item: item["name"])
+        details["enum_values"].extend(child_details["enum_values"])
+    return details
 
 
 def c_export_inventory(framework: str) -> set[str]:
@@ -1385,7 +1408,18 @@ def c_export_inventory(framework: str) -> set[str]:
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    return module.finch_exports(framework)
+    exports = module.finch_exports(framework)
+    if framework != "CoreServices":
+        return exports
+    nested = ROOT / "build/root/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks"
+    for child in ("CarbonCore", "LaunchServices"):
+        binary = nested / f"{child}.framework/Versions/A/{child}"
+        if not binary.is_file():
+            continue
+        result = subprocess.run(["nm", "-gU", "-arch", "arm64e", str(binary)],
+                                check=True, capture_output=True, text=True)
+        exports.update(line.split()[-1] for line in result.stdout.splitlines() if line.split())
+    return exports
 
 
 def objc_inventory(framework: str) -> set[str]:
@@ -1425,7 +1459,23 @@ def swift_inventory(framework: str) -> set[str]:
 def generate(framework: str, output_dir: Path) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     manual_metadata = {}
-    if framework in GRAPHICS_CASES:
+    if framework in _FRAMEWORKS.CASES:
+        cases = _FRAMEWORKS.CASES[framework]
+        tested = [(name, category) for name, category, _comparison in cases]
+        manual_metadata = {name: comparison for name, _category, comparison in cases if comparison}
+        source = _FRAMEWORKS.SOURCE.replace("/* FRAMEWORK_IMPORTS */", _FRAMEWORKS.IMPORTS[framework])
+        source = source.replace("/* STRING_TABLE */", string_table())
+        source = source.replace("/* FRAMEWORK_SUPPORT_SOURCE */", _FRAMEWORKS.SUPPORT_SOURCE.get(framework, ""))
+        source = source.replace("/* MANUAL_C_SOURCE */", _FRAMEWORKS.MANUAL_SOURCE[framework])
+        entries = []
+        for name, _category in tested:
+            function_name = _FRAMEWORKS.ENTRY_NAMES.get(framework, {}).get(name)
+            if function_name is None:
+                function_name = "test_" + re.sub(r"\W+", "_", name)
+            entries.append(f'    {{ "{name}", {function_name} }},')
+        source = source.replace("/* MANUAL_C_ENTRIES */", "\n".join(entries))
+        filename = f"{framework}.m"
+    elif framework in GRAPHICS_CASES:
         cases = GRAPHICS_CASES[framework]
         tested = [(name, category) for name, category, _comparison in cases]
         manual_metadata = {name: comparison for name, _category, comparison in cases if comparison}
@@ -1460,6 +1510,10 @@ def generate(framework: str, output_dir: Path) -> dict:
 
     details = c_declaration_details(framework)
     c_items = c_inventory(framework, details)
+    if framework == "CoreServices":
+        # These CoreFoundation URL calls share the old FSRef conversion path
+        # with CarbonCore, so keep their fixtures with CoreServices.
+        c_items.update({"CFURLCreateFromFSRef", "CFURLGetFSRef"})
     objc_items = objc_inventory(framework)
     swift_items = swift_inventory(framework)
     declared = c_items | objc_items | swift_items
@@ -1503,7 +1557,8 @@ def generate(framework: str, output_dir: Path) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("framework", choices=("CoreFoundation", "Foundation", "CoreGraphics", "CoreText", "ImageIO", "AppKit"))
+    parser.add_argument("framework", choices=("CoreFoundation", "Foundation", "CoreGraphics", "CoreText", "ImageIO", "AppKit",
+                                               "Security", "CoreVideo", "CoreMedia", "CoreServices"))
     parser.add_argument("--output-dir", type=Path, default=BUILD)
     args = parser.parse_args()
     try:

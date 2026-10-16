@@ -119,7 +119,10 @@ typedef struct {
 	CFRuntimeBase base;
 	EVP_PKEY *key;
 	bool private;
+	/* Public keys carry different attribute defaults depending on how Security made them. */
+	int attributeSource;
 } Key;
+enum {KeyAttributesDefault, KeyAttributesPublicCopy, KeyAttributesTrust};
 typedef struct {
 	CFRuntimeBase base;
 	CFDictionaryRef properties;
@@ -436,9 +439,12 @@ static SecKeyRef wrapKey(EVP_PKEY *p, bool secret)
 }
 SecKeyRef SecCertificateCopyKey(SecCertificateRef c)
 {
-	return valid(c, SecCertificateGetTypeID())
-	    ? wrapKey(X509_get_pubkey(((Certificate *)c)->cert), false)
-	    : NULL;
+	if (!valid(c, SecCertificateGetTypeID()))
+		return NULL;
+	Key *key = (Key *)wrapKey(X509_get_pubkey(((Certificate *)c)->cert), false);
+	if (key)
+		key->attributeSource = KeyAttributesPublicCopy;
+	return (SecKeyRef)key;
 }
 OSStatus SecCertificateCopyPublicKey(SecCertificateRef c, SecKeyRef *out)
 {
@@ -605,7 +611,10 @@ SecKeyRef SecKeyCopyPublicKey(SecKeyRef ref)
 	const unsigned char *p = out;
 	EVP_PKEY *k = n > 0 ? d2i_PUBKEY(NULL, &p, n) : NULL;
 	OPENSSL_free(out);
-	return wrapKey(k, false);
+	SecKeyRef result = wrapKey(k, false);
+	if (result && ((Key *)ref)->private)
+		((Key *)result)->attributeSource = KeyAttributesPublicCopy;
+	return result;
 }
 size_t SecKeyGetBlockSize(SecKeyRef ref)
 {
@@ -838,18 +847,28 @@ CFDictionaryRef SecKeyCopyAttributes(SecKeyRef ref)
 	CFMutableDictionaryRef d = CFDictionaryCreateMutable(
 	    NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 	bool ec = isEC(k), priv = k->private;
+	bool publicCopy = ec && !priv && k->attributeSource == KeyAttributesPublicCopy;
 	CFDictionarySetValue(d, kSecAttrKeyType, ec ? kSecAttrKeyTypeECSECPrimeRandom : kSecAttrKeyTypeRSA);
 	CFDictionarySetValue(d, kSecAttrKeyClass, priv ? kSecAttrKeyClassPrivate : kSecAttrKeyClassPublic);
+	CFDictionarySetValue(d, kSecClass, kSecClassKey);
 	CFDictionarySetValue(d, kSecAttrKeySizeInBits, n);
 	CFDictionarySetValue(d, kSecAttrEffectiveKeySize, n);
-	CFDictionarySetValue(d, kSecAttrCanEncrypt, !priv && !ec ? kCFBooleanTrue : kCFBooleanFalse);
-	CFDictionarySetValue(d, kSecAttrCanDecrypt, priv && !ec ? kCFBooleanTrue : kCFBooleanFalse);
+	CFDictionarySetValue(d, kSecAttrCanEncrypt, !priv ? kCFBooleanTrue : kCFBooleanFalse);
+	CFDictionarySetValue(d, kSecAttrCanDecrypt, (priv || !ec) ? kCFBooleanTrue : kCFBooleanFalse);
 	CFDictionarySetValue(d, kSecAttrCanSign, priv ? kCFBooleanTrue : kCFBooleanFalse);
 	CFDictionarySetValue(d, kSecAttrCanVerify, !priv ? kCFBooleanTrue : kCFBooleanFalse);
-	CFDictionarySetValue(d, kSecAttrCanDerive, priv && ec ? kCFBooleanTrue : kCFBooleanFalse);
-	CFDictionarySetValue(d, kSecAttrIsPermanent, kCFBooleanFalse);
-	CFDictionarySetValue(d, kSecAttrCanWrap, kCFBooleanFalse);
-	CFDictionarySetValue(d, kSecAttrCanUnwrap, kCFBooleanFalse);
+	CFDictionarySetValue(d, kSecAttrCanDerive, ec && !publicCopy ? kCFBooleanTrue : kCFBooleanFalse);
+	CFDictionarySetValue(d, kSecAttrIsPermanent, (priv || !ec || publicCopy) ? kCFBooleanTrue : kCFBooleanFalse);
+	CFDictionarySetValue(d, kSecAttrIsSensitive, kCFBooleanFalse);
+	CFDictionarySetValue(d, kSecAttrIsExtractable, kCFBooleanTrue);
+	CFDictionarySetValue(d, kSecAttrCanWrap, (!priv && (!ec || publicCopy)) ? kCFBooleanTrue : kCFBooleanFalse);
+	CFDictionarySetValue(d, kSecAttrCanUnwrap, priv ? kCFBooleanTrue : kCFBooleanFalse);
+	CFDictionarySetValue(d, CFSTR("modi"), kCFBooleanTrue);
+	CFDictionarySetValue(d, CFSTR("asen"), kCFBooleanFalse);
+	CFDictionarySetValue(d, CFSTR("next"), kCFBooleanFalse);
+	CFDictionarySetValue(d, CFSTR("priv"), (priv || !ec || publicCopy) ? kCFBooleanTrue : kCFBooleanFalse);
+	CFDictionarySetValue(d, CFSTR("snrc"), kCFBooleanFalse);
+	CFDictionarySetValue(d, CFSTR("vyrc"), kCFBooleanFalse);
 	/* The application label is the SHA-1 of the public key bits, as Apple's. */
 	SecKeyRef pub = priv ? SecKeyCopyPublicKey(ref) : (SecKeyRef)CFRetain(ref);
 	CFDataRef bitsData = pub ? SecKeyCopyExternalRepresentation(pub, NULL) : NULL;
@@ -864,6 +883,11 @@ CFDictionaryRef SecKeyCopyAttributes(SecKeyRef ref)
 	}
 	if (pub)
 		CFRelease(pub);
+	CFDataRef representation = SecKeyCopyExternalRepresentation(ref, NULL);
+	if (representation) {
+		CFDictionarySetValue(d, kSecValueData, representation);
+		CFRelease(representation);
+	}
 	CFRelease(n);
 	return d;
 }
@@ -1391,7 +1415,10 @@ SecTrustRef SecTrustDeserialize(CFDataRef data, CFErrorRef *error)
 }
 SecKeyRef SecTrustCopyKey(SecTrustRef t)
 {
-	return SecCertificateCopyKey(SecTrustGetCertificateAtIndex(t, 0));
+	Key *key = (Key *)SecCertificateCopyKey(SecTrustGetCertificateAtIndex(t, 0));
+	if (key)
+		key->attributeSource = KeyAttributesTrust;
+	return (SecKeyRef)key;
 }
 SecKeyRef SecTrustCopyPublicKey(SecTrustRef t)
 {
@@ -1435,9 +1462,9 @@ CFAbsoluteTime SecTrustGetVerifyTime(SecTrustRef ref)
  * by OID, each {type, label, value}. Sections hold arrays of properties. */
 static CFDictionaryRef property(CFStringRef type, CFStringRef label, CFTypeRef value)
 {
-	const void *keys[] = {kSecPropertyKeyType, kSecPropertyKeyLabel, kSecPropertyKeyValue};
-	const void *values[] = {type, label, value};
-	return CFDictionaryCreate(NULL, keys, values, 3, &kCFTypeDictionaryKeyCallBacks,
+	const void *keys[] = {kSecPropertyKeyType, kSecPropertyKeyLabel, CFSTR("localized label"), kSecPropertyKeyValue};
+	const void *values[] = {type, label, label, value};
+	return CFDictionaryCreate(NULL, keys, values, 4, &kCFTypeDictionaryKeyCallBacks,
 	    &kCFTypeDictionaryValueCallBacks);
 }
 static void addProperty(CFMutableArrayRef a, CFStringRef type, CFStringRef label, CFTypeRef value)
@@ -1468,13 +1495,6 @@ static CFArrayRef copyNameProperties(X509_NAME *n)
 	}
 	return a;
 }
-static CFStringRef copyHexString(const unsigned char *p, size_t n)
-{
-	CFMutableStringRef s = CFStringCreateMutable(NULL, 0);
-	for (size_t i = 0; i < n; i++)
-		CFStringAppendFormat(s, NULL, i ? CFSTR(" %02X") : CFSTR("%02X"), p[i]);
-	return s;
-}
 static void setValue(CFMutableDictionaryRef d, CFArrayRef wanted, CFStringRef oid, CFStringRef type,
     CFStringRef label, CFTypeRef value)
 {
@@ -1497,9 +1517,14 @@ CFDictionaryRef SecCertificateCopyValues(SecCertificateRef ref, CFArrayRef oids,
 	setValue(d, oids, kSecOIDX509V1Version, kSecPropertyTypeString, CFSTR("Version"), version);
 	CFRelease(version);
 	const ASN1_INTEGER *serial = X509_get0_serialNumber(x);
-	CFStringRef sn = copyHexString(ASN1_STRING_get0_data(serial), ASN1_STRING_length(serial));
+	BIGNUM *serial_number = ASN1_INTEGER_to_BN(serial, NULL);
+	char *serial_text = serial_number ? BN_bn2dec(serial_number) : NULL;
+	CFStringRef sn = serial_text ? CFStringCreateWithCString(NULL, serial_text, kCFStringEncodingUTF8) : NULL;
 	setValue(d, oids, kSecOIDX509V1SerialNumber, kSecPropertyTypeString, CFSTR("Serial Number"), sn);
-	CFRelease(sn);
+	if (sn)
+		CFRelease(sn);
+	OPENSSL_free(serial_text);
+	BN_free(serial_number);
 	CFArrayRef subject = copyNameProperties(X509_get_subject_name(x));
 	setValue(d, oids, kSecOIDX509V1SubjectName, kSecPropertyTypeSection, CFSTR("Subject Name"), subject);
 	CFRelease(subject);
@@ -1518,10 +1543,13 @@ CFDictionaryRef SecCertificateCopyValues(SecCertificateRef ref, CFArrayRef oids,
 	if (alg) {
 		CFMutableArrayRef a = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
 		const ASN1_OBJECT *obj = NULL;
-		X509_ALGOR_get0(&obj, NULL, NULL, alg);
+		int parameter_type = V_ASN1_UNDEF;
+		X509_ALGOR_get0(&obj, &parameter_type, NULL, alg);
 		CFStringRef o = copyOIDString(obj);
 		addProperty(a, kSecPropertyTypeString, CFSTR("Algorithm"), o);
 		CFRelease(o);
+		if (parameter_type == V_ASN1_NULL)
+			addProperty(a, kSecPropertyTypeString, CFSTR("Parameters"), CFSTR("none"));
 		setValue(d, oids, kSecOIDX509V1SignatureAlgorithm, kSecPropertyTypeSection,
 		    CFSTR("Signature Algorithm"), a);
 		CFRelease(a);
@@ -1553,7 +1581,8 @@ CFDataRef SecKeyCopyKeyExchangeResult(SecKeyRef ref, SecKeyAlgorithm alg, SecKey
     CFDictionaryRef parameters, CFErrorRef *error)
 {
 	if (!SecKeyIsAlgorithmSupported(ref, kSecKeyOperationTypeKeyExchange, alg) ||
-	    !valid(other, SecKeyGetTypeID())) {
+	    !valid(other, SecKeyGetTypeID()) || ((Key *)other)->private ||
+	    (parameters && !valid(parameters, CFDictionaryGetTypeID()))) {
 		_SecSetError(error, errSecParam, NULL);
 		return NULL;
 	}

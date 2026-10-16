@@ -321,6 +321,8 @@ CVImageBufferCreateColorSpaceFromAttachments(CFDictionaryRef attachments)
         return NULL;
     int pc = CVColorPrimariesGetIntegerCodePointForString(pv), tc = CVTransferFunctionGetIntegerCodePointForString(tv);
     int mc = mv && CFGetTypeID(mv) == CFStringGetTypeID() ? CVYCbCrMatrixGetIntegerCodePointForString(mv) : 2;
+    if (pc == 1 && tc == 1 && mc == 1)
+        return CGColorSpaceCreateWithName(kCGColorSpaceCoreMedia709);
     if (pc == 9 && tc == 16)
         return CGColorSpaceCreateWithName(kCGColorSpaceITUR_2100_PQ);
     if (pc == 9 && tc == 18)
