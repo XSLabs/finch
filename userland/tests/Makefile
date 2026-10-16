@@ -1075,3 +1075,10 @@ $(OUT)/finch-tipkit-test: tipkit-test.swift
 	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -O -o $@ $(OUT)/main.swift
 	rm -f $(OUT)/main.swift
 	codesign -f -s - -i org.finch.test.tipkit $@
+
+# SecurityInterface and AuthenticationServices request values, checked against Apple's.
+all: $(OUT)/finch-auth-frameworks-test
+$(OUT)/finch-auth-frameworks-test: auth-frameworks-test.swift
+	@mkdir -p $(OUT)
+	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -O -o $@ $< -framework AppKit -framework SecurityInterface -framework AuthenticationServices
+	codesign -f -s - -i org.finch.test.auth-frameworks $@

@@ -235,6 +235,10 @@ steps=(
     "securityd|userland/securityd/build.sh"
     "pam-keychain|make -s -C userland/pam keychain"
     "SecurityFoundation|userland/SecurityFoundation/build.sh"
+    # Certificate, identity, keychain, and authorization panels over AppKit/Security.
+    "SecurityInterface|userland/SecurityInterface/build.sh"
+    # Web sign-in, Apple ID, and passkey request types; system services report unavailable.
+    "AuthenticationServices|userland/AuthenticationServices/build.sh"
     # DiskArbitration's client and daemon, from Apple's source.
     "DiskArbitration|userland/DiskArbitration/build.sh"
     "diskarbitrationd|userland/oss/DiskArbitration.daemon.build.sh"

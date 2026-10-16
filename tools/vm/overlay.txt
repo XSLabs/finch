@@ -298,3 +298,5 @@ build/userland/finch-printcore-test /usr/local/bin/finch-printcore-test
 build/userland/finch-symbols-test /usr/local/bin/finch-symbols-test
 build/userland/finch-applescript-test /usr/local/bin/finch-applescript-test
 build/userland/finch-appkit-gaps-test /usr/local/bin/finch-appkit-gaps-test
+build/root/System/Library/Frameworks/AuthenticationServices.framework/Versions/A/AuthenticationServices /System/iOSSupport/System/Library/Frameworks/AuthenticationServices.framework/Versions/A/AuthenticationServices
+build/userland/finch-auth-frameworks-test /usr/local/bin/finch-auth-frameworks-test

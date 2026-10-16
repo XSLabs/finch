@@ -80,6 +80,47 @@ XPC message. Apple-format trust exceptions and the old CSSM, search, and
 transform APIs remain unsupported; hardware keys and Apple assessment services
 also remain unavailable.
 
+## SecurityInterface and AuthenticationServices
+
+Finch's `SecurityInterface.framework` draws certificate, trust, identity,
+keychain and authorization UI with Finch's AppKit. Certificate panels read
+real `SecCertificate` and `SecTrust` objects, let the user move through a
+certificate chain, and show the certificate summary, expiry date and trust
+result. Accepting the trust panel writes the selected certificate's user trust
+setting through `SecTrustSettingsSetTrustSettings`; an error closes the panel
+as cancelled. The identity panel selects a real `SecIdentity` from the supplied
+list. It stores a requested domain on the panel, but cannot save a preferred
+identity for that domain because Finch Security does not provide Apple's
+`SecIdentitySetPreferred` call.
+
+The keychain save panel creates an encrypted file keychain through
+`SecKeychainCreate` and takes its password in a secure text field. The settings
+panel reads and writes the lock settings through Finch Security. Those settings
+are currently kept only in the calling process and do not lock keychains
+automatically. `SFAuthorizationView` checks and obtains its configured rights
+through `SFAuthorization` and sends state changes to its delegate. Authorization
+still runs inside the app; Finch has no shared authorization service or system
+password dialog. The plugin view can collect local input and report a missing
+system UI service, but cannot act as Apple's authorization plug-in host.
+
+Finch's `AuthenticationServices.framework` provides the request and credential
+objects apps use for web sign-in, Apple ID, passwords and passkeys. The
+authorization controller completes requests with Apple's public
+`ASAuthorizationErrorNotHandled` error because Finch has no Apple account or
+passkey broker. Password credential objects hold the values supplied by the
+app; they do not retrieve a saved password. The web session can hand a request
+to an app-registered browser handler, checks its callback URL or scheme, and
+reports cancellation or a missing handler through the completion block. Finch
+does not launch Apple's browser service, sign into Apple ID, or create and use
+passkeys. The browser-facing passkey manager reports that passkeys are not
+configured and returns no stored credentials.
+
+The framework versions and their app-facing request values are checked against
+Apple's SDK with `auth-frameworks-test`. `tools/api-audit.sh` also reports public
+classes Finch has not implemented, including account-provider and credential
+store UI. Passing the comparison test means the exercised request values match;
+it does not mean those missing system services are available.
+
 ## Console access
 
 Normal `finch-init` boots now start `/usr/bin/login`. A missing or failed login

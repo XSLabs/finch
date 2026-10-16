@@ -121,6 +121,10 @@ The install archive records file owners, permissions and hashes and passes
 required-library checks. Reboot persistence, broader network setup, real disk
 mounting, first-user setup, login password integration with the keychain, and the
 authorization service remain unfinished (`docs/design/SECURITY.md`).
+SecurityInterface adds certificate, trust, identity, keychain and authorization panels over
+AppKit and Security. AuthenticationServices builds Apple ID, password, web and passkey
+requests; Apple account and passkey requests return an unavailable-service error, while web
+authentication can use a registered browser handler (`docs/design/SECURITY.md`).
 
 Image Capture's frameworks are Finch's own
 (`docs/design/IMAGECAPTURE.md`): ImageCaptureCore's browser finds no cameras or
@@ -150,6 +154,8 @@ block-beta
         columns 4
         t6["App frameworks"]
         appkit["AppKit<br/>apps, windows, views, events,<br/>title bars, nib-loaded toolbars,<br/>drawing, nibs, storyboards,<br/>Auto Layout, stack views, text views and<br/>scrolling, tables, outlines and<br/>collection views (flow, grid and<br/>compositional layouts), menus and a menu bar,<br/>alerts, sheets, open and save panels,<br/>NSWorkspace (on the window server);<br/>Cocoa bindings and controllers,<br/>font and color panels, search/token/date controls,<br/>grids, popovers, drawers and rule editors;<br/>rulers, the find bar, text tables;<br/>animation groups and Touch Bar state;<br/>toolbar items, titlebar accessories,<br/>row actions, scrubbers, NSPreferences,<br/>file promises, glass views (slate);<br/>drag and drop (between apps<br/>through the window server);<br/>system and symbol images<br/>(Finch's own art);<br/>Fieldwork theme (Classic for Aqua compatibility);<br/>UIFoundation: fonts, string drawing,<br/>TextKit 1 and 2; Cocoa and<br/>ApplicationServices umbrellas"]
+        securityui["SecurityInterface<br/>certificate, trust, identity,<br/>keychain and authorization panels"]
+        authservices["AuthenticationServices<br/>web, Apple ID, password and<br/>passkey request APIs"]
         cg["CoreGraphics<br/>bitmap contexts, paths, images,<br/>gradients, patterns, fonts, text,<br/>shadows (over Skia, skcms);<br/>PDF writing (SkPDF), PDF reading<br/>and drawing (own parser);<br/>window server client, displays,<br/>Quartz events (posting, sources)"]
         imageio["ImageIO<br/>image sources, thumbnails,<br/>destinations, property keys<br/>(libpng, libjpeg-turbo, libwebp,<br/>wuffs, via Skia); TIFF (own codec)"]
         accelerate["Accelerate<br/>vDSP, vForce, vImage,<br/>BLAS and LAPACK calls<br/>apps import today;<br/>Finch's CPU routines"]
@@ -255,7 +261,7 @@ block-beta
     class t7,t6,t5,t4,t3,t2,t1,t0 layer
     class avplanned,kexts,metal planned
     class apps testapp
-    class opengl,later,mediaaddons,coreimage,services,contacts,cfnetwork,appsupport,shell,uti,appkit,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,coredata,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,accelerate finch
+    class opengl,later,mediaaddons,coreimage,services,contacts,cfnetwork,appsupport,shell,uti,appkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
     class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui,cmark,sqlite upstream
     class vz firmware
@@ -290,6 +296,8 @@ flowchart LR
     combine["Combine<br/>(OpenCombine + Finch)"]:::upstream
     gcore["GCoreFramework"]:::apple
     appkit["AppKit"]:::finch
+    securityui["SecurityInterface"]:::finch
+    authservices["AuthenticationServices"]:::finch
     uif["UIFoundation<br/>TextKit 1 and 2"]:::finch
     appservices["ApplicationServices"]:::finch
     quartz["Quartz"]:::finch
@@ -386,6 +394,16 @@ flowchart LR
     appkit -->|"re-exports"| appservices
     appkit --> cal
     appkit --> coreui
+    securityui --> appkit
+    securityui --> security
+    securityui --> ffound
+    securityui --> cf
+    securityui -->|"re-exports"| secfound
+    authservices --> appkit
+    authservices --> security
+    authservices --> ffound
+    authservices --> cf
+    authservices --> cgfw
     coreui --> ffound
     coreui --> cgfw
     coreui --> imageio
