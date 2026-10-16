@@ -919,6 +919,9 @@ and AppKit come in Phase 2).
         `finch-calayer-test` matches Apple's on the host and in the VM (2026-10-09).
         Animations keep their values but do not yet play; without a render server, added
         animations end on the next run-loop turn, as on Apple's off-screen layers.
+  - [x] Software CGL drawing for `CAOpenGLLayer` and `CARenderer` (2026-10-16).
+        Mesa writes into memory-backed CGL surfaces, then Finch composites the pixels with
+        CoreGraphics. `quartzcore-renderer-test` checks the pixels; there is no Metal path.
 - [ ] PDFKit (Apple's Quartz re-exports it; Finch's Quartz re-exports only QuartzCore and ImageKit
       so far), Quick Look UI, the rest of ImageKit (image browser and view, picture taker, slideshow)
 - [ ] Metal → Mesa

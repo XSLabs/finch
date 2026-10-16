@@ -5,9 +5,26 @@
  * Translate, Scale and Rotate apply their change before t.
  */
 #import <QuartzCore/QuartzCore.h>
+#import <Foundation/NSValue.h>
 #include <mach/mach_time.h>
 
 const CATransform3D CATransform3DIdentity = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+
+@implementation NSValue (CATransform3D)
+
++ (NSValue *)valueWithCATransform3D:(CATransform3D)t
+{
+    return [self valueWithBytes:&t objCType:@encode(CATransform3D)];
+}
+
+- (CATransform3D)CATransform3DValue
+{
+    CATransform3D t;
+    [self getValue:&t];
+    return t;
+}
+
+@end
 
 CFTimeInterval
 CACurrentMediaTime(void)

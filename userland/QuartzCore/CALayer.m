@@ -91,6 +91,11 @@ void FinchLayerDrawContentsImage(CALayer *layer, CGContextRef cg, CGRect r, CGIm
     return [[[self alloc] init] autorelease];
 }
 
++ (CGFloat)cornerCurveExpansionFactor:(CALayerCornerCurve)curve
+{
+    return [curve isEqualToString:kCACornerCurveContinuous] ? 1.528665 : 1.0;
+}
+
 - (instancetype)init
 {
     self = [super init];

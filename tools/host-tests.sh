@@ -53,7 +53,7 @@ COMPARE=(
 )
 # Finch-only window-server tests and their expected output
 EXPECT=(window controls-window menu-window text-window panels-window tables-window statusbar drag-window screencapture avplayer opengl)
-FINCH_ONLY=("contacts-search-links-fetch-test|--fetch-local" "security-core-test|" "security-keychain-encryption-test|" "keychain-crypto-test|" "security-keychain-storage-test|" "security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "avaudio-services-test|" "configd-daemon-test|" "console-policy-test|")
+FINCH_ONLY=("contacts-search-links-fetch-test|--fetch-local" "quartzcore-renderer-test|" "security-core-test|" "security-keychain-encryption-test|" "keychain-crypto-test|" "security-keychain-storage-test|" "security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "avaudio-services-test|" "configd-daemon-test|" "console-policy-test|")
 
 want() {
     [[ $# -eq 0 || -z "${SELECTED}" ]] && return 0

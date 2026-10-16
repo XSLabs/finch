@@ -120,6 +120,7 @@ CAFrameRateRangeIsEqualToRange(CAFrameRateRange range, CAFrameRateRange other)
 }
 
 __attribute__((visibility("default"))) NSString *const kCARendererColorSpace = @"kCARendererColorSpace";
+__attribute__((visibility("default"))) NSString *const kCARendererMetalCommandQueue = @"kCARendererMetalCommandQueue";
 
 /* Private names SwiftUI uses (filters, contents scaling and swizzles), with macOS 26.4's values. */
 __attribute__((visibility("default"))) NSString *const kCAContentsFormatA8 = @"A8";

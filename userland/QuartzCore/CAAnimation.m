@@ -9,6 +9,13 @@
 #import <QuartzCore/QuartzCore.h>
 #include <math.h>
 
+/* Keep the public optional delegate methods available to runtime clients. */
+__attribute__((used)) static Protocol *
+finchCAAnimationDelegateProtocol(void)
+{
+    return @protocol(CAAnimationDelegate);
+}
+
 #pragma mark CAMediaTimingFunction
 
 @implementation CAMediaTimingFunction {

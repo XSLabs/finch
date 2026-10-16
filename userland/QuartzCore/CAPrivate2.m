@@ -17,6 +17,7 @@
 CA_EXPORT NSString *const CADynamicRangeHigh = @"high";
 CA_EXPORT NSString *const CADynamicRangeConstrainedHigh = @"constrainedHigh";
 CA_EXPORT NSString *const CADynamicRangeStandard = @"standard";
+CA_EXPORT NSString *const CADynamicRangeAutomatic = @"automatic";
 CA_EXPORT NSString *const CAToneMapModeAutomatic = @"automatic";
 CA_EXPORT NSString *const CAToneMapModeIfSupported = @"ifSupported";
 CA_EXPORT NSString *const CAToneMapModeNever = @"never";

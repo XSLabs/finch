@@ -684,7 +684,7 @@ Overall: **24.1%** (130,486 of 541,787 API items across 842 parsed frameworks or
 | Quartz/QuartzComposer | 747 | 0 | 747 | 0.0% | 0/747 | complete |
 | Quartz/QuartzFilters | 33 | 29 | 4 | 87.9% | 0/33 | complete |
 | Quartz/QuickLookUI | 189 | 47 | 142 | 24.9% | 0/189 | complete |
-| QuartzCore | 3,413 | 1,607 | 1,806 | 47.1% | 0/3413 | complete |
+| QuartzCore | 3,413 | 1,617 | 1,796 | 47.4% | 0/3413 | complete |
 | QuickLook | 74 | 3 | 71 | 4.1% | 0/74 | complete |
 | QuickLookThumbnailing | 60 | 25 | 35 | 41.7% | 0/60 | complete |
 | QuickLookUI | 189 | 47 | 142 | 24.9% | 0/189 | complete |
@@ -1383,7 +1383,7 @@ Priority score is missing API items multiplied by the number of apps app-sweep.p
 | Vision | 2,674 | 13 | 34,762 |
 | ApplicationServices | 1,928 | 15 | 28,920 |
 | Carbon | 2,231 | 12 | 26,772 |
-| QuartzCore | 1,806 | 12 | 21,672 |
+| QuartzCore | 1,796 | 10 | 17,960 |
 | CoreServices | 1,137 | 19 | 21,603 |
 | MetalPerformanceShaders | 2,675 | 7 | 18,725 |
 | Intents | 1,065 | 15 | 15,975 |

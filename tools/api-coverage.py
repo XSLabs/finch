@@ -112,6 +112,53 @@ def declaration_context(source, start, end):
     return context
 
 
+def objc_selector(signature):
+    """Build an Objective-C selector without mistaking an argument name for a label."""
+    first = re.match(r"\s*([A-Za-z_]\w*)", signature)
+    if not first:
+        return None
+    selector = first.group(1)
+    pos = first.end()
+    if pos >= len(signature) or signature[pos] != ":":
+        return selector
+    selector += ":"
+    pos += 1
+
+    while pos < len(signature):
+        while pos < len(signature) and signature[pos].isspace():
+            pos += 1
+        if pos >= len(signature) or signature[pos] != "(":
+            break
+        depth, end = 1, pos + 1
+        while end < len(signature) and depth:
+            if signature[end] == "(":
+                depth += 1
+            elif signature[end] == ")":
+                depth -= 1
+            end += 1
+        if depth:
+            break
+        pos = end
+        while pos < len(signature) and signature[pos].isspace():
+            pos += 1
+        argument = re.match(r"[A-Za-z_]\w*", signature[pos:])
+        if not argument:
+            break
+        pos += argument.end()
+        while pos < len(signature) and signature[pos].isspace():
+            pos += 1
+        if pos < len(signature) and signature[pos] == ":":
+            selector += ":"
+            pos += 1
+            continue
+        label = re.match(r"([A-Za-z_]\w*)\s*:", signature[pos:])
+        if not label:
+            break
+        selector += label.group(1) + ":"
+        pos += label.end()
+    return selector
+
+
 def objc_items(framework):
     """Read public Objective-C interfaces, categories, methods, and properties."""
     headers = framework / "Headers"
@@ -167,14 +214,9 @@ def objc_items(framework):
                 signature = re.sub(
                     r"\b(?:NS_|API_|__|FOUNDATION_|CF_|DEPRECATED|APPKIT_)\w*"
                     r"(\([^()]*(\([^()]*\))*[^()]*\))?", "", match.group(3))
-                parts = re.findall(r"([A-Za-z_]\w*)\s*:", signature)
-                if parts:
-                    selector = "".join(part + ":" for part in parts)
-                else:
-                    name = re.match(r"\s*([A-Za-z_]\w*)", signature)
-                    if not name:
-                        continue
-                    selector = name.group(1)
+                selector = objc_selector(signature)
+                if not selector:
+                    continue
                 owner_kind = "protocol" if kind == "protocol" else "class"
                 item_id = f"objc-{owner_kind}-method:{owner}:{match.group(1)}{selector}"
                 check = {"type": "protocol method" if kind == "protocol" else "method",
@@ -890,7 +932,10 @@ def objc_responses(spec, items, binary, build_root):
         system / "Frameworks/CoreServices.framework/Versions/A/Frameworks",
         system / "Frameworks/ApplicationServices.framework/Versions/A/Frameworks",
         system / "Frameworks/Carbon.framework/Versions/A/Frameworks"))
-    env["DYLD_LIBRARY_PATH"] = str(build_root / "usr/lib/swift")
+    env["DYLD_LIBRARY_PATH"] = ":".join(str(path) for path in (
+        build_root / "usr/lib/swift",
+        build_root / "System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries",
+    ) if path.is_dir())
     env["FINCH_THEME"] = "Classic"
     result = command([str(RESPONDER), str(binary)], input="\n".join(lines) + "\n", env=env)
     if result.returncode:

@@ -542,7 +542,13 @@ $(OUT)/apps/Hello.app/Contents/MacOS/Hello: apps/Hello/main.m apps/Hello/AppDele
 # QuartzCore's transforms and constants (diff Apple's run and Finch's).
 $(OUT)/finch-quartzcore-test: quartzcore-test.m
 	@mkdir -p $(OUT)
-	$(CC) $(CFLAGS) -fobjc-arc -o $@ $< -framework QuartzCore -framework Foundation
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -o $@ $< -framework QuartzCore -framework OpenGL -framework CoreGraphics -framework Foundation
+
+# QuartzCore's CPU CGL path draws layer and renderer pixels through Mesa.
+all: $(OUT)/finch-quartzcore-renderer-test
+$(OUT)/finch-quartzcore-renderer-test: quartzcore-renderer-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -o $@ $< -framework QuartzCore -framework OpenGL -framework CoreGraphics -framework Foundation
 
 # NSFileCoordinator and file presenters within a process (diff Apple's run and Finch's).
 $(OUT)/finch-filecoordinator-test: filecoordinator-test.m
@@ -718,6 +724,8 @@ clean:
 	rm -f $(OUT)/finch-coreservices-test $(OUT)/finch-security-core-test $(OUT)/finch-sysconfig-core-test $(OUT)/finch-appkit-gestures-test $(OUT)/finch-appkit-controls2-test
 	rm -rf $(OUT)/apps/Hello.app $(OUT)/apps/FinchXPCTest.app $(OUT)/apps/AssetsTest.app $(OUT)/assets-actool
 	rm -rf $(OUT)/finch-imagekit-test $(OUT)/finch-appkit-containers-test $(OUT)/finch-quartzcore-test $(OUT)/finch-calayer-test $(OUT)/finch-cfnotify-test $(OUT)/finch-l10n-test $(OUT)/finch-app-test $(OUT)/finch-uti-test $(OUT)/finch-appkit-controls-test $(OUT)/controls-test.nib $(OUT)/finch-appkit-controls-window-test $(OUT)/finch-appkit-menu-test $(OUT)/menu-test.nib $(OUT)/finch-appkit-menu-window-test $(OUT)/finch-appkit-document-test $(OUT)/doc-test.nib $(OUT)/vc-test.nib $(OUT)/finch-nib-test $(OUT)/nib-test.nib $(OUT)/finch-appkit-draw-test $(OUT)/finch-appkit-window-test $(OUT)/finch-appkit-core-test $(OUT)/finch-uifoundation-test $(OUT)/finch-cgpdf-test $(OUT)/finch-ws-test $(OUT)/finch-ct-test $(OUT)/finch-imageio-test $(OUT)/finch-xmlparser-test $(OUT)/finch-measurement-test $(OUT)/finch-cg-draw-test $(OUT)/finch-cg-test $(OUT)/finch-documents-test $(OUT)/finch-predicate-test $(OUT)/finch-streams-test $(OUT)/finch-misc-test $(OUT)/finch-collections-test $(OUT)/finch-archive-test $(OUT)/finch-data-test $(OUT)/finch-kvc-test $(OUT)/finch-intl-test $(OUT)/finch-files-test $(OUT)/finch-runtime-test $(OUT)/finch-foundation-test $(OUT)/finch-forward-test $(OUT)/finch-bridge-test $(OUT)/finch-compression-test $(OUT)/finch-pam-test $(OUT)/finch-dlopen $(OUT)/finch-swift-hello $(OUT)/finch-cf-test $(OUT)/finch-socket-test $(OUT)/finch-introspect-test $(OUT)/finch-debuggee $(OUT)/finch-libsystem-test $(OUT)/finch-xpc-service-test $(OUT)/finch-launch-bench $(OUT)/finch-cxx-test $(OUT)/finch-objc-test $(OUT)/finch-crypto-test $(OUT)/finch-log-test $(OUT)/finch-hardened-test $(OUT)/finch-appkit-text-test $(OUT)/appkit-text-test.nib $(OUT)/finch-appkit-text-window-test $(OUT)/finch-textkit2-test $(OUT)/finch-appkit-bindings-test $(OUT)/appkit-bindings-test.nib $(OUT)/finch-appkit-layout-test $(OUT)/layout-test.nib $(OUT)/layout-test.storyboardc $(OUT)/finch-appkit-panels-test $(OUT)/finch-appkit-panels-window-test $(OUT)/finch-swift-overlay-test
+
+	rm -f $(OUT)/finch-quartzcore-renderer-test
 
 .PHONY: all clean
 
