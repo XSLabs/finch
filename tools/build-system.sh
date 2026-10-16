@@ -103,6 +103,8 @@ steps=(
     "CFNetwork|userland/CFNetwork/build.sh"
     "UniformTypeIdentifiers|userland/UniformTypeIdentifiers/build.sh"
     "CoreServices|userland/CoreServices/build.sh"
+    # CoreSpotlight: a local searchable-item index and query engine over Finch's Metadata layer.
+    "CoreSpotlight|userland/CoreSpotlight/build.sh"
     "IOKit|userland/IOKit/build.sh"
     # Finch's CoreGraphics over Skia (docs/design/COREGRAPHICS.md)
     "skia|userland/skia/build.sh"
@@ -188,6 +190,8 @@ steps=(
     "ScreenCaptureKit|userland/ScreenCaptureKit/build.sh"
     "StoreKit|userland/StoreKit/build.sh"
     "Contacts|userland/Contacts/build.sh"
+    # Contact pickers and cards over Finch Contacts and AppKit.
+    "ContactsUI|userland/ContactsUI/build.sh"
     "Accounts|userland/Accounts/build.sh"
     "Metal|userland/Metal/build.sh"
     "MetalKit|userland/MetalKit/build.sh"
@@ -196,6 +200,8 @@ steps=(
     "CoreMedia|userland/CoreMedia/build.sh"
     "AVFAudio|userland/AVFAudio/build.sh"
     "AVFoundation|userland/AVFoundation/build.sh"
+    # Link metadata fetched by Finch Foundation's URL loader and shown with AppKit.
+    "LinkPresentation|userland/LinkPresentation/build.sh"
     "OpenGL|userland/OpenGL/build.sh"
     # Feature flags (os_feature_enabled's Swift face) and the device's answers (libMobileGestalt)
     "FeatureFlags|userland/FeatureFlags/build.sh"

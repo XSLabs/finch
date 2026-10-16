@@ -6,7 +6,10 @@ These diagrams are updated in every commit that changes the stack, and
 `tools/render-stack.sh` checks that they render.
 
 **As of 2026-10-15:** CoreData reads compiled models and supports basic SQLite and
-in-memory stores, contexts, fetches, and to-one relationships. CryptoKit is built
+in-memory stores, contexts, fetches, and to-one relationships. ContactsUI presents
+a contact picker and card over Finch Contacts; CoreSpotlight stores searchable items
+in a local index and runs queries; LinkPresentation fetches page metadata through
+Foundation and shows it in an AppKit card. CryptoKit is built
 from swift-crypto 5.0.1, with BoringSSL and
 XKCP linked privately; fixed-key host comparisons cover its hashes, HMAC, HKDF,
 AES-GCM, ChaChaPoly, and P-256, P-384 and Curve25519 keys and signatures. Nothing
@@ -162,6 +165,9 @@ block-beta
         coreimage["CoreImage<br/>images as recipes, CPU rendering<br/>in linear light, ~70 filters"]
         services["UserNotifications (local),<br/>ServiceManagement (launchd jobs),<br/>CoreLocation, LocalAuthentication,<br/>CoreWLAN, IOBluetooth (and its<br/>UI's panels), StoreKit,<br/>Accounts, GSS (answering as a Mac<br/>without those services would)"]
         contacts["Contacts<br/>the user's contacts in Finch's<br/>own store, groups, change history;<br/>name and address formatters, vCard"]
+        contactui["ContactsUI<br/>CNContactPicker popover,<br/>CNContactViewController card<br/>(Contacts + AppKit)"]
+        corespotlight["CoreSpotlight<br/>named local indexes,<br/>searchable items and query results"]
+        linkpresentation["LinkPresentation<br/>HTTP(S) page metadata through<br/>Foundation; AppKit link cards"]
         ctio["CoreText<br/>fonts, shaping, lines, frames<br/>(HarfBuzz, FreeType, ICU)"]
         quartzcore["QuartzCore<br/>layers drawn through CoreGraphics,<br/>animation objects, transactions;<br/>animation playback still to come"]
         imagecap["ImageCaptureCore (device<br/>browser, finds no devices yet),<br/>ICADevices; Quartz umbrella<br/>with ImageKit's device views<br/>and save options, QuartzFilters<br/>(Finch's own filters)"]
@@ -261,7 +267,7 @@ block-beta
     class t7,t6,t5,t4,t3,t2,t1,t0 layer
     class avplanned,kexts,metal planned
     class apps testapp
-    class opengl,later,mediaaddons,coreimage,services,contacts,cfnetwork,appsupport,shell,uti,appkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
+    class opengl,later,mediaaddons,coreimage,services,contacts,contactui,corespotlight,linkpresentation,cfnetwork,appsupport,shell,uti,appkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
     class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui,cmark,sqlite upstream
     class vz firmware
@@ -314,6 +320,9 @@ flowchart LR
     coreimagefw["CoreImage"]:::finch
     servicesfw["UserNotifications, CoreLocation,<br/>ServiceManagement, StoreKit, ..."]:::finch
     contactsfw["Contacts"]:::finch
+    contactsuifw["ContactsUI"]:::finch
+    corespotlightfw["CoreSpotlight"]:::finch
+    linkpresentationfw["LinkPresentation"]:::finch
     metalfw["Metal"]:::finch
     metalkit["MetalKit"]:::finch
     iosurfacefw["IOSurface"]:::finch
@@ -414,6 +423,16 @@ flowchart LR
     servicesfw --> ffound
     contactsfw --> ffound
     contactsfw --> imageio
+    contactsuifw --> contactsfw
+    contactsuifw --> appkit
+    contactsuifw --> ffound
+    corespotlightfw --> ffound
+    corespotlightfw --> uti
+    corespotlightfw -->|"re-exports"| coreservices
+    linkpresentationfw --> appkit
+    linkpresentationfw --> ffound
+    linkpresentationfw --> cgfw
+    linkpresentationfw --> uti
     metalfw --> ffound
     metalkit --> metalfw
     metalkit --> appkit

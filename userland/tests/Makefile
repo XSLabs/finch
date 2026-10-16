@@ -13,6 +13,28 @@ all: $(OUT)/finch-appkit-gaps-test
 all: $(OUT)/finch-urlsession-trust-test
 all: $(OUT)/finch-network-test
 all: $(OUT)/finch-accelerate-test
+all: $(OUT)/finch-contacts-search-links-test
+all: $(OUT)/finch-contacts-search-links-fetch-test
+all: $(OUT)/finch-contacts-search-links-swift-test
+
+# ContactsUI, CoreSpotlight and LinkPresentation against the local Contacts store,
+# Finch's searchable index and Finch Foundation's URL loader.
+$(OUT)/finch-contacts-search-links-test: contacts-search-links-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-deprecated-declarations -o $@ $< \
+	    -framework ContactsUI -framework Contacts -framework CoreSpotlight -framework LinkPresentation -framework AppKit -framework Foundation
+
+# Finch-only URL loading check. Apple's provider waits on its metadata service in a plain
+# command-line process, so the comparison run covers the stable link-card API instead.
+$(OUT)/finch-contacts-search-links-fetch-test: $(OUT)/finch-contacts-search-links-test
+	ln -sf finch-contacts-search-links-test $@
+
+# CoreSpotlight's Swift async search sequence, compared with Apple's overlay.
+$(OUT)/finch-contacts-search-links-swift-test: contacts-search-links-swift-test.swift
+	@mkdir -p $(OUT)
+	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -parse-as-library -O -o $@ $< \
+	    -framework CoreSpotlight -framework Foundation
+	codesign -f -s - -i org.finch.test.contacts-search-links-swift $@
 
 # The umbrella's vDSP, vImage, vForce, BLAS and LAPACK calls, compared with Apple's.
 $(OUT)/finch-accelerate-test: accelerate-test.c
