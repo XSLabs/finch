@@ -2,5 +2,3 @@
 #include <CoreFoundation/CoreFoundation.h>
 #import <QuartzCore/QuartzCore.h>
 
-__attribute__((visibility("default"))) NSString *const CADynamicRangeAutomatic = @"automatic";
-__attribute__((visibility("default"))) NSString *const kCARendererMetalCommandQueue = @"kCARendererMetalCommandQueue";
