@@ -162,7 +162,7 @@ uti_for_type(NSBitmapImageFileType t)
     [self setPixelsHigh:height];
     [self setSize:NSMakeSize(width, height)];
     [self setBitsPerSample:bps];
-    [self setAlpha:alpha];
+    [super setAlpha:alpha];
     [self setOpaque:YES];
     [self setColorSpaceName:colorSpaceName];
     _space = [space_for_name(colorSpaceName) retain];
@@ -203,7 +203,7 @@ uti_for_type(NSBitmapImageFileType t)
     [self setPixelsHigh:(NSInteger)h];
     [self setSize:NSMakeSize(w, h)];
     [self setBitsPerSample:(NSInteger)bpc];
-    [self setAlpha:hasAlpha];
+    [super setAlpha:hasAlpha];
     [self setOpaque:!hasAlpha];
     [self setColorSpaceName:name_for_space(_space)];
 }
@@ -422,6 +422,10 @@ dpi_size(CFDictionaryRef props, size_t w, size_t h)
 
 - (unsigned char *)bitmapData
 {
+    if ([self pixelsHigh] <= 0)
+        [NSException raise:@"NSBadBitmapParametersException"
+                    format:@"Overflow allocating bitmap backing store.  Cannot back bitmap with %ld bytes per row, %ld height, and %ld planes.",
+                           (long)_bpr, (long)[self pixelsHigh], (long)(_planar ? _spp : 1)];
     [self _load];
     [self _finchInvalidateImage];
     return _planes[0];
@@ -443,6 +447,14 @@ dpi_size(CFDictionaryRef props, size_t w, size_t h)
 - (NSInteger)numberOfPlanes { return _planar ? _spp : 1; }
 - (NSBitmapFormat)bitmapFormat { return _format; }
 - (NSColorSpace *)colorSpace { return _space; }
+
+- (void)setAlpha:(BOOL)alpha
+{
+    BOOL hadAlpha = [self hasAlpha];
+    if (hadAlpha != alpha && _spp > 0)
+        _spp = _spp - hadAlpha + alpha;
+    [super setAlpha:alpha];
+}
 
 static NSUInteger
 max_sample(NSInteger bps)

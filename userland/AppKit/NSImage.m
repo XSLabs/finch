@@ -10,6 +10,27 @@
 #import "AppKitDrawing.h"
 #import <ImageIO/ImageIO.h>
 
+static NSArray *
+image_rep_types(NSUInteger kind)
+{
+    NSMutableArray *all = [NSMutableArray array];
+    for (Class repClass in [NSImageRep registeredImageRepClasses]) {
+        NSArray *types;
+        switch (kind) {
+            case 0: types = [repClass imageTypes]; break;
+            case 1: types = [repClass imageUnfilteredTypes]; break;
+            case 2: types = [repClass imageFileTypes]; break;
+            case 3: types = [repClass imageUnfilteredFileTypes]; break;
+            case 4: types = [repClass imagePasteboardTypes]; break;
+            default: types = [repClass imageUnfilteredPasteboardTypes]; break;
+        }
+        for (id type in types)
+            if (![all containsObject:type])
+                [all addObject:type];
+    }
+    return all;
+}
+
 NSImageHintKey const NSImageHintCTM = @"NSImageHintCTM";
 NSImageHintKey const NSImageHintSymbolScale = @"NSImageHintSymbolScale";
 NSImageHintKey const NSImageHintSymbolFont = @"NSImageHintSymbolFont";
@@ -798,7 +819,20 @@ composite(NSImage *self, NSPoint point, NSRect from, NSCompositingOperation op, 
 
 - (CGFloat)recommendedLayerContentsScale:(CGFloat)preferredContentsScale
 {
-    return preferredContentsScale > 0 ? preferredContentsScale : 1;
+    CGFloat preferred = preferredContentsScale >= 1 ? preferredContentsScale : 1;
+    CGFloat bestBitmapScale = 1;
+    BOOL hasBitmapRep = NO;
+    for (NSImageRep *rep in _reps) {
+        if (![rep isKindOfClass:[NSBitmapImageRep class]])
+            continue;
+        NSSize size = rep.size;
+        if (size.width <= 0 || size.height <= 0 || rep.pixelsWide <= 0 || rep.pixelsHigh <= 0)
+            continue;
+        hasBitmapRep = YES;
+        CGFloat scale = fmin(rep.pixelsWide / size.width, rep.pixelsHigh / size.height);
+        bestBitmapScale = fmax(bestBitmapScale, scale);
+    }
+    return hasBitmapRep ? fmin(preferred, bestBitmapScale) : preferred;
 }
 
 - (id)layerContentsForContentsScale:(CGFloat)layerContentsScale
@@ -834,12 +868,12 @@ composite(NSImage *self, NSPoint point, NSRect from, NSCompositingOperation op, 
     return [NSBitmapImageRep TIFFRepresentationOfImageRepsInArray:bitmaps usingCompression:comp factor:factor];
 }
 
-+ (NSArray<NSString *> *)imageTypes { return [NSImageRep imageTypes]; }
-+ (NSArray<NSString *> *)imageUnfilteredTypes { return [NSImageRep imageUnfilteredTypes]; }
-+ (NSArray<NSString *> *)imageFileTypes { return [NSImageRep imageFileTypes]; }
-+ (NSArray<NSString *> *)imageUnfilteredFileTypes { return [NSImageRep imageUnfilteredFileTypes]; }
-+ (NSArray<NSPasteboardType> *)imagePasteboardTypes { return [NSImageRep imageTypes]; }
-+ (NSArray<NSPasteboardType> *)imageUnfilteredPasteboardTypes { return [NSImageRep imageUnfilteredTypes]; }
++ (NSArray<NSString *> *)imageTypes { return image_rep_types(0); }
++ (NSArray<NSString *> *)imageUnfilteredTypes { return image_rep_types(1); }
++ (NSArray<NSString *> *)imageFileTypes { return image_rep_types(2); }
++ (NSArray<NSString *> *)imageUnfilteredFileTypes { return image_rep_types(3); }
++ (NSArray<NSPasteboardType> *)imagePasteboardTypes { return image_rep_types(4); }
++ (NSArray<NSPasteboardType> *)imageUnfilteredPasteboardTypes { return image_rep_types(5); }
 + (BOOL)canInitWithPasteboard:(NSPasteboard *)pasteboard { return NO; }
 
 /* MARK: NSCoding (Apple's keys: NSSize, NSReps, NSImageFlags-less) */

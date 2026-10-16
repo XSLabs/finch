@@ -249,6 +249,42 @@ family_members(NSString *family)
     }
 }
 
+static BOOL
+known_family_alias(NSString *family)
+{
+    static NSArray *const aliases = @[
+        @"Helvetica", @"Helvetica Neue", @"Arial", @"Verdana", @"Times", @"Times New Roman", @"Courier",
+        @"Courier New", @"Menlo", @"Monaco", @"SF Mono", @"SF Pro", @"SF Pro Text", @"SF Pro Display",
+        @"System Font", @"Lucida Grande", @"SF Pro Rounded", @"Charter", @"Palatino", @"Apple Color Emoji",
+        @"Apple Symbols", @"PingFang SC", @"PingFang TC", @"PingFang HK", @"Hiragino Sans",
+        @"Hiragino Kaku Gothic ProN", @"Hiragino Kaku Gothic Pro", @"Hiragino Mincho ProN",
+        @"Apple SD Gothic Neo", @"Heiti SC", @"Geeza Pro", @"SF Arabic", @"Arial Hebrew", @"SF Hebrew",
+    ];
+    for (NSString *alias in aliases)
+        if ([family caseInsensitiveCompare:alias] == NSOrderedSame)
+            return YES;
+    return NO;
+}
+
+static NSString *
+catalogue_family(NSString *family)
+{
+    if (![family isKindOfClass:[NSString class]] || !family.length)
+        return family;
+    if ([family_members(family) count])
+        return family;
+    /* CoreText returns a fallback font for unknown names such as "Nope".
+       Only use that result for font families Finch knows how to replace. */
+    if (!known_family_alias(family))
+        return family;
+    CTFontRef font = CTFontCreateWithName((CFStringRef)family, 12, NULL);
+    if (!font)
+        return family;
+    NSString *resolved = [(NSString *)CTFontCopyFamilyName(font) autorelease];
+    CFRelease(font);
+    return [family_members(resolved) count] ? resolved : family;
+}
+
 static _FinchFontMember *
 member_named(NSString *name)
 {
@@ -412,21 +448,27 @@ static NSFontManager *sharedManager;
 
 - (void)addFontTrait:(id)sender
 {
-    [self _finchSendAction:NSAddTraitFontAction trait:(NSFontTraitMask)[sender tag]];
+    if ([sender respondsToSelector:@selector(tag)])
+        [self _finchSendAction:NSAddTraitFontAction trait:(NSFontTraitMask)[sender tag]];
 }
 
 - (void)removeFontTrait:(id)sender
 {
-    [self _finchSendAction:NSRemoveTraitFontAction trait:(NSFontTraitMask)[sender tag]];
+    if ([sender respondsToSelector:@selector(tag)])
+        [self _finchSendAction:NSRemoveTraitFontAction trait:(NSFontTraitMask)[sender tag]];
 }
 
 - (void)modifyFont:(id)sender
 {
-    [self _finchSendAction:(NSFontAction)[sender tag] trait:0];
+    if ([sender respondsToSelector:@selector(tag)])
+        [self _finchSendAction:(NSFontAction)[sender tag] trait:0];
 }
 
 - (void)modifyFontViaPanel:(id)sender
 {
+    if (![NSFontPanel sharedFontPanelExists])
+        [NSException raise:NSInternalInconsistencyException
+                    format:@"Message from non-existent FontPanel in [NSFontManager -modifyFontViaPanel:]"];
     [self _finchSendAction:NSViaPanelFontAction trait:0];
 }
 
@@ -566,7 +608,7 @@ static NSFontManager *sharedManager;
 
 - (NSFont *)fontWithFamily:(NSString *)family traits:(NSFontTraitMask)traits weight:(NSInteger)weight size:(CGFloat)size
 {
-    return font_for_member(pick_member(family, traits, weight, YES), size);
+    return font_for_member(pick_member(catalogue_family(family), traits, weight, YES), size);
 }
 
 #pragma mark Converting
@@ -594,7 +636,7 @@ static NSFontManager *sharedManager;
     _FinchFontMember *m = member_of(font);
     if (!m)
         return font;
-    _FinchFontMember *o = pick_member(family, m->_traits & ~0x10000u, m->_weight, NO);
+    _FinchFontMember *o = pick_member(catalogue_family(family), m->_traits & ~0x10000u, m->_weight, NO);
     return font_for_member(o, [font pointSize]) ?: font;
 }
 

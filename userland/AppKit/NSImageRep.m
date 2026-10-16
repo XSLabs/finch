@@ -131,11 +131,11 @@ FinchDrawCGImage(CGImageRef image, NSSize repSize, NSRect dst, NSRect src, NSCom
 }
 
 - (NSInteger)bitsPerSample { return _bitsPerSample; }
-- (void)setBitsPerSample:(NSInteger)bps { _bitsPerSample = bps; }
+- (void)setBitsPerSample:(NSInteger)bps { _bitsPerSample = (uint8_t)bps; }
 - (NSInteger)pixelsWide { return _pixelsWide; }
-- (void)setPixelsWide:(NSInteger)w { _pixelsWide = w; }
+- (void)setPixelsWide:(NSInteger)w { _pixelsWide = (int32_t)w; }
 - (NSInteger)pixelsHigh { return _pixelsHigh; }
-- (void)setPixelsHigh:(NSInteger)h { _pixelsHigh = h; }
+- (void)setPixelsHigh:(NSInteger)h { _pixelsHigh = (int32_t)h; }
 - (NSImageLayoutDirection)layoutDirection { return _layoutDirection; }
 - (void)setLayoutDirection:(NSImageLayoutDirection)d { _layoutDirection = d; }
 
@@ -287,26 +287,12 @@ FinchDrawCGImage(CGImageRef image, NSSize repSize, NSRect dst, NSRect src, NSCom
 
 + (NSArray<NSString *> *)imageTypes
 {
-    if (self != [NSImageRep class])
-        return [self imageUnfilteredTypes];
-    NSMutableArray *all = [NSMutableArray array];
-    for (Class c in [self registeredImageRepClasses])
-        for (NSString *t in [c imageUnfilteredTypes])
-            if (![all containsObject:t])
-                [all addObject:t];
-    return all;
+    return [self imageUnfilteredTypes];
 }
 
 + (NSArray<NSString *> *)imageFileTypes
 {
-    if (self != [NSImageRep class])
-        return [self imageUnfilteredFileTypes];
-    NSMutableArray *all = [NSMutableArray array];
-    for (Class c in [self registeredImageRepClasses])
-        for (NSString *t in [c imageUnfilteredFileTypes])
-            if (![all containsObject:t])
-                [all addObject:t];
-    return all;
+    return [self imageUnfilteredFileTypes];
 }
 
 + (NSArray<NSPasteboardType> *)imagePasteboardTypes { return [self imageTypes]; }

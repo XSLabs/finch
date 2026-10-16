@@ -208,7 +208,13 @@ FinchGraphicsSetPrintingContext(CGContextRef cg)
 - (BOOL)isDrawingToScreen { return !printing_cg || _cg != printing_cg; }
 - (BOOL)isFlipped { return _flipped; }
 - (CGContextRef)CGContext { return _cg; }
-- (void *)graphicsPort { return _cg; }
+- (void *)graphicsPort
+{
+    if (!_cg)
+        [NSException raise:NSInvalidArgumentException
+                    format:@"*** -graphicsPort cannot be sent to an abstract object of class NSGraphicsContext: Create a concrete instance!"];
+    return _cg;
+}
 - (CIContext *)CIContext { return nil; }
 - (id)focusStack { return _focusStack; }
 

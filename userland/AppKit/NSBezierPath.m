@@ -389,7 +389,7 @@ npoints(NSBezierPathElement t)
     double ax = p0.x - point1.x, ay = p0.y - point1.y, bx = point2.x - point1.x, by = point2.y - point1.y;
     double la = hypot(ax, ay), lb = hypot(bx, by);
     double cross = ax * by - ay * bx;
-    if (la == 0 || lb == 0 || radius <= 0 || fabs(cross) < 1e-12 * la * lb) {
+    if (la == 0 || lb == 0 || radius < 0 || fabs(cross) < 1e-12 * la * lb) {
         [self lineToPoint:point1];
         return;
     }
@@ -405,10 +405,14 @@ npoints(NSBezierPathElement t)
     if (cross > 0)
         sweep = -sweep;
     [self lineToPoint:t1];
-    int n = (int)ceil(fabs(sweep) / (M_PI / 2) - 1e-9);
-    double step = n ? sweep / n : 0;
-    for (int i = 0; i < n; i++, a += step)
+    while (fabs(sweep) > 1e-12) {
+        double step = copysign(fmin(fabs(sweep), M_PI / 2), sweep);
         [self _arcSegmentCenter:c rx:radius ry:radius from:a to:a + step];
+        a += step;
+        sweep -= step;
+    }
+    /* This arc is added through CoreGraphics, whose bounds include control points. */
+    _boundsAreControlBounds = YES;
 }
 
 - (void)appendBezierPath:(NSBezierPath *)path
@@ -416,6 +420,9 @@ npoints(NSBezierPathElement t)
     for (NSInteger i = 0; i < path->_count; i++) {
         Element *e = &path->_e[i];
         [self _append:e->type p0:e->p[0] p1:e->p[1] p2:e->p[2]];
+        if (e->type == NSBezierPathElementClosePath &&
+            (i + 1 == path->_count || path->_e[i + 1].type != NSBezierPathElementMoveTo))
+            [self moveToPoint:e->p[0]];
     }
 }
 
@@ -548,9 +555,15 @@ quad_to_cubic(NSPoint p0, NSPoint q, NSPoint p3, NSPoint *c1, NSPoint *c2)
         NSPoint c1, c2, end;
         switch (e->type) {
         case NSBezierPathElementMoveTo:
+            [f moveToPoint:e->p[0]];
+            cur = e->p[0];
+            continue;
         case NSBezierPathElementLineTo:
-        case NSBezierPathElementClosePath:
             [f _append:e->type p0:e->p[0] p1:NSZeroPoint p2:NSZeroPoint];
+            cur = e->p[0];
+            continue;
+        case NSBezierPathElementClosePath:
+            [f closePath];
             cur = e->p[0];
             continue;
         case NSBezierPathElementQuadraticCurveTo:

@@ -1,8 +1,51 @@
+diff --git a/Sources/CoreFoundation/CFError.c b/Sources/CoreFoundation/CFError.c
+index 229898c..b58af09 100644
+--- a/Sources/CoreFoundation/CFError.c
++++ b/Sources/CoreFoundation/CFError.c
+@@ -272,11 +272,11 @@ CFStringRef _CFErrorCreateLocalizedDescription(CFErrorRef err) {
+     	CFStringRef result = NULL, reasonOrDesc;
+ 
+ 	if ((reasonOrDesc = _CFErrorCopyUserInfoKey(err, kCFErrorLocalizedFailureReasonKey))) {	    // First look for kCFErrorLocalizedFailureReasonKey
+-	    result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("The operation couldn\\U2019t be completed. %@"), reasonOrDesc);
++	    result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("The operation couldn’t be completed. %@"), reasonOrDesc);
+ 	} else if ((reasonOrDesc = _CFErrorCopyUserInfoKey(err, kCFErrorDescriptionKey))) {	    // Then try kCFErrorDescriptionKey
+-	    result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("The operation couldn\\U2019t be completed. (%@ error %ld - %@)"), CFErrorGetDomain(err), (long)CFErrorGetCode(err), reasonOrDesc);
++	    result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("The operation couldn’t be completed. (%@ error %ld - %@)"), CFErrorGetDomain(err), (long)CFErrorGetCode(err), reasonOrDesc);
+ 	} else {	// Last resort, just the domain and code
+-	    result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("The operation couldn\\U2019t be completed. (%@ error %ld.)"), CFErrorGetDomain(err), (long)CFErrorGetCode(err));
++	    result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("The operation couldn’t be completed. (%@ error %ld.)"), CFErrorGetDomain(err), (long)CFErrorGetCode(err));
+ 	}
+ 	if (reasonOrDesc) CFRelease(reasonOrDesc);
+ 	return result;
+@@ -286,7 +286,7 @@ CFStringRef _CFErrorCreateLocalizedDescription(CFErrorRef err) {
+     // Then look for kCFErrorLocalizedFailureReasonKey; if there, create a full sentence from that.
+     CFStringRef reason = _CFErrorCopyUserInfoKey(err, kCFErrorLocalizedFailureReasonKey);
+     if (reason) {
+-	CFStringRef operationFailedStr = CFCopyLocalizedStringFromTableInBundle(CFSTR("The operation couldn\\U2019t be completed. %@"), CFSTR("Error"), cfBundle, "A generic error string indicating there was a problem. The %@ will be replaced by a second sentence which indicates why the operation failed.");
++	CFStringRef operationFailedStr = CFCopyLocalizedStringFromTableInBundle(CFSTR("The operation couldn’t be completed. %@"), CFSTR("Error"), cfBundle, "A generic error string indicating there was a problem. The %@ will be replaced by a second sentence which indicates why the operation failed.");
+         CFStringRef result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, operationFailedStr, reason);
+ 	CFRelease(operationFailedStr);
+         CFRelease(reason);
+@@ -298,12 +298,12 @@ CFStringRef _CFErrorCreateLocalizedDescription(CFErrorRef err) {
+     CFStringRef desc = _CFErrorCopyUserInfoKey(err, kCFErrorDescriptionKey);
+     CFStringRef localizedDomain = CFCopyLocalizedStringFromTableInBundle(CFErrorGetDomain(err), CFSTR("Error"), cfBundle, "These are localized in the comment above");
+     if (desc) {     // We have kCFErrorDescriptionKey, so include that with the error domain and code
+-	CFStringRef operationFailedStr = CFCopyLocalizedStringFromTableInBundle(CFSTR("The operation couldn\\U2019t be completed. (%@ error %ld - %@)"), CFSTR("Error"), cfBundle, "A generic error string indicating there was a problem, followed by a parenthetical sentence which indicates error domain, code, and a description when there is no other way to present an error to the user. The first %@ indicates the error domain, %ld indicates the error code, and the second %@ indicates the description; so this might become '(Mach error 42 - Server error.)' for instance.");
++	CFStringRef operationFailedStr = CFCopyLocalizedStringFromTableInBundle(CFSTR("The operation couldn’t be completed. (%@ error %ld - %@)"), CFSTR("Error"), cfBundle, "A generic error string indicating there was a problem, followed by a parenthetical sentence which indicates error domain, code, and a description when there is no other way to present an error to the user. The first %@ indicates the error domain, %ld indicates the error code, and the second %@ indicates the description; so this might become '(Mach error 42 - Server error.)' for instance.");
+ 	result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, operationFailedStr, localizedDomain, (long)CFErrorGetCode(err), desc);
+ 	CFRelease(operationFailedStr);
+         CFRelease(desc);
+     } else {        // We don't have kCFErrorDescriptionKey, so just use error domain and code
+-	CFStringRef operationFailedStr = CFCopyLocalizedStringFromTableInBundle(CFSTR("The operation couldn\\U2019t be completed. (%@ error %ld.)"), CFSTR("Error"), cfBundle, "A generic error string indicating there was a problem, followed by a parenthetical sentence which indicates error domain and code when there is no other way to present an error to the user. The %@ indicates the error domain while %ld indicates the error code; so this might become '(Mach error 42.)' for instance.");
++	CFStringRef operationFailedStr = CFCopyLocalizedStringFromTableInBundle(CFSTR("The operation couldn’t be completed. (%@ error %ld.)"), CFSTR("Error"), cfBundle, "A generic error string indicating there was a problem, followed by a parenthetical sentence which indicates error domain and code when there is no other way to present an error to the user. The %@ indicates the error domain while %ld indicates the error code; so this might become '(Mach error 42.)' for instance.");
+ 	result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, operationFailedStr, localizedDomain, (long)CFErrorGetCode(err));
+ 	CFRelease(operationFailedStr);
+     }
 diff --git a/Sources/CoreFoundation/CFTimeZone.c b/Sources/CoreFoundation/CFTimeZone.c
+index 8992289..8022258 100644
 --- a/Sources/CoreFoundation/CFTimeZone.c
 +++ b/Sources/CoreFoundation/CFTimeZone.c
-@@ -1083,21 +1083,22 @@
- 
+@@ -1084,19 +1084,20 @@ static Boolean __CFTimeZoneInitFixed(CFTimeZoneRef result, int32_t seconds, CFSt
  Boolean _CFTimeZoneInitWithTimeIntervalFromGMT(CFTimeZoneRef result, CFTimeInterval ti) {
      
      CFStringRef name;
@@ -24,17 +67,14 @@ diff --git a/Sources/CoreFoundation/CFTimeZone.c b/Sources/CoreFoundation/CFTime
          name = (CFStringRef)CFRetain(CFSTR("GMT"));
      } else {
 -        name = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("GMT%c%02d%02d"), (ti < 0.0 ? '-' : '+'), hour, minute);
--    }
--    Boolean success = __CFTimeZoneInitFixed(result, (int32_t)ti, name, 0);
 +        name = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("GMT%c%02d%02d"), (nameTime < 0.0 ? '-' : '+'), hour, minute);
-+    }
+     }
+-    Boolean success = __CFTimeZoneInitFixed(result, (int32_t)ti, name, 0);
 +    Boolean success = __CFTimeZoneInitFixed(result, seconds, name, 0);
      CFRelease(name);
      return success;
  }
- 
-@@ -1297,9 +1298,10 @@
-     __CFGenericValidateType(allocator, CFAllocatorGetTypeID());
+@@ -1298,7 +1299,8 @@ CFTimeZoneRef CFTimeZoneCreate(CFAllocatorRef allocator, CFStringRef name, CFDat
      __CFGenericValidateType(name, CFStringGetTypeID());
      __CFGenericValidateType(data, CFDataGetTypeID());
      __CFTimeZoneLockGlobal();
@@ -44,9 +84,7 @@ diff --git a/Sources/CoreFoundation/CFTimeZone.c b/Sources/CoreFoundation/CFTime
  	__CFTimeZoneUnlockGlobal();
  	return (CFTimeZoneRef)CFRetain(memory);
      }
-     if (!__CFParseTimeZoneData(allocator, data, &tzp, &cnt)) {
-@@ -1354,27 +1356,28 @@
-     return result;
+@@ -1355,25 +1357,26 @@ static CFTimeZoneRef __CFTimeZoneCreateFixed(CFAllocatorRef allocator, int32_t s
  }
  
  
@@ -66,26 +104,24 @@ diff --git a/Sources/CoreFoundation/CFTimeZone.c b/Sources/CoreFoundation/CFTime
 -    seconds -= ((ti < 0) ? -hour : hour) * 3600;
 -    minute = (ti < 0) ? (-seconds / 60) : (seconds / 60);
 -    if (fabs(ti) < 1.0) {
+-	name = (CFStringRef)CFRetain(CFSTR("GMT"));
 +    CFTimeInterval nameTime = (ti < 0.0) ? ceil((ti / 60.0) - 0.5) * 60.0 : floor((ti / 60.0) + 0.5) * 60.0;
 +    labelSeconds = (int32_t)nameTime;
 +    hour = (nameTime < 0) ? (-labelSeconds / 3600) : (labelSeconds / 3600);
 +    labelSeconds -= ((nameTime < 0) ? -hour : hour) * 3600;
 +    minute = (nameTime < 0) ? (-labelSeconds / 60) : (labelSeconds / 60);
 +    if (fabs(nameTime) < 1.0) {
- 	name = (CFStringRef)CFRetain(CFSTR("GMT"));
++        name = (CFStringRef)CFRetain(CFSTR("GMT"));
      } else {
 -	name = CFStringCreateWithFormat(allocator, NULL, CFSTR("GMT%c%02d%02d"), (ti < 0.0 ? '-' : '+'), hour, minute);
--    }
++        name = CFStringCreateWithFormat(allocator, NULL, CFSTR("GMT%c%02d%02d"), (nameTime < 0.0 ? '-' : '+'), hour, minute);
+     }
 -    result = __CFTimeZoneCreateFixed(allocator, (int32_t)ti, name, 0);
-+	name = CFStringCreateWithFormat(allocator, NULL, CFSTR("GMT%c%02d%02d"), (nameTime < 0.0 ? '-' : '+'), hour, minute);
-+    }
 +    result = __CFTimeZoneCreateFixed(allocator, seconds, name, 0);
      CFRelease(name);
      return result;
  }
- 
-@@ -1391,9 +1394,10 @@
- 	// following stuff will fail anyway
+@@ -1392,7 +1395,8 @@ CFTimeZoneRef CFTimeZoneCreateWithName(CFAllocatorRef allocator, CFStringRef nam
  	return NULL;
      }
      __CFTimeZoneLockGlobal();
@@ -95,52 +131,3 @@ diff --git a/Sources/CoreFoundation/CFTimeZone.c b/Sources/CoreFoundation/CFTime
  	__CFTimeZoneUnlockGlobal();
  	return (CFTimeZoneRef)CFRetain(result);
      }
-     __CFTimeZoneUnlockGlobal();
-diff --git a/Sources/CoreFoundation/CFError.c b/Sources/CoreFoundation/CFError.c
---- a/Sources/CoreFoundation/CFError.c
-+++ b/Sources/CoreFoundation/CFError.c
-@@ -271,13 +271,13 @@
- #endif
-     	CFStringRef result = NULL, reasonOrDesc;
- 
- 	if ((reasonOrDesc = _CFErrorCopyUserInfoKey(err, kCFErrorLocalizedFailureReasonKey))) {	    // First look for kCFErrorLocalizedFailureReasonKey
--	    result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("The operation couldn\\U2019t be completed. %@"), reasonOrDesc);
-+	    result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("The operation couldn\u2019t be completed. %@"), reasonOrDesc);
- 	} else if ((reasonOrDesc = _CFErrorCopyUserInfoKey(err, kCFErrorDescriptionKey))) {	    // Then try kCFErrorDescriptionKey
--	    result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("The operation couldn\\U2019t be completed. (%@ error %ld - %@)"), CFErrorGetDomain(err), (long)CFErrorGetCode(err), reasonOrDesc);
-+	    result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("The operation couldn\u2019t be completed. (%@ error %ld - %@)"), CFErrorGetDomain(err), (long)CFErrorGetCode(err), reasonOrDesc);
- 	} else {	// Last resort, just the domain and code
--	    result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("The operation couldn\\U2019t be completed. (%@ error %ld.)"), CFErrorGetDomain(err), (long)CFErrorGetCode(err));
-+	    result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, CFSTR("The operation couldn\u2019t be completed. (%@ error %ld.)"), CFErrorGetDomain(err), (long)CFErrorGetCode(err));
- 	}
- 	if (reasonOrDesc) CFRelease(reasonOrDesc);
- 	return result;
- #if TARGET_OS_MAC || TARGET_OS_WIN32
-@@ -285,9 +285,9 @@
-     
-     // Then look for kCFErrorLocalizedFailureReasonKey; if there, create a full sentence from that.
-     CFStringRef reason = _CFErrorCopyUserInfoKey(err, kCFErrorLocalizedFailureReasonKey);
-     if (reason) {
--	CFStringRef operationFailedStr = CFCopyLocalizedStringFromTableInBundle(CFSTR("The operation couldn\\U2019t be completed. %@"), CFSTR("Error"), cfBundle, "A generic error string indicating there was a problem. The %@ will be replaced by a second sentence which indicates why the operation failed.");
-+	CFStringRef operationFailedStr = CFCopyLocalizedStringFromTableInBundle(CFSTR("The operation couldn\u2019t be completed. %@"), CFSTR("Error"), cfBundle, "A generic error string indicating there was a problem. The %@ will be replaced by a second sentence which indicates why the operation failed.");
-         CFStringRef result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, operationFailedStr, reason);
- 	CFRelease(operationFailedStr);
-         CFRelease(reason);
- 	return result;
-@@ -297,14 +297,14 @@
-     CFStringRef result;
-     CFStringRef desc = _CFErrorCopyUserInfoKey(err, kCFErrorDescriptionKey);
-     CFStringRef localizedDomain = CFCopyLocalizedStringFromTableInBundle(CFErrorGetDomain(err), CFSTR("Error"), cfBundle, "These are localized in the comment above");
-     if (desc) {     // We have kCFErrorDescriptionKey, so include that with the error domain and code
--	CFStringRef operationFailedStr = CFCopyLocalizedStringFromTableInBundle(CFSTR("The operation couldn\\U2019t be completed. (%@ error %ld - %@)"), CFSTR("Error"), cfBundle, "A generic error string indicating there was a problem, followed by a parenthetical sentence which indicates error domain, code, and a description when there is no other way to present an error to the user. The first %@ indicates the error domain, %ld indicates the error code, and the second %@ indicates the description; so this might become '(Mach error 42 - Server error.)' for instance.");
-+	CFStringRef operationFailedStr = CFCopyLocalizedStringFromTableInBundle(CFSTR("The operation couldn\u2019t be completed. (%@ error %ld - %@)"), CFSTR("Error"), cfBundle, "A generic error string indicating there was a problem, followed by a parenthetical sentence which indicates error domain, code, and a description when there is no other way to present an error to the user. The first %@ indicates the error domain, %ld indicates the error code, and the second %@ indicates the description; so this might become '(Mach error 42 - Server error.)' for instance.");
- 	result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, operationFailedStr, localizedDomain, (long)CFErrorGetCode(err), desc);
- 	CFRelease(operationFailedStr);
-         CFRelease(desc);
-     } else {        // We don't have kCFErrorDescriptionKey, so just use error domain and code
--	CFStringRef operationFailedStr = CFCopyLocalizedStringFromTableInBundle(CFSTR("The operation couldn\\U2019t be completed. (%@ error %ld.)"), CFSTR("Error"), cfBundle, "A generic error string indicating there was a problem, followed by a parenthetical sentence which indicates error domain and code when there is no other way to present an error to the user. The %@ indicates the error domain while %ld indicates the error code; so this might become '(Mach error 42.)' for instance.");
-+	CFStringRef operationFailedStr = CFCopyLocalizedStringFromTableInBundle(CFSTR("The operation couldn\u2019t be completed. (%@ error %ld.)"), CFSTR("Error"), cfBundle, "A generic error string indicating there was a problem, followed by a parenthetical sentence which indicates error domain and code when there is no other way to present an error to the user. The %@ indicates the error domain while %ld indicates the error code; so this might become '(Mach error 42.)' for instance.");
- 	result = CFStringCreateWithFormat(kCFAllocatorSystemDefault, NULL, operationFailedStr, localizedDomain, (long)CFErrorGetCode(err));
- 	CFRelease(operationFailedStr);
-     }
-     CFRelease(localizedDomain);

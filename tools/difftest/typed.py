@@ -2867,11 +2867,17 @@ static void auto_store_scalar(void *destination, const char *encoding, NSString 
         else memcpy(destination, &value, sizeof(value));
         return;
     }
+    /* The SDK names these two arguments `m` and `c`; their selector labels
+       carry the useful names. Without this check, `m` gets the generic 0.0. */
+    BOOL layoutMultiplier = [name containsString:@"multiplier"] ||
+        ([name isEqualToString:@"m"] && [selectorName containsString:@"multiplier"]);
+    BOOL layoutConstant = [name containsString:@"constant"] ||
+        ([name isEqualToString:@"c"] && [selectorName containsString:@"constant"]);
     if ([className hasPrefix:@"NSLayout"] &&
-        ([name containsString:@"multiplier"] || [name containsString:@"constant"] || [name containsString:@"spacing"])) {
+        (layoutMultiplier || layoutConstant || [name containsString:@"spacing"])) {
         static const double values[] = {0, 1, -1, 2, 8};
         double value = values[index % 5];
-        if ([name containsString:@"multiplier"]) value = index % 2 ? 2 : 1;
+        if (layoutMultiplier) value = index % 2 ? 2 : 1;
         if (encoding[0] == 'f') { float v = (float)value; memcpy(destination, &v, sizeof(v)); }
         else memcpy(destination, &value, sizeof(value));
         return;

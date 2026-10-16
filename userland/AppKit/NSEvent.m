@@ -104,6 +104,26 @@ check(NSEvent *e, NSEventMask allowed)
         [NSException raise:NSInternalInconsistencyException format:@"Invalid message sent to event \"%@\"", e];
 }
 
+static void
+check_tablet(NSEvent *e, NSEventMask allowed, NSEventSubtype mouseSubtype)
+{
+    NSEventMask type = NSEventMaskFromType(e->_type);
+    if ((type & allowed) || ((type & MOUSE_TYPES) && e->_subtype == mouseSubtype))
+        return;
+    [NSException raise:NSInternalInconsistencyException format:@"Invalid message sent to event \"%@\"", e];
+}
+
+static void
+check_tablet_device(NSEvent *e)
+{
+    NSEventMask type = NSEventMaskFromType(e->_type);
+    if ((type & (NSEventMaskTabletPoint | NSEventMaskTabletProximity)) ||
+        ((type & MOUSE_TYPES) && (e->_subtype == NSEventSubtypeTabletPoint ||
+                                  e->_subtype == NSEventSubtypeTabletProximity)))
+        return;
+    [NSException raise:NSInternalInconsistencyException format:@"Invalid message sent to event \"%@\"", e];
+}
+
 + (NSEvent *)mouseEventWithType:(NSEventType)type location:(NSPoint)location modifierFlags:(NSEventModifierFlags)flags
                       timestamp:(NSTimeInterval)time windowNumber:(NSInteger)wNum
                         context:(NSGraphicsContext *)unusedPassNil eventNumber:(NSInteger)eNum
@@ -132,7 +152,7 @@ check(NSEvent *e, NSEventMask allowed)
 {
     if (!(NSEventMaskFromType(type) & (KEY_TYPES | NSEventMaskFlagsChanged)))
         [NSException raise:NSInternalInconsistencyException
-                    format:@"Invalid parameter not satisfying: _NSEventMask64FromType(type) & KeyMask"];
+                    format:@"Invalid parameter not satisfying: _NSEventMask64FromType(type) & (KeyMask|NSEventMaskFlagsChanged)"];
     NSEvent *e = [[[self alloc] init] autorelease];
     e->_type = type;
     e->_location = location;
@@ -154,7 +174,7 @@ check(NSEvent *e, NSEventMask allowed)
 {
     if (!(NSEventMaskFromType(type) & ENTER_EXIT))
         [NSException raise:NSInternalInconsistencyException
-                    format:@"Invalid parameter not satisfying: _NSEventMask64FromType(type) & EnterExitMask"];
+                    format:@"Invalid parameter not satisfying: _NSEventMask64FromType(type) & TrackingMask"];
     NSEvent *e = [[[self alloc] init] autorelease];
     e->_type = type;
     e->_location = location;
@@ -339,9 +359,8 @@ static char cg_event_key;
     CFRelease(e);
     return e;
 }
-- (const void *)eventRef { return NULL; }
-- (NSUInteger)deviceID { return 0; }
-- (NSEventMask)associatedEventsMask { return 0; }
+- (const void *)eventRef { return [self CGEvent]; }
+- (NSEventMask)associatedEventsMask { check(self, MOUSE_TYPES); return 0; }
 - (BOOL)isSwipeTrackingFromScrollEventsEnabled { return NO; }
 
 - (NSEventSubtype)subtype
@@ -463,20 +482,37 @@ static char cg_event_key;
     return _inverted;
 }
 
-- (NSInteger)absoluteX { check(self, MOUSE_TYPES | NSEventMaskTabletPoint); return 0; }
-- (NSInteger)absoluteY { check(self, MOUSE_TYPES | NSEventMaskTabletPoint); return 0; }
-- (NSInteger)absoluteZ { check(self, MOUSE_TYPES | NSEventMaskTabletPoint); return 0; }
-- (NSEventButtonMask)buttonMask { check(self, MOUSE_TYPES | NSEventMaskTabletPoint); return 0; }
-- (NSPoint)tilt { check(self, MOUSE_TYPES | NSEventMaskTabletPoint); return NSZeroPoint; }
-- (float)tangentialPressure { check(self, MOUSE_TYPES | NSEventMaskTabletPoint); return 0; }
-- (float)rotation { check(self, MOUSE_TYPES | NSEventMaskTabletPoint | NSEventMaskRotate); return 0; }
-- (id)vendorDefined { check(self, MOUSE_TYPES | NSEventMaskTabletPoint); return nil; }
+- (NSInteger)absoluteX { check_tablet(self, NSEventMaskTabletPoint, NSEventSubtypeTabletPoint); return 0; }
+- (NSInteger)absoluteY { check_tablet(self, NSEventMaskTabletPoint, NSEventSubtypeTabletPoint); return 0; }
+- (NSInteger)absoluteZ { check_tablet(self, NSEventMaskTabletPoint, NSEventSubtypeTabletPoint); return 0; }
+- (NSEventButtonMask)buttonMask { check_tablet(self, NSEventMaskTabletPoint, NSEventSubtypeTabletPoint); return 0; }
+- (NSPoint)tilt { check_tablet(self, NSEventMaskTabletPoint, NSEventSubtypeTabletPoint); return NSZeroPoint; }
+- (float)tangentialPressure { check_tablet(self, NSEventMaskTabletPoint, NSEventSubtypeTabletPoint); return 0; }
+- (float)rotation
+{
+    check_tablet(self, NSEventMaskTabletPoint | NSEventMaskRotate, NSEventSubtypeTabletPoint);
+    return 0;
+}
+- (id)vendorDefined { check_tablet(self, NSEventMaskTabletPoint, NSEventSubtypeTabletPoint); return nil; }
 - (CGFloat)magnification { check(self, NSEventMaskMagnify); return 0; }
 - (NSInteger)stage { check(self, NSEventMaskPressure); return 0; }
 - (CGFloat)stageTransition { check(self, NSEventMaskPressure); return 0; }
+- (NSPressureBehavior)pressureBehavior { check(self, NSEventMaskPressure); return NSPressureBehaviorPrimaryDefault; }
+- (NSUInteger)deviceID { check_tablet_device(self); return 0; }
+- (NSUInteger)vendorID { check_tablet(self, NSEventMaskTabletProximity, NSEventSubtypeTabletProximity); return 0; }
+- (NSUInteger)tabletID { check_tablet(self, NSEventMaskTabletProximity, NSEventSubtypeTabletProximity); return 0; }
+- (NSUInteger)pointingDeviceID { check_tablet(self, NSEventMaskTabletProximity, NSEventSubtypeTabletProximity); return 0; }
+- (NSUInteger)systemTabletID { check_tablet(self, NSEventMaskTabletProximity, NSEventSubtypeTabletProximity); return 0; }
+- (NSUInteger)vendorPointingDeviceType { check_tablet(self, NSEventMaskTabletProximity, NSEventSubtypeTabletProximity); return 0; }
+- (NSUInteger)pointingDeviceSerialNumber { check_tablet(self, NSEventMaskTabletProximity, NSEventSubtypeTabletProximity); return 0; }
+- (unsigned long long)uniqueID { check_tablet(self, NSEventMaskTabletProximity, NSEventSubtypeTabletProximity); return 0; }
+- (NSUInteger)capabilityMask { check_tablet(self, NSEventMaskTabletProximity, NSEventSubtypeTabletProximity); return 0; }
+- (NSPointingDeviceType)pointingDeviceType { check_tablet(self, NSEventMaskTabletProximity, NSEventSubtypeTabletProximity); return NSPointingDeviceTypeUnknown; }
+- (BOOL)isEnteringProximity { check_tablet(self, NSEventMaskTabletProximity, NSEventSubtypeTabletProximity); return NO; }
 
 #pragma mark - State outside events
 
+static BOOL mouse_coalescing_enabled;
 static NSEventModifierFlags current_flags;
 static NSPoint current_mouse;  /* screen coordinates, AppKit's: y up from the main screen's bottom */
 static NSUInteger current_buttons;
@@ -504,9 +540,9 @@ FinchEventNoteModifiers(NSEventModifierFlags flags, NSPoint mouse, NSUInteger bu
 + (NSTimeInterval)doubleClickInterval { return 0.5; }
 + (NSTimeInterval)keyRepeatDelay { return 0.5; }
 + (NSTimeInterval)keyRepeatInterval { return 1.0 / 12; }
-+ (BOOL)isMouseCoalescingEnabled { return YES; }
-+ (void)setMouseCoalescingEnabled:(BOOL)flag {}
-+ (BOOL)isSwipeTrackingFromScrollEventsEnabled { return NO; }
++ (BOOL)isMouseCoalescingEnabled { return mouse_coalescing_enabled; }
++ (void)setMouseCoalescingEnabled:(BOOL)flag { mouse_coalescing_enabled = flag; }
++ (BOOL)isSwipeTrackingFromScrollEventsEnabled { return YES; }
 
 #pragma mark - Monitors and periodic events
 

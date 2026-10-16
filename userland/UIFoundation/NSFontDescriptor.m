@@ -159,8 +159,14 @@ text_style_size(NSString *style, BOOL *bold)
 - (NSFontDescriptorSymbolicTraits)symbolicTraits
 {
     NSDictionary *traits = [self objectForKey:NSFontTraitsAttribute];
-    if ([traits isKindOfClass:[NSDictionary class]])
-        return (NSFontDescriptorSymbolicTraits)[traits[NSFontSymbolicTrait] unsignedIntValue];
+    id value = [traits isKindOfClass:[NSDictionary class]] ? traits[NSFontSymbolicTrait] : nil;
+    if ([value respondsToSelector:@selector(unsignedIntValue)])
+        return (NSFontDescriptorSymbolicTraits)[value unsignedIntValue];
+    NSString *usage = [self objectForKey:UIFUIUsageAttribute];
+    if ([usage isEqualToString:@"CTFontDemiUsage"] || [usage isEqualToString:@"CTFontBoldUsage"] ||
+        [usage isEqualToString:@"CTFontHeavyUsage"] || [usage isEqualToString:@"CTFontBlackUsage"] ||
+        [usage isEqualToString:@"CTFontEmphasizedUsage"] || [usage isEqualToString:@"UICTFontTextStyleHeadline"])
+        return NSFontDescriptorTraitBold;
     return 0;
 }
 

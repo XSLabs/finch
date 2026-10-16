@@ -9,6 +9,7 @@
  * non-RGB model.
  */
 #import "AppKitDrawing.h"
+#import <ColorSync/ColorSync.h>
 
 NSColorSpaceName NSCalibratedWhiteColorSpace = @"NSCalibratedWhiteColorSpace";
 NSColorSpaceName NSCalibratedBlackColorSpace = @"NSCalibratedBlackColorSpace";
@@ -65,6 +66,7 @@ static NSColorSpace *singletons[NSPACES];
     CGColorSpaceRef _cg;
     int _info;  /* index into spaces, or -1 */
     NSData *_icc;
+    ColorSyncProfileRef _profile;
     NSString *_name;
 }
 
@@ -198,14 +200,26 @@ singleton(int i)
 
 - (instancetype)initWithColorSyncProfile:(void *)prof
 {
-    [self release];
-    return nil;
+    if (!prof) {
+        [self release];
+        return nil;
+    }
+    CFDataRef data = ColorSyncProfileCopyData((ColorSyncProfileRef)prof, NULL);
+    if (!data) {
+        [self release];
+        return nil;
+    }
+    self = [self initWithICCProfileData:(NSData *)data];
+    CFRelease(data);
+    return self;
 }
 
 - (void)dealloc
 {
     CGColorSpaceRelease(_cg);
     [_icc release];
+    if (_profile)
+        CFRelease(_profile);
     [_name release];
     [super dealloc];
 }
@@ -213,7 +227,15 @@ singleton(int i)
 - (id)copyWithZone:(NSZone *)zone { return [self retain]; }
 
 - (CGColorSpaceRef)CGColorSpace { return _cg; }
-- (void *)colorSyncProfile { return NULL; }
+- (void *)colorSyncProfile
+{
+    if (!_profile) {
+        NSData *data = [self ICCProfileData];
+        if (data)
+            _profile = ColorSyncProfileCreate((CFDataRef)data, NULL);
+    }
+    return (void *)_profile;
+}
 
 - (NSData *)ICCProfileData
 {

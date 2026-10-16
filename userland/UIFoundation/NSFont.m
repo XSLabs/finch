@@ -110,6 +110,48 @@ system_font_info(NSFont *font)
     return info;
 }
 
+static NSString *
+system_font_family(UIFSystemFontInfo *info)
+{
+    NSString *name = info->archiveName;
+    if ([name containsString:@"Rounded"])
+        return @".AppleSystemUIFontRounded";
+    if ([name containsString:@"Monospaced"] || [name containsString:@"Mono"])
+        return @".AppleSystemUIFontMonospaced";
+    return @".AppleSystemUIFont";
+}
+
+static NSString *
+system_font_display_name(UIFSystemFontInfo *info)
+{
+    NSString *name = info->archiveName;
+    NSString *family = [name containsString:@"Rounded"] ? @"System Font Rounded" :
+                       ([name containsString:@"Monospaced"] || [name containsString:@"Mono"] ?
+                        @"System Font Mono" : @"System Font");
+    NSString *weight = @"Regular";
+    BOOL italic = [name containsString:@"Italic"];
+    if ([name containsString:@"UltraLight"] || [name containsString:@"Ultralight"])
+        weight = @"Ultralight";
+    else if ([name containsString:@"Thin"])
+        weight = @"Thin";
+    else if ([name containsString:@"Light"])
+        weight = @"Light";
+    else if ([name containsString:@"Black"])
+        weight = @"Black";
+    else if ([name containsString:@"Heavy"])
+        weight = @"Heavy";
+    else if ([name containsString:@"Bold"] || [name containsString:@"Emphasized"] ||
+             [name containsString:@"Headline"])
+        weight = @"Bold";
+    else if ([name containsString:@"Demi"] || [name containsString:@"Semibold"])
+        weight = @"Semibold";
+    else if ([name containsString:@"Medium"])
+        weight = @"Medium";
+    if (italic)
+        weight = [weight isEqualToString:@"Regular"] ? @"Italic" : [weight stringByAppendingString:@" Italic"];
+    return [NSString stringWithFormat:@"%@ %@", family, weight];
+}
+
 NSFontDescriptor *
 UIFSystemFontDescriptor(NSFont *font)
 {
@@ -521,7 +563,11 @@ set_user_font(NSFont *font, NSString *nameKey, NSString *sizeKey)
 /* Abstract: an app's NSFont subclass overrides what it needs. */
 - (CTFontRef)_ctFont { return (CTFontRef)self; }
 
-- (NSString *)fontName { return [(NSString *)CTFontCopyPostScriptName(self._ctFont) autorelease]; }
+- (NSString *)fontName
+{
+    UIFSystemFontInfo *info = system_font_info(self);
+    return info ? info->archiveName : [(NSString *)CTFontCopyPostScriptName(self._ctFont) autorelease];
+}
 - (CGFloat)pointSize { return CTFontGetSize(self._ctFont); }
 
 - (const CGFloat *)matrix
@@ -532,8 +578,16 @@ set_user_font(NSFont *font, NSString *nameKey, NSString *sizeKey)
     return interned_matrix(m);
 }
 
-- (NSString *)familyName { return [(NSString *)CTFontCopyFamilyName(self._ctFont) autorelease]; }
-- (NSString *)displayName { return [(NSString *)CTFontCopyDisplayName(self._ctFont) autorelease]; }
+- (NSString *)familyName
+{
+    UIFSystemFontInfo *info = system_font_info(self);
+    return info ? system_font_family(info) : [(NSString *)CTFontCopyFamilyName(self._ctFont) autorelease];
+}
+- (NSString *)displayName
+{
+    UIFSystemFontInfo *info = system_font_info(self);
+    return info ? system_font_display_name(info) : [(NSString *)CTFontCopyDisplayName(self._ctFont) autorelease];
+}
 
 - (NSFontDescriptor *)fontDescriptor
 {
@@ -650,7 +704,12 @@ set_in_cgcontext(NSFont *font, CGContextRef cg)
 - (void)setInContext:(NSGraphicsContext *)graphicsContext
 {
     id ctx = graphicsContext;
-    set_in_cgcontext(self, [ctx respondsToSelector:@selector(CGContext)] ? [ctx CGContext] : NULL);
+    CGContextRef cg = NULL;
+    if ([ctx respondsToSelector:@selector(graphicsPort)])
+        cg = (CGContextRef)[ctx graphicsPort];
+    else if ([ctx respondsToSelector:@selector(CGContext)])
+        cg = [ctx CGContext];
+    set_in_cgcontext(self, cg);
 }
 
 - (NSFont *)verticalFont { return self; }
