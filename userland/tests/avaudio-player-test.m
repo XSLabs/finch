@@ -83,6 +83,7 @@ main(void)
         printf("meters before playing %g %g\n", [p peakPowerForChannel:0], [p averagePowerForChannel:0]);
         Listener *l = [[Listener new] autorelease];
         p.delegate = l;
+        p.volume = 0; /* (it plays the same, without sounding through the Mac's speakers each run) */
         printf("play %d playing %d\n", [p play], p.playing);
         [p pause];
         printf("paused: playing %d\n", p.playing);
