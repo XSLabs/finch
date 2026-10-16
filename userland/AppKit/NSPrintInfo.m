@@ -10,6 +10,7 @@
  * report that there is no printer. NSView's PDF methods use the same path.
  */
 #import "NSView_Finch.h"
+#include <math.h>
 
 #pragma mark - NSPrinter
 
@@ -174,9 +175,19 @@ defaults(void)
 static CGFloat num(NSPrintInfo *p, NSString *k) { return [p->_dict[k] doubleValue]; }
 
 - (NSPrinterPaperName)paperName { return _dict[NSPrintPaperName]; }
-- (void)setPaperName:(NSPrinterPaperName)name { _dict[NSPrintPaperName] = name ?: @""; }
+- (void)setPaperName:(NSPrinterPaperName)name
+{
+    /* Without a printer list, keep the only paper Finch can name: the default letter sheet. */
+    if ([name isEqualToString:@"na-letter"])
+        _dict[NSPrintPaperName] = name;
+}
 - (NSSize)paperSize { return [_dict[NSPrintPaperSize] sizeValue]; }
-- (void)setPaperSize:(NSSize)size { _dict[NSPrintPaperSize] = [NSValue valueWithSize:size]; }
+- (void)setPaperSize:(NSSize)size
+{
+    _dict[NSPrintPaperSize] = [NSValue valueWithSize:size];
+    BOOL letter = (size.width == 612 && size.height == 792) || (size.width == 792 && size.height == 612);
+    _dict[NSPrintPaperName] = letter ? @"na-letter" : @"custom";
+}
 - (NSPaperOrientation)orientation { return [_dict[NSPrintOrientation] integerValue]; }
 
 /* As Apple's: the paper size swaps when the orientation does. */
@@ -200,7 +211,11 @@ static CGFloat num(NSPrintInfo *p, NSString *k) { return [p->_dict[k] doubleValu
 - (CGFloat)bottomMargin { return num(self, NSPrintBottomMargin); }
 - (void)setBottomMargin:(CGFloat)v { _dict[NSPrintBottomMargin] = @(v); }
 - (CGFloat)scalingFactor { return num(self, NSPrintScalingFactor); }
-- (void)setScalingFactor:(CGFloat)v { _dict[NSPrintScalingFactor] = @(v); }
+- (void)setScalingFactor:(CGFloat)v
+{
+    if (v > 0 && isfinite(v))
+        _dict[NSPrintScalingFactor] = @(v);
+}
 - (NSPrintingPaginationMode)horizontalPagination { return [_dict[NSPrintHorizontalPagination] integerValue]; }
 - (void)setHorizontalPagination:(NSPrintingPaginationMode)m { _dict[NSPrintHorizontalPagination] = @(m); }
 - (NSPrintingPaginationMode)verticalPagination { return [_dict[NSPrintVerticalPagination] integerValue]; }

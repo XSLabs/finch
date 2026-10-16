@@ -27,6 +27,12 @@ POOL_DESCRIPTIONS = {
     "time-zone": ["UTC", "America/Toronto", "Asia/Kathmandu"],
     "calendar": ["gregorian", "iso8601"],
     "character-set": ["ASCII", "letters", "custom/unicode"],
+    "color": ["sRGB", "gray", "catalog/system"],
+    "font": ["system/12pt", "Helvetica/13pt", "Noto Sans/18pt", "unknown name"],
+    "image": ["memory/2x2", "memory/4x3", "bitmap/pixels"],
+    "geometry": ["origin", "positive rectangle", "edge insets", "transform"],
+    "appearance": ["Aqua", "Dark Aqua"],
+    "pasteboard": ["private named board", "string data", "declared types"],
 }
 
 
@@ -43,6 +49,67 @@ SIDE_EFFECT_RULES = (
     ("streams", re.compile(r"(?:WithStream|toStream|FromStream|StreamWith)", re.I)),
     ("filesystem", re.compile(r"NSFile|FileHandle|FileCoordinator|FileWrapper|FileVersion|NSMetadataQuery|NSBundle|CFURL(?:CreateDataAndPropertiesFromResource|WriteDataAndPropertiesToResource|ResourceIsReachable|SetResourcePropert)|(?:read|write|create|remove|move|copy|replace|load|fetch|archive|init).*?(?:File|URL|Path)|(?:File|URL|Path).*?(?:write|create|remove|move|copy|replace|load|fetch|archive|init)|(?:to|From|WithContentsOf)(?:File|URL|Path)|resourceValues|ResourceValue|BookmarkData|AccessingSecurityScopedResource|WriteToFile|WriteToURL|CreateDirectory|MoveItem|CopyItem|RemoveItem|ReplaceItem|CreateFile|OpenFile|check.*Reachable|isReachable", re.I)),
 )
+
+
+APPKIT_HEADLESS_CLASSES = {
+    "NSColor", "NSColorSpace", "NSColorList", "NSFont", "NSFontDescriptor", "NSFontManager",
+    "NSBezierPath", "NSAffineTransform", "NSImage", "NSImageRep", "NSBitmapImageRep",
+    "NSAttributedString", "NSMutableAttributedString", "NSParagraphStyle", "NSMutableParagraphStyle",
+    "NSTextTab", "NSShadow", "NSGradient", "NSCursor", "NSAppearance", "NSEvent", "NSTouch",
+    "NSLayoutConstraint", "NSLayoutAnchor", "NSLayoutXAxisAnchor", "NSLayoutYAxisAnchor",
+    "NSLayoutDimension", "NSLayoutGuide", "NSView", "NSPasteboard", "NSValue", "NSPrintInfo",
+}
+
+APPKIT_VIEW_VALUE_SELECTORS = {
+    "init", "initWithFrame:", "leadingAnchor", "trailingAnchor", "leftAnchor", "rightAnchor",
+    "topAnchor", "bottomAnchor", "widthAnchor", "heightAnchor", "centerXAnchor", "centerYAnchor",
+    "firstBaselineAnchor", "lastBaselineAnchor", "safeAreaLayoutGuide", "layoutMarginsGuide",
+}
+
+APPKIT_UNSAFE_SELECTORS = {
+    "NSBezierPath": re.compile(r"^(?:fill|stroke|clip|addClip|setClip|draw)"),
+    "NSGradient": re.compile(r"^draw"),
+    "NSImage": re.compile(r"^(?:draw|lockFocus|unlockFocus|dragFrom|hitTestRect|bestRepresentationForRect|CGImageForProposedRect)"),
+    "NSCursor": re.compile(r"^(?:push|pop|set|hide|unhide|setOnMouseEntered)"),
+    "NSFontManager": re.compile(r"^(?:fontPanel|fontMenu|orderFront|setFontPanelFactory|sendAction|setSelectedFont|availableFonts|availableFontFamilies|availableFontNamesMatchingFontDescriptor|availableFontNamesWithTraits|collectionNames)"),
+    "NSPrintInfo": re.compile(r"^(?:sharedPrintInfo|defaultPrinter|setDefaultPrinter)"),
+    # Pasteboard counters come from separate host and Finch pasteboard services.
+    "NSPasteboard": re.compile(r"^(?:changeCount|clearContents|prepareForNewContentsWithOptions:)"),
+    "NSEvent": re.compile(r"^(?:mouseLocation|pressedMouseButtons|startPeriodic|stopPeriodic|addGlobalMonitor|addLocalMonitor|removeMonitor|setMouseCoalescing|eventWithEventRef)"),
+    "NSImageRep": re.compile(r"^(?:draw)"),
+    "NSBitmapImageRep": re.compile(r"^(?:getBitmapDataPlanes:|initForIncrementalLoad)$"),
+}
+
+
+def _appkit_c_scope(name: str, variable: bool = False) -> bool:
+    if variable:
+        return bool(re.match(r"^NS(?:AppearanceName|UserInterfaceItemIdentifier)", name))
+    return bool(re.match(r"^NS(?:Make(?:Point|Size|Rect)|(?:Min|Max|Mid)[XY]|DivideRect|InsetRect|OffsetRect|IntegralRect|StandardizeRect|UnionRect|IntersectionRect|Contains(?:Rect|Point)|Equal(?:Rects|Sizes|Points)|IsEmpty(?:Rect|Size)|MouseInRect|PointInRect|RectFromCGRect|RectToCGRect|PointFromCGPoint|SizeFromCGSize|EdgeInsets)", name))
+
+
+def _appkit_skip(method: dict) -> str | None:
+    class_name = method.get("class", "")
+    selector = method.get("selector", "")
+    if class_name not in APPKIT_HEADLESS_CLASSES:
+        return "outside the selected AppKit headless API scope"
+    if class_name == "NSTouch":
+        return "touch values require a real input event"
+    if class_name == "NSView" and selector not in APPKIT_VIEW_VALUE_SELECTORS:
+        return "outside the selected AppKit headless API scope"
+    if class_name == "NSPasteboard" and method.get("class_method") and selector != "pasteboardWithName:":
+        return "pasteboard must use a private named board"
+    if class_name == "NSPrintInfo" and selector in {
+        "init", "dictionary", "printer", "setPrinter:", "imageablePageBounds", "PMPrintSession", "PMPageFormat", "PMPrintSettings",
+        "printSettings", "setUpPrintOperationDefaultValues", "updateFromPMPageFormat", "updateFromPMPrintSettings",
+        "takeSettingsFromPDFInfo:",
+    }:
+        return "depends on printer settings or the host printing system"
+    pattern = APPKIT_UNSAFE_SELECTORS.get(class_name)
+    if pattern and pattern.search(selector):
+        return "needs a drawing context, window, or system input state"
+    if class_name == "NSEvent" and selector in {"modifierFlags", "pressedMouseButtons", "mouseLocation"}:
+        return "depends on the host's current input state"
+    return None
 
 
 def _clean_type(value: str) -> str:
@@ -211,7 +278,8 @@ def _scalar_kind(value: str) -> str | None:
         return "float"
     if base in ("CFRange", "NSRange"):
         return "range"
-    if base in ("CGPoint", "CGSize", "CGRect", "NSPoint", "NSSize", "NSRect", "CGAffineTransform", "CATransform3D"):
+    if base in ("CGPoint", "CGSize", "CGRect", "NSPoint", "NSSize", "NSRect", "NSEdgeInsets",
+                "NSAffineTransformStruct", "CGAffineTransform", "CATransform3D"):
         return "struct"
     if base in ("void", "id", "Class", "SEL", "instancetype"):
         return None
@@ -334,6 +402,20 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
             return f"CFRangeMake(0, (CFIndex)({case_index} & 1))", [], []
         return None, "NSRange is unavailable in this CoreFoundation C input context", None
     if scalar_kind == "struct":
+        if base in ("NSRect", "NSPoint", "NSSize"):
+            constructor = {"NSRect": "NSMakeRect(1, 2, 5, 7)", "NSPoint": "NSMakePoint(3, -2)",
+                           "NSSize": "NSMakeSize(4, 6)"}[base]
+            return f"({qtype}){constructor}", [], []
+        if base in ("CGRect", "CGPoint", "CGSize"):
+            constructor = {"CGRect": "CGRectMake(1, 2, 5, 7)", "CGPoint": "CGPointMake(3, -2)",
+                           "CGSize": "CGSizeMake(4, 6)"}[base]
+            return f"({qtype}){constructor}", [], []
+        if base == "NSEdgeInsets":
+            return f"({qtype}){{1, 2, 3, 4}}", [], []
+        if base == "NSAffineTransformStruct":
+            return f"({qtype}){{1.25, 0.5, -0.25, 2.0, 3.0, -4.0}}", [], []
+        if base == "CGAffineTransform":
+            return f"({qtype})CGAffineTransformMake(1.25, 0.5, -0.25, 2.0, 3.0, -4.0)", [], []
         return f"({qtype}){{0}}", [], []
 
     depth = _pointer_depth(clean)
@@ -449,6 +531,19 @@ def _c_return(type_name: str, variable: str = "typed_result") -> tuple[str | Non
         return f'printf("%a", (double){variable});', None
     if scalar == "range" and base == "CFRange":
         return f'printf("%ld,%ld", (long){variable}.location, (long){variable}.length);', None
+    if scalar == "struct":
+        if base in ("NSPoint", "CGPoint"):
+            return f'printf("point:%.5f,%.5f", (double){variable}.x, (double){variable}.y);', None
+        if base in ("NSSize", "CGSize"):
+            return f'printf("size:%.5f,%.5f", (double){variable}.width, (double){variable}.height);', None
+        if base in ("NSRect", "CGRect"):
+            return f'printf("rect:%.5f,%.5f,%.5f,%.5f", (double){variable}.origin.x, (double){variable}.origin.y, (double){variable}.size.width, (double){variable}.size.height);', None
+        if base == "NSEdgeInsets":
+            return f'printf("edge-insets:%.5f,%.5f,%.5f,%.5f", (double){variable}.top, (double){variable}.left, (double){variable}.bottom, (double){variable}.right);', None
+        if base == "NSAffineTransformStruct":
+            return f'printf("transform:%.5f,%.5f,%.5f,%.5f,%.5f,%.5f", (double){variable}.m11, (double){variable}.m12, (double){variable}.m21, (double){variable}.m22, (double){variable}.tX, (double){variable}.tY);', None
+        if base == "CGAffineTransform":
+            return f'printf("transform:%.5f,%.5f,%.5f,%.5f,%.5f,%.5f", (double){variable}.a, (double){variable}.b, (double){variable}.c, (double){variable}.d, (double){variable}.tx, (double){variable}.ty);', None
     if scalar in ("integer", "bool"):
         if "unsigned" in clean or base.startswith("u") or base in ("size_t", "NSUInteger", "CFOptionFlags", "CFTypeID", "UInt8", "UInt16", "UInt32", "UInt64"):
             return f'printf("%llu", (unsigned long long){variable});', None
@@ -993,9 +1088,183 @@ static NSString *auto_hex(NSString *value)
 
 static NSString *auto_canonical(id value);
 
+#ifdef FINCH_DIFFTEST_APPKIT
+static NSInteger auto_appkit_component(double value)
+{
+    if (!isfinite(value)) return (NSInteger)0x7fffffff;
+    return (NSInteger)llround(value * 100000.0);
+}
+
+static NSInteger auto_appkit_geometry(double value)
+{
+    if (!isfinite(value)) return (NSInteger)0x7fffffff;
+    return (NSInteger)llround(value * 100.0);
+}
+
+static NSString *auto_appkit_color_description(NSColor *color)
+{
+    __block NSString *description = nil;
+    void (^readColor)(void) = ^{
+        NSColor *component = [color colorUsingType:NSColorTypeComponentBased];
+        NSColor *rgb = [component colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
+        NSString *catalog = @"";
+        if (color.type == NSColorTypeCatalog)
+            catalog = [NSString stringWithFormat:@"%@/%@:", color.catalogNameComponent ?: @"", color.colorNameComponent ?: @""];
+        if (rgb) description = [NSString stringWithFormat:@"color:%@%ld,%ld,%ld,%ld", auto_hex(catalog),
+            (long)auto_appkit_component(rgb.redComponent), (long)auto_appkit_component(rgb.greenComponent),
+            (long)auto_appkit_component(rgb.blueComponent), (long)auto_appkit_component(rgb.alphaComponent)];
+        else description = [NSString stringWithFormat:@"color:%ld:%ld", (long)color.type,
+            (long)auto_appkit_component(color.alphaComponent)];
+    };
+    NSAppearance *appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    if (appearance) [appearance performAsCurrentDrawingAppearance:readColor];
+    else readColor();
+    return description ?: @"color:unavailable";
+}
+
+static NSString *auto_appkit_private_name(NSString *name)
+{
+    if ([name hasPrefix:@"org.finch.difftest."]) return @"<private-pasteboard>";
+    return name ?: @"";
+}
+#endif
+
 static NSString *auto_canonical(id value)
 {
     if (!value || value == NSNull.null) return @"null";
+#ifdef FINCH_DIFFTEST_APPKIT
+    if ([value isKindOfClass:NSColor.class]) {
+        return auto_appkit_color_description(value);
+    }
+    if ([value isKindOfClass:NSColorSpace.class]) {
+        NSColorSpace *space = value;
+        return [NSString stringWithFormat:@"color-space:%ld:%ld:%@", (long)space.colorSpaceModel,
+            (long)space.numberOfColorComponents, auto_hex(space.localizedName ?: @"")];
+    }
+    if ([value isKindOfClass:NSColorList.class]) {
+        NSColorList *list = value;
+        return [NSString stringWithFormat:@"color-list:%@:%@", auto_hex(list.name ?: @""), auto_canonical(list.allKeys ?: @[])];
+    }
+    if ([value isKindOfClass:NSFont.class]) {
+        NSFont *font = value;
+        return [NSString stringWithFormat:@"font:%@:%@:%ld:%ld", auto_hex(font.fontName ?: @""),
+            auto_hex(font.familyName ?: @""), (long)auto_appkit_component(font.pointSize),
+            (long)font.fontDescriptor.symbolicTraits];
+    }
+    if ([value isKindOfClass:NSFontDescriptor.class]) {
+        NSFontDescriptor *descriptor = value;
+        return [NSString stringWithFormat:@"font-descriptor:%@:%ld:%lu", auto_canonical(descriptor.fontAttributes),
+            (long)auto_appkit_component(descriptor.pointSize), (unsigned long)descriptor.symbolicTraits];
+    }
+    if ([value isKindOfClass:NSBezierPath.class]) {
+        NSBezierPath *path = value;
+        NSRect bounds = path.bounds;
+        NSPoint point = path.elementCount ? path.currentPoint : NSZeroPoint;
+        return [NSString stringWithFormat:@"bezier-path:%ld:%ld,%ld,%ld,%ld:%ld,%ld:%ld",
+            (long)path.elementCount, (long)auto_appkit_geometry(bounds.origin.x),
+            (long)auto_appkit_geometry(bounds.origin.y), (long)auto_appkit_geometry(bounds.size.width),
+            (long)auto_appkit_geometry(bounds.size.height), (long)auto_appkit_geometry(point.x),
+            (long)auto_appkit_geometry(point.y), (long)auto_appkit_geometry(path.lineWidth)];
+    }
+    if ([value isKindOfClass:NSAffineTransform.class]) {
+        NSAffineTransformStruct t = [(NSAffineTransform *)value transformStruct];
+        return [NSString stringWithFormat:@"affine-transform:%ld,%ld,%ld,%ld,%ld,%ld",
+            (long)auto_appkit_geometry(t.m11), (long)auto_appkit_geometry(t.m12),
+            (long)auto_appkit_geometry(t.m21), (long)auto_appkit_geometry(t.m22),
+            (long)auto_appkit_geometry(t.tX), (long)auto_appkit_geometry(t.tY)];
+    }
+    if ([value isKindOfClass:NSBitmapImageRep.class]) {
+        NSBitmapImageRep *rep = value;
+        NSUInteger length = MIN((NSUInteger)MAX(0, rep.bytesPerRow * rep.pixelsHigh), (NSUInteger)16);
+        const unsigned char *pixels = rep.bitmapData;
+        NSMutableString *bytes = [NSMutableString string];
+        for (NSUInteger i = 0; pixels && i < length; i++) [bytes appendFormat:@"%02x", pixels[i]];
+        return [NSString stringWithFormat:@"bitmap:%ldx%ld:%ld:%ld:%@", (long)rep.pixelsWide,
+            (long)rep.pixelsHigh, (long)rep.samplesPerPixel, (long)rep.bitsPerSample, bytes];
+    }
+    if ([value isKindOfClass:NSImageRep.class]) {
+        NSImageRep *rep = value;
+        NSSize size = rep.size;
+        return [NSString stringWithFormat:@"image-rep:%ldx%ld:%ld,%ld:%d:%@", (long)rep.pixelsWide,
+            (long)rep.pixelsHigh, (long)auto_appkit_geometry(size.width), (long)auto_appkit_geometry(size.height),
+            rep.hasAlpha, auto_hex(rep.colorSpaceName ?: @"")];
+    }
+    if ([value isKindOfClass:NSImage.class]) {
+        NSImage *image = value;
+        NSSize size = image.size;
+        return [NSString stringWithFormat:@"image:%ld,%ld:%@", (long)auto_appkit_geometry(size.width),
+            (long)auto_appkit_geometry(size.height), auto_canonical(image.representations ?: @[])];
+    }
+    if ([value isKindOfClass:NSParagraphStyle.class]) {
+        NSParagraphStyle *style = value;
+        return [NSString stringWithFormat:@"paragraph:%ld:%ld:%ld,%ld,%ld,%ld,%ld:%@", (long)style.alignment,
+            (long)style.baseWritingDirection, (long)auto_appkit_geometry(style.lineSpacing),
+            (long)auto_appkit_geometry(style.paragraphSpacing), (long)auto_appkit_geometry(style.firstLineHeadIndent),
+            (long)auto_appkit_geometry(style.headIndent), (long)auto_appkit_geometry(style.tailIndent),
+            auto_canonical(style.tabStops ?: @[])];
+    }
+    if ([value isKindOfClass:NSTextTab.class]) {
+        NSTextTab *tab = value;
+        return [NSString stringWithFormat:@"text-tab:%ld:%ld:%@", (long)tab.tabStopType,
+            (long)auto_appkit_geometry(tab.location), auto_canonical(tab.options ?: @{})];
+    }
+    if ([value isKindOfClass:NSShadow.class]) {
+        NSShadow *shadow = value;
+        NSSize offset = shadow.shadowOffset;
+        return [NSString stringWithFormat:@"shadow:%ld,%ld:%ld:%@", (long)auto_appkit_geometry(offset.width),
+            (long)auto_appkit_geometry(offset.height), (long)auto_appkit_geometry(shadow.shadowBlurRadius),
+            auto_canonical(shadow.shadowColor)];
+    }
+    if ([value isKindOfClass:NSGradient.class]) {
+        NSGradient *gradient = value;
+        return [NSString stringWithFormat:@"gradient:%ld:%@:%@", (long)gradient.numberOfColorStops,
+            auto_canonical([gradient interpolatedColorAtLocation:0.0]),
+            auto_canonical([gradient interpolatedColorAtLocation:1.0])];
+    }
+    if ([value isKindOfClass:NSCursor.class]) {
+        NSCursor *cursor = value;
+        return [NSString stringWithFormat:@"cursor:%@:%ld,%ld", auto_canonical(cursor.image),
+            (long)auto_appkit_geometry(cursor.hotSpot.x), (long)auto_appkit_geometry(cursor.hotSpot.y)];
+    }
+    if ([value isKindOfClass:NSAppearance.class])
+        return [NSString stringWithFormat:@"appearance:%@", auto_hex([(NSAppearance *)value name] ?: @"")];
+    if ([value isKindOfClass:NSEvent.class]) {
+        NSEvent *event = value;
+        NSPoint point = event.locationInWindow;
+        return [NSString stringWithFormat:@"event:%ld:%ld,%ld:%lu:%ld:%ld:%ld:%ld", (long)event.type,
+            (long)auto_appkit_geometry(point.x), (long)auto_appkit_geometry(point.y),
+            (unsigned long)event.modifierFlags, (long)auto_appkit_geometry(event.timestamp),
+            (long)event.windowNumber, (long)event.clickCount, (long)auto_appkit_component(event.pressure)];
+    }
+    if ([value isKindOfClass:NSLayoutConstraint.class]) {
+        NSLayoutConstraint *constraint = value;
+        return [NSString stringWithFormat:@"constraint:%ld:%ld:%ld:%ld,%ld:%ld:%ld:%@:%d", (long)constraint.firstAttribute,
+            (long)constraint.relation, (long)constraint.secondAttribute,
+            (long)auto_appkit_geometry(constraint.multiplier), (long)auto_appkit_geometry(constraint.constant),
+            (long)auto_appkit_component(constraint.priority), (long)constraint.isActive,
+            auto_hex(constraint.identifier ?: @""), constraint.firstItem != nil];
+    }
+    if ([value isKindOfClass:NSLayoutAnchor.class]) {
+        return [NSString stringWithFormat:@"layout-anchor:%@", NSStringFromClass([value class])];
+    }
+    if ([value isKindOfClass:NSPasteboard.class]) {
+        NSPasteboard *board = value;
+        return [NSString stringWithFormat:@"pasteboard:%@:%@", auto_hex(auto_appkit_private_name(board.name)),
+            auto_canonical(board.types ?: @[])];
+    }
+    if ([value isKindOfClass:NSPrintInfo.class]) {
+        NSPrintInfo *info = value;
+        NSSize size = info.paperSize;
+        NSString *paperName = info.paperName ?: @"";
+        if (![paperName isEqualToString:@"na-letter"] && ![paperName isEqualToString:@"iso-a4"])
+            paperName = @"<custom>";
+        return [NSString stringWithFormat:@"print-info:%@:%ld:%ld,%ld:%ld,%ld,%ld,%ld:%ld", auto_hex(paperName),
+            (long)info.orientation, (long)auto_appkit_geometry(size.width), (long)auto_appkit_geometry(size.height),
+            (long)auto_appkit_geometry(info.leftMargin), (long)auto_appkit_geometry(info.rightMargin),
+            (long)auto_appkit_geometry(info.topMargin), (long)auto_appkit_geometry(info.bottomMargin),
+            (long)auto_appkit_geometry(info.scalingFactor)];
+    }
+#endif
     if ([value isKindOfClass:NSString.class]) return [@"string:" stringByAppendingString:auto_hex(value)];
     if ([value isKindOfClass:NSNumber.class]) {
         if (CFGetTypeID((CFTypeRef)value) == CFBooleanGetTypeID())
@@ -1068,9 +1337,28 @@ static NSString *auto_canonical(id value)
     if ([value isKindOfClass:NSValue.class]) {
         const char *type = [value objCType];
         if (!strcmp(type, @encode(NSRange))) { NSRange range = [value rangeValue]; return [NSString stringWithFormat:@"range:%lu,%lu", (unsigned long)range.location, (unsigned long)range.length]; }
+#ifdef FINCH_DIFFTEST_APPKIT
+        if (!strcmp(type, @encode(NSPoint))) { NSPoint point = [value pointValue]; return [NSString stringWithFormat:@"point:%ld,%ld", (long)auto_appkit_geometry(point.x), (long)auto_appkit_geometry(point.y)]; }
+        if (!strcmp(type, @encode(NSSize))) { NSSize size = [value sizeValue]; return [NSString stringWithFormat:@"size:%ld,%ld", (long)auto_appkit_geometry(size.width), (long)auto_appkit_geometry(size.height)]; }
+        if (!strcmp(type, @encode(NSRect))) { NSRect rect = [value rectValue]; return [NSString stringWithFormat:@"rect:%ld,%ld,%ld,%ld", (long)auto_appkit_geometry(rect.origin.x), (long)auto_appkit_geometry(rect.origin.y), (long)auto_appkit_geometry(rect.size.width), (long)auto_appkit_geometry(rect.size.height)]; }
+        if (!strcmp(type, @encode(NSEdgeInsets))) {
+            NSEdgeInsets insets = [value edgeInsetsValue];
+            return [NSString stringWithFormat:@"edge-insets:%ld,%ld,%ld,%ld",
+                (long)auto_appkit_geometry(insets.top), (long)auto_appkit_geometry(insets.left),
+                (long)auto_appkit_geometry(insets.bottom), (long)auto_appkit_geometry(insets.right)];
+        }
+        if (!strcmp(type, @encode(NSAffineTransformStruct))) {
+            NSAffineTransformStruct t; [value getValue:&t];
+            return [NSString stringWithFormat:@"affine-transform:%ld,%ld,%ld,%ld,%ld,%ld",
+                (long)auto_appkit_geometry(t.m11), (long)auto_appkit_geometry(t.m12),
+                (long)auto_appkit_geometry(t.m21), (long)auto_appkit_geometry(t.m22),
+                (long)auto_appkit_geometry(t.tX), (long)auto_appkit_geometry(t.tY)];
+        }
+#else
         if (!strcmp(type, @encode(NSPoint))) { NSPoint point = [value pointValue]; return [NSString stringWithFormat:@"point:%a,%a", point.x, point.y]; }
         if (!strcmp(type, @encode(NSSize))) { NSSize size = [value sizeValue]; return [NSString stringWithFormat:@"size:%a,%a", size.width, size.height]; }
         if (!strcmp(type, @encode(NSRect))) { NSRect rect = [value rectValue]; return [NSString stringWithFormat:@"rect:%a,%a,%a,%a", rect.origin.x, rect.origin.y, rect.size.width, rect.size.height]; }
+#endif
         return [NSString stringWithFormat:@"value:%s:%@", type, auto_hex([value description])];
     }
     if ([value isKindOfClass:NSCharacterSet.class]) {
@@ -1092,12 +1380,136 @@ static void auto_print(NSString *value)
     while (*bytes) printf("%02x", *bytes++);
 }
 
+#ifdef FINCH_DIFFTEST_APPKIT
+static NSBitmapImageRep *auto_bitmap(void)
+{
+    return [[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:2 pixelsHigh:2
+        bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO
+        colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:8 bitsPerPixel:32] autorelease];
+}
+
+static NSImage *auto_image(void)
+{
+    NSImage *image = [[[NSImage alloc] initWithSize:NSMakeSize(2, 2)] autorelease];
+    NSBitmapImageRep *rep = auto_bitmap();
+    if (image && rep) [image addRepresentation:rep];
+    return image;
+}
+
+static NSColor *auto_color(NSUInteger index)
+{
+    static const CGFloat red[] = {0, 0.25, 0.5, 0.75, 1, 0.1, 0.9, 0.35};
+    static const CGFloat green[] = {0.75, 0.9, 0.1, 0.25, 0.5, 1, 0.35, 0};
+    static const CGFloat blue[] = {0.5, 0.1, 0.9, 0.35, 0, 0.75, 0.25, 1};
+    return [NSColor colorWithSRGBRed:red[index % 8] green:green[index % 8]
+        blue:blue[index % 8] alpha:(index % 2) ? 1.0 : 0.5];
+}
+
+static NSEvent *auto_event(void)
+{
+    return [NSEvent otherEventWithType:NSEventTypeApplicationDefined location:NSMakePoint(4, 6)
+        modifierFlags:NSEventModifierFlagShift timestamp:1.25 windowNumber:0 context:nil
+        subtype:7 data1:42 data2:-13];
+}
+
+static NSPasteboard *auto_private_pasteboard(NSString *selectorName)
+{
+    NSString *suffix = selectorName.length ?
+        [selectorName stringByReplacingOccurrencesOfString:@":" withString:@"-"] : @"default";
+    NSString *name = [NSString stringWithFormat:@"org.finch.difftest.receiver.%@", suffix];
+    NSPasteboard *board = [NSPasteboard pasteboardWithName:name];
+    [board clearContents];
+    return board;
+}
+
+static NSView *auto_layout_root(void)
+{
+    static NSView *view;
+    if (!view) view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 300)];
+    return view;
+}
+
+static NSView *auto_layout_view(void);
+
+static NSView *auto_layout_peer_view(void)
+{
+    static NSView *view;
+    if (!view) {
+        view = [[NSView alloc] initWithFrame:NSMakeRect(20, 30, 120, 80)];
+        [auto_layout_root() addSubview:view];
+    }
+    return view;
+}
+
+static NSView *auto_layout_view(void)
+{
+    static NSView *view;
+    if (!view) {
+        view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 120, 80)];
+        [auto_layout_root() addSubview:view];
+    }
+    return view;
+}
+
+static NSLayoutConstraint *auto_constraint(void)
+{
+    NSView *view = auto_layout_view();
+    return [NSLayoutConstraint constraintWithItem:view attribute:NSLayoutAttributeWidth
+        relatedBy:NSLayoutRelationEqual toItem:nil attribute:NSLayoutAttributeNotAnAttribute
+        multiplier:1 constant:42];
+}
+#endif
+
 static id auto_object(NSString *type, NSUInteger index)
 {
     NSString *clean = auto_clean_type(type);
     NSString *base = [[clean componentsSeparatedByString:@"<"] firstObject];
     base = [[base componentsSeparatedByString:@"*"] firstObject];
     base = [base stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+#ifdef FINCH_DIFFTEST_APPKIT
+    if ([base isEqualToString:@"NSColor"]) return auto_color(index);
+    if ([base isEqualToString:@"NSColorSpace"]) return @[[NSColorSpace sRGBColorSpace],
+        [NSColorSpace genericRGBColorSpace], [NSColorSpace extendedSRGBColorSpace]][index % 3];
+    if ([base isEqualToString:@"NSColorList"]) {
+        NSColorList *list = [[[NSColorList alloc] initWithName:@"FinchDifftest"] autorelease];
+        [list setColor:auto_color(1) forKey:@"accent"];
+        [list setColor:auto_color(4) forKey:@"gray"];
+        return list;
+    }
+    if ([base isEqualToString:@"NSFont"]) {
+        static const CGFloat sizes[] = {12, 13, 18, 24};
+        return [NSFont systemFontOfSize:sizes[index % 4]];
+    }
+    if ([base isEqualToString:@"NSFontDescriptor"]) return [[NSFont systemFontOfSize:12] fontDescriptor];
+    if ([base isEqualToString:@"NSFontManager"]) return [NSFontManager sharedFontManager];
+    if ([base isEqualToString:@"NSBezierPath"]) return [NSBezierPath bezierPathWithRect:NSMakeRect(1, 2, 8, 6)];
+    if ([base isEqualToString:@"NSAffineTransform"]) return [[[NSAffineTransform alloc] init] autorelease];
+    if ([base isEqualToString:@"NSImage"]) return auto_image();
+    if ([base isEqualToString:@"NSImageRep"] || [base isEqualToString:@"NSBitmapImageRep"]) return auto_bitmap();
+    if ([base isEqualToString:@"NSParagraphStyle"]) return [NSParagraphStyle defaultParagraphStyle];
+    if ([base isEqualToString:@"NSMutableParagraphStyle"]) return [[NSParagraphStyle defaultParagraphStyle] mutableCopy];
+    if ([base isEqualToString:@"NSTextTab"]) return [[[NSTextTab alloc] initWithType:NSLeftTabStopType location:36] autorelease];
+    if ([base isEqualToString:@"NSShadow"]) return [[[NSShadow alloc] init] autorelease];
+    if ([base isEqualToString:@"NSGradient"]) return [[[NSGradient alloc] initWithStartingColor:auto_color(index)
+        endingColor:auto_color(index + 1)] autorelease];
+    if ([base isEqualToString:@"NSCursor"]) return [NSCursor arrowCursor];
+    if ([base isEqualToString:@"NSAppearance"]) return [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    if ([base isEqualToString:@"NSEvent"]) return auto_event();
+    if ([base isEqualToString:@"NSView"]) return auto_layout_view();
+    if ([base isEqualToString:@"NSLayoutConstraint"]) return auto_constraint();
+    if ([base isEqualToString:@"NSLayoutAnchor"] || [base isEqualToString:@"NSLayoutXAxisAnchor"])
+        return auto_layout_view().leadingAnchor;
+    if ([base isEqualToString:@"NSLayoutYAxisAnchor"]) return auto_layout_view().topAnchor;
+    if ([base isEqualToString:@"NSLayoutDimension"]) return auto_layout_view().widthAnchor;
+    if ([base isEqualToString:@"NSLayoutGuide"]) return [[[NSLayoutGuide alloc] init] autorelease];
+    if ([base isEqualToString:@"NSPasteboard"]) return auto_private_pasteboard(nil);
+    if ([base isEqualToString:@"NSPrintInfo"]) return [[[NSPrintInfo alloc] init] autorelease];
+    if ([base isEqualToString:@"NSValue"]) return [NSValue valueWithPoint:NSMakePoint(3, -2)];
+    if ([base isEqualToString:@"NSAttributedString"]) return [[[NSAttributedString alloc] initWithString:@"café🙂" attributes:@{
+        NSFontAttributeName:[NSFont systemFontOfSize:12]}] autorelease];
+    if ([base isEqualToString:@"NSMutableAttributedString"]) return [[[NSMutableAttributedString alloc] initWithString:@"café🙂" attributes:@{
+        NSFontAttributeName:[NSFont systemFontOfSize:12]}] autorelease];
+#endif
     if ([base isEqualToString:@"id"] || [base isEqualToString:@"NSObject"]) {
         NSArray *any = @[@"", @"Finch", @1, @-1, @[@"a", @2], @{ @"key": @"value" }, [NSData dataWithBytes:"\0\1\xff" length:3], [NSDate dateWithTimeIntervalSinceReferenceDate:700000000]];
         return any[index % any.count];
@@ -1191,7 +1603,8 @@ static BOOL auto_type_is_mutable(NSString *type)
 {
     return [type containsString:@"NSMutable"] || [type containsString:@"CFMutable"] ||
         [@[@"NSCountedSet", @"NSMapTable", @"NSHashTable", @"NSCache", @"NSCalendar",
-           @"NSDateFormatter", @"NSNumberFormatter"] containsObject:type];
+           @"NSDateFormatter", @"NSNumberFormatter", @"NSBezierPath", @"NSAffineTransform", @"NSImage",
+           @"NSBitmapImageRep", @"NSColorList", @"NSShadow", @"NSPasteboard", @"NSPrintInfo"] containsObject:type];
 }
 
 static id auto_method_object(NSString *type, NSString *parameterName, NSString *className,
@@ -1200,6 +1613,92 @@ static id auto_method_object(NSString *type, NSString *parameterName, NSString *
     NSString *base = [[auto_clean_type(type) componentsSeparatedByString:@"*"] firstObject];
     base = [base stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     NSString *name = [parameterName lowercaseString] ?: @"";
+#ifdef FINCH_DIFFTEST_APPKIT
+    if ([className isEqualToString:@"NSColor"] &&
+        ([base isEqualToString:@"NSString"] || [base isEqualToString:@"NSColorName"])) {
+        if ([name containsString:@"space"] || [selectorName containsString:@"colorUsingColorSpaceName"])
+            return @[
+                NSDeviceRGBColorSpace, NSCalibratedRGBColorSpace, NSDeviceWhiteColorSpace,
+                NSCalibratedWhiteColorSpace, NSDeviceCMYKColorSpace, NSNamedColorSpace, NSPatternColorSpace
+            ][index % 7];
+        if ([selectorName containsString:@"Named"] || [name containsString:@"name"])
+            return @[@"controlAccentColor", @"labelColor", @"textColor", @"systemRedColor"][index % 4];
+    }
+    if ([className isEqualToString:@"NSColor"] &&
+        [base isEqualToString:@"NSColorSpaceName"])
+        return @[
+            NSDeviceRGBColorSpace, NSCalibratedRGBColorSpace, NSDeviceWhiteColorSpace,
+            NSCalibratedWhiteColorSpace, NSDeviceCMYKColorSpace, NSNamedColorSpace, NSPatternColorSpace
+        ][index % 7];
+    if (([className isEqualToString:@"NSFont"] || [className isEqualToString:@"NSFontDescriptor"] ||
+         [className isEqualToString:@"NSFontManager"]) && [base isEqualToString:@"NSString"] &&
+        ([name containsString:@"font"] || [name containsString:@"family"] || [name containsString:@"face"] ||
+         [name containsString:@"name"]))
+        return @[@"Helvetica", @"Menlo", @"Noto Sans", @"FinchDifftestMissingFont"][index % 4];
+    if ([className isEqualToString:@"NSFontDescriptor"] && [base isEqualToString:@"NSDictionary"])
+        return @{NSFontNameAttribute:@[@"Helvetica", @"Menlo", @"Noto Sans"][index % 3], NSFontSizeAttribute:@13};
+    if ([className isEqualToString:@"NSBitmapImageRep"] &&
+        ([base isEqualToString:@"NSString"] || [base isEqualToString:@"NSColorSpaceName"]))
+        return NSCalibratedRGBColorSpace;
+    if ([className isEqualToString:@"NSColorList"] &&
+        ([base isEqualToString:@"NSString"] || [base isEqualToString:@"NSColorListName"]) &&
+        ([name containsString:@"name"] || [selectorName containsString:@"Named"]))
+        return @"System";
+    if ([className isEqualToString:@"NSAppearance"] &&
+        ([base isEqualToString:@"NSString"] || [base isEqualToString:@"NSAppearanceName"]))
+        return @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua][index % 2];
+    if ([className isEqualToString:@"NSPasteboard"] &&
+        ([base isEqualToString:@"NSString"] || [base isEqualToString:@"NSPasteboardName"]) &&
+        ([name containsString:@"name"] || [selectorName containsString:@"WithName"]))
+        return [NSString stringWithFormat:@"org.finch.difftest.argument.%lu", (unsigned long)(index % 8)];
+    if ([className isEqualToString:@"NSPasteboard"] && [base isEqualToString:@"NSString"])
+        return @"Finch Difftest café🙂";
+    if ([className isEqualToString:@"NSPasteboard"] && [base isEqualToString:@"NSPasteboardType"])
+        return NSPasteboardTypeString;
+    if ([className isEqualToString:@"NSPasteboard"] && [base isEqualToString:@"NSData"])
+        return [@"Finch Difftest café🙂" dataUsingEncoding:NSUTF8StringEncoding];
+    if ([className isEqualToString:@"NSPasteboard"] && [base isEqualToString:@"id"] &&
+        [selectorName isEqualToString:@"setPropertyList:forType:"])
+        return @"Finch Difftest café🙂";
+    if ([className isEqualToString:@"NSPasteboard"] && [base isEqualToString:@"NSArray"]) {
+        if ([selectorName containsString:@"readObjectsForClasses"])
+            return @[(id)NSString.class, (id)NSAttributedString.class];
+        return @[NSPasteboardTypeString, @"org.finch.difftest.extra"];
+    }
+    if ([className isEqualToString:@"NSLayoutDimension"] && [base isEqualToString:@"NSLayoutDimension"])
+        return auto_layout_peer_view().widthAnchor;
+    if ([className isEqualToString:@"NSLayoutAnchor"] && [base isEqualToString:@"NSLayoutAnchor"])
+        return auto_layout_peer_view().leadingAnchor;
+    if ([className isEqualToString:@"NSLayoutXAxisAnchor"] && [base isEqualToString:@"NSLayoutXAxisAnchor"])
+        return auto_layout_peer_view().leadingAnchor;
+    if ([className isEqualToString:@"NSLayoutYAxisAnchor"] && [base isEqualToString:@"NSLayoutYAxisAnchor"])
+        return auto_layout_peer_view().topAnchor;
+    if (([className isEqualToString:@"NSLayoutAnchor"] || [className isEqualToString:@"NSLayoutXAxisAnchor"]) &&
+        [base isEqualToString:@"NSView"])
+        return auto_layout_peer_view();
+    if ([className isEqualToString:@"NSLayoutYAxisAnchor"] && [base isEqualToString:@"NSView"])
+        return auto_layout_peer_view();
+    if ([className isEqualToString:@"NSLayoutConstraint"] && [base isEqualToString:@"NSView"] &&
+        [name containsString:@"toitem"])
+        return auto_layout_peer_view();
+    if ([className isEqualToString:@"NSPrintInfo"] && [base isEqualToString:@"NSDictionary"])
+        return @{
+            NSPrintPaperName:@"na-letter", NSPrintPaperSize:[NSValue valueWithSize:NSMakeSize(612, 792)],
+            NSPrintLeftMargin:@12, NSPrintRightMargin:@12, NSPrintTopMargin:@18, NSPrintBottomMargin:@24
+        };
+    if ([className isEqualToString:@"NSColorList"] && [base isEqualToString:@"NSString"])
+        return @[@"accent", @"gray"][index % 2];
+    if ([className isEqualToString:@"NSAttributedString"] || [className isEqualToString:@"NSMutableAttributedString"]) {
+        if ([base isEqualToString:@"NSDictionary"])
+            return @{NSFontAttributeName:[NSFont systemFontOfSize:12], NSForegroundColorAttributeName:auto_color(index)};
+    }
+    if ([className isEqualToString:@"NSGradient"] && [base isEqualToString:@"NSArray"])
+        return @[auto_color(index), auto_color(index + 1)];
+    if ([className isEqualToString:@"NSPrintInfo"] &&
+        ([base isEqualToString:@"NSString"] || [base isEqualToString:@"NSPrinterPaperName"]) &&
+        [name containsString:@"paper"])
+        return @[@"na-letter", @"iso-a4"][index % 2];
+#endif
     if ([className isEqualToString:@"NSDate"] && [selectorName containsString:@"NaturalLanguage"] &&
         [name containsString:@"locale"])
         return @{NSLocaleIdentifier:@"en_US_POSIX"};
@@ -1296,6 +1795,50 @@ static id auto_receiver(NSString *className, NSString *selectorName)
     Class cls = NSClassFromString(className);
     if (!cls) return nil;
     if ([selectorName hasPrefix:@"init"]) return [cls alloc];
+#ifdef FINCH_DIFFTEST_APPKIT
+    if ([className isEqualToString:@"NSColor"]) return auto_color(2);
+    if ([className isEqualToString:@"NSColorSpace"]) return [NSColorSpace sRGBColorSpace];
+    if ([className isEqualToString:@"NSColorList"]) {
+        NSColorList *list = [[[NSColorList alloc] initWithName:@"FinchDifftest"] autorelease];
+        [list setColor:auto_color(1) forKey:@"accent"];
+        [list setColor:auto_color(4) forKey:@"gray"];
+        return list;
+    }
+    if ([className isEqualToString:@"NSFont"]) return [NSFont systemFontOfSize:13];
+    if ([className isEqualToString:@"NSFontDescriptor"]) return [[NSFont systemFontOfSize:13] fontDescriptor];
+    if ([className isEqualToString:@"NSFontManager"]) return [NSFontManager sharedFontManager];
+    if ([className isEqualToString:@"NSBezierPath"]) return [NSBezierPath bezierPathWithRect:NSMakeRect(1, 2, 8, 6)];
+    if ([className isEqualToString:@"NSAffineTransform"]) return [[[NSAffineTransform alloc] init] autorelease];
+    if ([className isEqualToString:@"NSImage"]) return auto_image();
+    if ([className isEqualToString:@"NSImageRep"] || [className isEqualToString:@"NSBitmapImageRep"]) return auto_bitmap();
+    if ([className isEqualToString:@"NSParagraphStyle"]) return [NSParagraphStyle defaultParagraphStyle];
+    if ([className isEqualToString:@"NSMutableParagraphStyle"])
+        return [[NSParagraphStyle defaultParagraphStyle] mutableCopy];
+    if ([className isEqualToString:@"NSTextTab"])
+        return [[[NSTextTab alloc] initWithType:NSLeftTabStopType location:36] autorelease];
+    if ([className isEqualToString:@"NSShadow"]) return [[[NSShadow alloc] init] autorelease];
+    if ([className isEqualToString:@"NSGradient"])
+        return [[[NSGradient alloc] initWithStartingColor:auto_color(1) endingColor:auto_color(3)] autorelease];
+    if ([className isEqualToString:@"NSCursor"]) return [NSCursor arrowCursor];
+    if ([className isEqualToString:@"NSAppearance"]) return [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    if ([className isEqualToString:@"NSEvent"]) return auto_event();
+    if ([className isEqualToString:@"NSView"]) return auto_layout_view();
+    if ([className isEqualToString:@"NSLayoutConstraint"]) return auto_constraint();
+    if ([className isEqualToString:@"NSLayoutAnchor"] || [className isEqualToString:@"NSLayoutXAxisAnchor"])
+        return auto_layout_view().leadingAnchor;
+    if ([className isEqualToString:@"NSLayoutYAxisAnchor"]) return auto_layout_view().topAnchor;
+    if ([className isEqualToString:@"NSLayoutDimension"]) return auto_layout_view().widthAnchor;
+    if ([className isEqualToString:@"NSLayoutGuide"]) return [[[NSLayoutGuide alloc] init] autorelease];
+    if ([className isEqualToString:@"NSPasteboard"]) return auto_private_pasteboard(selectorName);
+    if ([className isEqualToString:@"NSPrintInfo"]) return [[[NSPrintInfo alloc] initWithDictionary:@{
+        NSPrintPaperName:@"na-letter", NSPrintPaperSize:[NSValue valueWithSize:NSMakeSize(612, 792)],
+        NSPrintLeftMargin:@12, NSPrintRightMargin:@12, NSPrintTopMargin:@18, NSPrintBottomMargin:@24
+    }] autorelease];
+    if ([className isEqualToString:@"NSAttributedString"])
+        return [[[NSAttributedString alloc] initWithString:@"Finch café🙂" attributes:@{NSFontAttributeName:[NSFont systemFontOfSize:12]}] autorelease];
+    if ([className isEqualToString:@"NSMutableAttributedString"])
+        return [[[NSMutableAttributedString alloc] initWithString:@"Finch café🙂" attributes:@{NSFontAttributeName:[NSFont systemFontOfSize:12]}] autorelease];
+#endif
     if ([className isEqualToString:@"NSObject"]) return [[NSObject alloc] init];
     if ([className isEqualToString:@"NSString"]) return @"Finch";
     if ([className isEqualToString:@"NSMutableString"]) return [NSMutableString stringWithString:@"Finch"];
@@ -1371,6 +1914,38 @@ static NSArray *auto_enum_values(NSDictionary *parameter)
     return [values isKindOfClass:NSArray.class] ? values : @[];
 }
 
+#ifdef FINCH_DIFFTEST_APPKIT
+static BOOL auto_store_appkit_struct(void *destination, NSString *type, NSUInteger index, NSUInteger size)
+{
+    NSUInteger step = index % 4;
+    if ([type containsString:@"NSEdgeInsets"]) {
+        NSEdgeInsets value = {1 + step, 2 + step, 3 + step, 4 + step};
+        memcpy(destination, &value, MIN(size, sizeof(value))); return YES;
+    }
+    if ([type containsString:@"NSAffineTransformStruct"]) {
+        NSAffineTransformStruct value = {1.25, 0.5, -0.25, 2.0, 3.0 + step, -4.0 + step};
+        memcpy(destination, &value, MIN(size, sizeof(value))); return YES;
+    }
+    if ([type containsString:@"CGAffineTransform"]) {
+        CGAffineTransform value = CGAffineTransformMake(1.25, 0.5, -0.25, 2.0, 3.0 + step, -4.0 + step);
+        memcpy(destination, &value, MIN(size, sizeof(value))); return YES;
+    }
+    if ([type containsString:@"NSRect"] || [type containsString:@"CGRect"]) {
+        NSRect value = NSMakeRect(step, 2 + step, 5 + step, 7 + step);
+        memcpy(destination, &value, MIN(size, sizeof(value))); return YES;
+    }
+    if ([type containsString:@"NSPoint"] || [type containsString:@"CGPoint"]) {
+        NSPoint value = NSMakePoint(step + 1, step - 2);
+        memcpy(destination, &value, MIN(size, sizeof(value))); return YES;
+    }
+    if ([type containsString:@"NSSize"] || [type containsString:@"CGSize"]) {
+        NSSize value = NSMakeSize(4 + step, 6 + step);
+        memcpy(destination, &value, MIN(size, sizeof(value))); return YES;
+    }
+    return NO;
+}
+#endif
+
 static void auto_store_scalar(void *destination, const char *encoding, NSString *type, NSUInteger index,
     NSDictionary *parameter, NSString *className, NSString *selectorName, NSUInteger storageSize)
 {
@@ -1386,9 +1961,143 @@ static void auto_store_scalar(void *destination, const char *encoding, NSString 
         CFRange range = CFRangeMake(0, (CFIndex)(index % 2));
         memcpy(destination, &range, sizeof(range)); return;
     }
+#ifdef FINCH_DIFFTEST_APPKIT
+    if ([className isEqualToString:@"NSBezierPath"] && [clean containsString:@"Point"]) {
+        static const NSPoint points[] = {{0, 0}, {10, 0}, {10, 10}, {0, 10}, {4, 6}};
+        NSPoint point = points[index % (sizeof(points) / sizeof(points[0]))];
+        memcpy(destination, &point, MIN(storageSize, sizeof(point))); return;
+    }
+#endif
     if ([clean containsString:@"Point"] || [clean containsString:@"Size"] || [clean containsString:@"Rect"] || [clean containsString:@"Transform"]) {
+#ifdef FINCH_DIFFTEST_APPKIT
+        if (auto_store_appkit_struct(destination, clean, index, storageSize)) return;
+#endif
         memset(destination, 0, storageSize); return;
     }
+#ifdef FINCH_DIFFTEST_APPKIT
+    if ([className isEqualToString:@"NSColor"] &&
+        ([name containsString:@"red"] || [name containsString:@"green"] || [name containsString:@"blue"] || [name containsString:@"alpha"])) {
+        static const double values[] = {0, 0.25, 0.5, 0.75, 1, 0.1, 0.9, 0.35};
+        NSUInteger offset = [name containsString:@"red"] ? 0 : [name containsString:@"green"] ? 2 :
+            [name containsString:@"blue"] ? 4 : 1;
+        double value = values[(index + offset) % 8];
+        if (encoding[0] == 'f') { float v = (float)value; memcpy(destination, &v, sizeof(v)); }
+        else memcpy(destination, &value, sizeof(value));
+        return;
+    }
+    if ([className isEqualToString:@"NSColor"] &&
+        ([name containsString:@"level"] || [selectorName containsString:@"highlightWithLevel"] ||
+         [selectorName containsString:@"shadowWithLevel"])) {
+        static const double levels[] = {0, 0.25, 0.5, 0.75, 1};
+        double value = levels[index % 5];
+        if (encoding[0] == 'f') { float v = (float)value; memcpy(destination, &v, sizeof(v)); }
+        else memcpy(destination, &value, sizeof(value));
+        return;
+    }
+    if ([className isEqualToString:@"NSColor"] && [name containsString:@"headroom"]) {
+        static const double headroom[] = {1, 1.5, 2, 4};
+        double value = headroom[index % 4];
+        if (encoding[0] == 'f') { float v = (float)value; memcpy(destination, &v, sizeof(v)); }
+        else memcpy(destination, &value, sizeof(value));
+        return;
+    }
+    if ([className isEqualToString:@"NSFont"] && [name containsString:@"size"]) {
+        static const double sizes[] = {12, 13, 18, 24};
+        double value = sizes[index % 4];
+        if (encoding[0] == 'f') { float v = (float)value; memcpy(destination, &v, sizeof(v)); }
+        else memcpy(destination, &value, sizeof(value));
+        return;
+    }
+    if ([className isEqualToString:@"NSBezierPath"] &&
+        ([name containsString:@"width"] || [name containsString:@"flatness"] || [name containsString:@"miter"])) {
+        static const double values[] = {0, 0.5, 1, 2};
+        double value = values[index % 4];
+        if (encoding[0] == 'f') { float v = (float)value; memcpy(destination, &v, sizeof(v)); }
+        else memcpy(destination, &value, sizeof(value));
+        return;
+    }
+    if ([className isEqualToString:@"NSBezierPath"] && [name containsString:@"radius"]) {
+        static const double radii[] = {0, 1, 4, 10};
+        double value = radii[index % 4];
+        if (encoding[0] == 'f') { float v = (float)value; memcpy(destination, &v, sizeof(v)); }
+        else memcpy(destination, &value, sizeof(value));
+        return;
+    }
+    if ([className isEqualToString:@"NSBezierPath"] && [name containsString:@"angle"]) {
+        static const double angles[] = {0, 45, 90, 180, 270, 360};
+        double value = angles[index % 6];
+        if (encoding[0] == 'f') { float v = (float)value; memcpy(destination, &v, sizeof(v)); }
+        else memcpy(destination, &value, sizeof(value));
+        return;
+    }
+    if ([className isEqualToString:@"NSGradient"] && [name containsString:@"location"]) {
+        static const double locations[] = {0, 0.25, 0.5, 0.75, 1};
+        double value = locations[index % 5];
+        if (encoding[0] == 'f') { float v = (float)value; memcpy(destination, &v, sizeof(v)); }
+        else memcpy(destination, &value, sizeof(value));
+        return;
+    }
+    if ([className isEqualToString:@"NSImage"] && [name containsString:@"scale"]) {
+        static const double scales[] = {0.5, 1, 2, 4};
+        double value = scales[index % 4];
+        if (encoding[0] == 'f') { float v = (float)value; memcpy(destination, &v, sizeof(v)); }
+        else memcpy(destination, &value, sizeof(value));
+        return;
+    }
+    if ([className hasPrefix:@"NSLayout"] &&
+        ([name containsString:@"multiplier"] || [name containsString:@"constant"] || [name containsString:@"spacing"])) {
+        static const double values[] = {0, 1, -1, 2, 8};
+        double value = values[index % 5];
+        if ([name containsString:@"multiplier"]) value = index % 2 ? 2 : 1;
+        if (encoding[0] == 'f') { float v = (float)value; memcpy(destination, &v, sizeof(v)); }
+        else memcpy(destination, &value, sizeof(value));
+        return;
+    }
+    if ([className isEqualToString:@"NSBitmapImageRep"] &&
+        ([name containsString:@"pixelswide"] || [name containsString:@"pixelshigh"])) {
+        long long value = 2 + (long long)(index % 3);
+        memset(destination, 0, storageSize); memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([className isEqualToString:@"NSBitmapImageRep"] && [name containsString:@"bitspersample"]) {
+        long long value = 8; memset(destination, 0, storageSize); memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([className isEqualToString:@"NSBitmapImageRep"] && [name containsString:@"samplesperpixel"]) {
+        long long value = 4; memset(destination, 0, storageSize); memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([className isEqualToString:@"NSBitmapImageRep"] && [name containsString:@"bytesperrow"]) {
+        long long value = 16; memset(destination, 0, storageSize); memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([className isEqualToString:@"NSBitmapImageRep"] && [name containsString:@"bitsperpixel"]) {
+        long long value = 32; memset(destination, 0, storageSize); memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([className isEqualToString:@"NSBitmapImageRep"] && [name containsString:@"x"] && ![name containsString:@"index"]) {
+        long long value = (long long)(index % 2); memset(destination, 0, storageSize); memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([className isEqualToString:@"NSEvent"] && [name containsString:@"timestamp"]) {
+        double value = 1.25 + (double)(index % 3); memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([className isEqualToString:@"NSEvent"] && [name containsString:@"type"]) {
+        unsigned long long value = [selectorName containsString:@"mouseEvent"] ? NSEventTypeLeftMouseDown : NSEventTypeApplicationDefined;
+        memset(destination, 0, storageSize); memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([className isEqualToString:@"NSEvent"] && [name containsString:@"windownumber"]) {
+        long long value = 0; memset(destination, 0, storageSize); memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([className isEqualToString:@"NSPrintInfo"] && [name containsString:@"margin"]) {
+        static const double values[] = {0, 1, 12, 24};
+        double value = values[index % 4];
+        if (encoding[0] == 'f') { float v = (float)value; memcpy(destination, &v, sizeof(v)); }
+        else memcpy(destination, &value, sizeof(value));
+        return;
+    }
+    if ([className isEqualToString:@"NSPrintInfo"] && [name containsString:@"scalingfactor"]) {
+        static const double values[] = {0, 0.5, 1, 2};
+        double value = values[index % 4];
+        if (encoding[0] == 'f') { float v = (float)value; memcpy(destination, &v, sizeof(v)); }
+        else memcpy(destination, &value, sizeof(value));
+        return;
+    }
+#endif
     if ([className isEqualToString:@"NSDateInterval"] && [name containsString:@"duration"]) {
         static const double values[] = {0.0, 1.0, 60.0, 3600.0};
         double value = values[index % 4];
@@ -1401,6 +2110,9 @@ static void auto_store_scalar(void *destination, const char *encoding, NSString 
         static const double timeValues[] = {0.0, -1.0, 700000000.0, 800000000.0, 1000000000.0, 123456789.0, 31536000.0, 86400.0};
         BOOL timeType = [clean containsString:@"AbsoluteTime"] || [clean containsString:@"TimeInterval"];
         double number = timeType ? timeValues[index % 8] : values[index % 7];
+#ifdef FINCH_DIFFTEST_APPKIT
+        if ([className hasPrefix:@"NSLayout"] && !isfinite(number)) number = 0;
+#endif
         if (encoding[0] == 'f') { float v = (float)number; memcpy(destination, &v, sizeof(v)); }
         else memcpy(destination, &number, sizeof(number));
         return;
@@ -1509,6 +2221,18 @@ static void auto_store_scalar(void *destination, const char *encoding, NSString 
     }
 }
 
+static void auto_invoke(NSInvocation *invocation)
+{
+#ifdef FINCH_DIFFTEST_APPKIT
+    NSAppearance *appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    if (appearance) {
+        [appearance performAsCurrentDrawingAppearance:^{ [invocation invoke]; }];
+        return;
+    }
+#endif
+    [invocation invoke];
+}
+
 static void auto_test_method(NSDictionary *item)
 {
     NSString *className = item[@"class"];
@@ -1556,6 +2280,32 @@ static void auto_test_method(NSDictionary *item)
                     void *value = (void *)uuidBytes; [argumentObjects addObject:NSNull.null];
                     [invocation setArgument:&value atIndex:argIndex + 2]; continue;
                 }
+#ifdef FINCH_DIFFTEST_APPKIT
+                if ([className isEqualToString:@"NSBitmapImageRep"] &&
+                    [selectorName hasPrefix:@"initWithBitmapDataPlanes:"] &&
+                    [[parameter[@"name"] lowercaseString] isEqualToString:@"planes"]) {
+                    void *value = NULL; [argumentObjects addObject:NSNull.null];
+                    [invocation setArgument:&value atIndex:argIndex + 2]; continue;
+                }
+                if ([className isEqualToString:@"NSBitmapImageRep"] &&
+                    [selectorName isEqualToString:@"getPixel:atX:y:"] &&
+                    [[parameter[@"name"] lowercaseString] isEqualToString:@"p"]) {
+                    NSUInteger *storage = calloc(4, sizeof(NSUInteger));
+                    if (!storage) { hasSafeInputs = NO; void *value = NULL; [invocation setArgument:&value atIndex:argIndex + 2]; continue; }
+                    void *value = storage; [argumentObjects addObject:NSNull.null];
+                    [invocation setArgument:&value atIndex:argIndex + 2];
+                    [outputPointers addObject:@{@"type":type, @"storage":[NSValue valueWithPointer:storage],
+                        @"size":@(4 * sizeof(NSUInteger)), @"kind":@"pixel-array"}];
+                    continue;
+                }
+                if ([className isEqualToString:@"NSBitmapImageRep"] &&
+                    [selectorName isEqualToString:@"setPixel:atX:y:"] &&
+                    [[parameter[@"name"] lowercaseString] isEqualToString:@"p"]) {
+                    static NSUInteger pixels[4] = {17, 33, 65, 255};
+                    void *value = pixels; [argumentObjects addObject:NSNull.null];
+                    [invocation setArgument:&value atIndex:argIndex + 2]; continue;
+                }
+#endif
                 if (encoding[0] == '@') {
                     id value = nil;
                     if (encoding[1] == '?' || [type containsString:@"(^"]) {
@@ -1743,7 +2493,7 @@ static void auto_test_method(NSDictionary *item)
                 continue;
             }
             @try {
-                [invocation invoke];
+                auto_invoke(invocation);
                 printf("%lu\t", (unsigned long)caseIndex);
                 const char *returnType = sig.methodReturnType;
                 while (strchr("rnNoORV", returnType[0])) returnType++;
@@ -1756,6 +2506,15 @@ static void auto_test_method(NSDictionary *item)
                 else if (returnType[0] == '^' || returnType[0] == '*') {
                     void *result = NULL; [invocation getReturnValue:&result];
                     NSString *returnName = item[@"return_type"];
+#ifdef FINCH_DIFFTEST_APPKIT
+                    if ([className isEqualToString:@"NSBitmapImageRep"] && [selectorName isEqualToString:@"bitmapData"] && result) {
+                        NSBitmapImageRep *rep = receiver;
+                        NSUInteger count = MIN((NSUInteger)MAX(0, rep.bytesPerRow * rep.pixelsHigh), (NSUInteger)16);
+                        const unsigned char *pixels = result; fputs("pixel-data:", stdout);
+                        for (NSUInteger i = 0; i < count; i++) printf("%02x", pixels[i]);
+                    }
+                    else
+#endif
                     if (returnType[0] == '*' && [returnName containsString:@"char *"] && result)
                         auto_print(auto_canonical([NSString stringWithUTF8String:(const char *)result]));
                     else if ([returnName hasPrefix:@"CF"] && ([returnName containsString:@"Ref"] || [returnName containsString:@"Identifier"] || [returnName containsString:@"Key"] || [returnName containsString:@"Name"]))
@@ -1767,11 +2526,37 @@ static void auto_test_method(NSDictionary *item)
                     NSString *name = returnType[0] == '#' ? NSStringFromClass((Class)result) : NSStringFromSelector((SEL)result);
                     auto_print(auto_hex(name ?: @""));
                 }
-                else if (strchr("fd", returnType[0])) { double value = 0; [invocation getReturnValue:&value]; printf("%a", value); }
+                else if (returnType[0] == 'f') { float value = 0; [invocation getReturnValue:&value]; printf("%a", (double)value); }
+                else if (returnType[0] == 'd') { double value = 0; [invocation getReturnValue:&value]; printf("%a", value); }
                 else if (returnType[0] == '{') {
                     NSUInteger size = sig.methodReturnLength; void *bytes = calloc(1, size); [invocation getReturnValue:bytes];
                     if ([item[@"return_type"] containsString:@"NSRange"]) { NSRange range; memcpy(&range, bytes, MIN(size, sizeof(range))); printf("range:%lu,%lu", (unsigned long)range.location, (unsigned long)range.length); }
                     else if ([item[@"return_type"] containsString:@"CFRange"]) { CFRange range; memcpy(&range, bytes, MIN(size, sizeof(range))); printf("range:%ld,%ld", (long)range.location, (long)range.length); }
+#ifdef FINCH_DIFFTEST_APPKIT
+                    else if ([item[@"return_type"] containsString:@"NSEdgeInsets"]) {
+                        NSEdgeInsets value; memcpy(&value, bytes, MIN(size, sizeof(value)));
+                        printf("edge-insets:%.5f,%.5f,%.5f,%.5f", (double)value.top, (double)value.left,
+                            (double)value.bottom, (double)value.right);
+                    }
+                    else if ([item[@"return_type"] containsString:@"NSAffineTransformStruct"]) {
+                        NSAffineTransformStruct value; memcpy(&value, bytes, MIN(size, sizeof(value)));
+                        printf("transform:%.5f,%.5f,%.5f,%.5f,%.5f,%.5f", (double)value.m11, (double)value.m12,
+                            (double)value.m21, (double)value.m22, (double)value.tX, (double)value.tY);
+                    }
+#endif
+                    else if ([item[@"return_type"] containsString:@"NSPoint"] || [item[@"return_type"] containsString:@"CGPoint"]) {
+                        NSPoint value; memcpy(&value, bytes, MIN(size, sizeof(value)));
+                        printf("point:%.5f,%.5f", (double)value.x, (double)value.y);
+                    }
+                    else if ([item[@"return_type"] containsString:@"NSSize"] || [item[@"return_type"] containsString:@"CGSize"]) {
+                        NSSize value; memcpy(&value, bytes, MIN(size, sizeof(value)));
+                        printf("size:%.5f,%.5f", (double)value.width, (double)value.height);
+                    }
+                    else if ([item[@"return_type"] containsString:@"NSRect"] || [item[@"return_type"] containsString:@"CGRect"]) {
+                        NSRect value; memcpy(&value, bytes, MIN(size, sizeof(value)));
+                        printf("rect:%.5f,%.5f,%.5f,%.5f", (double)value.origin.x, (double)value.origin.y,
+                            (double)value.size.width, (double)value.size.height);
+                    }
                     else { fputs("struct:", stdout); for (NSUInteger i = 0; i < size; i++) printf("%02x", ((unsigned char *)bytes)[i]); }
                     free(bytes);
                 } else {
@@ -1781,7 +2566,11 @@ static void auto_test_method(NSDictionary *item)
                 }
                 for (NSDictionary *slot in outputPointers) {
                     putchar('\t'); void *storage = [slot[@"storage"] pointerValue]; NSString *type = slot[@"type"];
-                    if ([slot[@"kind"] isEqualToString:@"object-array"]) {
+                    if ([slot[@"kind"] isEqualToString:@"pixel-array"]) {
+                        NSUInteger *pixels = storage;
+                        printf("pixels:%lu,%lu,%lu,%lu", (unsigned long)pixels[0], (unsigned long)pixels[1],
+                            (unsigned long)pixels[2], (unsigned long)pixels[3]);
+                    } else if ([slot[@"kind"] isEqualToString:@"object-array"]) {
                         NSMutableArray *values = [NSMutableArray array]; id *objects = storage;
                         for (NSUInteger i = 0; i < 2; i++) [values addObject:auto_canonical(objects[i]) ?: @"null"];
                         auto_print(auto_canonical(values));
@@ -1853,6 +2642,9 @@ def prepare(framework: str, c_items: set[str], objc_items: set[str], swift_items
     skipped: dict[str, str] = {}
 
     for name in sorted(c_items - manual_names):
+        if framework == "AppKit" and not _appkit_c_scope(name, name in variable_by_name):
+            skipped[name] = "outside the selected AppKit headless API scope"
+            continue
         if name in function_by_name:
             source, reason = _make_c_function(function_by_name[name], enum_values, finch_symbols)
             if source:
@@ -1875,6 +2667,11 @@ def prepare(framework: str, c_items: set[str], objc_items: set[str], swift_items
         if not method:
             skipped[name] = "SDK header inventory entry has no matching Objective-C AST signature"
             continue
+        if framework == "AppKit":
+            reason = _appkit_skip(method)
+            if reason:
+                skipped[name] = reason
+                continue
         reason = _skip_reason(name)
         if reason:
             skipped[name] = reason

@@ -12,6 +12,7 @@ Build Finch's host frameworks first. Then run both frameworks or choose one:
 python3 tools/difftest/run.py
 python3 tools/difftest/run.py CoreFoundation
 python3 tools/difftest/run.py Foundation
+FINCH_THEME=Classic python3 tools/difftest/run.py AppKit --jobs 8
 ```
 
 The runner builds one generated program for each framework and starts a fresh
@@ -22,11 +23,22 @@ item, uses parallel workers, and reuses a generated binary when its source and
 SDK have not changed.
 
 Results go to `build/compat-results/CoreFoundation.json` and
-`build/compat-results/Foundation.json`. Each result has an `items` map keyed by
-the SDK name for the API. A difference records the first output row that does
-not match. Exceptions include their names and reasons. The program normalizes
+`build/compat-results/Foundation.json`. The AppKit run writes
+`build/compat-results/AppKit.json`. Each result has an `items` map keyed by the
+SDK name for the API. A difference records the first output row that does not
+match. Exceptions include their names and reasons. The program normalizes
 object descriptions, pointer values, addresses, and unordered collections
 before comparing results.
+
+The AppKit run covers APIs that can be checked without opening windows or
+starting a window server. It builds values for colors and color spaces, fonts,
+paths, images and bitmap pixels, attributed text and paragraph styles, shadows,
+gradients, cursor images, appearances, layout constraints, geometry, print
+settings, and interface identifiers. It fixes the drawing appearance to Aqua
+and uses private named pasteboards. Event inputs are values made by the test;
+the runner skips calls that need a real mouse, keyboard, touch, window, drawing
+context, printer, or shared pasteboard. Bitmap components may differ by one
+8-bit value (1/255); geometry may differ by up to 0.01 points.
 
 ## How inputs are chosen
 
@@ -78,6 +90,7 @@ Objective-C selector. On macOS SDK 26.4, the generated run reported:
 |---|---:|---:|---:|---:|---:|---:|
 | CoreFoundation | 1,227 | 792 | 790 | 2 | 0 | 435 |
 | Foundation | 8,128 | 1,978 | 1,843 | 135 | 0 | 6,150 |
+| AppKit | 9,955 | 765 | 605 | 160 | 0 | 9,190 |
 
 The verified share of exercised items is 99.75% for CoreFoundation and 93.17%
 for Foundation. Foundation's inventory also includes Swift interface entries
@@ -90,6 +103,16 @@ in XML, decimal arithmetic, key-value coding, expressions, and string/data
 edge cases. The JSON results list each API's first differing case and the skip
 counts by category.
 
+The AppKit run exercised 7.68% of its SDK inventory; 79.08% of those calls
+matched. Its largest groups of differences are fonts (30), cursor images (24),
+event values (18), attributed strings (14), font manager queries (13), font
+descriptors (10), and images (10). These include installed font names and
+metrics, cursor artwork, input-state results, platform type lists, layout
+spacing, bitmap data and metadata, and path behavior. The run had no crashes.
+Most of the remaining inventory has no safe typed input or is outside this
+headless scope; the JSON file lists the skip reasons and the first mismatch for
+each API.
+
 An app sweep found 26 of 101 installed apps had all required framework imports.
 It found 77 Foundation symbol gaps across 17 apps and three CoreFoundation
 gaps: `_CFUserNotificationCreate`, `_CFUserNotificationDisplayAlert`, and
@@ -97,8 +120,10 @@ gaps: `_CFUserNotificationCreate`, `_CFUserNotificationDisplayAlert`, and
 cross-process notification or security-scope behavior; they remain missing
 instead of being filled with stand-ins.
 
-The requested host-test run completed with 15 passed, 0 failed, 0 known
-failures, and 0 tests not built.
+The requested AppKit host-test run completed with 23 passed, 0 failed, 1 known
+failure, and 0 tests not built. All AppKit comparison tests passed. The known
+failure is `nib-test`: Apple restores a nib window to an attached 1x screen,
+while Finch has no screen list to choose from.
 
 ## Machine-dependent output
 
@@ -124,4 +149,12 @@ test command is:
 
 ```sh
 tools/host-tests.sh cf-test foundation-test foundation-more-test foundation-gaps-test archive-test intl-test misc-test data-test collections-test kvc-test streams-test predicate-test urlsession-test cfurl-test markdown-test
+```
+
+For AppKit changes, pass all `appkit-*` comparison tests plus the related
+window, text, pasteboard, image, and UIFoundation checks. The set used for the
+AppKit results above is:
+
+```sh
+tools/host-tests.sh appkit-small3-test appkit-swift2-test appkit-typedstream-test appkit-compat-test appkit-values-test appkit-core-test appkit-gaps-test appkit-draw-test appkit-containers-test appkit-controls-test appkit-menu-test appkit-text-test appkit-document-test appkit-layout-test appkit-bindings-test appkit-panels-test appkit-tables-test appkit-containers2-test appkit-controls2-test nib-test textkit2-test pasteboard-test imagekit-test uifoundation-test
 ```

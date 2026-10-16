@@ -394,7 +394,7 @@ set_defaults(NSParagraphStyle *p)
     p->_lineBreakMode = NSLineBreakByWordWrapping;
     p->_baseWritingDirection = NSWritingDirectionNatural;
     p->_allowsTightening = YES;
-    p->_tighteningFactor = 0.05f;
+    p->_tighteningFactor = 0.0f;
 }
 
 static void
@@ -587,7 +587,7 @@ direction_name(NSWritingDirection d)
 /* A typedstream's paragraph style: alignment and line break mode as unsigned chars, the
    tab stops (nil for the default ones), a mask of the measurements that aren't their
    defaults, then those, in typed_measures' order, as floats. */
-#define TYPED_TIGHTENING_DEFAULT 0.05f
+#define TYPED_TIGHTENING_DEFAULT 0.0f
 
 static void
 typed_measures(NSParagraphStyle *p, CGFloat *out[13], float *factors[2])

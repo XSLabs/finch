@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT OR Apache-2.0
-"""Build and compare generated CoreFoundation/Foundation behavior cases."""
+"""Build and compare generated CoreFoundation, Foundation and AppKit behavior cases."""
 from __future__ import annotations
 
 import argparse
@@ -44,7 +44,7 @@ def run_checked(command: list[str], *, cwd: Path = ROOT) -> subprocess.Completed
 def build_program(framework: str, source: Path) -> Path:
     compiler = run_checked(["xcrun", "--sdk", "macosx", "-f", "clang"]).stdout.strip()
     sdk = run_checked(["xcrun", "--sdk", "macosx", "--show-sdk-version"]).stdout.strip()
-    extra_frameworks = ["-framework", "CoreFoundation"] if framework == "Foundation" else []
+    extra_frameworks = ["-framework", "CoreFoundation"] if framework in {"Foundation", "AppKit"} else []
     build_key = hashlib.sha256(
         source.read_bytes() + framework.encode() + sdk.encode() + b"arm64e-macosx26.0-O2-fblocks"
     ).hexdigest()[:20]
@@ -115,12 +115,87 @@ def masked(lines: list[str], framework: str, item: str, rules: list[dict]) -> tu
     return result, applied
 
 
-def first_difference(apple: list[str], finch: list[str]) -> dict | None:
+def _decode_appkit_value(line: str) -> str:
+    fields = line.split("\t")
+    if len(fields) < 2:
+        return line
+    decoded = [fields[0]]
+    for field in fields[1:]:
+        try:
+            value = bytes.fromhex(field).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            value = field
+        decoded.append(value)
+    return "\t".join(decoded)
+
+
+def _appkit_pixels_within_tolerance(apple: str, finch: str) -> bool:
+    apple = _decode_appkit_value(apple)
+    finch = _decode_appkit_value(finch)
+    patterns = (
+        (re.compile(r"(bitmap:\d+x\d+:\d+:8:)([0-9a-fA-F]*)"), "bytes"),
+        (re.compile(r"(pixel-data:)([0-9a-fA-F]*)"), "bytes"),
+        (re.compile(r"(pixels:)(\d+(?:,\d+)+)"), "numbers"),
+    )
+
+    def normalize(value: str) -> tuple[str, list[tuple[str, list[int]]]]:
+        found: list[tuple[str, list[int]]] = []
+        for pattern, kind in patterns:
+            def replace(match: re.Match[str]) -> str:
+                raw = match.group(2)
+                try:
+                    components = list(bytes.fromhex(raw)) if kind == "bytes" else [int(part) for part in raw.split(",")]
+                except ValueError:
+                    return match.group(0)
+                found.append((kind, components))
+                return match.group(1) + f"<pixels:{len(components)}:{len(found)}>"
+            value = pattern.sub(replace, value)
+        return value, found
+
+    left, left_pixels = normalize(apple)
+    right, right_pixels = normalize(finch)
+    if not left_pixels or len(left_pixels) != len(right_pixels) or left != right:
+        return False
+    for (left_kind, left_values), (right_kind, right_values) in zip(left_pixels, right_pixels):
+        if left_kind != right_kind or len(left_values) != len(right_values):
+            return False
+        if any(abs(a - b) > 1 for a, b in zip(left_values, right_values)):
+            return False
+    return True
+
+
+def _appkit_geometry_within_tolerance(apple: str, finch: str) -> bool:
+    apple = _decode_appkit_value(apple)
+    finch = _decode_appkit_value(finch)
+    pattern = re.compile(r"\b(point|size|rect|edge-insets|transform):((-?\d+(?:\.\d+)?)(?:,-?\d+(?:\.\d+)?)+)")
+
+    def normalize(value: str) -> tuple[str, list[list[float]]]:
+        values: list[list[float]] = []
+        def replace(match: re.Match[str]) -> str:
+            numbers = [float(part) for part in match.group(2).split(",")]
+            values.append(numbers)
+            return match.group(1) + f"<geometry:{len(numbers)}:{len(values)}>"
+        return pattern.sub(replace, value), values
+
+    left, left_values = normalize(apple)
+    right, right_values = normalize(finch)
+    if not left_values or len(left_values) != len(right_values) or left != right:
+        return False
+    for a_values, b_values in zip(left_values, right_values):
+        if len(a_values) != len(b_values) or any(abs(a - b) > 0.01 for a, b in zip(a_values, b_values)):
+            return False
+    return True
+
+
+def first_difference(apple: list[str], finch: list[str], framework: str = "") -> dict | None:
     limit = max(len(apple), len(finch))
     for index in range(limit):
         left = apple[index] if index < len(apple) else None
         right = finch[index] if index < len(finch) else None
-        if left != right:
+        same = left == right
+        if not same and framework == "AppKit" and left is not None and right is not None:
+            same = _appkit_pixels_within_tolerance(left, right) or _appkit_geometry_within_tolerance(left, right)
+        if not same:
             sample = left if left is not None else right
             case = sample.split("\t", 1)[0] if sample is not None else str(index)
             return {"case": case, "apple": left, "finch": right}
@@ -186,7 +261,7 @@ def run_framework(framework: str, timeout: float, rules: list[dict], jobs: int) 
             difference = None
             reason = "at least one runtime had no safe receiver, input, or callable method signature"
         else:
-            difference = first_difference(apple_lines, finch_lines)
+            difference = first_difference(apple_lines, finch_lines, framework)
             status = "differs" if difference else "verified"
         record = {
             "status": status,
@@ -248,7 +323,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=30.0, help="seconds allowed for each API item on each side")
     parser.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 1), help="API processes to compare in parallel")
     args = parser.parse_args()
-    invalid = sorted(set(args.framework) - {"CoreFoundation", "Foundation"})
+    invalid = sorted(set(args.framework) - {"CoreFoundation", "Foundation", "AppKit"})
     if invalid:
         parser.error(f"unknown framework: {', '.join(invalid)}")
     if args.timeout <= 0:

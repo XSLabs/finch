@@ -285,7 +285,7 @@ dpi_size(CFDictionaryRef props, size_t w, size_t h)
 {
     CGImageSourceRef src = data ? CGImageSourceCreateWithData((CFDataRef)data, NULL) : NULL;
     if (!src)
-        return nil;
+        return @[];
     NSMutableArray *a = [NSMutableArray array];
     for (size_t i = 0; i < CGImageSourceGetCount(src); i++) {
         NSBitmapImageRep *r = [[self alloc] _initWithSource:src index:i];
@@ -294,7 +294,7 @@ dpi_size(CFDictionaryRef props, size_t w, size_t h)
         [r release];
     }
     CFRelease(src);
-    return a.count ? a : nil;
+    return a;
 }
 
 + (BOOL)canInitWithData:(NSData *)data
