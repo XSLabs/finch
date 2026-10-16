@@ -23,12 +23,16 @@ CFLAGS=(-arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -Os -g -fn
 log "compiling"
 rm -rf "${OBJ}" && mkdir -p "${OBJ}"
 "${CC}" "${CFLAGS[@]}" -c "${HERE}/ICADevices.c" -o "${OBJ}/ICADevices.o"
+if [[ -f "${HERE}/ICADevicesConstants_Generated.m" ]]; then
+    "${CC}" "${CFLAGS[@]}" -fno-objc-arc -c "${HERE}/ICADevicesConstants_Generated.m" \
+        -o "${OBJ}/ICADevicesConstants_Generated.o"
+fi
 
 log "linking"
 mkdir -p "${FW}/Versions/A"
 "${CC}" -arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -dynamiclib \
     -install_name /System/Library/Frameworks/ICADevices.framework/Versions/A/ICADevices \
-    -current_version 1 -compatibility_version 1 "${OBJ}/ICADevices.o" -o "${FW}/Versions/A/ICADevices" \
+    -current_version 1 -compatibility_version 1 "${OBJ}"/*.o -o "${FW}/Versions/A/ICADevices" \
     -F"${ROOT}/System/Library/Frameworks" -framework CoreFoundation -framework CoreGraphics
 ln -sfn A "${FW}/Versions/Current"
 ln -sfn Versions/Current/ICADevices "${FW}/ICADevices"

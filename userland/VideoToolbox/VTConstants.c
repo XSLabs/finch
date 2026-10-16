@@ -9,7 +9,7 @@ const CFStringRef kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEnc
 const CFStringRef kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder = CFSTR("RequireHardwareAcceleratedVideoEncoder");
 const CFStringRef kVTVideoEncoderSpecification_EnableLowLatencyRateControl = CFSTR("EnableLowLatencyRateControl");
 
-const CFStringRef kVTPropertyTypeKey = CFSTR("Type");
+const CFStringRef kVTPropertyTypeKey = CFSTR("PropertyType");
 const CFStringRef kVTPropertyType_Enumeration = CFSTR("Enumeration");
 const CFStringRef kVTPropertyType_Boolean = CFSTR("Boolean");
 const CFStringRef kVTPropertyType_Number = CFSTR("Number");
@@ -47,8 +47,8 @@ const CFStringRef kVTCompressionPropertyKey_UsingHardwareAcceleratedVideoEncoder
 const CFStringRef kVTCompressionPropertyKey_YCbCrMatrix = CFSTR("YCbCrMatrix");
 
 const CFStringRef kVTEncodeFrameOptionKey_BaseFrameQP = CFSTR("BaseFrameQP");
-const CFStringRef kVTEncodeFrameOptionKey_ForceKeyFrame = CFSTR("ForceKeyFrame");
-const CFStringRef kVTHDRMetadataInsertionMode_Auto = CFSTR("Auto");
+const CFStringRef kVTEncodeFrameOptionKey_ForceKeyFrame = CFSTR("EncoderForceKeyframe");
+const CFStringRef kVTHDRMetadataInsertionMode_Auto = CFSTR("HDRMetadataInsertionMode_Auto");
 
 #define VT_PROFILE(name, value) const CFStringRef name = CFSTR(value)
 VT_PROFILE(kVTProfileLevel_H264_Baseline_AutoLevel, "H264_Baseline_AutoLevel");
@@ -108,10 +108,10 @@ const CFStringRef kVTPixelTransferPropertyKey_RealTime = CFSTR("RealTime");
 
 const CFStringRef kVTPixelRotationPropertyKey_Rotation = CFSTR("Rotation");
 const CFStringRef kVTImageRotationPropertyKey_Rotation = CFSTR("Rotation");
-const CFStringRef kVTRotation_0 = CFSTR("0");
-const CFStringRef kVTRotation_CW90 = CFSTR("90");
-const CFStringRef kVTRotation_180 = CFSTR("180");
-const CFStringRef kVTRotation_CCW90 = CFSTR("270");
+const CFStringRef kVTRotation_0 = CFSTR("Rotation0");
+const CFStringRef kVTRotation_CW90 = CFSTR("RotationCW90");
+const CFStringRef kVTRotation_180 = CFSTR("Rotation180");
+const CFStringRef kVTRotation_CCW90 = CFSTR("RotationCCW90");
 const CFStringRef kVTPixelRotationPropertyKey_FlipHorizontalOrientation = CFSTR("FlipHorizontalOrientation");
 const CFStringRef kVTPixelRotationPropertyKey_FlipVerticalOrientation = CFSTR("FlipVerticalOrientation");
 
@@ -130,8 +130,8 @@ const CFStringRef kVTVideoEncoderList_IsHardwareAccelerated = CFSTR("IsHardwareA
 const CFStringRef kVTVideoEncoderList_SupportsFrameReordering = CFSTR("SupportsFrameReordering");
 const CFStringRef kVTVideoEncoderList_SupportsMultiPass = CFSTR("SupportsMultiPass");
 
-const CFStringRef kVTExtensionProperties_ExtensionIdentifierKey = CFSTR("ExtensionIdentifier");
-const CFStringRef kVTExtensionProperties_ExtensionNameKey = CFSTR("ExtensionName");
-const CFStringRef kVTExtensionProperties_ContainingBundleNameKey = CFSTR("ContainingBundleName");
-const CFStringRef kVTExtensionProperties_ExtensionURLKey = CFSTR("ExtensionURL");
-const CFStringRef kVTExtensionProperties_ContainingBundleURLKey = CFSTR("ContainingBundleURL");
+const CFStringRef kVTExtensionProperties_ExtensionIdentifierKey = CFSTR("MediaExtensionIdentifier");
+const CFStringRef kVTExtensionProperties_ExtensionNameKey = CFSTR("MediaExtensionName");
+const CFStringRef kVTExtensionProperties_ContainingBundleNameKey = CFSTR("MediaExtensionContainingBundleName");
+const CFStringRef kVTExtensionProperties_ExtensionURLKey = CFSTR("MediaExtensionURL");
+const CFStringRef kVTExtensionProperties_ContainingBundleURLKey = CFSTR("MediaExtensionContainingBundleURL");

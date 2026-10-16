@@ -190,6 +190,139 @@ def sdk_ast(name, framework_path=None):
     return ast, header_root, header_paths
 
 
+def sdk_declaration_records(name, framework_path=None, type_records=None):
+    """Return public C declarations with their type and owning header."""
+    ast, header_root, header_paths = sdk_ast(name, framework_path)
+    sources = {}
+    header_lines, token_patterns = {}, {}
+    declarations = {}
+    parsed_types = {}
+    parsed_aliases = {}
+
+    def collect_types(node):
+        kind = node.get("kind")
+        if kind in ("RecordDecl", "CXXRecordDecl") and node.get("completeDefinition"):
+            fields = []
+            for child in node.get("inner", []):
+                if child.get("kind") != "FieldDecl":
+                    continue
+                fields.append({
+                    "name": child.get("name"),
+                    "type": child.get("type", {}).get("qualType"),
+                    "desugared_type": child.get("type", {}).get("desugaredQualType"),
+                    "bitfield": any(part.get("kind") == "ConstantExpr" for part in child.get("inner", [])),
+                })
+            record = {"id": node.get("id"), "name": node.get("name"),
+                      "tag": node.get("tagUsed"), "fields": fields}
+            if record["id"]:
+                parsed_types[record["id"]] = record
+            if record["name"]:
+                parsed_types[record["name"]] = record
+        elif kind == "TypedefDecl" and node.get("name"):
+            alias_type = node.get("type", {}).get("qualType") or ""
+            alias_desugared = node.get("type", {}).get("desugaredQualType") or ""
+            tag_type = next((value for value in (alias_type, alias_desugared)
+                             if re.fullmatch(r"\s*(?:(?:const|volatile)\s+)*(?:struct|union)\s+[A-Za-z_][A-Za-z0-9_]*\s*", value)), "")
+            record_ids = set()
+            if tag_type:
+                def find_direct_record_ids(part):
+                    if part.get("kind") == "RecordType":
+                        record_id = part.get("decl", {}).get("id")
+                        if record_id:
+                            record_ids.add(record_id)
+                    for child in part.get("inner", []):
+                        find_direct_record_ids(child)
+
+                for child in node.get("inner", []):
+                    find_direct_record_ids(child)
+            parsed_aliases[node["name"]] = {
+                "type": alias_type,
+                "desugared_type": alias_desugared,
+                "record_ids": record_ids,
+            }
+        for child in node.get("inner", []):
+            collect_types(child)
+
+    collect_types(ast)
+    for name, alias in parsed_aliases.items():
+        target = next((parsed_types.get(record_id) for record_id in alias["record_ids"]
+                       if parsed_types.get(record_id)), None)
+        alias["record"] = target
+        if target:
+            target.setdefault("aliases", []).append(name)
+
+    def walk(node, inside_function=False):
+        kind = node.get("kind")
+        if kind in ("FunctionDecl", "VarDecl") and not inside_function:
+            symbol = node.get("mangledName")
+            identifier = node.get("name", "")
+            inline = node.get("inline") or any(child.get("kind") == "CompoundStmt" for child in node.get("inner", []))
+            if (symbol and identifier and not identifier.startswith("_") and
+                    node.get("storageClass") != "static" and not inline and
+                    not unavailable_on_macos(node, sources)):
+                path = declaration_source(node, header_root, header_paths, header_lines, token_patterns)
+                if path:
+                    relative = os.path.relpath(path, header_root)
+                    declarations.setdefault(symbol, {})[(kind, relative)] = {
+                        "symbol": symbol,
+                        "name": identifier,
+                        "kind": kind,
+                        "type": node.get("type", {}).get("qualType"),
+                        "desugared_type": node.get("type", {}).get("desugaredQualType"),
+                        "header": relative,
+                    }
+        nested = inside_function or kind in ("FunctionDecl", "BlockDecl", "ObjCMethodDecl")
+        for child in node.get("inner", []):
+            walk(child, nested)
+
+    walk(ast)
+    if type_records is not None:
+        used_records = {}
+        used_aliases = {}
+
+        def collect_used_types(type_value):
+            if not type_value:
+                return
+            for identifier in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", type_value):
+                alias = parsed_aliases.get(identifier)
+                if not alias:
+                    record = parsed_types.get(identifier)
+                    if record:
+                        used_records[record["id"]] = record
+                    continue
+                used_aliases[identifier] = alias
+                if alias["record"]:
+                    used_records[alias["record"]["id"]] = alias["record"]
+
+        for records in declarations.values():
+            for declaration in records.values():
+                if declaration["kind"] == "VarDecl":
+                    collect_used_types(declaration.get("type"))
+                    collect_used_types(declaration.get("desugared_type"))
+
+        pending = list(used_records.values())
+        while pending:
+            record = pending.pop()
+            for field in record["fields"]:
+                for type_value in (field.get("type"), field.get("desugared_type")):
+                    before = set(used_records)
+                    collect_used_types(type_value)
+                    pending.extend(used_records[key] for key in set(used_records) - before)
+
+        for record in used_records.values():
+            if record.get("name"):
+                type_records[record["name"]] = record
+            for alias in record.get("aliases", []):
+                type_records[alias] = record
+        type_records["__aliases__"] = {
+            name: {key: value for key, value in alias.items()
+                   if key not in ("record", "record_ids")}
+            for name, alias in used_aliases.items() if not alias["record"]
+        }
+    return {symbol: sorted(records.values(), key=lambda item: item["header"])
+            for symbol, records in declarations.items()}
+
+
 def sdk_declarations(name, framework_path=None):
     ast, header_root, header_paths = sdk_ast(name, framework_path)
     sources = {}

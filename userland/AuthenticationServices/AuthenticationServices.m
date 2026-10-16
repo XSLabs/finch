@@ -12,15 +12,15 @@
 #import <objc/runtime.h>
 #import <Block.h>
 
-NSErrorDomain const ASAuthorizationErrorDomain = @"ASAuthorizationErrorDomain";
-NSErrorDomain const ASWebAuthenticationSessionErrorDomain = @"ASWebAuthenticationSessionErrorDomain";
+NSErrorDomain const ASAuthorizationErrorDomain = @"com.apple.AuthenticationServices.AuthorizationError";
+NSErrorDomain const ASWebAuthenticationSessionErrorDomain = @"com.apple.AuthenticationServices.WebAuthenticationSession";
 ASAuthorizationScope const ASAuthorizationScopeFullName = @"full_name";
 ASAuthorizationScope const ASAuthorizationScopeEmail = @"email";
 ASAuthorizationOpenIDOperation const ASAuthorizationOperationImplicit = @"implicit";
 ASAuthorizationOpenIDOperation const ASAuthorizationOperationLogin = @"login";
 ASAuthorizationOpenIDOperation const ASAuthorizationOperationRefresh = @"refresh";
 ASAuthorizationOpenIDOperation const ASAuthorizationOperationLogout = @"logout";
-NSNotificationName const ASAuthorizationAppleIDProviderCredentialRevokedNotification = @"ASAuthorizationAppleIDProviderCredentialRevokedNotification";
+NSNotificationName const ASAuthorizationAppleIDProviderCredentialRevokedNotification = @"ASAuthorizationAppleIDCredentialRevokedNotification";
 ASAuthorizationPublicKeyCredentialUserVerificationPreference const ASAuthorizationPublicKeyCredentialUserVerificationPreferencePreferred = @"preferred";
 ASAuthorizationPublicKeyCredentialUserVerificationPreference const ASAuthorizationPublicKeyCredentialUserVerificationPreferenceRequired = @"required";
 ASAuthorizationPublicKeyCredentialUserVerificationPreference const ASAuthorizationPublicKeyCredentialUserVerificationPreferenceDiscouraged = @"discouraged";

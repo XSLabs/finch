@@ -37,7 +37,7 @@ done
 CFLAGS=(-arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -Os -g -fno-common -fblocks
     -fno-objc-arc -fobjc-exceptions -Wall -Wextra -Werror -Wno-unused-parameter -Wno-deprecated-declarations
     -Wno-deprecated-implementations -Wno-incomplete-implementation -Wno-objc-property-implementation
-    -Wno-nullability -Wno-missing-field-initializers -Wno-sign-compare -Wno-four-char-constants
+    -Wno-nullability -Wno-missing-field-initializers -Wno-sign-compare -Wno-four-char-constants -F"${SDKCS}"
     -Wno-objc-protocol-method-implementation -Wno-protocol -Wno-unused-command-line-argument)
 
 rm -rf "${OBJ}" "${FW}"

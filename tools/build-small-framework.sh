@@ -35,6 +35,12 @@ OBJ="${FINCH_ROOT}/build/obj/${NAME}"
 FLAGS=(-arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -Os -g -fblocks ${CFLAGS:-}
        -Wall -Wextra -Werror -Wno-unused-parameter -Wno-deprecated-declarations)
 
+if [[ ${#SOURCES[@]} -gt 0 ]]; then
+    source_dir="$(cd "$(dirname "${SOURCES[0]}")" && pwd)"
+    generated="${source_dir}/${NAME}Constants_Generated.m"
+    if [[ -f "${generated}" ]]; then SOURCES+=("${generated}"); fi
+fi
+
 log "compiling ${NAME}"
 rm -rf "${OBJ}" && mkdir -p "${OBJ}" "$(dirname "${OUT}")"
 OBJS=()

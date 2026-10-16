@@ -50,8 +50,9 @@ CFLAGS=(-arch arm64e -mmacosx-version-min=26.0 -isysroot "$SDKROOT" -Os -g -fblo
 
 log "compiling"
 objects=()
-for source in "$HERE"/*.c "$OBJ/SecConstants.c"; do
-    output="$OBJ/o/$(basename "${source%.c}").o"
+for source in "$HERE"/*.c "$HERE"/*.m "$OBJ/SecConstants.c"; do
+    [[ -f "$source" ]] || continue
+    output="$OBJ/o/$(basename "${source%.*}").o"
     "$CC" "${CFLAGS[@]}" -c "$source" -o "$output"
     objects+=("$output")
 done

@@ -9,7 +9,9 @@ set -euo pipefail
 FINCH_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 "${FINCH_ROOT}/userland/OpenScripting/build.sh"
 HERE="${FINCH_ROOT}/userland/Carbon"
+SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 CARBON=/System/Library/Frameworks/Carbon.framework/Versions/A
+CFLAGS="-F${SDKROOT}/System/Library/Frameworks/Carbon.framework/Versions/A/Frameworks" \
 "${FINCH_ROOT}/tools/build-small-framework.sh" \
     "${CARBON}/Frameworks/HIToolbox.framework/Versions/A/HIToolbox" 1249.3 1 com.apple.HIToolbox 2.1.1 \
     "${HERE}/CarbonEvents.c" "${HERE}/TSM.c" "${HERE}/EventTargets.c" "${HERE}/TextInputSources.c" "${HERE}/HIConstants.c" "${HERE}/AESend.c" \

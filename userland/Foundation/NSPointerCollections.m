@@ -1109,20 +1109,22 @@ NSAllHashTableObjects(NSHashTable *table)
     return a;
 }
 
-/* The callback sets. */
-static NSUInteger cb_object_hash(id t, const void *p) { return [(id)p hash]; }
-static BOOL cb_object_equal(id t, const void *a, const void *b) { return a == b || [(id)a isEqual:(id)b]; }
-static void cb_object_retain(id t, const void *p) { [(id)p retain]; }
-static void cb_object_release(id t, void *p) { [(id)p release]; }
-static NSString *cb_object_describe(id t, const void *p) { return [(id)p description]; }
-static NSUInteger cb_pointer_hash(id t, const void *p) { return (NSUInteger)(uintptr_t)p >> 2; }
-static BOOL cb_pointer_equal(id t, const void *a, const void *b) { return a == b; }
-static NSString *cb_pointer_describe(id t, const void *p) { return [NSString stringWithFormat:@"%p", p]; }
-static void cb_free(id t, void *p) { free(p); }
-static NSUInteger cb_int_hash(id t, const void *p) { return (NSUInteger)(uintptr_t)p; }
-static NSString *cb_int_describe(id t, const void *p) { return [NSString stringWithFormat:@"%ld", (long)(intptr_t)p]; }
-static NSUInteger cb_struct_hash(id t, const void *p) { return (NSUInteger)*(const int *)p; }
-static BOOL cb_struct_equal(id t, const void *a, const void *b) { return *(const int *)a == *(const int *)b; }
+/* The callback sets. These names also make function-pointer constants
+ * readable in the generated comparison test. */
+static NSUInteger hashObjectHT(id t, const void *p) { return [(id)p hash]; }
+static BOOL isEqualObjectHT(id t, const void *a, const void *b) { return a == b || [(id)a isEqual:(id)b]; }
+static void retainObjectHT(id t, const void *p) { [(id)p retain]; }
+static void releaseObjectHT(id t, void *p) { [(id)p release]; }
+static NSString *describeObjectHT(id t, const void *p) { return [(id)p description]; }
+static NSUInteger hashObjectMT(id t, const void *p) { return [(id)p hash]; }
+static BOOL isEqualObjectMT(id t, const void *a, const void *b) { return a == b || [(id)a isEqual:(id)b]; }
+static void retainObjectMT(id t, const void *p) { [(id)p retain]; }
+static void releaseObjectMT(id t, void *p) { [(id)p release]; }
+static NSString *describeObjectMT(id t, const void *p) { return [(id)p description]; }
+static void freePointerHT(id t, void *p) { free(p); }
+static void freePointerMT(id t, void *p) { free(p); }
+static NSUInteger hashPointerStructHT(id t, const void *p) { return (NSUInteger)*(const int *)p; }
+static BOOL isEqualPointerStructHT(id t, const void *a, const void *b) { return *(const int *)a == *(const int *)b; }
 
 #define KEYS(H, E, R, L, D, M) { (NSUInteger (*)(NSMapTable *, const void *))(void *)(H), (BOOL (*)(NSMapTable *, const void *, const void *))(void *)(E), \
     (void (*)(NSMapTable *, const void *))(void *)(R), (void (*)(NSMapTable *, void *))(void *)(L), (NSString *(*)(NSMapTable *, const void *))(void *)(D), (const void *)(M) }
@@ -1130,27 +1132,27 @@ static BOOL cb_struct_equal(id t, const void *a, const void *b) { return *(const
 #define HASH(H, E, R, L, D) { (NSUInteger (*)(NSHashTable *, const void *))(void *)(H), (BOOL (*)(NSHashTable *, const void *, const void *))(void *)(E), \
     (void (*)(NSHashTable *, const void *))(void *)(R), (void (*)(NSHashTable *, void *))(void *)(L), (NSString *(*)(NSHashTable *, const void *))(void *)(D) }
 
-const NSMapTableKeyCallBacks NSIntegerMapKeyCallBacks = KEYS(cb_int_hash, cb_pointer_equal, NULL, NULL, cb_int_describe, -1);
-const NSMapTableKeyCallBacks NSIntMapKeyCallBacks = KEYS(cb_int_hash, cb_pointer_equal, NULL, NULL, cb_int_describe, -1);
-const NSMapTableKeyCallBacks NSNonOwnedPointerMapKeyCallBacks = KEYS(cb_pointer_hash, cb_pointer_equal, NULL, NULL, cb_pointer_describe, NULL);
-const NSMapTableKeyCallBacks NSNonOwnedPointerOrNullMapKeyCallBacks = KEYS(cb_pointer_hash, cb_pointer_equal, NULL, NULL, cb_pointer_describe, -1);
-const NSMapTableKeyCallBacks NSNonRetainedObjectMapKeyCallBacks = KEYS(cb_object_hash, cb_object_equal, NULL, NULL, cb_object_describe, NULL);
-const NSMapTableKeyCallBacks NSObjectMapKeyCallBacks = KEYS(cb_object_hash, cb_object_equal, cb_object_retain, cb_object_release, cb_object_describe, NULL);
-const NSMapTableKeyCallBacks NSOwnedPointerMapKeyCallBacks = KEYS(cb_pointer_hash, cb_pointer_equal, NULL, cb_free, cb_pointer_describe, NULL);
-const NSMapTableValueCallBacks NSIntegerMapValueCallBacks = VALUES(NULL, NULL, cb_int_describe);
-const NSMapTableValueCallBacks NSIntMapValueCallBacks = VALUES(NULL, NULL, cb_int_describe);
-const NSMapTableValueCallBacks NSNonOwnedPointerMapValueCallBacks = VALUES(NULL, NULL, cb_pointer_describe);
-const NSMapTableValueCallBacks NSObjectMapValueCallBacks = VALUES(cb_object_retain, cb_object_release, cb_object_describe);
-const NSMapTableValueCallBacks NSNonRetainedObjectMapValueCallBacks = VALUES(NULL, NULL, cb_object_describe);
-const NSMapTableValueCallBacks NSOwnedPointerMapValueCallBacks = VALUES(NULL, cb_free, cb_pointer_describe);
-const NSHashTableCallBacks NSIntegerHashCallBacks = HASH(cb_int_hash, cb_pointer_equal, NULL, NULL, cb_int_describe);
-const NSHashTableCallBacks NSIntHashCallBacks = HASH(cb_int_hash, cb_pointer_equal, NULL, NULL, cb_int_describe);
-const NSHashTableCallBacks NSNonOwnedPointerHashCallBacks = HASH(cb_pointer_hash, cb_pointer_equal, NULL, NULL, cb_pointer_describe);
-const NSHashTableCallBacks NSNonRetainedObjectHashCallBacks = HASH(cb_object_hash, cb_object_equal, NULL, NULL, cb_object_describe);
-const NSHashTableCallBacks NSObjectHashCallBacks = HASH(cb_object_hash, cb_object_equal, cb_object_retain, cb_object_release, cb_object_describe);
-const NSHashTableCallBacks NSOwnedObjectIdentityHashCallBacks = HASH(cb_pointer_hash, cb_pointer_equal, cb_object_retain, cb_object_release, cb_object_describe);
-const NSHashTableCallBacks NSOwnedPointerHashCallBacks = HASH(cb_pointer_hash, cb_pointer_equal, NULL, cb_free, cb_pointer_describe);
-const NSHashTableCallBacks NSPointerToStructHashCallBacks = HASH(cb_struct_hash, cb_struct_equal, NULL, cb_free, cb_pointer_describe);
+const NSMapTableKeyCallBacks NSIntegerMapKeyCallBacks = KEYS(NULL, NULL, NULL, NULL, NULL, (void *)(uintptr_t)0x8000000000000000ULL);
+const NSMapTableKeyCallBacks NSIntMapKeyCallBacks = KEYS(NULL, NULL, NULL, NULL, NULL, (void *)(uintptr_t)0x8000000000000000ULL);
+const NSMapTableKeyCallBacks NSNonOwnedPointerMapKeyCallBacks = KEYS(NULL, NULL, NULL, NULL, NULL, NULL);
+const NSMapTableKeyCallBacks NSNonOwnedPointerOrNullMapKeyCallBacks = KEYS(NULL, NULL, NULL, NULL, NULL, (void *)(uintptr_t)0xffffffffffffffffULL);
+const NSMapTableKeyCallBacks NSNonRetainedObjectMapKeyCallBacks = KEYS(hashObjectMT, isEqualObjectMT, NULL, NULL, describeObjectMT, NULL);
+const NSMapTableKeyCallBacks NSObjectMapKeyCallBacks = KEYS(hashObjectMT, isEqualObjectMT, retainObjectMT, releaseObjectMT, describeObjectMT, NULL);
+const NSMapTableKeyCallBacks NSOwnedPointerMapKeyCallBacks = KEYS(NULL, NULL, NULL, freePointerMT, NULL, NULL);
+const NSMapTableValueCallBacks NSIntegerMapValueCallBacks = VALUES(NULL, NULL, NULL);
+const NSMapTableValueCallBacks NSIntMapValueCallBacks = VALUES(NULL, NULL, NULL);
+const NSMapTableValueCallBacks NSNonOwnedPointerMapValueCallBacks = VALUES(NULL, NULL, NULL);
+const NSMapTableValueCallBacks NSObjectMapValueCallBacks = VALUES(retainObjectMT, releaseObjectMT, describeObjectMT);
+const NSMapTableValueCallBacks NSNonRetainedObjectMapValueCallBacks = VALUES(NULL, NULL, describeObjectMT);
+const NSMapTableValueCallBacks NSOwnedPointerMapValueCallBacks = VALUES(NULL, freePointerMT, NULL);
+const NSHashTableCallBacks NSIntegerHashCallBacks = HASH(NULL, NULL, NULL, NULL, NULL);
+const NSHashTableCallBacks NSIntHashCallBacks = HASH(NULL, NULL, NULL, NULL, NULL);
+const NSHashTableCallBacks NSNonOwnedPointerHashCallBacks = HASH(NULL, NULL, NULL, NULL, NULL);
+const NSHashTableCallBacks NSNonRetainedObjectHashCallBacks = HASH(hashObjectHT, isEqualObjectHT, NULL, NULL, describeObjectHT);
+const NSHashTableCallBacks NSObjectHashCallBacks = HASH(hashObjectHT, isEqualObjectHT, retainObjectHT, releaseObjectHT, describeObjectHT);
+const NSHashTableCallBacks NSOwnedObjectIdentityHashCallBacks = HASH(NULL, NULL, retainObjectHT, releaseObjectHT, describeObjectHT);
+const NSHashTableCallBacks NSOwnedPointerHashCallBacks = HASH(NULL, NULL, NULL, freePointerHT, NULL);
+const NSHashTableCallBacks NSPointerToStructHashCallBacks = HASH(hashPointerStructHT, isEqualPointerStructHT, NULL, freePointerHT, NULL);
 
 /* MARK: - NSCountedSet */
 

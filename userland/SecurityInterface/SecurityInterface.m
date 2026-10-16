@@ -13,8 +13,8 @@
 #import <stdlib.h>
 #import <string.h>
 
-NSString *const SFAuthorizationPluginViewUserNameKey = @"SFAuthorizationPluginViewUserNameKey";
-NSString *const SFAuthorizationPluginViewUserShortNameKey = @"SFAuthorizationPluginViewUserShortNameKey";
+NSString *const SFAuthorizationPluginViewUserNameKey = @"UserName";
+NSString *const SFAuthorizationPluginViewUserShortNameKey = @"UserShortName";
 
 static const void *SIStateKey = &SIStateKey;
 

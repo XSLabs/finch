@@ -33,6 +33,12 @@ log "compiling Objective-C"
 rm -rf "${OBJ}"
 mkdir -p "${OBJ}" "${FW}/Versions/A"
 "${CC}" "${FLAGS[@]}" -c "${HERE}/AuthenticationServices.m" -o "${OBJ}/AuthenticationServices.o"
+objects=("${OBJ}/AuthenticationServices.o")
+if [[ -f "${HERE}/AuthenticationServicesConstants_Generated.m" ]]; then
+    "${CC}" "${FLAGS[@]}" -c "${HERE}/AuthenticationServicesConstants_Generated.m" \
+        -o "${OBJ}/AuthenticationServicesConstants_Generated.o"
+    objects+=("${OBJ}/AuthenticationServicesConstants_Generated.o")
+fi
 
 log "compiling Swift ABI overlay"
 "${SWIFTC}" -target arm64e-apple-macos26.0 -sdk "${SDKROOT}" -module-name AuthenticationServices \
@@ -41,7 +47,7 @@ log "compiling Swift ABI overlay"
 
 log "linking"
 "${SWIFTC}" -target arm64e-apple-macos26.0 -sdk "${SDKROOT}" -module-name AuthenticationServices \
-    -emit-library "${OBJ}/AuthenticationServices.o" "${OBJ}/AuthenticationServices-swift.o" \
+    -emit-library "${objects[@]}" "${OBJ}/AuthenticationServices-swift.o" \
     -o "${FW}/Versions/A/AuthenticationServices" \
     -Xlinker -install_name -Xlinker "${INSTALL_NAME}" \
     -Xlinker -current_version -Xlinker 624.1.16 -Xlinker -compatibility_version -Xlinker 1 \

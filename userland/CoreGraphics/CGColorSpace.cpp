@@ -51,10 +51,10 @@ NAME(kCGColorSpaceITUR_2100_PQ)
 NAME(kCGColorSpaceITUR_2100_HLG)
 NAME(kCGColorSpaceDisplayP3_PQ)
 NAME(kCGColorSpaceDisplayP3_HLG)
-NAME(kCGColorSpaceITUR_2020_PQ)
-NAME(kCGColorSpaceITUR_2020_HLG)
-NAME(kCGColorSpaceDisplayP3_PQ_EOTF)
-NAME(kCGColorSpaceITUR_2020_PQ_EOTF)
+const CFStringRef kCGColorSpaceITUR_2020_PQ = CFSTR("kCGColorSpaceITUR_2100_PQ");
+const CFStringRef kCGColorSpaceITUR_2020_HLG = CFSTR("kCGColorSpaceITUR_2100_HLG");
+const CFStringRef kCGColorSpaceDisplayP3_PQ_EOTF = CFSTR("kCGColorSpaceDisplayP3_PQ");
+const CFStringRef kCGColorSpaceITUR_2020_PQ_EOTF = CFSTR("kCGColorSpaceITUR_2100_PQ");
 NAME(kCGColorSpaceExtendedSRGB)
 NAME(kCGColorSpaceLinearSRGB)
 NAME(kCGColorSpaceExtendedLinearSRGB)
@@ -556,6 +556,15 @@ CGColorSpaceCreateWithName(CFStringRef name)
         return CGColorSpaceCreateDeviceGray();
     if (CFEqual(name, CFSTR("kCGColorSpaceDeviceCMYK")))
         return CGColorSpaceCreateDeviceCMYK();
+    /* The old public constants now carry the newer names, but callers may
+     * still pass the earlier strings directly. Keep those names usable. */
+    if (CFEqual(name, CFSTR("kCGColorSpaceDisplayP3_PQ_EOTF")))
+        return named_space_by_name(kCGColorSpaceDisplayP3_PQ);
+    if (CFEqual(name, CFSTR("kCGColorSpaceITUR_2020_PQ")) ||
+        CFEqual(name, CFSTR("kCGColorSpaceITUR_2020_PQ_EOTF")))
+        return named_space_by_name(kCGColorSpaceITUR_2100_PQ);
+    if (CFEqual(name, CFSTR("kCGColorSpaceITUR_2020_HLG")))
+        return named_space_by_name(kCGColorSpaceITUR_2100_HLG);
     return named_space_by_name(name);
 }
 

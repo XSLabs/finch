@@ -412,5 +412,5 @@ CVDisplayLinkTranslateTime(CVDisplayLinkRef link, const CVTimeStamp *inTime, CVT
     return kCVReturnSuccess;
 }
 
-const CVTime kCVZeroTime = {0, 1, 0};
-const CVTime kCVIndefiniteTime = {0, 1, kCVTimeIsIndefinite};
+const CVTime kCVZeroTime = {0, 0, 0};
+const CVTime kCVIndefiniteTime = {0, 0, kCVTimeIsIndefinite};

@@ -30,7 +30,7 @@
 NSCollectionViewSupplementaryElementKind const NSCollectionElementKindSectionHeader = @"UICollectionElementKindSectionHeader";
 NSCollectionViewSupplementaryElementKind const NSCollectionElementKindSectionFooter = @"UICollectionElementKindSectionFooter";
 NSCollectionViewSupplementaryElementKind const NSCollectionElementKindInterItemGapIndicator =
-    @"UICollectionElementKindInterItemGapIndicator";
+    @"NSCollectionElementKindInterItemGapIndicator";
 
 @interface NSCollectionView (FinchLayout)
 - (NSSize)_finchLayoutSize;

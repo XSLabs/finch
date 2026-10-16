@@ -41,6 +41,10 @@ rm -rf "${OBJ}" && mkdir -p "${OBJ}"
 for f in "${HERE}"/*.c; do
     "${CC}" "${CFLAGS[@]}" -c "$f" -o "${OBJ}/$(basename "${f%.c}").o"
 done
+for f in "${HERE}"/*.m; do
+    [[ -e "$f" ]] || continue
+    "${CC}" "${COMMON[@]}" -fno-objc-arc -c "$f" -o "${OBJ}/$(basename "${f%.m}").o"
+done
 for f in "${HERE}"/*.cpp; do
     [[ -e "$f" ]] || continue
     "${CXX}" "${CXXFLAGS[@]}" -c "$f" -o "${OBJ}/$(basename "${f%.cpp}").o"

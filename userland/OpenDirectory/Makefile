@@ -23,11 +23,15 @@ $(OBJ)/hdr/CoreFoundation/CFRuntime.h: $(CFSRC)/CFRuntime.h
 	@mkdir -p $(dir $@)
 	sed -E 's|#include "(CF[A-Za-z]+\.h)"|#include <CoreFoundation/\1>|' $< > $@
 
-$(CFOD)/Versions/A/CFOpenDirectory: CFOpenDirectory.c $(ACCOUNT_LIB) \
+$(OBJ)/CFOpenDirectoryConstants_Generated.o: CFOpenDirectoryConstants_Generated.m
+	@mkdir -p $(OBJ)
+	$(CC) $(CFLAGS) -fno-objc-arc -c $< -o $@
+
+$(CFOD)/Versions/A/CFOpenDirectory: CFOpenDirectory.c $(OBJ)/CFOpenDirectoryConstants_Generated.o $(ACCOUNT_LIB) \
 	$(FINCH_ROOT)/userland/account-tools/account_tools.h \
 	$(OBJ)/hdr/CoreFoundation/CFRuntime.h
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -dynamiclib -o $@ CFOpenDirectory.c \
+	$(CC) $(CFLAGS) -dynamiclib -o $@ CFOpenDirectory.c $(OBJ)/CFOpenDirectoryConstants_Generated.o \
 	    -L$(ROOT)/usr/lib/system -lfinchaccount \
 	    -install_name /System/Library/Frameworks/OpenDirectory.framework/Versions/A/Frameworks/CFOpenDirectory.framework/Versions/A/CFOpenDirectory \
 	    -current_version 1.0.0 -compatibility_version 1.0.0 -framework CoreFoundation
@@ -36,12 +40,17 @@ $(CFOD)/Versions/A/CFOpenDirectory: CFOpenDirectory.c $(ACCOUNT_LIB) \
 	$(FINCH_ROOT)/tools/mkframeworkplist.sh $(CFOD) A CFOpenDirectory com.apple.CFOpenDirectory CFOpenDirectory 26.4 666.100.1 English
 	codesign -f -s - $@ 2>/dev/null
 
-$(FW)/Versions/A/OpenDirectory: $(CFOD)/Versions/A/CFOpenDirectory
+$(OBJ)/OpenDirectoryConstants_Generated.o: OpenDirectoryConstants_Generated.m
+	@mkdir -p $(OBJ)
+	$(CC) $(CFLAGS) -fno-objc-arc -c $< -o $@
+
+$(FW)/Versions/A/OpenDirectory: $(CFOD)/Versions/A/CFOpenDirectory $(OBJ)/OpenDirectoryConstants_Generated.o
 	@mkdir -p $(OBJ)
 	echo 'int finch_opendirectory_placeholder;' | $(CC) -arch arm64e -mmacosx-version-min=26.0 -x c -c - -o $(OBJ)/od.o
-	$(CC) -arch arm64e -mmacosx-version-min=26.0 -dynamiclib -o $@ $(OBJ)/od.o \
+	$(CC) -arch arm64e -mmacosx-version-min=26.0 -dynamiclib -o $@ $(OBJ)/od.o $(OBJ)/OpenDirectoryConstants_Generated.o \
 	    -install_name /System/Library/Frameworks/OpenDirectory.framework/Versions/A/OpenDirectory \
-	    -current_version 1.0.0 -compatibility_version 1.0.0 -Wl,-reexport_library,$< -Wl,-unexported_symbol,_finch_opendirectory_placeholder
+	    -current_version 1.0.0 -compatibility_version 1.0.0 -Wl,-reexport_library,$< -Wl,-unexported_symbol,_finch_opendirectory_placeholder \
+	    -F$(ROOT)/System/Library/Frameworks -framework CoreFoundation
 	ln -sfn A $(FW)/Versions/Current
 	ln -sfn Versions/Current/OpenDirectory $(FW)/OpenDirectory
 	$(FINCH_ROOT)/tools/mkframeworkplist.sh $(FW) A OpenDirectory com.apple.OpenDirectory OpenDirectory 26.4 666.100.1 English

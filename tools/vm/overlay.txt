@@ -34,6 +34,7 @@ build/userland/finch-images /usr/local/bin/finch-images
 build/userland/finch-objc-test /usr/local/bin/finch-objc-test
 build/userland/finch-crypto-test /usr/local/bin/finch-crypto-test
 build/userland/finch-cf-test /usr/local/bin/finch-cf-test
+build/userland/finch-constants-test /usr/local/bin/finch-constants-test
 build/userland/finch-coreservices-test /usr/local/bin/finch-coreservices-test
 build/userland/finch-security-core-test /usr/local/bin/finch-security-core-test
 build/userland/finch-security-roots-test /usr/local/bin/finch-security-roots-test

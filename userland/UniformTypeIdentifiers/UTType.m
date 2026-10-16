@@ -13,7 +13,11 @@
  * identifiers; the code is Finch's.
  */
 #import <Foundation/Foundation.h>
+/* The SDK discourages public subclasses. This private subclass is needed to
+ * give built-in identifiers the same runtime class Apple returns. */
+#define UT_SUBCLASSING_RESTRICTED
 #import <UniformTypeIdentifiers/UTType.h>
+#undef UT_SUBCLASSING_RESTRICTED
 #import <UniformTypeIdentifiers/UTTagClass.h>
 
 NSString *const UTTagClassFilenameExtension = @"public.filename-extension";
@@ -38,6 +42,14 @@ static const TypeEntry table[] = {
 @interface UTType ()
 - (instancetype)_finchInitWithIdentifier:(NSString *)identifier decl:(UTFinchDecl *)decl dynamicTags:(NSDictionary *)tags
                              conformance:(NSString *)conformance;
+@end
+
+/* Apple's built-in identifiers use a private UTType subclass. Keep dynamic
+ * types as UTType instances, but give the identifiers from our fixed table
+ * the same observable class. */
+@interface _UTCoreType : UTType
+@end
+@implementation _UTCoreType
 @end
 
 static NSMutableDictionary<NSString *, UTFinchDecl *> *decls;  /* lowercased identifier -> facts */
@@ -244,7 +256,7 @@ type_for(NSString *identifier)
     if (!t) {
         UTFinchDecl *d = decls[key];
         if (d) {
-            t = [[[UTType alloc] _finchInitWithIdentifier:d.identifier decl:d dynamicTags:nil conformance:nil]
+            t = [[[_UTCoreType alloc] _finchInitWithIdentifier:d.identifier decl:d dynamicTags:nil conformance:nil]
                 autorelease];
         } else {
             NSString *payload = decode(identifier);

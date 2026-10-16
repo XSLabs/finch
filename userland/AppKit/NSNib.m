@@ -28,8 +28,8 @@
  */
 #import "NSView_Finch.h"
 
-NSString *NSNibOwner = @"NSNibOwner";
-NSString *NSNibTopLevelObjects = @"NSNibTopLevelObjects";
+NSString *NSNibOwner = @"NSOwner";
+NSString *NSNibTopLevelObjects = @"NSTopLevelObjects";
 
 #pragma mark - The decoder
 

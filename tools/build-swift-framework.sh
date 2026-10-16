@@ -23,6 +23,20 @@ while [[ $# -gt 0 && "$1" != "--" ]]; do
     shift
 done
 [[ $# -gt 0 ]] && shift
+
+source_dirs=()
+for source in "${sources[@]}" ${objc[@]+"${objc[@]}"}; do
+    [[ -n "${source}" ]] && source_dirs+=("$(dirname "${source}")")
+done
+for source_dir in "${source_dirs[@]}"; do
+    generated="${source_dir}/${NAME}Constants_Generated.m"
+    if [[ -f "${generated}" ]]; then
+        already_added=0
+        for source in ${objc[@]+"${objc[@]}"}; do [[ "${source}" == "${generated}" ]] && already_added=1; done
+        [[ "${already_added}" -eq 1 ]] || objc+=("${generated}")
+        break
+    fi
+done
 OBJ="${FINCH_OBJ_DIR:-${FINCH_ROOT}/build/obj/${NAME}}"
 ROOT="${FINCH_OUTPUT_ROOT:-${FINCH_ROOT}/build/root}"
 DIR=Frameworks

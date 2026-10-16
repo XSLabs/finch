@@ -12,15 +12,22 @@
 #define MAX_OBJECTS 512
 #define MAX_CONNECTIONS 1024
 
-const CFStringRef kMIDIPropertyName = CFSTR("name");
-const CFStringRef kMIDIPropertyManufacturer = CFSTR("manufacturer");
-const CFStringRef kMIDIPropertyModel = CFSTR("model");
-const CFStringRef kMIDIPropertyUniqueID = CFSTR("uniqueID");
-const CFStringRef kMIDIPropertyOffline = CFSTR("offline");
-const CFStringRef kMIDIPropertyPrivate = CFSTR("private");
-const CFStringRef kMIDIPropertyDriverOwner = CFSTR("driverOwner");
-const CFStringRef kMIDIPropertyDisplayName = CFSTR("displayName");
-const CFStringRef kMIDIPropertyProtocolID = CFSTR("protocolID");
+const CFStringRef kMIDIPropertyName = NULL;
+const CFStringRef kMIDIPropertyManufacturer = NULL;
+const CFStringRef kMIDIPropertyModel = NULL;
+const CFStringRef kMIDIPropertyUniqueID = NULL;
+const CFStringRef kMIDIPropertyOffline = NULL;
+const CFStringRef kMIDIPropertyPrivate = NULL;
+const CFStringRef kMIDIPropertyDriverOwner = NULL;
+const CFStringRef kMIDIPropertyDisplayName = NULL;
+const CFStringRef kMIDIPropertyProtocolID = NULL;
+
+static CFStringRef const MIDIKeyName = CFSTR("name");
+static CFStringRef const MIDIKeyUniqueID = CFSTR("uniqueID");
+static CFStringRef const MIDIKeyOffline = CFSTR("offline");
+static CFStringRef const MIDIKeyPrivate = CFSTR("private");
+static CFStringRef const MIDIKeyProtocolID = CFSTR("protocolID");
+static CFStringRef const MIDIKeyDisplayName = CFSTR("displayName");
 
 enum ObjectKind {
     ObjectClient,
@@ -100,27 +107,27 @@ create_object_locked(enum ObjectKind kind, MIDIClientRef owner, CFStringRef name
         memset(object, 0, sizeof *object);
         return 0;
     }
-    set_property(object->properties, kMIDIPropertyName, name);
+    set_property(object->properties, MIDIKeyName, name);
     if (kind == ObjectSource || kind == ObjectDestination) {
         SInt32 uniqueID = (SInt32)object->id;
         CFNumberRef unique = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &uniqueID);
-        set_property(object->properties, kMIDIPropertyUniqueID, unique);
+        set_property(object->properties, MIDIKeyUniqueID, unique);
         if (unique)
             CFRelease(unique);
         SInt32 offline = 0, isPrivate = 0, protocolValue = (SInt32)protocol;
         CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &offline);
-        set_property(object->properties, kMIDIPropertyOffline, number);
+        set_property(object->properties, MIDIKeyOffline, number);
         if (number)
             CFRelease(number);
         number = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &isPrivate);
-        set_property(object->properties, kMIDIPropertyPrivate, number);
+        set_property(object->properties, MIDIKeyPrivate, number);
         if (number)
             CFRelease(number);
         number = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &protocolValue);
-        set_property(object->properties, kMIDIPropertyProtocolID, number);
+        set_property(object->properties, MIDIKeyProtocolID, number);
         if (number)
             CFRelease(number);
-        set_property(object->properties, kMIDIPropertyDisplayName, name);
+        set_property(object->properties, MIDIKeyDisplayName, name);
     }
     return object->id;
 }
@@ -919,13 +926,15 @@ set_property_value(MIDIObjectRef objectID, CFStringRef key, CFTypeRef value, CFT
 OSStatus
 MIDIObjectGetStringProperty(MIDIObjectRef object, CFStringRef propertyID, CFStringRef *outString)
 {
-    return get_property(object, propertyID, (CFTypeRef *)outString, CFStringGetTypeID());
+    return get_property(object, propertyID ? propertyID : MIDIKeyName,
+                        (CFTypeRef *)outString, CFStringGetTypeID());
 }
 
 OSStatus
 MIDIObjectSetStringProperty(MIDIObjectRef object, CFStringRef propertyID, CFStringRef value)
 {
-    return set_property_value(object, propertyID, value, CFStringGetTypeID());
+    return set_property_value(object, propertyID ? propertyID : MIDIKeyName,
+                              value, CFStringGetTypeID());
 }
 
 OSStatus
@@ -936,7 +945,8 @@ MIDIObjectGetIntegerProperty(MIDIObjectRef object, CFStringRef propertyID, SInt3
     if (!outValue)
         return kMIDIUnknownProperty;
     CFTypeRef value = NULL;
-    OSStatus status = get_property(object, propertyID, &value, CFNumberGetTypeID());
+    OSStatus status = get_property(object, propertyID ? propertyID : MIDIKeyUniqueID,
+                                   &value, CFNumberGetTypeID());
     if (status == noErr) {
         CFNumberGetValue(value, kCFNumberSInt32Type, outValue);
         CFRelease(value);
@@ -950,7 +960,8 @@ MIDIObjectSetIntegerProperty(MIDIObjectRef object, CFStringRef propertyID, SInt3
     CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &value);
     if (!number)
         return kMIDIUnknownError;
-    OSStatus status = set_property_value(object, propertyID, number, CFNumberGetTypeID());
+    OSStatus status = set_property_value(object, propertyID ? propertyID : MIDIKeyUniqueID,
+                                         number, CFNumberGetTypeID());
     CFRelease(number);
     return status;
 }
@@ -1029,7 +1040,7 @@ MIDIObjectFindByUniqueID(MIDIUniqueID uniqueID, MIDIObjectRef *outObject, MIDIOb
         struct Object *object = &objects[i];
         if (!object->id)
             continue;
-        CFNumberRef number = CFDictionaryGetValue(object->properties, kMIDIPropertyUniqueID);
+        CFNumberRef number = CFDictionaryGetValue(object->properties, MIDIKeyUniqueID);
         SInt32 value = 0;
         if (number && CFNumberGetValue(number, kCFNumberSInt32Type, &value) && value == uniqueID) {
             if (outObject)

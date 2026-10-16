@@ -8,10 +8,11 @@
  * dragged with the mouse; the delegate constrains them as on macOS.
  */
 #import "NSView_Finch.h"
+#include <float.h>
 
 NSNotificationName NSSplitViewWillResizeSubviewsNotification = @"NSSplitViewWillResizeSubviewsNotification";
 NSNotificationName NSSplitViewDidResizeSubviewsNotification = @"NSSplitViewDidResizeSubviewsNotification";
-const CGFloat NSSplitViewControllerAutomaticDimension = -1;
+const CGFloat NSSplitViewControllerAutomaticDimension = -FLT_MAX;
 const CGFloat NSSplitViewItemUnspecifiedDimension = -1;
 
 @implementation NSSplitView {
