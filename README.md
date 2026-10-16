@@ -108,6 +108,7 @@ Design notes, in `docs/design/`:
 - [Foundation](docs/design/FOUNDATION.md): Finch's Foundation and CF's Objective-C half
 - [CoreGraphics](docs/design/COREGRAPHICS.md): CoreGraphics, CoreText and ImageIO over Skia, FreeType and HarfBuzz
 - [Contacts, search and links](docs/design/CONTACTS-SEARCH-LINKS.md): contact cards, a local searchable index and fetched link metadata
+- [AppIntents](docs/design/APPINTENTS.md): how apps describe and run local actions, plus imports still missing
 - [Network](docs/design/NETWORK.md): Network.framework's Swift API over sockets, DNS-SD and Secure Transport
 - [POSIX](docs/design/POSIX.md): the conformance target
 

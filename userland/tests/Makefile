@@ -1161,6 +1161,53 @@ $(OUT)/finch-tipkit-test: tipkit-test.swift
 	rm -f $(OUT)/main.swift
 	codesign -f -s - -i org.finch.test.tipkit $@
 
+# AppIntents declarations, parameters, queries, shortcuts and in-process execution.
+all: $(OUT)/finch-appintents-test $(OUT)/finch-appintents-local-test
+$(OUT)/finch-appintents-test: appintents-test.swift
+	@mkdir -p $(OUT)
+	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -parse-as-library -O \
+	    -Xfrontend -disable-autolink-library -Xfrontend swiftCoreLocation \
+	    -o $@ $< -framework AppIntents -framework CoreSpotlight
+	codesign -f -s - -i org.finch.test.appintents $@
+$(OUT)/finch-appintents-local-test: appintents-local-test.swift ../../build/obj/AppIntents/AppIntents.swiftmodule ../../build/obj/_AppIntents_AppKit/_AppIntents_AppKit.swiftmodule
+	@mkdir -p $(OUT)
+	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -parse-as-library -O \
+	    -I ../../build/obj/AppIntents -I ../../build/obj/_AppIntents_AppKit \
+	    -Xfrontend -disable-autolink-library -Xfrontend swiftCoreLocation \
+	    -Xlinker -undefined -Xlinker dynamic_lookup \
+	    -o $@ $< -framework AppKit -framework AppIntents -framework _AppIntents_AppKit
+	codesign -f -s - -i org.finch.test.appintents.local $@
+
+all: $(OUT)/finch-appintents-swiftui-test
+$(OUT)/finch-appintents-swiftui-test: appintents-swiftui-test.swift
+	@mkdir -p $(OUT)
+	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -parse-as-library -O \
+	    -I ../../build/obj/AppIntents -I ../../build/obj/_AppIntents_SwiftUI \
+	    -I ../../build/obj/SwiftUI-pkg/build/arm64e-apple-macosx/release/Modules \
+	    -module-cache-path ../../build/obj/SwiftUI-pkg/build/arm64e-apple-macosx/release/ModuleCache \
+	    -Xcc -fmodule-map-file=../../build/obj/SwiftUI-pkg/build/arm64e-apple-macosx/release/COpenSwiftUI.build/module.modulemap \
+	    -Xcc -I../../build/obj/SwiftUI-pkg/src/Sources/COpenSwiftUI \
+	    -Xcc -fmodule-map-file=../../build/obj/SwiftUI-pkg/build/arm64e-apple-macosx/release/OpenObservationCxx.build/module.modulemap \
+	    -Xcc -I../../build/obj/SwiftUI-pkg/build/checkouts/OpenObservation/Sources/OpenObservationCxx/include \
+	    -Xcc -fmodule-map-file=../../build/obj/SwiftUI-pkg/build/checkouts/Compute/Sources/ComputeCxx/include/module.modulemap \
+	    -Xcc -I../../build/obj/SwiftUI-pkg/build/checkouts/Compute/Sources/ComputeCxx/include \
+	    -Xcc -fmodule-map-file=../../build/obj/SwiftUI-pkg/build/checkouts/OpenRenderBox/Sources/OpenRenderBoxCxx/include/module.modulemap \
+	    -Xcc -I../../build/obj/SwiftUI-pkg/build/checkouts/OpenRenderBox/Sources/OpenRenderBoxCxx/include \
+	    -Xcc -fmodule-map-file=../../build/obj/SwiftUI-pkg/build/checkouts/OpenRenderBox/Sources/OpenRenderBoxShimsCxx/include/OpenRenderBox/module.modulemap \
+	    -Xcc -I../../build/obj/SwiftUI-pkg/build/checkouts/OpenRenderBox/Sources/OpenRenderBoxShimsCxx/include/OpenRenderBox \
+	    -Xcc -fmodule-map-file=../../build/obj/SwiftUI-pkg/build/checkouts/Compute/Sources/Utilities/include/module.modulemap \
+	    -Xcc -I../../build/obj/SwiftUI-pkg/build/checkouts/Compute/Sources/Utilities/include \
+	    -Xcc -fmodule-map-file=../../build/obj/SwiftUI-pkg/build/checkouts/Compute/Sources/Platform/include/module.modulemap \
+	    -Xcc -I../../build/obj/SwiftUI-pkg/build/checkouts/Compute/Sources/Platform/include \
+	    -Xcc -fmodule-map-file=../../build/obj/SwiftUI-pkg/src/Sources/OpenSwiftUI_SPI/module.modulemap \
+	    -Xcc -I../../build/obj/SwiftUI-pkg/src/Sources/OpenSwiftUI_SPI \
+	    -Xcc -fmodule-map-file=../../build/obj/SwiftUI-pkg/build/checkouts/swift-numerics/Sources/_NumericsShims/include/module.modulemap \
+	    -Xcc -I../../build/obj/SwiftUI-pkg/build/checkouts/swift-numerics/Sources/_NumericsShims/include \
+	    -Xfrontend -disable-autolink-library -Xfrontend swiftCoreLocation \
+	    -Xlinker -undefined -Xlinker dynamic_lookup \
+	    -o $@ $< -framework AppKit -framework AppIntents -framework SwiftUI -framework _AppIntents_SwiftUI
+	codesign -f -s - -i org.finch.test.appintents.swiftui $@
+
 # SecurityInterface and AuthenticationServices request values, checked against Apple's.
 all: $(OUT)/finch-auth-frameworks-test
 $(OUT)/finch-auth-frameworks-test: auth-frameworks-test.swift

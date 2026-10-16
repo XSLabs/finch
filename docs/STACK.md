@@ -346,7 +346,7 @@ flowchart LR
     mesalib["Mesa libGL<br/>(OSMesa, softpipe)"]:::upstream
     devicefw["FeatureFlags,<br/>libMobileGestalt,<br/>libDiagnosticMessagesClient"]:::finch
     calculatefw["Calculate (Calculator's<br/>engine: keys, RPN,<br/>programmer, units),<br/>CalculateUI (its views)"]:::finch
-    appdatafw["SwiftData (models in a<br/>JSON store), TipKit<br/>(events, rules, tips),<br/>AppIntents (declared,<br/>not run)"]:::finch
+    appdatafw["SwiftData (models in a<br/>JSON store), TipKit<br/>(events, rules, tips),<br/>AppIntents (declared,<br/>runs in-process; no<br/>system integration)"]:::finch
     skylight["SkyLight"]:::finch
     secfound["SecurityFoundation"]:::finch
     btui["IOBluetoothUI"]:::finch

@@ -28,6 +28,7 @@ ROOT="${FINCH_OUTPUT_ROOT:-${FINCH_ROOT}/build/root}"
 DIR=Frameworks
 [[ "${FINCH_PRIVATE_FRAMEWORK:-}" == 1 ]] && DIR=PrivateFrameworks
 FW="${ROOT}/System/Library/${DIR}/${NAME}.framework"
+INSTALL_NAME="${FINCH_INSTALL_NAME:-/System/Library/${DIR}/${NAME}.framework/Versions/A/${NAME}}"
 SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 log() { echo "==> $*"; }
 
@@ -58,7 +59,7 @@ done
 log "linking"
 mkdir -p "${FW}/Versions/A"
 xcrun clang -arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -dynamiclib \
-    -install_name "/System/Library/${DIR}/${NAME}.framework/Versions/A/${NAME}" \
+    -install_name "${INSTALL_NAME}" \
     -current_version "${VERSION}" -compatibility_version 1 \
     "${objects[@]}" -o "${FW}/Versions/A/${NAME}" -L"${SDKROOT}/usr/lib/swift" -lswiftCore \
     -F"${ROOT}/System/Library/Frameworks" -F"${ROOT}/System/Library/PrivateFrameworks" \

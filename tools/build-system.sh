@@ -141,6 +141,8 @@ steps=(
     "UIFoundation|userland/UIFoundation/build.sh"
     "CoreUI|userland/CoreUI/build.sh"
     "AppKit|userland/AppKit/build.sh"
+    # SwiftUI and the AppIntents bridge need Finch's AppKit and its SwiftUI dependency graph.
+    "SwiftUI|userland/SwiftUI/build.sh"
     "RecapPerformanceTesting|userland/RecapPerformanceTesting/build.sh"
     "Cocoa|userland/Cocoa/build.sh"
     # OSAnalytics (private): diagnostic reports; ConsoleKit (private): what Console is built on
@@ -159,6 +161,8 @@ steps=(
     "SwiftData|userland/SwiftData/build.sh"
     "TipKit|userland/TipKit/build.sh"
     "AppIntents|userland/AppIntents/build.sh"
+    "_AppIntents_AppKit|userland/_AppIntents_AppKit/build.sh"
+    "_AppIntents_SwiftUI|userland/_AppIntents_SwiftUI/build.sh"
     "AXCoreUtilities|userland/AXCoreUtilities/build.sh"
     # Network (the path monitor) and MobileAsset (empty asset catalogs): what Font Book links besides
     "Network|userland/Network/build.sh"
