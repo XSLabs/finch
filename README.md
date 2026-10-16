@@ -98,6 +98,7 @@ foundation for an open replacement for iOS on iPhone/iPad hardware.
 
 Design notes, in `docs/design/`:
 
+- [API compatibility coverage](docs/COMPATIBILITY.md): current coverage of the pinned macOS SDK API
 - [Phase 1 exit](docs/design/PHASE1-EXIT.md): how "no closed binaries above the kernel" is checked
 - [XPC](docs/design/XPC.md): Finch's ABI-compatible libxpc
 - [Services](docs/design/SERVICES.md): finch-init as a launchd-compatible service manager

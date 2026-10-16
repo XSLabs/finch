@@ -80,7 +80,11 @@ def public_headers(framework, name):
     return headers.resolve(), [str(path) for path in sorted(found)], [root.resolve() for root in roots]
 
 
+<<<<<<< ours
 def declaration_source(node, header_root, header_paths, header_lines):
+=======
+def declaration_source(node, header_root, header_paths, source_lines=None, token_patterns=None):
+>>>>>>> theirs
     """Return the SDK header that owns a declaration, including macro uses."""
     locations = []
     for key in ("range", "loc"):
@@ -107,9 +111,22 @@ def declaration_source(node, header_root, header_paths, header_lines):
     column = loc.get("col")
     if name and line:
         candidates = []
-        token = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])")
+        token = (token_patterns or {}).get(name)
+        if token is None:
+            token = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])")
+            if token_patterns is not None:
+                token_patterns[name] = token
         for path in header_paths:
+<<<<<<< ours
             lines = header_lines[path]
+=======
+            lines = (source_lines or {}).get(path)
+            if lines is None:
+                with open(path, errors="replace") as header_file:
+                    lines = header_file.read().splitlines()
+                if source_lines is not None:
+                    source_lines[path] = lines
+>>>>>>> theirs
             if line <= len(lines) and token.search(lines[line - 1]):
                 if not column or token.search(lines[line - 1][max(0, column - 1):]):
                     candidates.append(path)
@@ -147,26 +164,45 @@ def unavailable_on_macos(node, sources):
     return False
 
 
-def sdk_declarations(name):
+def sdk_declarations(name, framework_path=None):
     sdk = sdk_path()
-    framework = os.path.join(sdk, "System/Library/Frameworks", f"{name}.framework")
+    framework = (Path(framework_path) if framework_path else
+                 Path(sdk) / "System/Library/Frameworks" / f"{name}.framework")
     header_root, header_paths, roots = public_headers(Path(framework), name)
     version = run(["xcrun", "--sdk", "macosx", "--show-sdk-version"])
-    include_lines = [f"#include <{name}/{root.relative_to(header_root).as_posix()}>" for root in roots]
+    include_lines = []
+    sdk_headers = Path(sdk) / "usr/include"
+    for root in roots:
+        try:
+            include = f"{name}/{root.relative_to(header_root).as_posix()}"
+        except ValueError:
+            try:
+                root.relative_to(sdk_headers)
+            except ValueError as error:
+                raise RuntimeError(f"umbrella header resolves outside the SDK's public headers: {root}") from error
+            include = root.name
+        include_lines.append(f"#include <{include}>")
     source = "\n".join(include_lines) + "\n"
+    language = "objective-c++" if name == "DriverKit" else "objective-c"
     command = [
         "xcrun", "clang", "-target", f"arm64e-apple-macosx{version}", "-isysroot", sdk,
-        "-fblocks", "-fsyntax-only", "-x", "objective-c", "-Xclang", "-ast-dump=json", "-",
+        "-F", str(framework.parent),
+        "-F", os.path.join(sdk, "System/Library/Frameworks"),
+        "-fblocks", "-fsyntax-only", "-x", language, "-Xclang", "-ast-dump=json", "-",
     ]
     parsed = subprocess.run(command, input=source, capture_output=True, text=True)
     if parsed.returncode:
         raise RuntimeError(f"Clang could not parse {name}'s SDK headers:\n{parsed.stderr.strip()}")
     ast = json.loads(parsed.stdout)
     sources = {}
+<<<<<<< ours
     # Clang omits the file name on many AST locations after the first one in
     # each header. Cache these lines once; without this, every declaration
     # would reopen every SDK header while resolving its source.
     header_lines = {path: Path(path).read_text(errors="replace").splitlines() for path in header_paths}
+=======
+    header_lines, token_patterns = {}, {}
+>>>>>>> theirs
     declarations = {}
 
     def walk(node, inside_function=False):
@@ -178,7 +214,11 @@ def sdk_declarations(name):
             if (symbol and identifier and not identifier.startswith("_") and
                     node.get("storageClass") != "static" and not inline and
                     not unavailable_on_macos(node, sources)):
+<<<<<<< ours
                 path = declaration_source(node, header_root, header_paths, header_lines)
+=======
+                path = declaration_source(node, header_root, header_paths, header_lines, token_patterns)
+>>>>>>> theirs
                 if path:
                     relative = os.path.relpath(path, header_root)
                     declarations.setdefault(symbol, set()).add(relative)
