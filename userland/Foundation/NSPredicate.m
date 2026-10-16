@@ -105,6 +105,13 @@ const_description(id v)
         for (id o in v) [parts addObject:const_description(o)];
         return [NSString stringWithFormat:@"{%@}", [parts componentsJoinedByString:@", "]];
     }
+    if ([v isKindOfClass:[NSDictionary class]]) {
+        NSMutableArray *parts = [NSMutableArray array];
+        NSArray *keys = [[v allKeys] sortedArrayUsingSelector:@selector(compare:)];
+        for (id key in keys)
+            [parts addObject:[NSString stringWithFormat:@"%@ = %@", const_description(key), const_description([v objectForKey:key])]];
+        return [NSString stringWithFormat:@"{%@}", [parts componentsJoinedByString:@", "]];
+    }
     return [v description];
 }
 
@@ -116,6 +123,11 @@ static id evaluate_predicate(NSPredicate *p, id object, NSMutableDictionary *bin
 
 - (instancetype)initWithExpressionType:(NSExpressionType)type
 {
+    if ([self class] == [NSExpression class]) {
+        [self release];
+        FinchRaise(NSInvalidArgumentException, "*** -predicateFormat cannot be sent to an abstract object of class NSExpression: Create a concrete instance!");
+        return nil;
+    }
     if ((self = [super init])) _expressionType = type;
     return self;
 }

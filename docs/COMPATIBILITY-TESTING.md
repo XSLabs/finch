@@ -1,18 +1,24 @@
 # Generated compatibility tests
 
-These tests compare Finch's CoreFoundation and Foundation with Apple's
-frameworks on the same Mac. They use the current macOS SDK as the API list and
-the source of C and Objective-C method signatures.
+These tests compare Finch's CoreFoundation, Foundation, CoreGraphics,
+CoreText, ImageIO, and AppKit frameworks with Apple's frameworks on the same
+Mac. They use the current macOS SDK as the API list and the source of C and
+Objective-C method signatures.
 
 ## Run the comparisons
 
-Build Finch's host frameworks first. Then run both frameworks or choose one:
+Build Finch's host frameworks first. The default run compares CoreFoundation
+and Foundation. You can pass any supported framework name to compare one or
+more frameworks:
 
 ```sh
 python3 tools/difftest/run.py
 python3 tools/difftest/run.py CoreFoundation
 python3 tools/difftest/run.py Foundation
-FINCH_THEME=Classic python3 tools/difftest/run.py AppKit --jobs 8
+python3 tools/difftest/run.py CoreGraphics
+python3 tools/difftest/run.py CoreText
+python3 tools/difftest/run.py ImageIO
+python3 tools/difftest/run.py AppKit --jobs 8
 ```
 
 The runner builds one generated program for each framework and starts a fresh
@@ -22,13 +28,11 @@ strip `DYLD_*` variables. The runner compares up to eight typed cases for each
 item, uses parallel workers, and reuses a generated binary when its source and
 SDK have not changed.
 
-Results go to `build/compat-results/CoreFoundation.json` and
-`build/compat-results/Foundation.json`. The AppKit run writes
-`build/compat-results/AppKit.json`. Each result has an `items` map keyed by the
-SDK name for the API. A difference records the first output row that does not
-match. Exceptions include their names and reasons. The program normalizes
-object descriptions, pointer values, addresses, and unordered collections
-before comparing results.
+Results go to `build/compat-results/<Framework>.json`. Each result has an
+`items` map keyed by the SDK name for the API. A difference records the first
+output row that does not match. Exceptions include their names and reasons.
+The program normalizes object descriptions, pointer values, addresses, and
+unordered collections before comparing results.
 
 The AppKit run covers APIs that can be checked without opening windows or
 starting a window server. It builds values for colors and color spaces, fonts,
@@ -46,15 +50,24 @@ context, printer, or shared pasteboard. Bitmap components may differ by one
 headers. The generator uses each declaration's parameter and return types,
 nullability, output direction, and declared enum values to choose inputs.
 Pools cover common integers and boundaries, finite date values, strings,
-numbers, data, collections, URLs, locales, time zones, calendars, and character
-sets. Strings include ASCII, accents, combining marks, emoji, right-to-left
-text, and a long value. A fixed seed keeps the generated cases repeatable.
+numbers, data, collections, URLs, locales, time zones, calendars, character
+sets, CoreGraphics geometry and transforms, colors and paths, and CoreText
+fonts by name. Strings include ASCII, accents, combining marks, emoji,
+right-to-left text, and a long value. A fixed seed keeps the generated cases
+repeatable.
 
 The generator uses a small hand-written set of safe builders where a type alone
 does not provide enough context, such as a numeric buffer for `CFNumberCreate`
-or a valid array for a collection call. It leaves an API unexercised when it
-has no safe typed input, receiver, or callable signature. It does not guess at
-invalid ranges or pass `NULL` where the declaration does not allow it.
+or a valid array for a collection call. Graphics builders make bitmap contexts,
+images, PDF documents, and ImageIO sources and destinations in memory. Bitmap
+pixels may differ by at most one value per color channel to allow harmless
+rounding at edges. CoreText checks names that are installed on both sides and
+marks a case unexercised if its requested font is missing on either side.
+ImageIO codec lists can vary with the host's installed codecs, so those
+differences are reported rather than hidden. The generator leaves an API
+unexercised when it has no safe typed input, receiver, or callable signature.
+It does not guess at invalid ranges or pass `NULL` where the declaration does
+not allow it.
 
 The runner skips calls that can change state outside their process. This
 includes file operations, network access, user defaults, notifications,
@@ -80,50 +93,72 @@ percentage does not mean that most of the SDK has been exercised.
 
 ## Results
 
-The original hand-picked list exercised 24 of 1,230 CoreFoundation items and
-32 of 8,130 Foundation items. The new C inventories come from parsed AST
-declarations instead of macro names. Foundation also retains Swift interface
-entries, which are reported as not exercised when they have no C or
-Objective-C selector. On macOS SDK 26.4, the generated run reported:
+On macOS SDK 26.4, the merged generator reported these results. The SDK item
+counts come from parsed declarations; the exercised count is the sum of
+verified, different, and crashed calls.
 
 | Framework | SDK items | Exercised | Verified | Different | Crashes | Not exercised |
 |---|---:|---:|---:|---:|---:|---:|
 | CoreFoundation | 1,227 | 792 | 790 | 2 | 0 | 435 |
-| Foundation | 8,128 | 1,978 | 1,843 | 135 | 0 | 6,150 |
-| AppKit | 9,955 | 765 | 605 | 160 | 0 | 9,190 |
+| Foundation | 8,128 | 1,984 | 1,888 | 96 | 0 | 6,144 |
+| CoreGraphics | 862 | 514 | 498 | 16 | 0 | 348 |
+| CoreText | 328 | 229 | 194 | 35 | 0 | 99 |
+| ImageIO | 808 | 785 | 781 | 4 | 0 | 23 |
+| AppKit | 9,955 | 769 | 605 | 164 | 0 | 9,186 |
 
-The verified share of exercised items is 99.75% for CoreFoundation and 93.17%
-for Foundation. Foundation's inventory also includes Swift interface entries
-that have no C or Objective-C selector, so they remain not exercised.
+CoreFoundation's two differences are its hyphenation calls; Finch does not
+ship hyphenation dictionaries. Foundation's differences include XML, key-value
+coding, dates and calendars, URLs, number formatting, and string edge cases.
+The merged Foundation fixes bring decimal division, byte-based data creation,
+invalid substring indexes, nil number comparisons, and spacing around a DTD
+into agreement with Apple.
 
-The two remaining CoreFoundation differences are the hyphenation APIs. Finch
-does not ship hyphenation dictionaries, so it cannot report Apple's available
-languages or word breaks. Foundation's remaining differences are concentrated
-in XML, decimal arithmetic, key-value coding, expressions, and string/data
-edge cases. The JSON results list each API's first differing case and the skip
-counts by category.
+CoreGraphics' remaining differences are mostly font names and measurements
+because the Mac and Finch use different font files; four high dynamic-range
+color-space constants also differ. CoreText's remaining differences are mostly
+font names, traits, glyph metrics, and line layout. ImageIO's remaining
+differences are codec type lists, metadata copying, and
+`CGImageDestinationCopyImageSource`. These three frameworks had no crashes.
 
-The AppKit run exercised 7.68% of its SDK inventory; 79.08% of those calls
-matched. Its largest groups of differences are fonts (30), cursor images (24),
-event values (18), attributed strings (14), font manager queries (13), font
-descriptors (10), and images (10). These include installed font names and
-metrics, cursor artwork, input-state results, platform type lists, layout
-spacing, bitmap data and metadata, and path behavior. The run had no crashes.
-Most of the remaining inventory has no safe typed input or is outside this
-headless scope; the JSON file lists the skip reasons and the first mismatch for
-each API.
+AppKit's run exercised 7.72% of its SDK inventory, and 78.67% of those calls
+matched. Its differences include fonts and metrics, cursor images, event values,
+attributed strings, font manager queries, font descriptors, images, bitmap data,
+and layout spacing. It had no crashes. Most of the remaining inventory has no
+safe typed input or is outside the headless scope; the JSON file lists skip
+reasons and each API's first mismatch.
 
-An app sweep found 26 of 101 installed apps had all required framework imports.
-It found 77 Foundation symbol gaps across 17 apps and three CoreFoundation
-gaps: `_CFUserNotificationCreate`, `_CFUserNotificationDisplayAlert`, and
-`__CFURLAttachSecurityScopeToFileURL`. Those CoreFoundation calls require real
-cross-process notification or security-scope behavior; they remain missing
-instead of being filled with stand-ins.
+The requested `tools/host-tests.sh` comparisons passed: 15 passed, 0 failed,
+0 known failures, and 0 not built. The script does not register `ctfonts-test`
+or `font-replacements-test`, so those Finch-only checks were run directly. The
+CoreText font output matched `ctfonts-expected.txt`; the replacement-font test
+passed 308 checks with no failures.
 
-The requested AppKit host-test run completed with 23 passed, 0 failed, 1 known
-failure, and 0 tests not built. All AppKit comparison tests passed. The known
-failure is `nib-test`: Apple restores a nib window to an attached 1x screen,
-while Finch has no screen list to choose from.
+Run the host comparisons with:
+
+```sh
+tools/host-tests.sh cf-test foundation-test foundation-more-test foundation-gaps-test archive-test xml-test cg-test cg-draw-test cgpdf-test ct-test imageio-test tiff-test appkit-draw-test appkit-core-test uifoundation-test
+```
+
+Run the two Finch-only font checks with:
+
+```sh
+DYLD_FRAMEWORK_PATH=build/root/System/Library/Frameworks:build/root/System/Library/PrivateFrameworks:build/root/System/Library/Frameworks/Quartz.framework/Frameworks:build/root/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks:build/root/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks:build/root/System/Library/Frameworks/Carbon.framework/Versions/A/Frameworks \
+DYLD_LIBRARY_PATH=build/root/usr/lib/swift \
+FINCH_FONT_DIRS=build/root/System/Library/Fonts \
+    build/userland/finch-ctfonts-test | diff -u userland/tests/ctfonts-expected.txt -
+
+DYLD_FRAMEWORK_PATH=build/root/System/Library/Frameworks:build/root/System/Library/PrivateFrameworks \
+FINCH_FONT_DIRS=build/root/System/Library/Fonts \
+    build/userland/finch-font-replacements-test
+```
+
+For the broader AppKit host suite, run all `appkit-*` comparisons plus the
+related window, text, pasteboard, image, and UIFoundation checks. The AppKit
+extension's full comparison set is:
+
+```sh
+tools/host-tests.sh appkit-small3-test appkit-swift2-test appkit-typedstream-test appkit-compat-test appkit-values-test appkit-core-test appkit-gaps-test appkit-draw-test appkit-containers-test appkit-controls-test appkit-menu-test appkit-text-test appkit-document-test appkit-layout-test appkit-bindings-test appkit-panels-test appkit-tables-test appkit-containers2-test appkit-controls2-test nib-test textkit2-test pasteboard-test imagekit-test uifoundation-test
+```
 
 ## Machine-dependent output
 
@@ -144,17 +179,11 @@ reach outside the test process. Add a mask only when the result varies with
 the host or its installed data.
 
 After changing Finch behavior, run the focused comparison and the relevant
-host tests. For the CoreFoundation and Foundation work covered here, the host
-test command is:
+host tests. The focused host comparison set used for these results is:
 
 ```sh
-tools/host-tests.sh cf-test foundation-test foundation-more-test foundation-gaps-test archive-test intl-test misc-test data-test collections-test kvc-test streams-test predicate-test urlsession-test cfurl-test markdown-test
+tools/host-tests.sh cf-test foundation-test foundation-more-test foundation-gaps-test archive-test xml-test cg-test cg-draw-test cgpdf-test ct-test imageio-test tiff-test appkit-draw-test appkit-core-test uifoundation-test
 ```
 
-For AppKit changes, pass all `appkit-*` comparison tests plus the related
-window, text, pasteboard, image, and UIFoundation checks. The set used for the
-AppKit results above is:
-
-```sh
-tools/host-tests.sh appkit-small3-test appkit-swift2-test appkit-typedstream-test appkit-compat-test appkit-values-test appkit-core-test appkit-gaps-test appkit-draw-test appkit-containers-test appkit-controls-test appkit-menu-test appkit-text-test appkit-document-test appkit-layout-test appkit-bindings-test appkit-panels-test appkit-tables-test appkit-containers2-test appkit-controls2-test nib-test textkit2-test pasteboard-test imagekit-test uifoundation-test
-```
+For the two Finch-only font checks, use the commands in the Results section.
+For broader AppKit coverage, run the full AppKit set shown there.

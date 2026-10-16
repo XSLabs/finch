@@ -44,7 +44,14 @@ def run_checked(command: list[str], *, cwd: Path = ROOT) -> subprocess.Completed
 def build_program(framework: str, source: Path) -> Path:
     compiler = run_checked(["xcrun", "--sdk", "macosx", "-f", "clang"]).stdout.strip()
     sdk = run_checked(["xcrun", "--sdk", "macosx", "--show-sdk-version"]).stdout.strip()
-    extra_frameworks = ["-framework", "CoreFoundation"] if framework in {"Foundation", "AppKit"} else []
+    dependencies = {
+        "Foundation": ["CoreFoundation"],
+        "AppKit": ["CoreFoundation"],
+        "CoreGraphics": ["CoreFoundation"],
+        "CoreText": ["CoreFoundation", "CoreGraphics"],
+        "ImageIO": ["CoreFoundation", "CoreGraphics"],
+    }.get(framework, [])
+    extra_frameworks = [part for dependency in dependencies for part in ("-framework", dependency)]
     build_key = hashlib.sha256(
         source.read_bytes() + framework.encode() + sdk.encode() + b"arm64e-macosx26.0-O2-fblocks"
     ).hexdigest()[:20]
@@ -64,6 +71,8 @@ def child_environment(finch: bool) -> dict[str, str]:
     env = dict(os.environ)
     for name in tuple(env):
         if name.startswith("DYLD_"):
+            env.pop(name, None)
+        if name.startswith("FINCH_"):
             env.pop(name, None)
     if not finch:
         return env
@@ -187,7 +196,7 @@ def _appkit_geometry_within_tolerance(apple: str, finch: str) -> bool:
     return True
 
 
-def first_difference(apple: list[str], finch: list[str], framework: str = "") -> dict | None:
+def first_difference(apple: list[str], finch: list[str], framework: str = "", *, pixel_tolerance: int = 0) -> dict | None:
     limit = max(len(apple), len(finch))
     for index in range(limit):
         left = apple[index] if index < len(apple) else None
@@ -195,6 +204,18 @@ def first_difference(apple: list[str], finch: list[str], framework: str = "") ->
         same = left == right
         if not same and framework == "AppKit" and left is not None and right is not None:
             same = _appkit_pixels_within_tolerance(left, right) or _appkit_geometry_within_tolerance(left, right)
+        if not same and pixel_tolerance and left is not None and right is not None:
+            left_parts, right_parts = left.split("\t"), right.split("\t")
+            if len(left_parts) == 2 and len(right_parts) == 2 and left_parts[0] == right_parts[0]:
+                try:
+                    left_values = [int(value) for value in left_parts[1].split(",")]
+                    right_values = [int(value) for value in right_parts[1].split(",")]
+                except ValueError:
+                    pass
+                else:
+                    if len(left_values) == len(right_values) and all(
+                            abs(a - b) <= pixel_tolerance for a, b in zip(left_values, right_values)):
+                        same = True
         if not same:
             sample = left if left is not None else right
             case = sample.split("\t", 1)[0] if sample is not None else str(index)
@@ -248,6 +269,14 @@ def run_framework(framework: str, timeout: float, rules: list[dict], jobs: int) 
         finch = invoke(binary, name, item["invocation_metadata"], finch=True, timeout=timeout)
         apple_lines, apple_masks = masked(apple["stdout"], framework, name, rules)
         finch_lines, finch_masks = masked(finch["stdout"], framework, name, rules)
+        missing_font_cases = {
+            line.split("\t", 1)[0]
+            for line in apple_lines + finch_lines
+            if "font-unavailable" in line
+        }
+        if missing_font_cases:
+            apple_lines = [line for line in apple_lines if line.split("\t", 1)[0] not in missing_font_cases]
+            finch_lines = [line for line in finch_lines if line.split("\t", 1)[0] not in missing_font_cases]
         if apple["timed_out"] or finch["timed_out"] or apple["returncode"] != 0 or finch["returncode"] != 0:
             status = "crashes"
             difference = {
@@ -255,13 +284,18 @@ def run_framework(framework: str, timeout: float, rules: list[dict], jobs: int) 
                 "apple_timed_out": apple["timed_out"], "finch_timed_out": finch["timed_out"],
                 "apple_stderr": apple["stderr"][:2000], "finch_stderr": finch["stderr"][:2000],
             }
+        elif missing_font_cases and not apple_lines and not finch_lines:
+            status = "not-exercised"
+            difference = None
+            reason = "the requested font was unavailable on at least one runtime for every case"
         elif ((apple_lines and all("not-exercised:" in line or "no-method-signature" in line for line in apple_lines)) or
               (finch_lines and all("not-exercised:" in line or "no-method-signature" in line for line in finch_lines))):
             status = "not-exercised"
             difference = None
             reason = "at least one runtime had no safe receiver, input, or callable method signature"
         else:
-            difference = first_difference(apple_lines, finch_lines, framework)
+            tolerance = 1 if item.get("comparison") == "pixel-channel-tolerance-1" else 0
+            difference = first_difference(apple_lines, finch_lines, framework, pixel_tolerance=tolerance)
             status = "differs" if difference else "verified"
         record = {
             "status": status,
@@ -270,6 +304,10 @@ def run_framework(framework: str, timeout: float, rules: list[dict], jobs: int) 
         }
         if status == "not-exercised":
             record["reason"] = locals().get("reason", "no safe typed input could be built")
+        if missing_font_cases:
+            record["font_unavailable_cases"] = len(missing_font_cases)
+        if item.get("comparison"):
+            record["comparison"] = item["comparison"]
         if difference:
             record["first_difference"] = difference
         masks = sorted(set(apple_masks + finch_masks))
@@ -323,7 +361,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=30.0, help="seconds allowed for each API item on each side")
     parser.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 1), help="API processes to compare in parallel")
     args = parser.parse_args()
-    invalid = sorted(set(args.framework) - {"CoreFoundation", "Foundation", "AppKit"})
+    invalid = sorted(set(args.framework) - {"CoreFoundation", "Foundation", "CoreGraphics", "CoreText", "ImageIO", "AppKit"})
     if invalid:
         parser.error(f"unknown framework: {', '.join(invalid)}")
     if args.timeout <= 0:

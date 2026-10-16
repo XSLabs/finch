@@ -87,9 +87,16 @@ CGGradientRef
 CGGradientCreateWithContentHeadroom(float headroom, CGColorSpaceRef space, const CGFloat *components,
                                     const CGFloat *locations, size_t count)
 {
+    if (!space || !space->extended)
+        return NULL;
     struct CGGradient *g = (struct CGGradient *)CGGradientCreateWithColorComponents(space, components, locations, count);
-    if (g)
+    if (g) {
+        if (headroom < 0)
+            headroom = 0;
+        else if (headroom > 0 && headroom < 1)
+            headroom = 1;
         g->headroom = headroom;
+    }
     return g;
 }
 

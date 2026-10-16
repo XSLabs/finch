@@ -720,7 +720,7 @@ CGPDFCopyTextString(const uint8_t *b, size_t n)
 CFStringRef
 CGPDFStringCopyTextString(CGPDFStringRef s)
 {
-    return s ? CGPDFCopyTextString(s->bytes, s->length) : NULL;
+    return s ? CGPDFCopyTextString(s->bytes, s->length) : CFStringCreateCopy(NULL, CFSTR(""));
 }
 
 /* Days from 1970-01-01 to January 1 of `y` (proleptic Gregorian). */

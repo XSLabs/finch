@@ -55,7 +55,8 @@ diff --git a/Sources/CoreFoundation/CFTimeZone.c b/Sources/CoreFoundation/CFTime
  CFTimeZoneRef CFTimeZoneCreateWithTimeIntervalFromGMT(CFAllocatorRef allocator, CFTimeInterval ti) {
      CFTimeZoneRef result;
      CFStringRef name;
-     int32_t seconds, labelSeconds, minute, hour;
+-    int32_t seconds, minute, hour;
++    int32_t seconds, labelSeconds, minute, hour;
      if (allocator == NULL) allocator = __CFGetDefaultAllocator();
      __CFGenericValidateType(allocator, CFAllocatorGetTypeID());
      if (ti < -18.0 * 3600 || 18.0 * 3600 < ti) return NULL;

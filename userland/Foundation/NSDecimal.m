@@ -12,9 +12,9 @@
  * done on wider integers (Big, 1024 bits, enough to line up any two
  * exponents) and brought back to 128 bits by dropping digits, rounded as
  * the caller asks. Results are compacted (no trailing zeros in the
- * mantissa), as Apple's are. Division scales the dividend to 39 digits
- * and truncates the quotient, which is how Apple's gets 1/3 =
- * 0.33333333333333333333333333333333333333.
+ * mantissa), as Apple's are. Division scales the numerator by 10^38,
+ * truncates the quotient, then applies the requested mode only if the
+ * result needs to fit the mantissa.
  */
 #import <Foundation/Foundation.h>
 #include <math.h>
@@ -148,7 +148,7 @@ big_bits(const Big *b)
 
 /* q = a / b, by shift and subtract. */
 static void
-big_div(Big *q, const Big *a, const Big *b)
+big_div(Big *q, const Big *a, const Big *b, Big *remainder)
 {
     Big rem, quo;
     memset(&rem, 0, sizeof(rem));
@@ -162,15 +162,7 @@ big_div(Big *q, const Big *a, const Big *b)
         }
     }
     *q = quo;
-}
-
-static int
-big_digits(const Big *b)
-{
-    Big t = *b;
-    int n = 0;
-    while (!big_is_zero(&t)) { big_divmod_small(&t, 10); n++; }
-    return n;
+    if (remainder) *remainder = rem;
 }
 
 /* MARK: - Values */
@@ -422,15 +414,16 @@ NSDecimalDivide(NSDecimal *result, const NSDecimal *l, const NSDecimal *r, NSRou
     if (a.nan || b.nan) { set_nan(result); return NSCalculationNoError; }
     if (big_is_zero(&b.m)) { set_nan(result); return NSCalculationDivideByZero; }
     if (big_is_zero(&a.m)) { set_zero(result); return NSCalculationNoError; }
-    int k = 39 - big_digits(&a.m);
-    if (k < 0) k = 0;
-    for (int i = 0; i < k; i++) big_mul_small(&a.m, 10);
     Value q;
     memset(&q, 0, sizeof(q));
-    big_div(&q.m, &a.m, &b.m);
-    q.exp = a.exp - k - b.exp;
+    Big numerator = a.m, remainder;
+    for (int i = 0; i < 38; i++) big_mul_small(&numerator, 10);
+    big_div(&q.m, &numerator, &b.m, &remainder);
+    BOOL inexact = !big_is_zero(&remainder);
+    q.exp = a.exp - 38 - b.exp;
     q.neg = a.neg != b.neg;
-    return to_decimal(result, q, mode);
+    NSCalculationError error = to_decimal(result, q, mode);
+    return error == NSCalculationNoError && inexact ? NSCalculationLossOfPrecision : error;
 }
 
 NSCalculationError
@@ -562,6 +555,18 @@ FinchScanDecimal(NSString *s, NSUInteger start, NSString *sep, NSDecimal *out)
 @implementation NSDecimalNumberHandler
 
 static NSDecimalNumberHandler *default_handler;
+static NSDecimalNumberHandler *implicit_handler;
+
+static id<NSDecimalNumberBehaviors>
+implicit_decimal_behavior(void)
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        implicit_handler = [[NSDecimalNumberHandler alloc] initWithRoundingMode:NSRoundPlain scale:0
+            raiseOnExactness:NO raiseOnOverflow:YES raiseOnUnderflow:YES raiseOnDivideByZero:YES];
+    });
+    return implicit_handler;
+}
 
 + (NSDecimalNumberHandler *)defaultDecimalNumberHandler
 {
@@ -784,6 +789,8 @@ CONSTANT(minimumDecimalNumber,
 
 - (NSComparisonResult)compare:(NSNumber *)other
 {
+    if (!other)
+        FinchRaise(NSInvalidArgumentException, "*** -[%s compare:]: nil argument", object_getClassName(self));
     double value = [other doubleValue];
     if (isinf(value)) return value < 0 ? NSOrderedDescending : NSOrderedAscending;
     NSDecimal a = [self decimalValue], b = [other decimalValue];
@@ -848,46 +855,46 @@ finish(NSDecimal r, NSCalculationError err, SEL op, NSDecimalNumber *l, NSDecima
 static NSDecimalNumber *
 binary(NSDecimalNumber *self, SEL _cmd, NSDecimalNumber *other, id<NSDecimalNumberBehaviors> behavior, BinaryOp op)
 {
-    id<NSDecimalNumberBehaviors> b = behavior ? behavior : [NSDecimalNumber defaultBehavior];
+    id<NSDecimalNumberBehaviors> b = behavior ? behavior : implicit_decimal_behavior();
     NSDecimal l = [self decimalValue], r = [other decimalValue], result;
     NSCalculationError err = op(&result, &l, &r, [b roundingMode]);
     return finish(result, err, _cmd, self, other, b);
 }
 
-- (NSDecimalNumber *)decimalNumberByAdding:(NSDecimalNumber *)n { return [self decimalNumberByAdding:n withBehavior:nil]; }
+- (NSDecimalNumber *)decimalNumberByAdding:(NSDecimalNumber *)n { return [self decimalNumberByAdding:n withBehavior:[NSDecimalNumber defaultBehavior]]; }
 - (NSDecimalNumber *)decimalNumberByAdding:(NSDecimalNumber *)n withBehavior:(id<NSDecimalNumberBehaviors>)b
 {
     return binary(self, _cmd, n, b, NSDecimalAdd);
 }
-- (NSDecimalNumber *)decimalNumberBySubtracting:(NSDecimalNumber *)n { return [self decimalNumberBySubtracting:n withBehavior:nil]; }
+- (NSDecimalNumber *)decimalNumberBySubtracting:(NSDecimalNumber *)n { return [self decimalNumberBySubtracting:n withBehavior:[NSDecimalNumber defaultBehavior]]; }
 - (NSDecimalNumber *)decimalNumberBySubtracting:(NSDecimalNumber *)n withBehavior:(id<NSDecimalNumberBehaviors>)b
 {
     return binary(self, _cmd, n, b, NSDecimalSubtract);
 }
-- (NSDecimalNumber *)decimalNumberByMultiplyingBy:(NSDecimalNumber *)n { return [self decimalNumberByMultiplyingBy:n withBehavior:nil]; }
+- (NSDecimalNumber *)decimalNumberByMultiplyingBy:(NSDecimalNumber *)n { return [self decimalNumberByMultiplyingBy:n withBehavior:[NSDecimalNumber defaultBehavior]]; }
 - (NSDecimalNumber *)decimalNumberByMultiplyingBy:(NSDecimalNumber *)n withBehavior:(id<NSDecimalNumberBehaviors>)b
 {
     return binary(self, _cmd, n, b, NSDecimalMultiply);
 }
-- (NSDecimalNumber *)decimalNumberByDividingBy:(NSDecimalNumber *)n { return [self decimalNumberByDividingBy:n withBehavior:nil]; }
+- (NSDecimalNumber *)decimalNumberByDividingBy:(NSDecimalNumber *)n { return [self decimalNumberByDividingBy:n withBehavior:[NSDecimalNumber defaultBehavior]]; }
 - (NSDecimalNumber *)decimalNumberByDividingBy:(NSDecimalNumber *)n withBehavior:(id<NSDecimalNumberBehaviors>)b
 {
     return binary(self, _cmd, n, b, NSDecimalDivide);
 }
 
-- (NSDecimalNumber *)decimalNumberByRaisingToPower:(NSUInteger)power { return [self decimalNumberByRaisingToPower:power withBehavior:nil]; }
+- (NSDecimalNumber *)decimalNumberByRaisingToPower:(NSUInteger)power { return [self decimalNumberByRaisingToPower:power withBehavior:[NSDecimalNumber defaultBehavior]]; }
 - (NSDecimalNumber *)decimalNumberByRaisingToPower:(NSUInteger)power withBehavior:(id<NSDecimalNumberBehaviors>)behavior
 {
-    id<NSDecimalNumberBehaviors> b = behavior ? behavior : [NSDecimalNumber defaultBehavior];
+    id<NSDecimalNumberBehaviors> b = behavior ? behavior : implicit_decimal_behavior();
     NSDecimal d = [self decimalValue], r;
     NSCalculationError err = NSDecimalPower(&r, &d, power, [b roundingMode]);
     return finish(r, err, _cmd, self, nil, b);
 }
 
-- (NSDecimalNumber *)decimalNumberByMultiplyingByPowerOf10:(short)power { return [self decimalNumberByMultiplyingByPowerOf10:power withBehavior:nil]; }
+- (NSDecimalNumber *)decimalNumberByMultiplyingByPowerOf10:(short)power { return [self decimalNumberByMultiplyingByPowerOf10:power withBehavior:[NSDecimalNumber defaultBehavior]]; }
 - (NSDecimalNumber *)decimalNumberByMultiplyingByPowerOf10:(short)power withBehavior:(id<NSDecimalNumberBehaviors>)behavior
 {
-    id<NSDecimalNumberBehaviors> b = behavior ? behavior : [NSDecimalNumber defaultBehavior];
+    id<NSDecimalNumberBehaviors> b = behavior ? behavior : implicit_decimal_behavior();
     NSDecimal d = [self decimalValue], r;
     NSCalculationError err = NSDecimalMultiplyByPowerOf10(&r, &d, power, [b roundingMode]);
     return finish(r, err, _cmd, self, nil, b);
@@ -895,7 +902,7 @@ binary(NSDecimalNumber *self, SEL _cmd, NSDecimalNumber *other, id<NSDecimalNumb
 
 - (NSDecimalNumber *)decimalNumberByRoundingAccordingToBehavior:(id<NSDecimalNumberBehaviors>)behavior
 {
-    id<NSDecimalNumberBehaviors> b = behavior ? behavior : [NSDecimalNumber defaultBehavior];
+    id<NSDecimalNumberBehaviors> b = behavior ? behavior : implicit_decimal_behavior();
     NSDecimal d = [self decimalValue], r;
     NSDecimalRound(&r, &d, [b scale], [b roundingMode]);
     return [NSDecimalNumber decimalNumberWithDecimal:r];

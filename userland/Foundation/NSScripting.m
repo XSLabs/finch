@@ -1299,14 +1299,9 @@ static NSComparisonResult
 compare_objects(id a, id b, BOOL *ok)
 {
     *ok = [a respondsToSelector:@selector(compare:)];
-    if (!*ok || !b)
+    if (!*ok)
         return NSOrderedSame;
-    @try {
-        return ((NSComparisonResult(*)(id, SEL, id))objc_msgSend)(a, @selector(compare:), b);
-    } @catch (NSException *e) {
-        *ok = NO;
-        return NSOrderedSame;
-    }
+    return ((NSComparisonResult(*)(id, SEL, id))objc_msgSend)(a, @selector(compare:), b);
 }
 
 /* '*' matches any run of characters and '?' any one, as Apple's isLike: does. */

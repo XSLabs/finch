@@ -142,7 +142,8 @@ CGColorRef
 CGColorCreateWithContentHeadroom(float headroom, CGColorSpaceRef space, CGFloat red, CGFloat green, CGFloat blue,
                                  CGFloat alpha)
 {
-    if (!space || space->model != kCGColorSpaceModelRGB)
+    if (!space || space->model != kCGColorSpaceModelRGB || !space->extended ||
+        (headroom > 0 && headroom < 1))
         return NULL;
     CGFloat v[4] = {red, green, blue, alpha};
     struct CGColor *c = color_new(space, v, 4);

@@ -261,9 +261,9 @@ CGLayerGetTypeID(void)
 CGLayerRef
 CGLayerCreateWithContext(CGContextRef context, CGSize size, CFDictionaryRef auxiliaryInfo)
 {
-    if (!context || size.width <= 0 || size.height <= 0)
+    if (size.width <= 0 || size.height <= 0)
         return NULL;
-    CGColorSpaceRef space = context->space && CGColorSpaceGetModel(context->space) == kCGColorSpaceModelRGB
+    CGColorSpaceRef space = context && context->space && CGColorSpaceGetModel(context->space) == kCGColorSpaceModelRGB
                                 ? (CGColorSpaceRef)CFRetain(context->space)
                                 : CGColorSpaceCreateDeviceRGB();
     CGContextRef lc = CGBitmapContextCreate(NULL, (size_t)ceil(size.width), (size_t)ceil(size.height), 8, 0, space,

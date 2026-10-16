@@ -48,6 +48,7 @@ SIDE_EFFECT_RULES = (
     ("processes", re.compile(r"NSOperationQueue|NSOperation -start|NSBackgroundActivityScheduler", re.I)),
     ("streams", re.compile(r"(?:WithStream|toStream|FromStream|StreamWith)", re.I)),
     ("filesystem", re.compile(r"NSFile|FileHandle|FileCoordinator|FileWrapper|FileVersion|NSMetadataQuery|NSBundle|CFURL(?:CreateDataAndPropertiesFromResource|WriteDataAndPropertiesToResource|ResourceIsReachable|SetResourcePropert)|(?:read|write|create|remove|move|copy|replace|load|fetch|archive|init).*?(?:File|URL|Path)|(?:File|URL|Path).*?(?:write|create|remove|move|copy|replace|load|fetch|archive|init)|(?:to|From|WithContentsOf)(?:File|URL|Path)|resourceValues|ResourceValue|BookmarkData|AccessingSecurityScopedResource|WriteToFile|WriteToURL|CreateDirectory|MoveItem|CopyItem|RemoveItem|ReplaceItem|CreateFile|OpenFile|check.*Reachable|isReachable", re.I)),
+    ("window-system", re.compile(r"CGDisplay|CGSession|CGEvent|CGPreflightListenEventAccess|CGRequestListenEventAccess|CGWindow|CGS|CGScreen|CGWarpMouse|CGAssociateMouse|CGCursor|CGGetLastMouseDelta", re.I)),
 )
 
 
@@ -125,7 +126,13 @@ def _base_type(value: str) -> str:
 
 
 def _is_cf_ref(value: str) -> bool:
-    return "*" not in value and bool(re.fullmatch(r"CF[A-Za-z0-9_]*Ref", _base_type(value)))
+    return "*" not in value and bool(re.fullmatch(r"(?:CF|CG|CT)[A-Za-z0-9_]*Ref", _base_type(value)))
+
+
+_NON_CF_GRAPHICS_REFS = {
+    "CGPDFArrayRef", "CGPDFDictionaryRef", "CGPDFObjectRef", "CGPDFStreamRef", "CGPDFStringRef",
+    "CGPDFContentStreamRef", "CGPDFOperatorTableRef", "CGPDFScannerRef",
+}
 
 
 def _is_cf_string_alias(value: str) -> bool:
@@ -215,14 +222,43 @@ def _skip_reason(name: str) -> str | None:
         return "runtime-specific value: retain counts are not stable across implementations"
     if name in {"NSDeallocateObject", "NSDecrementExtraRefCountWasZero", "NSExtraRefCount"}:
         return "object lifetime helper needs a privately owned runtime object"
+    if name.startswith("NSXMLDocument -objectByApplyingXSLT"):
+        return "XSLT engine is not included in Finch"
+    if name in {
+        "CTFontDrawImageFromAdaptiveImageProviderAtPoint",
+        "CTFontGetTypographicBoundsForAdaptiveImageProvider",
+    }:
+        return "adaptive image provider protocol object needs a host image provider"
+    if name == "CGImageCreateWithJPEGDataProvider":
+        return "the input pool has no valid in-memory JPEG fixture"
+    if name == "NSExpression -initWithExpressionType:":
+        return "abstract NSExpression cannot be instantiated directly"
+    if name == "NSObject +setKeys:triggerChangeNotificationsForDependentKey:":
+        return "registers process-wide KVO dependencies and cannot be reset between cases"
+    if name.startswith("CTFontManager") and re.search(r"Enable|Register|Unregister", name):
+        return "changes process-wide font registration state"
     return None
 
 
-def _int_values(parameter: dict) -> list[int]:
+def _int_values(parameter: dict, function_name: str = "") -> list[int]:
     qtype = _clean_type(parameter.get("type", ""))
     desugared = _clean_type(parameter.get("desugared_type", qtype))
     typename = _base_type(desugared or qtype)
     name = parameter.get("name", "").lower()
+    if name in {"width", "height", "widthinpixels", "heightinpixels"}:
+        return [1, 2, 8]
+    if name in {"bytesperrow", "rowbytes"} and function_name.startswith(("CG", "CGBitmap")):
+        return [256]
+    if function_name == "CGImageMaskCreate" and name in {"bitspercomponent", "bitsperpixel"}:
+        return [8]
+    if name in {"bytesperpixel", "bitsperpixel"} and function_name.startswith("CG"):
+        return [32]
+    if name == "bitspercomponent" and function_name.startswith("CG"):
+        return [8]
+    if "power" in name:
+        return [0, 1, 2, 3]
+    if function_name == "CTGlyphInfoCreateWithGlyph" and "glyph" in name:
+        return [1, 2, 3, 4, 5]
     if name in {"basedirection", "direction", "writingdirection"}:
         # NSWritingDirection has only Natural, LTR, and RTL as documented inputs.
         return [-1, 0, 1]
@@ -283,9 +319,9 @@ def _scalar_kind(value: str) -> str | None:
         return "struct"
     if base in ("void", "id", "Class", "SEL", "instancetype"):
         return None
-    if re.fullmatch(r"(?:unsigned|signed)?\s*(?:char|short|int|long|long long|size_t|ssize_t|NSUInteger|NSInteger|CFIndex|CFOptionFlags|CFTypeID|CFStringEncoding|CFNumberType|CFCalendarUnit|CFStringCompareFlags|unichar|UniChar|UTF32Char|UInt8|UInt16|UInt32|UInt64|SInt8|SInt16|SInt32|SInt64|uint8_t|uint16_t|uint32_t|uint64_t|int8_t|int16_t|int32_t|int64_t|NSComparisonResult|CFComparisonResult)", base):
+    if re.fullmatch(r"(?:unsigned|signed)?\s*(?:char|short|int|long|long long|size_t|ssize_t|NSUInteger|NSInteger|CFIndex|CFOptionFlags|CFTypeID|CFStringEncoding|CFNumberType|CFCalendarUnit|CFStringCompareFlags|unichar|UniChar|UTF32Char|UInt8|UInt16|UInt32|UInt64|SInt8|SInt16|SInt32|SInt64|uint8_t|uint16_t|uint32_t|uint64_t|int8_t|int16_t|int32_t|int64_t|CGGlyph|CGFontIndex|CTFontTableTag|NSComparisonResult|CFComparisonResult)", base):
         return "integer"
-    if re.fullmatch(r"(?:NS|CF)[A-Za-z0-9_]*(?:Options|Flags|Mask|Style|Type|Unit|Mode|Kind|Format|Encoding|Result|State|Status|Policy|Level|Order|Direction|Phase|Quality|RoundingMode)", base):
+    if re.fullmatch(r"(?:NS|CF|CG|CT)[A-Za-z0-9_]*(?:Options|Flags|Mask|Style|Type|Unit|Mode|Kind|Format|Encoding|Result|State|Status|Policy|Level|Order|Direction|Phase|Quality|RoundingMode|Model|Intent|Info)", base):
         return "integer"
     return None
 
@@ -330,6 +366,23 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
         if parameter.get("nullable"):
             expr = f"({qtype})({case_index} == 7 ? NULL : {expr})"
         return expr, [], []
+    if base.startswith(("CG", "CT")) and base.endswith("Ref"):
+        supported = {
+            "CGColorSpaceRef", "CGColorRef", "CGPathRef", "CGMutablePathRef", "CGContextRef",
+            "CGImageRef", "CGDataProviderRef", "CGDataConsumerRef", "CGFontRef", "CGImageSourceRef",
+            "CGImageDestinationRef", "CGPDFDocumentRef", "CGPDFPageRef", "CGPDFContentStreamRef",
+            "CGPDFOperatorTableRef", "CGPDFScannerRef", "CTFontRef", "CTFontDescriptorRef",
+            "CTLineRef", "CTFramesetterRef",
+        }
+        if base not in supported:
+            if parameter.get("nullable"):
+                return f"({qtype})NULL", [], []
+            return None, f"no safe object factory for {base}", None
+        expr = f"({qtype})auto_graphics_input(\"{base}\", {case_index}, {json.dumps(function_name)}, {json.dumps(name)})"
+        safe_null = (function_name, name) != ("CGImageCreateCopyWithContentHeadroom", "image")
+        if parameter.get("nullable") and safe_null:
+            expr = f"({qtype})({case_index} == 7 ? NULL : {expr})"
+        return expr, [], []
     if _is_cf_ref(qtype):
         if base == "CFReadStreamRef":
             return f"(CFReadStreamRef)auto_cf_input(\"CFReadStreamRef\", {case_index}, 0, {json.dumps(function_name)}, {json.dumps(name)})", [], []
@@ -338,7 +391,11 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
         if base in ("CFTypeRef", "CFPropertyListRef", "CFArrayRef", "CFMutableArrayRef", "CFDictionaryRef", "CFMutableDictionaryRef", "CFSetRef", "CFMutableSetRef", "CFBagRef", "CFMutableBagRef", "CFStringRef", "CFMutableStringRef", "CFDataRef", "CFMutableDataRef", "CFDateRef", "CFNumberRef", "CFBooleanRef", "CFNullRef", "CFURLRef", "CFUUIDRef", "CFCharacterSetRef", "CFMutableCharacterSetRef", "CFLocaleRef", "CFTimeZoneRef", "CFCalendarRef", "CFErrorRef", "CFAttributedStringRef", "CFMutableAttributedStringRef", "CFDateFormatterRef", "CFNumberFormatterRef"):
             nonempty = int(nonempty_objects or bool(re.search(r"Index|Indices|Range|Bytes|Character|Substring|Delete|Replace|Insert|Append|Localizations|Combining", function_name, re.I)))
             expr = f"({qtype})auto_cf_input(\"{base}\", {case_index}, {nonempty}, {json.dumps(function_name)}, {json.dumps(name)})"
-            if parameter.get("nullable"):
+            safe_null = (function_name, name) not in {
+                ("CGColorGetConstantColor", "colorName"),
+                ("CGFontGetGlyphWithGlyphName", "name"),
+            }
+            if parameter.get("nullable") and safe_null:
                 expr = f"({qtype})({case_index} == 7 ? NULL : {expr})"
             return expr, [], []
         if parameter.get("nullable"):
@@ -365,6 +422,20 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
         return "(CFNumberType)kCFNumberSInt64Type", [], []
     if function_name == "CFNumberFormatterCreateStringWithValue" and base == "CFNumberType":
         return "(CFNumberType)kCFNumberDoubleType", [], []
+    if function_name == "CGImageMetadataTagCreate" and base == "CGImageMetadataType":
+        return "(CGImageMetadataType)kCGImageMetadataTypeString", [], []
+    if function_name == "CGBitmapContextCreate" and name.lower() == "bitmapinfo":
+        return "(CGBitmapInfo)(kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big)", [], []
+    if function_name == "CGImageCreate" and name.lower() == "bitmapinfo":
+        return "(CGBitmapInfo)(kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big)", [], []
+    if function_name == "CTFontDescriptorCreateCopyWithFamily" and name.lower() == "family":
+        return '(CFStringRef)CFSTR("Helvetica")', [], []
+    if function_name == "CTFontDescriptorCreateMatchingFontDescriptors" and name.lower() == "mandatoryattributes":
+        return f"({qtype})NULL", [], []
+    if function_name == "CTTypesetterCreateWithAttributedStringAndOptions" and name.lower() == "options":
+        return f"({qtype})NULL", [], []
+    if function_name == "CTFramesetterSuggestFrameSizeWithConstraints" and name.lower() == "frameattributes":
+        return f"({qtype})NULL", [], []
 
     if function_name == "CFNumberCreate" and _pointer_depth(qtype) == 1 and "void" in base and "value" in name.lower():
         decl = f"static const int64_t {local}[] = {{0, 1, -1, INT64_MAX, INT64_MIN, 42, -257, 255}};"
@@ -380,7 +451,7 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
             values_name = f"typed_enum_{index}"
             decl = f"static const long long {values_name}[] = {{{', '.join(str(v) for v in choices)}}};"
             return f"({qtype}){values_name}[{case_index} % (sizeof({values_name}) / sizeof({values_name}[0]))]", [decl], []
-        values = _int_values(parameter)
+        values = _int_values(parameter, function_name)
         values_name = f"typed_int_{index}"
         unsigned = "unsigned" in _clean_type(parameter.get("desugared_type", qtype)) or base.startswith("u") or base in ("size_t", "NSUInteger", "CFOptionFlags", "CFTypeID", "UInt8", "UInt16", "UInt32", "UInt64")
         if unsigned:
@@ -394,11 +465,22 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
     if scalar_kind == "bool":
         return f"({qtype})({case_index} & 1)", [], []
     if scalar_kind == "float":
+        if (base == "CGFloat" and function_name.startswith(("CTFont", "CTLine")) and
+                any(word in name.lower() for word in ("size", "pointsize"))):
+            return f"({qtype})auto_font_size({case_index})", [], []
+        if function_name.startswith(("CG", "CT")):
+            if function_name == "CTLineCreateJustifiedLine" and "factor" in name.lower():
+                return f"({qtype})auto_text_factor({case_index})", [], []
+            if function_name.startswith("CTLine") and "width" in name.lower():
+                return f"({qtype})auto_text_width({case_index})", [], []
+            return f"({qtype})auto_graphics_real({case_index})", [], []
         return f"({qtype})auto_time({case_index})" if _is_time_type(qtype) else f"({qtype})auto_real({case_index})", [], []
     if scalar_kind == "range":
         if base == "CFRange":
             if function_name == "CFStringGetHyphenationLocationBeforeIndex":
                 return "CFRangeMake(0, 11)", [], []
+            if function_name == "CTFramesetterSuggestFrameSizeWithConstraints":
+                return "CFRangeMake(0, 10)", [], []
             return f"CFRangeMake(0, (CFIndex)({case_index} & 1))", [], []
         return None, "NSRange is unavailable in this CoreFoundation C input context", None
     if scalar_kind == "struct":
@@ -407,6 +489,14 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
                            "NSSize": "NSMakeSize(4, 6)"}[base]
             return f"({qtype}){constructor}", [], []
         if base in ("CGRect", "CGPoint", "CGSize"):
+            if function_name.startswith(("CG", "CT")):
+                if base == "CGPoint":
+                    return f"auto_point({case_index})", [], []
+                if base == "CGSize":
+                    if function_name == "CTFramesetterSuggestFrameSizeWithConstraints":
+                        return "CGSizeMake(256, 256)", [], []
+                    return f"auto_size({case_index})", [], []
+                return f"auto_rect({case_index})", [], []
             constructor = {"CGRect": "CGRectMake(1, 2, 5, 7)", "CGPoint": "CGPointMake(3, -2)",
                            "CGSize": "CGSizeMake(4, 6)"}[base]
             return f"({qtype}){constructor}", [], []
@@ -415,6 +505,8 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
         if base == "NSAffineTransformStruct":
             return f"({qtype}){{1.25, 0.5, -0.25, 2.0, 3.0, -4.0}}", [], []
         if base == "CGAffineTransform":
+            if function_name.startswith(("CG", "CT")):
+                return f"auto_affine({case_index})", [], []
             return f"({qtype})CGAffineTransformMake(1.25, 0.5, -0.25, 2.0, 3.0, -4.0)", [], []
         return f"({qtype}){{0}}", [], []
 
@@ -432,6 +524,41 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
             ]
             reader = f"auto_print(auto_canonical([NSDecimalNumber decimalNumberWithDecimal:{local}]));"
             return f"({qtype})&{local}", declarations, [reader]
+        pointee_type = re.sub(r"\s*\*+", "", clean).strip()
+        if depth == 1 and pointee_type == "CGFloat" and "const" in qtype:
+            if function_name == "CGColorSpaceCreateCalibratedGray":
+                values = "0.95047, 1.0, 1.08883" if "white" in name.lower() else "0, 0, 0"
+                decl = f"static const CGFloat {local}[3] = {{{values}}};"
+                return f"({qtype}){local}", [decl], []
+            if function_name == "CGColorSpaceCreateCalibratedRGB":
+                if "white" in name.lower():
+                    values = "0.95047, 1.0, 1.08883"
+                elif "black" in name.lower():
+                    values = "0, 0, 0"
+                elif "gamma" in name.lower():
+                    values = "1, 1, 1"
+                else:
+                    values = "0.4124, 0.2126, 0.0193, 0.3576, 0.7152, 0.1192, 0.1805, 0.0722, 0.9505"
+                decl = f"static const CGFloat {local}[9] = {{{values}}};"
+                return f"({qtype}){local}", [decl], []
+            if function_name == "CGColorSpaceCreateLab":
+                values = "0.95047, 1.0, 1.08883" if "white" in name.lower() else "-100, 100, -100, 100"
+                decl = f"static const CGFloat {local}[4] = {{{values}}};"
+                return f"({qtype}){local}", [decl], []
+            decl = f"static const CGFloat {local}[8] = {{0, 0.2, 0.4, 0.6, 0.8, 1, 0.5, 0.25}};"
+            return f"({qtype}){local}", [decl], []
+        if depth == 1 and pointee_type == "CGPoint" and "const" in qtype and name.lower() in {"points", "vertices"}:
+            decl = f"static const CGPoint {local}[4] = {{{{0, 0}}, {{4, 0}}, {{4, 4}}, {{0, 4}}}};"
+            return f"({qtype}){local}", [decl], []
+        if depth == 1 and pointee_type == "CGRect" and "const" in qtype and name.lower() in {"rects", "rectangles"}:
+            decl = f"const CGRect {local}[4] = {{CGRectMake(0, 0, 4, 4), CGRectMake(1, 1, 2, 2), CGRectMake(2, 0, 3, 3), CGRectMake(0, 0, 1, 1)}};"
+            return f"({qtype}){local}", [decl], []
+        if depth == 1 and "CGPath" in function_name and any(word in name.lower() for word in ("length", "dash")):
+            decl = f"static const CGFloat {local}[8] = {{2, 1, 3, 2, 1, 1, 4, 2}};"
+            return f"({qtype}){local}", [decl], []
+        if depth == 1 and "CGBitmapContextCreate" == function_name and name.lower() == "data":
+            decl = f"UInt8 {local}[16384] = {{0}};"
+            return f"(void *){local}", [decl], []
         if re.search(r"\b(?:char|signed char|unsigned char|UInt8|SInt8|uint8_t|int8_t)\s*\*", clean) and depth == 1:
             if function_name in {"CFAttributedStringGetBidiLevelsAndResolvedDirections", "CFAttributedStringGetStatisticalWritingDirections"} and re.search(r"bidi|level|direction", name, re.I):
                 decl = f"UInt8 {local}[256] = {{0}};"
@@ -494,14 +621,39 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
             return f"({qtype})&{local}", [decl], [f"printf(\"%ld,%ld\", (long){local}.location, (long){local}.length);"]
         if depth == 1 and _scalar_kind(pointee) in ("integer", "bool", "float", "struct"):
             if "const" in qtype:
-                return None, "input pointer lacks a safe backing value", None
-            init = "{0}" if _scalar_kind(pointee) == "struct" else "0"
+                if pointee == "CGAffineTransform":
+                    decl = f"const {pointee} {local} = auto_affine({case_index});"
+                elif pointee == "CGPoint":
+                    decl = f"const {pointee} {local} = auto_point({case_index});"
+                elif pointee == "CGSize":
+                    decl = f"const {pointee} {local} = auto_size({case_index});"
+                elif pointee == "CGRect":
+                    decl = f"const {pointee} {local} = auto_rect({case_index});"
+                else:
+                    return None, "input pointer lacks a safe backing value", None
+                return f"({qtype})&{local}", [decl], []
+            if pointee == "CGAffineTransform":
+                init = f"auto_affine({case_index})"
+            elif pointee == "CGPoint":
+                init = f"auto_point({case_index})"
+            elif pointee == "CGSize":
+                init = f"auto_size({case_index})"
+            elif pointee == "CGRect":
+                init = f"auto_rect({case_index})"
+            else:
+                init = "{0}" if _scalar_kind(pointee) == "struct" else "0"
             decl = f"{pointee} {local} = {init};"
-            if _scalar_kind(pointee) == "float":
+            if pointee in {"CGRect", "CGPoint", "CGSize", "CGAffineTransform"}:
+                reader = _c_return(pointee, local)[0]
+            elif pointee in {"CGGlyph", "CGFontIndex"} and any(word in name.lower() for word in ("glyph", "advance")):
+                declaration = f"{pointee} {local}[32] = {{0}};"
+                decl = declaration
+                reader = f"auto_print_bytes((const UInt8 *){local}, sizeof({local}));"
+            elif _scalar_kind(pointee) == "float":
                 reader = f"printf(\"%a\", (double){local});"
             else:
                 reader = f"printf(\"%lld\", (long long){local});"
-            return f"({qtype})&{local}", [decl], [reader]
+            return f"({qtype}){local}" if "[32]" in decl else f"({qtype})&{local}", [decl], [reader]
         if depth == 1 and _is_cf_ref(pointee):
             decl = f"{pointee} {local} = NULL;"
             return f"({qtype})&{local}", [decl], [f"auto_print_cf((CFTypeRef){local});"]
@@ -516,6 +668,8 @@ def _c_return(type_name: str, variable: str = "typed_result") -> tuple[str | Non
         return 'fputs("void", stdout);', None
     if base == "CFTypeID":
         return f"auto_print_typeid({variable});", None
+    if base in _NON_CF_GRAPHICS_REFS:
+        return f'printf("pointer:%s", {variable} ? "nonnull" : "null");', None
     if _is_cf_ref(clean):
         return f"auto_print_cf((CFTypeRef){variable});", None
     if _is_cf_string_alias(clean):
@@ -532,18 +686,30 @@ def _c_return(type_name: str, variable: str = "typed_result") -> tuple[str | Non
     if scalar == "range" and base == "CFRange":
         return f'printf("%ld,%ld", (long){variable}.location, (long){variable}.length);', None
     if scalar == "struct":
-        if base in ("NSPoint", "CGPoint"):
+        if base == "NSPoint":
             return f'printf("point:%.5f,%.5f", (double){variable}.x, (double){variable}.y);', None
-        if base in ("NSSize", "CGSize"):
+        if base == "NSSize":
             return f'printf("size:%.5f,%.5f", (double){variable}.width, (double){variable}.height);', None
-        if base in ("NSRect", "CGRect"):
+        if base == "NSRect":
             return f'printf("rect:%.5f,%.5f,%.5f,%.5f", (double){variable}.origin.x, (double){variable}.origin.y, (double){variable}.size.width, (double){variable}.size.height);', None
         if base == "NSEdgeInsets":
             return f'printf("edge-insets:%.5f,%.5f,%.5f,%.5f", (double){variable}.top, (double){variable}.left, (double){variable}.bottom, (double){variable}.right);', None
         if base == "NSAffineTransformStruct":
             return f'printf("transform:%.5f,%.5f,%.5f,%.5f,%.5f,%.5f", (double){variable}.m11, (double){variable}.m12, (double){variable}.m21, (double){variable}.m22, (double){variable}.tX, (double){variable}.tY);', None
-        if base == "CGAffineTransform":
-            return f'printf("transform:%.5f,%.5f,%.5f,%.5f,%.5f,%.5f", (double){variable}.a, (double){variable}.b, (double){variable}.c, (double){variable}.d, (double){variable}.tx, (double){variable}.ty);', None
+        if base in ("CGPoint", "CGSize", "CGRect", "CGAffineTransform"):
+            if base == "CGPoint":
+                appkit_code = f'printf("point:%.5f,%.5f", (double){variable}.x, (double){variable}.y);'
+                graphics_code = f'printf("%a,%a", (double){variable}.x, (double){variable}.y);'
+            elif base == "CGSize":
+                appkit_code = f'printf("size:%.5f,%.5f", (double){variable}.width, (double){variable}.height);'
+                graphics_code = f'printf("%a,%a", (double){variable}.width, (double){variable}.height);'
+            elif base == "CGRect":
+                appkit_code = f'printf("rect:%.5f,%.5f,%.5f,%.5f", (double){variable}.origin.x, (double){variable}.origin.y, (double){variable}.size.width, (double){variable}.size.height);'
+                graphics_code = f'printf("%a,%a,%a,%a", (double){variable}.origin.x, (double){variable}.origin.y, (double){variable}.size.width, (double){variable}.size.height);'
+            else:
+                appkit_code = f'printf("transform:%.5f,%.5f,%.5f,%.5f,%.5f,%.5f", (double){variable}.a, (double){variable}.b, (double){variable}.c, (double){variable}.d, (double){variable}.tx, (double){variable}.ty);'
+                graphics_code = f'printf("%a,%a,%a,%a,%a,%a", (double){variable}.a, (double){variable}.b, (double){variable}.c, (double){variable}.d, (double){variable}.tx, (double){variable}.ty);'
+            return f"#ifdef FINCH_DIFFTEST_APPKIT\n{appkit_code}\n#else\n{graphics_code}\n#endif", None
     if scalar in ("integer", "bool"):
         if "unsigned" in clean or base.startswith("u") or base in ("size_t", "NSUInteger", "CFOptionFlags", "CFTypeID", "UInt8", "UInt16", "UInt32", "UInt64"):
             return f'printf("%llu", (unsigned long long){variable});', None
@@ -566,9 +732,14 @@ def _make_c_function(function: dict, enum_values: list[dict], finch_symbols: set
     return_code, reason = _c_return(return_type)
     if reason:
         return None, reason
+    if name in {"CGFontCopyTableTags", "CTFontCopyAvailableTables"}:
+        return_code = "auto_print_cgfont_table_tags(typed_result);"
+    if name == "CGPDFContentStreamGetStreams":
+        return_code = 'printf("array-count:%ld", typed_result ? (long)CFArrayGetCount(typed_result) : -1L);'
     declarations = []
     arguments = []
     readers = []
+    font_checks = []
     parameters = function.get("parameters", [])
     nonempty_objects = any(re.search(r"range|index|indices|idx|position|location|\bloc\b", p.get("name", ""), re.I)
                            for p in parameters)
@@ -581,7 +752,14 @@ def _make_c_function(function: dict, enum_values: list[dict], finch_symbols: set
         readers.extend(out)
         qtype = parameter.get("type", "")
         base = _base_type(qtype)
-        if _is_cf_ref(qtype) and base.startswith("CFMutable"):
+        if base in {"CTFontRef", "CGFontRef"}:
+            local = f"typed_object_{index}"
+            declarations.append(f"{qtype} {local} = {expr};")
+            arguments.append(local)
+            font_checks.append(
+                f'if (!auto_font_is_available((CFTypeRef){local}, typed_case_{index})) '
+                f'{{ printf("%zu\\tfont-unavailable\\n", case_index); continue; }}')
+        elif _is_cf_ref(qtype) and base.startswith("CFMutable"):
             local = f"typed_object_{index}"
             declarations.append(f"{qtype} {local} = {expr};")
             arguments.append(local)
@@ -592,6 +770,7 @@ def _make_c_function(function: dict, enum_values: list[dict], finch_symbols: set
     func_name = "typed_c_" + re.sub(r"\W+", "_", name)
     lines = [f"static void {func_name}(void)", "{", f"    for (size_t case_index = 0; case_index < {case_count}; case_index++) {{"]
     lines.extend(f"        {decl}" for decl in declarations)
+    lines.extend(f"        {check}" for check in font_checks)
     call = f"{name}({', '.join(arguments)})"
     if _base_type(return_type) == "void" and "*" not in return_type:
         lines.append(f"        {call};")
@@ -604,6 +783,10 @@ def _make_c_function(function: dict, enum_values: list[dict], finch_symbols: set
     for reader in readers:
         lines.append('        putchar(\'\\t\');')
         lines.append(f"        {reader}")
+    if base_return_type := _base_type(return_type):
+        if base_return_type in {"CTFontRef", "CGFontRef"}:
+            lines.append("        putchar('\\t');")
+            lines.append("        auto_print_font_status((CFTypeRef)typed_result, case_index);")
     lines.extend(["        putchar('\\n');", "    }", "}"])
     return "\n".join(lines), None
 
@@ -655,12 +838,280 @@ static double auto_real(size_t index)
     return values[index % (sizeof(values) / sizeof(values[0]))];
 }
 
+static double auto_font_size(size_t index)
+{
+    static const double sizes[] = {12, 16, 20, 24};
+    return sizes[index % (sizeof(sizes) / sizeof(sizes[0]))];
+}
+
+static double auto_text_factor(size_t index)
+{
+    static const double factors[] = {0, 0.25, 0.5, 0.75, 1};
+    return factors[index % (sizeof(factors) / sizeof(factors[0]))];
+}
+
+static double auto_text_width(size_t index)
+{
+    static const double widths[] = {96, 128, 192, 256};
+    return widths[index % (sizeof(widths) / sizeof(widths[0]))];
+}
+
+static double auto_graphics_real(size_t index)
+{
+    static const double values[] = {0, 0.5, 1, 2, 4, 12.5, 64, 1.5};
+    return values[index % (sizeof(values) / sizeof(values[0]))];
+}
+
 static double auto_time(size_t index)
 {
     static const double values[] = {0.0, -1.0, 700000000.0, 800000000.0,
         1000000000.0, 123456789.0, 31536000.0, 86400.0};
     return values[index % (sizeof(values) / sizeof(values[0]))];
 }
+
+#if defined(FINCH_DIFFTEST_GRAPHICS)
+static CGPoint auto_point(size_t index)
+{
+    static const CGFloat values[] = {0, 1, -2, 12.5, 100};
+    CGFloat x = values[index % (sizeof(values) / sizeof(values[0]))];
+    CGFloat y = values[(index * 3 + 1) % (sizeof(values) / sizeof(values[0]))];
+    return CGPointMake(x, y);
+}
+
+static CGSize auto_size(size_t index)
+{
+    static const CGFloat values[] = {0, 1, 2, 12.5, 64};
+    return CGSizeMake(values[index % (sizeof(values) / sizeof(values[0]))],
+        values[(index * 3 + 1) % (sizeof(values) / sizeof(values[0]))]);
+}
+
+static CGRect auto_rect(size_t index)
+{
+    CGPoint origin = auto_point(index);
+    CGSize size = auto_size(index + 1);
+    return CGRectMake(origin.x, origin.y, size.width, size.height);
+}
+
+static CGAffineTransform auto_affine(size_t index)
+{
+    static const CGFloat shifts[] = {0, 1, -2, 0.5, 3};
+    return CGAffineTransformMake(1, 0, 0, 1,
+        shifts[index % (sizeof(shifts) / sizeof(shifts[0]))],
+        shifts[(index * 3 + 1) % (sizeof(shifts) / sizeof(shifts[0]))]);
+}
+
+static CFDataRef auto_png_data(void)
+{
+    static const UInt8 png[] = {
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+        0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+        0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+        0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41,
+        0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+        0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
+        0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+        0x42, 0x60, 0x82
+    };
+    return CFDataCreate(kCFAllocatorDefault, png, sizeof(png));
+}
+
+static CFDataRef auto_pdf_data(void)
+{
+    CGRect page = CGRectMake(0, 0, 64, 48);
+    CFMutableDataRef data = CFDataCreateMutable(kCFAllocatorDefault, 0);
+    CGDataConsumerRef consumer = CGDataConsumerCreateWithCFData(data);
+    CGContextRef context = consumer ? CGPDFContextCreate(consumer, &page, NULL) : NULL;
+    if (context) {
+        CGPDFContextBeginPage(context, NULL);
+        CGContextFillRect(context, CGRectMake(4, 5, 20, 12));
+        CGPDFContextEndPage(context);
+        CGContextRelease(context);
+    }
+    if (consumer) CGDataConsumerRelease(consumer);
+    return data;
+}
+
+#if defined(FINCH_DIFFTEST_CORETEXT)
+static CTFontRef auto_ct_font(size_t index)
+{
+    static CFStringRef names[] = {CFSTR("Helvetica"), CFSTR("Times"), CFSTR("Courier"), CFSTR("Inter-Regular")};
+    return CTFontCreateWithName(names[index % (sizeof(names) / sizeof(names[0]))],
+        (CGFloat[]){12, 16, 20, 24}[index % 4], NULL);
+}
+#endif
+
+static Boolean auto_font_is_available(CFTypeRef font, size_t index)
+{
+    if (!font) return false;
+    CFStringRef actual = NULL;
+#if defined(FINCH_DIFFTEST_CORETEXT)
+    if (CFGetTypeID(font) == CTFontGetTypeID()) actual = CTFontCopyPostScriptName((CTFontRef)font);
+#endif
+    if (!actual && CFGetTypeID(font) == CGFontGetTypeID()) actual = CGFontCopyPostScriptName((CGFontRef)font);
+    if (!actual) return false;
+    static CFStringRef appleNames[] = {CFSTR("Helvetica"), CFSTR("Times-Roman"), CFSTR("Courier"), CFSTR("Inter-Regular")};
+    static CFStringRef finchNames[] = {CFSTR("LiberationSans"), CFSTR("LiberationSerif"), CFSTR("LiberationMono"), CFSTR("Inter-Regular")};
+    CFStringRef expected = getenv("FINCH_FONT_DIRS") ? finchNames[index % 4] : appleNames[index % 4];
+    Boolean available = CFStringCompare(actual, expected, 0) == kCFCompareEqualTo;
+    CFRelease(actual);
+    return available;
+}
+
+static void auto_print_font_status(CFTypeRef font, size_t index)
+{
+    fputs(auto_font_is_available(font, index) ? "font-available" : "font-unavailable", stdout);
+}
+
+static void auto_print_cgfont_table_tags(CFArrayRef tags)
+{
+    if (!tags) { fputs("null", stdout); return; }
+    fputs("tags:[", stdout);
+    for (CFIndex i = 0; i < CFArrayGetCount(tags); i++) {
+        if (i) putchar(',');
+        const void *value = CFArrayGetValueAtIndex(tags, i);
+        uintptr_t raw = (uintptr_t)value;
+        uint32_t tag = (uint32_t)raw;
+        if (raw > UINT32_MAX)
+            CFNumberGetValue((CFNumberRef)value, kCFNumberSInt32Type, (int32_t *)&tag);
+        printf("%08x", tag);
+    }
+    putchar(']');
+}
+
+static CFTypeRef auto_graphics_input(const char *type, size_t index,
+    const char *function_name, const char *parameter_name)
+{
+    (void)parameter_name;
+    if (!strcmp(type, "CGColorSpaceRef")) {
+        if (strstr(function_name, "ContentHeadroom"))
+            return CGColorSpaceCreateWithName(kCGColorSpaceExtendedSRGB);
+        return CGColorSpaceCreateDeviceRGB();
+    }
+    if (!strcmp(type, "CGColorRef")) {
+        CGFloat components[] = {0.25, 0.5, 0.75, 1};
+        CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+        CGColorRef color = CGColorCreate(space, components);
+        CGColorSpaceRelease(space); return color;
+    }
+    if (!strcmp(type, "CGPathRef") || !strcmp(type, "CGMutablePathRef")) {
+        CGMutablePathRef path = CGPathCreateMutable();
+        CGPathAddRect(path, NULL, auto_rect(index));
+        if (strstr(function_name, "ContainsPoint")) CGPathAddEllipseInRect(path, NULL, CGRectMake(1, 1, 4, 4));
+        return path;
+    }
+    if (!strcmp(type, "CGContextRef")) {
+        size_t width = 16, height = 16, stride = width * 4;
+        UInt8 *pixels = calloc(height, stride);
+        CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+        CGContextRef context = CGBitmapContextCreate(pixels, width, height, 8, stride, space,
+            kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+        CGColorSpaceRelease(space);
+        return context;
+    }
+    if (!strcmp(type, "CGImageRef")) {
+        size_t width = 2, height = 2, stride = width * 4;
+        UInt8 pixels[] = {32, 96, 192, 255, 192, 96, 32, 255,
+                          192, 96, 32, 255, 32, 96, 192, 255};
+        CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+        CGContextRef context = CGBitmapContextCreate(pixels, width, height, 8, stride, space,
+            kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+        CGColorSpaceRelease(space);
+        CGImageRef image = context ? CGBitmapContextCreateImage(context) : NULL;
+        if (context) CGContextRelease(context); return image;
+    }
+    if (!strcmp(type, "CGDataProviderRef")) {
+        if (!strcmp(function_name, "CGDataProviderGetInfo")) {
+            static UInt8 info_data[] = {1, 2, 3, 4};
+            static int info_token;
+            return CGDataProviderCreateWithData(&info_token, info_data, sizeof(info_data), NULL);
+        }
+        CFDataRef data = NULL;
+        if (!strcmp(function_name, "CGImageCreate") || !strcmp(function_name, "CGImageMaskCreate")) {
+            UInt8 bytes[16384] = {0};
+            data = CFDataCreate(kCFAllocatorDefault, bytes, sizeof(bytes));
+        } else {
+            data = strstr(function_name, "PDF") ? auto_pdf_data() : auto_png_data();
+        }
+        CGDataProviderRef provider = CGDataProviderCreateWithCFData(data);
+        CFRelease(data); return provider;
+    }
+    if (!strcmp(type, "CGDataConsumerRef")) {
+        CFMutableDataRef data = CFDataCreateMutable(kCFAllocatorDefault, 0);
+        CGDataConsumerRef consumer = CGDataConsumerCreateWithCFData(data);
+        CFRelease(data); return consumer;
+    }
+    if (!strcmp(type, "CGFontRef")) {
+        static CFStringRef names[] = {CFSTR("Helvetica"), CFSTR("Times"), CFSTR("Courier"), CFSTR("Inter-Regular")};
+        return CGFontCreateWithFontName(names[index % 4]);
+    }
+#if defined(FINCH_DIFFTEST_IMAGEIO)
+    if (!strcmp(type, "CGImageSourceRef")) {
+        CFDataRef data = auto_png_data();
+        CGImageSourceRef source = CGImageSourceCreateWithData(data, NULL);
+        CFRelease(data); return source;
+    }
+    if (!strcmp(type, "CGImageDestinationRef")) {
+        CFMutableDataRef data = CFDataCreateMutable(kCFAllocatorDefault, 0);
+        CGImageDestinationRef destination = CGImageDestinationCreateWithData(data, CFSTR("public.png"), 1, NULL);
+        CFRelease(data);
+        if (destination && strcmp(function_name, "CGImageDestinationCopyImageSource")) {
+            CFTypeRef image = auto_graphics_input("CGImageRef", index, function_name, parameter_name);
+            if (image) { CGImageDestinationAddImage(destination, (CGImageRef)image, NULL); CFRelease(image); }
+        }
+        return destination;
+    }
+#endif
+    if (!strcmp(type, "CGPDFDocumentRef")) {
+        CFDataRef data = auto_pdf_data();
+        CGDataProviderRef provider = CGDataProviderCreateWithCFData(data);
+        CGPDFDocumentRef document = CGPDFDocumentCreateWithProvider(provider);
+        if (provider) CGDataProviderRelease(provider); CFRelease(data); return document;
+    }
+    if (!strcmp(type, "CGPDFPageRef")) {
+        CGPDFDocumentRef document = auto_graphics_input("CGPDFDocumentRef", index, function_name, parameter_name);
+        return document ? CGPDFPageRetain(CGPDFDocumentGetPage(document, 1)) : NULL;
+    }
+    if (!strcmp(type, "CGPDFContentStreamRef")) {
+        CGPDFPageRef page = auto_graphics_input("CGPDFPageRef", index, function_name, parameter_name);
+        return page ? CGPDFContentStreamCreateWithPage(page) : NULL;
+    }
+    if (!strcmp(type, "CGPDFOperatorTableRef")) return CGPDFOperatorTableCreate();
+    if (!strcmp(type, "CGPDFScannerRef")) {
+        CGPDFContentStreamRef stream = auto_graphics_input("CGPDFContentStreamRef", index, function_name, parameter_name);
+        CGPDFOperatorTableRef table = CGPDFOperatorTableCreate();
+        CGPDFScannerRef scanner = stream ? CGPDFScannerCreate(stream, table, NULL) : NULL;
+        if (stream) CGPDFContentStreamRelease(stream);
+        if (table) CGPDFOperatorTableRelease(table);
+        return scanner;
+    }
+#if defined(FINCH_DIFFTEST_CORETEXT)
+    if (!strcmp(type, "CTFontRef")) return auto_ct_font(index);
+    if (!strcmp(type, "CTFontDescriptorRef")) {
+        CTFontRef font = auto_ct_font(index);
+        CTFontDescriptorRef descriptor = font ? CTFontCopyFontDescriptor(font) : NULL;
+        if (font) CFRelease(font); return descriptor;
+    }
+    if (!strcmp(type, "CTLineRef")) {
+        CTFontRef font = auto_ct_font(index);
+        if (!font) return NULL;
+        CFStringRef string = CFSTR("Finch text 123");
+        const void *keys[] = {kCTFontAttributeName}; const void *values[] = {font};
+        CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        CFAttributedStringRef attributed = CFAttributedStringCreate(kCFAllocatorDefault, string, attributes);
+        CTLineRef line = CTLineCreateWithAttributedString(attributed);
+        CFRelease(attributed); CFRelease(attributes); CFRelease(font); return line;
+    }
+    if (!strcmp(type, "CTFramesetterRef")) {
+        CFAttributedStringRef attributed = CFAttributedStringCreate(kCFAllocatorDefault, CFSTR("Finch text"), NULL);
+        CTFramesetterRef result = CTFramesetterCreateWithAttributedString(attributed);
+        CFRelease(attributed); return result;
+    }
+#endif
+    return NULL;
+}
+#endif /* FINCH_DIFFTEST_GRAPHICS */
 
 static void auto_print_cstring(const char *value)
 {
@@ -731,9 +1182,20 @@ static CFTypeRef auto_cf_input(const char *type, size_t index, int nonempty,
     double value = numberValues[index % (sizeof(numberValues) / sizeof(numberValues[0]))];
     CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, &value);
     static const UInt8 bytes[] = {0, 1, 127, 128, 254, 255};
-    CFIndex dataLength = nonempty ? (CFIndex)(index % sizeof(bytes) + 1) : (CFIndex)(index % (sizeof(bytes) + 1));
+    Boolean needData = nonempty || !strcmp(function_name, "CGDataProviderCreateWithCFData");
+    CFIndex dataLength = needData ? (CFIndex)(index % sizeof(bytes) + 1) : (CFIndex)(index % (sizeof(bytes) + 1));
     CFDataRef data = CFDataCreate(kCFAllocatorDefault, bytes, dataLength);
     CFDateRef date = CFDateCreate(kCFAllocatorDefault, (CFAbsoluteTime[]){0, -1, 700000000, 800000000}[index % 4]);
+#if defined(FINCH_DIFFTEST_IMAGEIO)
+    if (!strcmp(type, "CFTypeRef") && !strcmp(function_name, "CGImageMetadataTagCreate") &&
+        !strcmp(parameter_name, "value")) {
+        CFRelease(s); CFRelease(number); CFRelease(data); CFRelease(date);
+        return CFStringCreateCopy(kCFAllocatorDefault, CFSTR("2026-10-16T12:00:00Z"));
+    }
+#endif
+    if (!strcmp(type, "CFTypeRef") && !strcmp(function_name, "CTFontManagerCompareFontFamilyNames")) {
+        CFRelease(number); CFRelease(data); CFRelease(date); return s;
+    }
     if (!strcmp(type, "CFTypeRef") && !strcmp(function_name, "CFNumberFormatterSetProperty") &&
         !strcmp(parameter_name, "value")) {
         CFRelease(s); CFRelease(number); CFRelease(data); CFRelease(date);
@@ -745,6 +1207,48 @@ static CFTypeRef auto_cf_input(const char *type, size_t index, int nonempty,
         CFRelease(s); CFRelease(number); CFRelease(data); CFRelease(date); return zone;
     }
     if (!strcmp(type, "CFStringRef") || !strcmp(type, "CFMutableStringRef")) {
+#if defined(FINCH_DIFFTEST_CORETEXT)
+        if (!strcmp(function_name, "CTFontDescriptorCreateCopyWithFamily") && !strcmp(parameter_name, "family")) {
+            CFRelease(s); CFRelease(number); CFRelease(data); CFRelease(date);
+            return CFStringCreateCopy(kCFAllocatorDefault, CFSTR("Helvetica"));
+        }
+        if (!strcmp(function_name, "CTGlyphInfoCreateWithGlyphName") && !strcmp(parameter_name, "glyphName")) {
+            static CFStringRef glyphNames[] = {CFSTR("A"), CFSTR("a"), CFSTR("space"), CFSTR("period"), CFSTR("zero")};
+            CFRelease(s); CFRelease(number); CFRelease(data); CFRelease(date);
+            return (CFTypeRef)CFRetain(glyphNames[index % (sizeof(glyphNames) / sizeof(glyphNames[0]))]);
+        }
+#endif
+#if defined(FINCH_DIFFTEST_IMAGEIO)
+        if (!strcmp(function_name, "CGImageMetadataTagCreate")) {
+            CFStringRef result = NULL;
+            if (!strcmp(parameter_name, "xmlns")) result = CFSTR("http://ns.adobe.com/exif/1.0/");
+            else if (!strcmp(parameter_name, "prefix")) result = CFSTR("exif");
+            else if (!strcmp(parameter_name, "name")) result = CFSTR("DateTimeOriginal");
+            if (result) {
+                CFRelease(s); CFRelease(number); CFRelease(data); CFRelease(date);
+                return (CFTypeRef)CFRetain(result);
+            }
+        }
+#endif
+#if defined(FINCH_DIFFTEST_GRAPHICS)
+        if (!strcmp(function_name, "CGColorGetConstantColor")) {
+            CFStringRef colorNames[] = {kCGColorWhite, kCGColorBlack, kCGColorClear};
+            CFRelease(s); CFRelease(number); CFRelease(data); CFRelease(date);
+            return (CFTypeRef)CFRetain(colorNames[index % (sizeof(colorNames) / sizeof(colorNames[0]))]);
+        }
+#endif
+        if (!strcmp(function_name, "CGFontGetGlyphWithGlyphName") && !strcmp(parameter_name, "name")) {
+            static CFStringRef glyphNames[] = {CFSTR("A"), CFSTR("a"), CFSTR("space"), CFSTR("period"), CFSTR("zero")};
+            CFRelease(s); CFRelease(number); CFRelease(data); CFRelease(date);
+            return (CFTypeRef)CFRetain(glyphNames[index % (sizeof(glyphNames) / sizeof(glyphNames[0]))]);
+        }
+        if ((!strcmp(function_name, "CTFontCreateWithName") || !strcmp(function_name, "CTFontCreateWithNameAndOptions") ||
+             !strcmp(function_name, "CGFontCreateWithFontName")) &&
+            (strstr(parameter_name, "name") || strstr(parameter_name, "Name"))) {
+            static CFStringRef fontNames[] = {CFSTR("Helvetica"), CFSTR("Times"), CFSTR("Courier"), CFSTR("Inter-Regular")};
+            CFRelease(s); CFRelease(number); CFRelease(data); CFRelease(date);
+            return (CFTypeRef)CFRetain(fontNames[index % (sizeof(fontNames) / sizeof(fontNames[0]))]);
+        }
         if (!strcmp(function_name, "CFLocaleGetLanguageCharacterDirection") ||
             !strcmp(function_name, "CFLocaleGetLanguageLineDirection")) {
             static const char *languages[] = {"en", "ar", "he"};
@@ -765,11 +1269,30 @@ static CFTypeRef auto_cf_input(const char *type, size_t index, int nonempty,
         }
         CFRelease(number); CFRelease(data); CFRelease(date); return s;
     }
+    if (!strcmp(type, "CFMutableDataRef") &&
+        (strstr(function_name, "ImageDestination") || !strcmp(function_name, "CGDataConsumerCreateWithCFData"))) {
+        CFRelease(s); CFRelease(number); CFRelease(data); CFRelease(date);
+        return CFDataCreateMutable(kCFAllocatorDefault, 0);
+    }
+#if defined(FINCH_DIFFTEST_IMAGEIO)
+    if (!strcmp(type, "CFDataRef") && (!strcmp(function_name, "CGImageSourceCreateWithData") || strstr(function_name, "ImageSource"))) {
+        CFRelease(s); CFRelease(number); CFRelease(data); CFRelease(date); return auto_png_data();
+    }
+#endif
     if (!strcmp(type, "CFDataRef") && !strcmp(function_name, "CFStringCreateFromExternalRepresentation")) {
         static const UInt8 utf8[] = {'a', 'b', 'c', 0xc3, 0xa9};
         CFRelease(s); CFRelease(number); CFRelease(date);
         CFIndex length = index % 2 ? 5 : 3;
         CFRelease(data); return CFDataCreate(kCFAllocatorDefault, utf8, length);
+    }
+    if (!strcmp(type, "CFArrayRef") && !strcmp(function_name, "CGGradientCreateWithColors")) {
+#if defined(FINCH_DIFFTEST_GRAPHICS)
+        CGColorRef colors[] = {CGColorCreateGenericRGB(0.1, 0.2, 0.3, 1), CGColorCreateGenericRGB(0.8, 0.5, 0.2, 1)};
+        CFArrayRef result = CFArrayCreate(kCFAllocatorDefault, (const void **)colors, 2,
+            &kCFTypeArrayCallBacks);
+        CGColorRelease(colors[0]); CGColorRelease(colors[1]);
+        CFRelease(s); CFRelease(number); CFRelease(data); CFRelease(date); return result;
+#endif
     }
     if (!strcmp(type, "CFNumberRef")) { CFRelease(s); CFRelease(data); CFRelease(date); return number; }
     if (!strcmp(type, "CFDateRef")) { CFRelease(s); CFRelease(number); CFRelease(data); return date; }
@@ -1067,6 +1590,59 @@ static void auto_print_typeid(CFTypeID type)
 
 def _objc_runtime() -> str:
     return r'''
+@interface FinchDifftestKVCObject : NSObject {
+@public
+    NSString *_name;
+    NSNumber *_age;
+    NSArray *_items;
+    NSMutableSet *_tags;
+    NSMutableOrderedSet *_orderedItems;
+}
+@end
+
+@implementation FinchDifftestKVCObject
+- (instancetype)init
+{
+    if ((self = [super init])) {
+        _name = [@"Finch" copy];
+        _age = [@36 retain];
+        _items = [[NSArray alloc] initWithObjects:@"one", @"two", nil];
+        _tags = [[NSMutableSet alloc] initWithObjects:@"one", @"two", nil];
+        _orderedItems = [[NSMutableOrderedSet alloc] initWithObjects:@"one", @"two", nil];
+    }
+    return self;
+}
+- (void)dealloc
+{
+    [_name release]; [_age release]; [_items release]; [_tags release]; [_orderedItems release]; [super dealloc];
+}
+- (NSString *)name { return _name; }
+- (void)setName:(NSString *)name
+{
+    if (_name != name) { [name retain]; [_name release]; _name = name; }
+}
+- (NSNumber *)age { return _age; }
+- (void)setAge:(NSNumber *)age
+{
+    if (_age != age) { [age retain]; [_age release]; _age = age; }
+}
+- (NSArray *)items { return _items; }
+- (void)setItems:(NSArray *)items
+{
+    if (_items != items) { [items retain]; [_items release]; _items = items; }
+}
+- (NSMutableSet *)tags { return _tags; }
+- (void)setTags:(NSMutableSet *)tags
+{
+    if (_tags != tags) { [tags retain]; [_tags release]; _tags = tags; }
+}
+- (NSMutableOrderedSet *)orderedItems { return _orderedItems; }
+- (void)setOrderedItems:(NSMutableOrderedSet *)items
+{
+    if (_orderedItems != items) { [items retain]; [_orderedItems release]; _orderedItems = items; }
+}
+@end
+
 static NSString *auto_clean_type(NSString *type)
 {
     NSString *clean = [type stringByReplacingOccurrencesOfString:@"const" withString:@""];
@@ -1460,6 +2036,11 @@ static NSLayoutConstraint *auto_constraint(void)
 }
 #endif
 
+static NSData *auto_data(const void *bytes, NSUInteger length)
+{
+    return [(NSData *)CFDataCreate(kCFAllocatorDefault, bytes, (CFIndex)length) autorelease];
+}
+
 static id auto_object(NSString *type, NSUInteger index)
 {
     NSString *clean = auto_clean_type(type);
@@ -1511,7 +2092,7 @@ static id auto_object(NSString *type, NSUInteger index)
         NSFontAttributeName:[NSFont systemFontOfSize:12]}] autorelease];
 #endif
     if ([base isEqualToString:@"id"] || [base isEqualToString:@"NSObject"]) {
-        NSArray *any = @[@"", @"Finch", @1, @-1, @[@"a", @2], @{ @"key": @"value" }, [NSData dataWithBytes:"\0\1\xff" length:3], [NSDate dateWithTimeIntervalSinceReferenceDate:700000000]];
+        NSArray *any = @[@"", @"Finch", @1, @-1, @[@"a", @2], @{ @"key": @"value" }, auto_data("\0\1\xff", 3), [NSDate dateWithTimeIntervalSinceReferenceDate:700000000]];
         return any[index % any.count];
     }
     if ([base isEqualToString:@"NSString"] || [base isEqualToString:@"NSMutableString"]) {
@@ -1523,7 +2104,8 @@ static id auto_object(NSString *type, NSUInteger index)
     if ([base isEqualToString:@"NSDate"]) return @[[NSDate dateWithTimeIntervalSinceReferenceDate:0], [NSDate dateWithTimeIntervalSinceReferenceDate:-1], [NSDate dateWithTimeIntervalSinceReferenceDate:700000000], [NSDate dateWithTimeIntervalSinceReferenceDate:800000000]][index % 4];
     if ([base isEqualToString:@"NSCalendarDate"]) return [NSCalendarDate dateWithTimeIntervalSinceReferenceDate:700000000];
     if ([base isEqualToString:@"NSData"] || [base isEqualToString:@"NSMutableData"]) {
-        NSData *value = @[[NSData data], [NSData dataWithBytes:"\0\1\x7f\x80\xfe\xff" length:6], [@"café🙂" dataUsingEncoding:NSUTF8StringEncoding]][index % 3];
+        const char *utf8 = "café🙂";
+        NSData *value = @[auto_data(NULL, 0), auto_data("\0\1\x7f\x80\xfe\xff", 6), auto_data(utf8, strlen(utf8))][index % 3];
         return [base isEqualToString:@"NSMutableData"] ? [value mutableCopy] : value;
     }
     if ([base isEqualToString:@"NSArray"] || [base isEqualToString:@"NSMutableArray"] || [base isEqualToString:@"NSOrderedSet"] || [base isEqualToString:@"NSMutableOrderedSet"]) {
@@ -1699,12 +2281,57 @@ static id auto_method_object(NSString *type, NSString *parameterName, NSString *
         [name containsString:@"paper"])
         return @[@"na-letter", @"iso-a4"][index % 2];
 #endif
+    if ([className isEqualToString:@"NSObject"]) {
+        if ([selectorName hasPrefix:@"isGreaterThan"] || [selectorName hasPrefix:@"isLessThan"])
+            return @[@1, @2, @3][index % 3];
+        if ([name containsString:@"observer"]) return [[[NSObject alloc] init] autorelease];
+        if ([name containsString:@"key"] || [name containsString:@"keypath"] || [name containsString:@"propertykey"]) {
+            if ([selectorName containsString:@"addObserver"] || [selectorName containsString:@"takeValue"])
+                return @"name";
+            if ([selectorName containsString:@"mutableOrderedSetValueForKey"])
+                return @"orderedItems";
+            if ([selectorName containsString:@"mutableSetValueForKey"])
+                return @"tags";
+            NSArray *keys = [selectorName containsString:@"KeyPath"] ? @[@"name", @"name.length", @"age", @"items"]
+                : @[@"name", @"age", @"items", @"name"];
+            return keys[index % keys.count];
+        }
+        if ([name isEqualToString:@"value"] && [selectorName containsString:@"takeValue"])
+            return @"Finch updated";
+        if ([name isEqualToString:@"properties"] && [selectorName containsString:@"takeValuesFromDictionary"])
+            return @{ @"name": @"Finch updated", @"age": @37 };
+        if ([name isEqualToString:@"object"] && ([selectorName hasPrefix:@"isGreaterThan"] || [selectorName hasPrefix:@"isLessThan"]))
+            return @[@1, @2, @3][index % 3];
+    }
+    if ([className isEqualToString:@"NSString"] && [selectorName isEqualToString:@"stringByAppendingPathExtension:"] &&
+        ([name isEqualToString:@"str"] || [name containsString:@"extension"]))
+        return @[@"", @"txt", @"tar.gz", @"a/b"][index % 4];
+    if ([className isEqualToString:@"NSExpression"] &&
+        [selectorName isEqualToString:@"expressionForFunction:arguments:"] && [name isEqualToString:@"name"])
+        return @"sum:";
+    if ([className isEqualToString:@"NSExpression"] &&
+        [selectorName isEqualToString:@"expressionForFunction:selectorName:arguments:"] && [name isEqualToString:@"name"])
+        return @"uppercaseString";
+    if ([name containsString:@"base64"]) {
+        if ([base isEqualToString:@"NSString"] || [base isEqualToString:@"NSMutableString"])
+            return @[@"", @"YQ==", @"SGVsbG8=", @"Zm9vYmFy"][index % 4];
+        if ([base isEqualToString:@"NSData"] || [base isEqualToString:@"NSMutableData"]) {
+            const char *encoded[] = {"", "YQ==", "SGVsbG8=", "Zm9vYmFy"};
+            return auto_data(encoded[index % 4], strlen(encoded[index % 4]));
+        }
+    }
     if ([className isEqualToString:@"NSDate"] && [selectorName containsString:@"NaturalLanguage"] &&
         [name containsString:@"locale"])
         return @{NSLocaleIdentifier:@"en_US_POSIX"};
     if ([className isEqualToString:@"NSDecimalNumber"] && [name containsString:@"behavior"])
         return [NSDecimalNumberHandler decimalNumberHandlerWithRoundingMode:NSRoundPlain scale:2
             raiseOnExactness:NO raiseOnOverflow:NO raiseOnUnderflow:NO raiseOnDivideByZero:NO];
+    if ([className isEqualToString:@"NSExpression"] && [selectorName containsString:@"expressionForFunction"]) {
+        if ([name containsString:@"target"])
+            return [NSExpression expressionForConstantValue:@"Finch"];
+        if ([name containsString:@"selectorname"])
+            return @"uppercaseString";
+    }
     if ([className isEqualToString:@"NSDateInterval"] && [base isEqualToString:@"NSDate"])
         return [NSDate dateWithTimeIntervalSinceReferenceDate:[name containsString:@"end"] ? 800000000 : 700000000];
     if ([className isEqualToString:@"NSDateComponentsFormatter"] && [base isEqualToString:@"NSDateComponents"]) {
@@ -1715,8 +2342,10 @@ static id auto_method_object(NSString *type, NSString *parameterName, NSString *
     if ([className isEqualToString:@"NSMutableDictionary"] &&
         [selectorName isEqualToString:@"dictionaryWithSharedKeySet:"])
         return [NSMutableDictionary sharedKeySetForKeys:@[@"a", @"b"]];
-    if ([className isEqualToString:@"NSExpression"] && [name containsString:@"format"])
-        return @"SELF == 1";
+    if ([className isEqualToString:@"NSExpression"] && [selectorName containsString:@"expressionWithFormat"] && [name containsString:@"format"])
+        return @"1 + 2";
+    if ([className isEqualToString:@"NSExpression"] && [selectorName containsString:@"expressionForFunction"] && [name containsString:@"function"])
+        return [selectorName isEqualToString:@"expressionForFunction:arguments:"] ? @"sum:" : @"uppercaseString";
     if ([className isEqualToString:@"NSMethodSignature"] &&
         ([name containsString:@"types"] || [name containsString:@"encoding"]))
         return @"v@:";
@@ -1770,6 +2399,15 @@ static id auto_method_object(NSString *type, NSString *parameterName, NSString *
         if ([className isEqualToString:@"NSExpression"] && [name containsString:@"function"])
             return @"sum:";
     }
+    if ([base isEqualToString:@"NSArray"] && [className isEqualToString:@"NSExpression"] &&
+        [selectorName containsString:@"expressionWithFormat"] && [name containsString:@"argumentarray"])
+        return @[];
+    if ([base isEqualToString:@"NSArray"] && [className isEqualToString:@"NSExpression"] &&
+        [selectorName containsString:@"expressionForFunction"] && [selectorName containsString:@"selectorName"])
+        return @[];
+    if ([base isEqualToString:@"NSArray"] && [className isEqualToString:@"NSExpression"] &&
+        [selectorName isEqualToString:@"expressionForFunction:arguments:"])
+        return @[[NSExpression expressionForAggregate:@[[NSExpression expressionForConstantValue:@1], [NSExpression expressionForConstantValue:@2]]]];
     if ([base isEqualToString:@"NSArray"] && [className isEqualToString:@"NSExpression"] &&
         [name containsString:@"argument"])
         return @[[NSExpression expressionForConstantValue:@1], [NSExpression expressionForConstantValue:@2]];
@@ -1839,7 +2477,17 @@ static id auto_receiver(NSString *className, NSString *selectorName)
     if ([className isEqualToString:@"NSMutableAttributedString"])
         return [[[NSMutableAttributedString alloc] initWithString:@"Finch café🙂" attributes:@{NSFontAttributeName:[NSFont systemFontOfSize:12]}] autorelease];
 #endif
-    if ([className isEqualToString:@"NSObject"]) return [[NSObject alloc] init];
+    if ([className isEqualToString:@"NSObject"]) {
+        if ([selectorName hasPrefix:@"isGreaterThan"] || [selectorName hasPrefix:@"isLessThan"])
+            return @2;
+        if ([selectorName containsString:@"ForKey"] || [selectorName containsString:@"forKey"] ||
+            [selectorName containsString:@"KeyPath"] || [selectorName containsString:@"keyPath"] ||
+            [selectorName containsString:@"takeValue"] || [selectorName containsString:@"handleQueryWithUnboundKey"] ||
+            [selectorName containsString:@"handleTakeValue:forUnboundKey:"] ||
+            [selectorName containsString:@"takeValuesFromDictionary"] || [selectorName containsString:@"insertValue:inPropertyWithKey:"])
+            return [[FinchDifftestKVCObject alloc] init];
+        return [[NSObject alloc] init];
+    }
     if ([className isEqualToString:@"NSString"]) return @"Finch";
     if ([className isEqualToString:@"NSMutableString"]) return [NSMutableString stringWithString:@"Finch"];
     if ([className isEqualToString:@"NSNumber"]) return @1;
@@ -2177,6 +2825,10 @@ static void auto_store_scalar(void *destination, const char *encoding, NSString 
         long long values[] = {0, 1}; NSUInteger size = 0; NSGetSizeAndAlignment(encoding, &size, NULL);
         memset(destination, 0, size); memcpy(destination, &values[index % 2], MIN(size, sizeof(long long))); return;
     }
+    if ([name containsString:@"power"]) {
+        long long values[] = {0, 1, 2, 3}; NSUInteger size = 0; NSGetSizeAndAlignment(encoding, &size, NULL);
+        memset(destination, 0, size); memcpy(destination, &values[index % 4], MIN(size, sizeof(long long))); return;
+    }
     if ([name containsString:@"length"] || [name containsString:@"count"] || [name isEqualToString:@"cnt"] || [name isEqualToString:@"len"] || [name containsString:@"capacity"] ||
         [name containsString:@"num"] ||
         [name containsString:@"size"] || [name containsString:@"limit"] || [name containsString:@"bufferlen"] ||
@@ -2351,7 +3003,8 @@ static void auto_test_method(NSDictionary *item)
                     if ([className isEqualToString:@"NSOrderedSet"] &&
                         [selectorName isEqualToString:@"getObjects:range:"] &&
                         [parameterName.lowercaseString isEqualToString:@"objects"]) outputName = YES;
-                    BOOL output = [direction isEqualToString:@"out"] || [direction isEqualToString:@"inout"] || outputName;
+                    BOOL output = [direction isEqualToString:@"out"] || [direction isEqualToString:@"inout"] ||
+                        (outputName && ![type containsString:@"const"]);
                     if (noCopyCharacters) output = NO;
                     BOOL uuidMethod = [className isEqualToString:@"NSUUID"];
                     if (noCopyCharacters) {

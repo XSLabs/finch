@@ -6,9 +6,9 @@
  *
  *  - Whitespace-only text is dropped when reading unless NSXMLNodePreserveWhitespace;
  *    CDATA becomes text unless NSXMLNodePreserveCDATA; entities are replaced.
- *  - A read document has a declaration: version 1.0 and UTF-8 unless it says
- *    otherwise, and standalone="yes" whenever it had a declaration that didn't say
- *    "no". A made document writes one only once given a version, encoding or
+ *  - A read document has a declaration: version 1.0 and UTF-8 unless its declaration
+ *    says otherwise, and standalone="yes" whenever it had a declaration that didn't
+ *    say "no". A made document writes one only once given a version, encoding or
  *    standalone flag.
  *  - Elements are written <a></a> when empty (<a/> with
  *    NSXMLNodeCompactEmptyElement, or as read with NSXMLNodePreserveEmptyElements);
@@ -882,7 +882,7 @@ html_void_elements(void)
 
 #pragma mark Namespaces
 
-- (NSArray<NSXMLNode *> *)namespaces { return [_fnamespaces count] ? [[_fnamespaces copy] autorelease] : nil; }
+- (NSArray<NSXMLNode *> *)namespaces { return [[_fnamespaces copy] autorelease]; }
 
 - (void)addNamespace:(NSXMLNode *)aNamespace
 {
@@ -1098,16 +1098,20 @@ indent_for(NSUInteger level)
 - (void)setCharacterEncoding:(NSString *)encoding
 {
     [_encoding autorelease];
-    _encoding = [encoding copy];
+    _encoding = [encoding length] ? [encoding copy] : nil;
+    if (encoding) _fhasDecl = YES;
 }
 - (NSString *)version { return _version; }
 - (void)setVersion:(NSString *)version
 {
+    if (version && ![version length])
+        return;
     [_version autorelease];
     _version = [version copy];
+    if (version) _fhasDecl = YES;
 }
 - (BOOL)isStandalone { return _standalone; }
-- (void)setStandalone:(BOOL)standalone { _standalone = standalone; }
+- (void)setStandalone:(BOOL)standalone { _standalone = standalone; if (standalone) _fhasDecl = YES; }
 - (NSXMLDocumentContentKind)documentContentKind { return _contentKind; }
 - (void)setDocumentContentKind:(NSXMLDocumentContentKind)kind { _contentKind = kind; }
 - (NSString *)MIMEType { return _fMIME; }
@@ -1177,8 +1181,9 @@ indent_for(NSUInteger level)
         [out appendString:@"?>"];
         wroteSomething = YES;
     }
+    BOOL separatesDTD = [self DTD] != nil;
     for (NSXMLNode *c in _fchildren) {
-        if (pretty && wroteSomething)
+        if ((pretty || separatesDTD) && wroteSomething)
             [out appendString:@"\n"];
         if (c->_fkind == NSXMLDTDKind)
             [(NSXMLDTD *)c _finchWriteDoctype:out options:options contentKind:contentKind];
@@ -1907,6 +1912,10 @@ mirror(NSXMLNode *from, NSMapTable *map, xmlNodePtr *context)
         if (error)
             *error = xml_error(xmlGetLastError());
         return NO;
+    }
+    if (!doc->intSubset && !doc->extSubset) {
+        xmlFreeDoc(doc);
+        return YES;
     }
     xmlValidCtxtPtr v = xmlNewValidCtxt();
     v->error = NULL;

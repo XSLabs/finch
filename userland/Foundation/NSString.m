@@ -296,8 +296,23 @@ cf_copy_of(NSString *s)
     for (NSUInteger i = 0; i < range.length; i++) buffer[i] = [self characterAtIndex:range.location + i];
 }
 
-- (NSString *)substringFromIndex:(NSUInteger)from { return [self substringWithRange:NSMakeRange(from, [self length] - from)]; }
-- (NSString *)substringToIndex:(NSUInteger)to { return [self substringWithRange:NSMakeRange(0, to)]; }
+- (NSString *)substringFromIndex:(NSUInteger)from
+{
+    NSUInteger length = [self length];
+    if (from > length)
+        FinchRaise(NSRangeException, "*** -[%s %s]: Index %lu out of bounds; string length %lu",
+            object_getClassName(self), sel_getName(_cmd), (unsigned long)from, (unsigned long)length);
+    return [self substringWithRange:NSMakeRange(from, length - from)];
+}
+
+- (NSString *)substringToIndex:(NSUInteger)to
+{
+    NSUInteger length = [self length];
+    if (to > length)
+        FinchRaise(NSRangeException, "*** -[%s %s]: Index %lu out of bounds; string length %lu",
+            object_getClassName(self), sel_getName(_cmd), (unsigned long)to, (unsigned long)length);
+    return [self substringWithRange:NSMakeRange(0, to)];
+}
 - (NSString *)substringWithRange:(NSRange)range
 {
     NSUInteger n = [self length];
@@ -663,7 +678,7 @@ transformed(NSString *self, void (*fn)(CFMutableStringRef, CFLocaleRef), CFLocal
         return NSMakeRange(0, 0);
     NSRange first = [self rangeOfComposedCharacterSequenceAtIndex:range.location];
     if (!range.length)
-        return NSMakeRange(first.location, 0);
+        return first;
     NSRange last = [self rangeOfComposedCharacterSequenceAtIndex:NSMaxRange(range) - 1];
     return NSMakeRange(first.location, NSMaxRange(last) - first.location);
 }
@@ -853,6 +868,9 @@ trimmed(NSString *s)
 
 - (NSString *)stringByAppendingPathExtension:(NSString *)str
 {
+    if (![str length]) return trimmed(self);
+    if ([str rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"/"]].location != NSNotFound)
+        return nil;
     return [NSString stringWithFormat:@"%@.%@", trimmed(self), str];
 }
 

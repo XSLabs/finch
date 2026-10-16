@@ -672,7 +672,7 @@ register_builtins(void)
     }
 }
 
-+ (Class)transformedValueClass { return [NSObject class]; }
++ (Class)transformedValueClass { return Nil; }
 + (BOOL)allowsReverseTransformation { return YES; }
 - (id)transformedValue:(id)value { return value; }
 

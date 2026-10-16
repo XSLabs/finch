@@ -298,6 +298,8 @@ strip_names(const char *type)
 
 - (NSComparisonResult)compare:(NSNumber *)other
 {
+    if (!other)
+        FinchRaise(NSInvalidArgumentException, "*** -[%s compare:]: nil argument", object_getClassName(self));
     Scalar a = [self _finchScalar], b = [other _finchScalar];
     if (a.isFloat || b.isFloat) {
         if (a.d < b.d) return NSOrderedAscending;
@@ -310,7 +312,11 @@ strip_names(const char *type)
     return a.s < b.s ? NSOrderedAscending : a.s > b.s ? NSOrderedDescending : NSOrderedSame;
 }
 
-- (BOOL)isEqualToNumber:(NSNumber *)number { return number && [self compare:number] == NSOrderedSame; }
+- (BOOL)isEqualToNumber:(NSNumber *)number
+{
+    if (!number || isnan([self doubleValue]) || isnan([number doubleValue])) return NO;
+    return [self compare:number] == NSOrderedSame;
+}
 - (BOOL)isEqual:(id)object
 {
     return object == self || ([object isKindOfClass:[NSNumber class]] && [self isEqualToNumber:object]);

@@ -635,7 +635,7 @@ CGPDFDocumentGetVersion(CGPDFDocumentRef doc, int *major, int *minor)
 }
 
 bool CGPDFDocumentIsEncrypted(CGPDFDocumentRef doc) { return doc && doc->d->crypt.encrypted; }
-bool CGPDFDocumentIsUnlocked(CGPDFDocumentRef doc) { return doc && (!doc->d->crypt.encrypted || doc->d->crypt.unlocked); }
+bool CGPDFDocumentIsUnlocked(CGPDFDocumentRef doc) { return !doc || !doc->d->crypt.encrypted || doc->d->crypt.unlocked; }
 
 bool
 CGPDFDocumentUnlockWithPassword(CGPDFDocumentRef doc, const char *password)
