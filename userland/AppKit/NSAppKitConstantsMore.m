@@ -8,7 +8,10 @@
 
 #define FINCH_CONST __attribute__((visibility("default")))
 
+FINCH_CONST NSString *const NSAppearanceNameAccessibilityHighContrastSystem = @"NSAppearanceNameAccessibilitySystem";
+FINCH_CONST NSString *const NSAppearanceNameControlStrip = @"NSAppearanceNameControlStrip";
 FINCH_CONST NSString *const NSAppearanceNameFunctionRow = @"NSAppearanceNameFunctionRow";
+FINCH_CONST NSString *const NSAppearanceNameSystem = @"NSAppearanceNameSystem";
 FINCH_CONST NSString *const NSAppleMenuName = @"NSAppleMenu";
 FINCH_CONST NSString *NSApplicationShouldBeginSuppressingHighDynamicRangeContentNotification = /* (the SDK declares it without const) */ @"NSApplicationShouldBeginSuppressingHighDynamicRangeContentNotification";
 FINCH_CONST NSString *NSApplicationShouldEndSuppressingHighDynamicRangeContentNotification = /* (the SDK declares it without const) */ @"NSApplicationShouldEndSuppressingHighDynamicRangeContentNotification";
@@ -46,6 +49,8 @@ FINCH_CONST NSString *const NSWindowWillEnterVersionBrowserNotification = @"NSWi
 FINCH_CONST NSString *const NSWindowWillOrderOnScreenNotification = @"_NSWindowWillBecomeVisible";
 FINCH_CONST NSString *const NSWindowsMenuName = @"NSWindowsMenu";
 FINCH_CONST NSString *const _NSAccessibilityFrameAttribute = @"AXFrame";
+FINCH_CONST NSString *const _NSColorCoreUICatalogMainBundleID = @"mainBundleID";
+FINCH_CONST NSString *const _NSColorCoreUICatalogNamePrefix = @"#$assets-";
 FINCH_CONST NSString *const _NSPrintProtected = @"NSPrintProtected";
 FINCH_CONST NSString *const _NSTextFormattingViewControllerFontAttributesComponentKey = @"_NSTextFormattingViewControllerFontAttributesComponent";
 FINCH_CONST NSString *const _NSTextFormattingViewControllerFontPickerComponentKey = @"_NSTextFormattingViewControllerFontPickerComponent";
@@ -53,7 +58,14 @@ FINCH_CONST NSString *const _NSTextFormattingViewControllerFontSizeComponentKey 
 FINCH_CONST NSString *const _NSTextFormattingViewControllerTextAlignmentComponentKey = @"_NSTextFormattingViewControllerTextAlignmentComponent";
 FINCH_CONST NSString *const _NSTextFormattingViewControllerTextBackgroundColorComponentKey = @"_NSTextFormattingViewControllerTextBackgroundComponent";
 FINCH_CONST NSString *const _NSTextFormattingViewControllerTextColorComponentKey = @"_NSTextFormattingViewControllerTextColorComponent";
+FINCH_CONST NSString *const _NSTextInputContextKeyboardTypeDidChangeNotification = @"_NSTextInputContextKeyboardTypeDidChangeNotification";
 FINCH_CONST NSString *const _NXSmartPaste = @"NeXT smart paste pasteboard type";
+FINCH_CONST NSString *NSTextCheckingQuotesKey = /* (the SDK declares it without const) */ @"Quotes";
+FINCH_CONST NSString *NSTextCheckingReplacementsKey = /* (the SDK declares it without const) */ @"Replacements";
+FINCH_CONST NSString *const NSTextContentTypeURL = @"url";
+FINCH_CONST NSString *const NSTouchBarItemIdentifierSystemCloseButton = @"NSTouchBarItemIdentifierSystemCloseButton";
+FINCH_CONST NSString *const NSUserActivityDocumentURLKey = @"NSUserActivityDocumentURL";
+FINCH_CONST NSString *const NSWindowDidExitVersionBrowserNotification = @"NSWindowDidExitVersionBrowserNotification";
 FINCH_CONST void *_NSAppKitGlobalLock = 0; /* (not an object in Apple's: an empty word) */
 
 #pragma mark - Small functions apps import

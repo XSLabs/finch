@@ -84,6 +84,18 @@ buttons(CGEventSourceStateID state)
 UInt32 GetCurrentButtonState(void) { return buttons(kCGEventSourceStateHIDSystemState); }
 UInt32 GetCurrentEventButtonState(void) { return buttons(kCGEventSourceStateCombinedSessionState); }
 
+/* The 128 virtual-key bits in the classic KeyMap, sampled from the same HID
+   state Carbon uses for its current-key queries. */
+void
+GetKeys(KeyMap theKeys)
+{
+    KeyMapByteArray bytes = {0};
+    for (UInt16 key = 0; key < 128; key++)
+        if (CGEventSourceKeyState(kCGEventSourceStateHIDSystemState, key))
+            bytes[key >> 3] |= (UInt8)(0x80u >> (key & 7));
+    memcpy(theKeys, bytes, sizeof bytes);
+}
+
 /* CreateEvent (the header's MacCreateEvent) */
 OSStatus
 MacCreateEvent(CFAllocatorRef inAllocator, OSType inClassID, UInt32 inKind, EventTime inWhen, EventAttributes inAttributes,

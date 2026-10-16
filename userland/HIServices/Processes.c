@@ -32,6 +32,18 @@ psn_set(ProcessSerialNumber *psn, pid_t pid)
     psn->lowLongOfPSN = (UInt32)pid;
 }
 
+static OSType
+bundle_code(CFTypeRef value)
+{
+    if (!value || CFGetTypeID(value) != CFStringGetTypeID() || CFStringGetLength(value) != 4)
+        return 0;
+    UInt8 bytes[4];
+    CFIndex used = 0;
+    if (CFStringGetBytes(value, CFRangeMake(0, 4), kCFStringEncodingMacRoman, 0, false, bytes, sizeof bytes, &used) != 4 || used != 4)
+        return 0;
+    return ((OSType)bytes[0] << 24) | ((OSType)bytes[1] << 16) | ((OSType)bytes[2] << 8) | bytes[3];
+}
+
 static bool
 alive(pid_t pid)
 {
@@ -141,6 +153,78 @@ CopyProcessName(const ProcessSerialNumber *psn, CFStringRef *name)
     char buf[2 * MAXCOMLEN + 1] = "";
     proc_name(pid, buf, sizeof buf);
     *name = CFStringCreateWithCString(NULL, buf, kCFStringEncodingUTF8);
+    return noErr;
+}
+
+OSErr
+GetProcessInformation(const ProcessSerialNumber *psn, ProcessInfoRec *info)
+{
+    pid_t pid = psn_pid(psn);
+    if (!info || info->processInfoLength < sizeof *info)
+        return paramErr;
+    if (pid < 0 || !alive(pid))
+        return procNotFound;
+
+    StringPtr name = info->processName;
+    ProcessInfoRec result = {0};
+    result.processInfoLength = info->processInfoLength;
+    result.processName = name;
+    result.processNumber = *psn;
+    result.processType = 0x3f3f3f3f;      /* '????' when there is no app bundle */
+    result.processSignature = 0x3f3f3f3f; /* '????' when there is no creator code */
+    result.processMode = modeCanBackground | modeOnlyBackground | modeGetFrontClicks |
+                         mode32BitCompatible | modeHighLevelEventAware | modeLocalAndRemoteHLEvents;
+    result.processLauncher.highLongOfPSN = 0;
+    result.processLauncher.lowLongOfPSN = kNoProcess;
+    result.processAppRef = info->processAppRef;
+
+    if (name) {
+        CFStringRef processName = NULL;
+        if (CopyProcessName(psn, &processName) == noErr && processName) {
+            char value[256];
+            if (CFStringGetCString(processName, value, sizeof value, kCFStringEncodingUTF8)) {
+                size_t length = strnlen(value, 255);
+                name[0] = (UInt8)length;
+                memcpy(name + 1, value, length);
+            }
+            CFRelease(processName);
+        }
+    }
+
+    char path[PROC_PIDPATHINFO_MAXSIZE] = "";
+    if (proc_pidpath(pid, path, sizeof path) > 0) {
+        if (result.processAppRef) {
+            FSPathMakeRef((const UInt8 *)path, result.processAppRef, NULL);
+        }
+
+        char *bundleEnd = strstr(path, ".app/Contents/MacOS/");
+        if (bundleEnd) {
+            bundleEnd[4] = 0;
+            CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)path, (CFIndex)strlen(path), true);
+            CFBundleRef bundle = url ? CFBundleCreate(NULL, url) : NULL;
+            if (bundle) {
+                result.processType = bundle_code(CFBundleGetValueForInfoDictionaryKey(bundle, CFSTR("CFBundlePackageType")));
+                result.processSignature = bundle_code(CFBundleGetValueForInfoDictionaryKey(bundle, CFSTR("CFBundleSignature")));
+                CFRelease(bundle);
+            }
+            if (url)
+                CFRelease(url);
+        }
+    }
+
+    /* Keep the caller's input length and output pointers; the old manager has no
+       process launch or memory statistics on Finch to fill these fields with. */
+    info->processNumber = result.processNumber;
+    info->processType = result.processType;
+    info->processSignature = result.processSignature;
+    info->processMode = result.processMode;
+    info->processLocation = result.processLocation;
+    info->processSize = result.processSize;
+    info->processFreeMem = result.processFreeMem;
+    info->processLauncher = result.processLauncher;
+    info->processLaunchDate = result.processLaunchDate;
+    info->processActiveTime = result.processActiveTime;
+    info->processAppRef = result.processAppRef;
     return noErr;
 }
 

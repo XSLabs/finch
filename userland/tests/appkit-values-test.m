@@ -8,6 +8,7 @@
  */
 #import <AppKit/AppKit.h>
 #import <CoreImage/CoreImage.h>
+#include <dlfcn.h>
 
 #define TRY(x)                                                                                                         \
     @try {                                                                                                             \
@@ -118,6 +119,10 @@ values(void)
            (unsigned long)pi.tagNames.count, (long)pi.orientation, NSStringFromSize(pi.paperSize).UTF8String, (unsigned long)pi.attributes.count);
     NSPDFPanel *pp = [NSPDFPanel panel];
     printf("pdf panel: options %ld default name %s\n", (long)pp.options, pp.defaultFileName.UTF8String);
+    NSSharingServicePickerToolbarItem *share = [[NSSharingServicePickerToolbarItem alloc] initWithItemIdentifier:@"finch.share"];
+    printf("share toolbar: %s identifier %s label %s palette %s enabled %d action %d view %d\n",
+           NSStringFromClass([share class]).UTF8String, share.itemIdentifier.UTF8String, share.label.UTF8String,
+           share.paletteLabel.UTF8String, share.enabled, share.action != NULL, share.view != nil);
     CIImage *red = [CIImage imageWithColor:[CIColor colorWithRed:1 green:0 blue:0]];
     NSCIImageRep *r = [NSCIImageRep imageRepWithCIImage:red];
     printf("ci rep: infinite %s\n", NSStringFromSize(r.size).UTF8String);
@@ -176,6 +181,22 @@ collections(void)
            [[m copy] isKindOfClass:[NSMutableFontCollection class]] ? "mutable" : "plain");
 }
 
+static void
+imported_constants(void)
+{
+    static const char *names[] = {
+        "NSAppearanceNameAccessibilityHighContrastSystem", "NSAppearanceNameControlStrip", "NSAppearanceNameSystem",
+        "NSTextCheckingQuotesKey", "NSTextCheckingReplacementsKey", "NSTextContentTypeURL",
+        "NSTouchBarItemIdentifierSystemCloseButton", "NSUserActivityDocumentURLKey", "NSWindowDidExitVersionBrowserNotification",
+        "_NSColorCoreUICatalogMainBundleID", "_NSColorCoreUICatalogNamePrefix", "_NSTextInputContextKeyboardTypeDidChangeNotification",
+    };
+    for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) {
+        void *address = dlsym(RTLD_DEFAULT, names[i]);
+        NSString *value = address ? (__bridge NSString *)(*(void **)address) : nil;
+        printf("imported constant %s: %s\n", names[i], value ? [value UTF8String] : "(missing)");
+    }
+}
+
 int
 main(void)
 {
@@ -184,6 +205,7 @@ main(void)
         snapshots();
         values();
         collections();
+        imported_constants();
     }
     return 0;
 }

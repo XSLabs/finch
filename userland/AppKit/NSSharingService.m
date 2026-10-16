@@ -317,3 +317,61 @@ static BOOL is_writable(id item)
 }
 
 @end
+
+@interface NSToolbarItem (FinchSharingFrame)
+- (NSRect)_finchFrame;
+@end
+
+@implementation NSSharingServicePickerToolbarItem {
+    id<NSSharingServicePickerToolbarItemDelegate> _delegate; /* weak */
+}
+
+- (instancetype)initWithItemIdentifier:(NSToolbarItemIdentifier)identifier
+{
+    self = [super initWithItemIdentifier:identifier];
+    if (self) {
+        [self setLabel:@"Share"];
+        [self setPaletteLabel:@"Share"];
+        [self setToolTip:@"Share"];
+        [self setTarget:self];
+        [self setAction:@selector(_finchShowSharingPicker:)];
+        [self setImage:[NSImage imageWithSystemSymbolName:@"square.and.arrow.up" accessibilityDescription:@"Share"]];
+    }
+    return self;
+}
+
+- (id<NSSharingServicePickerToolbarItemDelegate>)delegate
+{
+    return _delegate;
+}
+
+- (void)setDelegate:(id<NSSharingServicePickerToolbarItemDelegate>)delegate
+{
+    _delegate = delegate;
+}
+
+- (void)_finchShowSharingPicker:(id)sender
+{
+    if (![_delegate respondsToSelector:@selector(itemsForSharingServicePickerToolbarItem:)])
+        return;
+    NSArray *items = [_delegate itemsForSharingServicePickerToolbarItem:self];
+    NSToolbar *toolbar = [self toolbar];
+    if (![items count] || !toolbar)
+        return;
+    NSWindow *window = nil;
+    for (NSWindow *candidate in [[NSApplication sharedApplication] windows])
+        if ([candidate toolbar] == toolbar) {
+            window = candidate;
+            break;
+        }
+    NSView *view = [window contentView];
+    if (!view)
+        return;
+    NSSharingServicePicker *picker = [[[NSSharingServicePicker alloc] initWithItems:items] autorelease];
+    picker.delegate = _delegate;
+    NSRect itemFrame = [self _finchFrame];
+    NSRect anchor = NSMakeRect(NSMidX(itemFrame), NSMaxY([view bounds]), 1, 1);
+    [picker showRelativeToRect:anchor ofView:view preferredEdge:NSMaxYEdge];
+}
+
+@end

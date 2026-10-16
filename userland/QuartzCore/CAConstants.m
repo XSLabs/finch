@@ -107,6 +107,20 @@ __attribute__((visibility("default"))) NSString *const kCATransactionDisableActi
 #import <QuartzCore/CAFrameRateRange.h>
 __attribute__((visibility("default"))) const CAFrameRateRange CAFrameRateRangeDefault = {0, 0, 0};
 
+CAFrameRateRange
+CAFrameRateRangeMake(float minimum, float maximum, float preferred)
+{
+    return (CAFrameRateRange){minimum, maximum, preferred};
+}
+
+bool
+CAFrameRateRangeIsEqualToRange(CAFrameRateRange range, CAFrameRateRange other)
+{
+    return range.minimum == other.minimum && range.maximum == other.maximum && range.preferred == other.preferred;
+}
+
+__attribute__((visibility("default"))) NSString *const kCARendererColorSpace = @"kCARendererColorSpace";
+
 /* Private names SwiftUI uses (filters, contents scaling and swizzles), with macOS 26.4's values. */
 __attribute__((visibility("default"))) NSString *const kCAContentsFormatA8 = @"A8";
 __attribute__((visibility("default"))) NSString *const kCAContentsScalingRepeat = @"repeat";

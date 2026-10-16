@@ -10,6 +10,7 @@
 #include <Carbon/Carbon.h>
 #include <dlfcn.h>
 #include <stdio.h>
+#include <string.h>
 
 static const UCKeyboardLayout *layout;
 
@@ -41,6 +42,17 @@ main(void)
     CFDataRef data = TISGetInputSourceProperty(src, kTISPropertyUnicodeKeyLayoutData);
     layout = (const UCKeyboardLayout *)CFDataGetBytePtr(data);
     printf("layout format %x\n", layout->keyLayoutHeaderFormat);
+    KeyMap keys;
+    KeyMapByteArray keyBytes;
+    GetKeys(keys);
+    memcpy(keyBytes, keys, sizeof keyBytes);
+    Boolean keysMatch = true;
+    for (UInt16 code = 0; code < 128; code++) {
+        Boolean set = (keyBytes[code >> 3] & (0x80u >> (code & 7))) != 0;
+        if (set != CGEventSourceKeyState(kCGEventSourceStateHIDSystemState, code))
+            keysMatch = false;
+    }
+    printf("keys match HID state %d\n", keysMatch);
 
     UInt32 layers[] = {0, shiftKey, alphaLock, optionKey, optionKey | shiftKey, controlKey, cmdKey, cmdKey | shiftKey,
                        cmdKey | optionKey, alphaLock | shiftKey};

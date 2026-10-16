@@ -74,6 +74,14 @@ main(void)
     CFStringRef name = NULL;
     printf("name %d\n", CopyProcessName(&psn, &name));
     show("name", name);
+    UInt8 shortName[256] = {0};
+    ProcessInfoRec process = {0};
+    process.processInfoLength = sizeof process;
+    process.processName = shortName;
+    printf("process info %d\n", GetProcessInformation(&psn, &process));
+    printf("process name %.*s number matches %d type %08x signature %08x mode %08x\n", shortName[0], shortName + 1,
+           process.processNumber.highLongOfPSN == psn.highLongOfPSN && process.processNumber.lowLongOfPSN == psn.lowLongOfPSN,
+           (unsigned)process.processType, (unsigned)process.processSignature, (unsigned)process.processMode);
     printf("zoom %d\n", UAZoomEnabled());
     CGRect zr = {{0, 0}, {10, 10}};
     printf("zoom focus %d\n", (int)UAZoomChangeFocus(&zr, NULL, kUAZoomFocusTypeOther));

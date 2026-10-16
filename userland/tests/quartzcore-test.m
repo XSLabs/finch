@@ -5,6 +5,8 @@
  * Finch's (DYLD_FRAMEWORK_PATH) and diff.
  */
 #import <QuartzCore/QuartzCore.h>
+#import <QuartzCore/CAEDRMetadata.h>
+#import <Foundation/Foundation.h>
 #include <dlfcn.h>
 #include <stdio.h>
 
@@ -53,5 +55,22 @@ main(void)
            kCAMediaTimingFunctionEaseInEaseOut.UTF8String, kCATransitionFade.UTF8String,
            kCAGravityResizeAspect.UTF8String, kCAFilterLinear.UTF8String, kCAAlignmentCenter.UTF8String,
            kCAAnimationCubic.UTF8String);
+    CAFrameRateRange rate = CAFrameRateRangeMake(24, 60, 30);
+    printf("frame rate: %.0f %.0f %.0f equal %d unequal %d default %d\n", rate.minimum, rate.maximum, rate.preferred,
+           CAFrameRateRangeIsEqualToRange(rate, (CAFrameRateRange){24, 60, 30}),
+           CAFrameRateRangeIsEqualToRange(rate, CAFrameRateRangeMake(24, 60, 29)),
+           CAFrameRateRangeIsEqualToRange(CAFrameRateRangeDefault, (CAFrameRateRange){0, 0, 0}));
+    printf("renderer color key: %s\n", kCARendererColorSpace.UTF8String);
+    NSData *ambient = [NSData dataWithBytes:(const UInt8[]){0x00, 0x2f, 0xef, 0xe0, 0x3d, 0x13, 0x40, 0x42} length:8];
+    CAEDRMetadata *hdr = [CAEDRMetadata HDR10MetadataWithDisplayInfo:nil contentInfo:nil opticalOutputScale:100];
+    CAEDRMetadata *luminance = [CAEDRMetadata HDR10MetadataWithMinLuminance:0.05 maxLuminance:1000 opticalOutputScale:100];
+    CAEDRMetadata *hlg = [CAEDRMetadata HLGMetadataWithAmbientViewingEnvironment:ambient];
+    NSData *archive = [NSKeyedArchiver archivedDataWithRootObject:hlg requiringSecureCoding:YES error:nil];
+    CAEDRMetadata *roundTrip = archive ? [NSKeyedUnarchiver unarchivedObjectOfClass:[CAEDRMetadata class] fromData:archive error:nil] : nil;
+    printf("EDR metadata: HDR10 %d luminance %d HLG %d default %d bad data %d archive %d\n", [hdr isKindOfClass:[CAEDRMetadata class]],
+           [luminance isKindOfClass:[CAEDRMetadata class]], [hlg isKindOfClass:[CAEDRMetadata class]],
+           [[CAEDRMetadata HLGMetadata] isKindOfClass:[CAEDRMetadata class]],
+           [CAEDRMetadata HLGMetadataWithAmbientViewingEnvironment:[NSData data]] != nil,
+           [roundTrip isKindOfClass:[CAEDRMetadata class]]);
     return 0;
 }
