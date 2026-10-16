@@ -8,7 +8,7 @@ is built on it.
 AVKit                          playback views
 AVFoundation                   assets, players, readers and writers, capture, metadata
 AVFAudio                       formats, buffers, files, players, the engine graph, units, speech
-VideoToolbox (planned)          decode, encode, pixel transfer
+VideoToolbox                    decode, encode, pixel transfer, rotation
 AudioToolbox                   formats, files, converters, queues, audio units
 AudioUnit.framework            re-exports AudioToolbox
 CoreMIDI                       local virtual ports and endpoints, no hardware
@@ -24,15 +24,18 @@ CoreAudio (HAL)                devices: none until Finch has an audio driver
 - CoreMedia: times, block buffers, format descriptions (and from H.264/HEVC parameter
   sets, and to and from QuickTime/ISO image descriptions), sample buffers, clocks and
   timebases, queues, memory pools, metadata, tags.
+- VideoToolbox: Finch's own pixel conversion, scaling and VTPixelRotationSession,
+  H.264 encoding and decoding through OpenH264, VP8/VP9 decoding through libvpx, and
+  AV1 decoding through dav1d. The framework reports that hardware decoding is unavailable.
+  The public SDK has VTPixelRotationSession but no VTImageRotation API, so Finch does not
+  invent a private ABI for it.
 - `AudioUnit.framework` is a small compatibility image that re-exports AudioToolbox,
   the same framework that owns most of Apple's AudioUnit API.
 - CoreMIDI keeps clients, ports and virtual sources or destinations in a local
   process graph. Virtual endpoints exchange MIDI 1.0 packets and MIDI 2.0 event lists;
   Finch has no hardware devices or system-wide MIDI service.
 - OpenAL is not built. CoreAudio has no output device, and Finch has no honest playback
-  path for OpenAL to use. VideoToolbox remains planned until Finch has a codec backend
-  for the H.264 encode and decode sessions Zed imports. Apple's host supports those
-  codecs, so Finch cannot verify what error Apple returns when a codec is unavailable.
+  path for OpenAL to use.
 
 - AudioToolbox: format properties and audio files (WAVE, AIFF/AIFC, CAF and
   NeXT/Sun). `AudioConverter` handles packed and unpacked integer PCM, float
@@ -119,7 +122,7 @@ CoreAudio (HAL)                devices: none until Finch has an audio driver
   timeControlStatus as Apple's, seeks, time observers, the end notification); the layer
   shows decoded frames as its contents, so they reach the window server like any layer.
   `avplayer-test` matches Apple's; `appkit-avplayer-test` checks the screen. Audio waits
-  for a device; H.264, HEVC and AAC for VideoToolbox and AudioToolbox.
+  for a device; HEVC and AAC remain for VideoToolbox and AudioToolbox.
 
 The converter, extended-file, software-unit, queue and AVFAudio buffer checks
 pass on the host, in QEMU and in the VZ guest (2026-10-11). These checks exercise
@@ -134,8 +137,9 @@ audio stored in memory and files; hardware playback and recording remain open.
    Offline rendering can work without a device. Hardware playback and recording
    must report that no device is available until the driver exists.
 2. **AVFAudio**: finish `AUAudioUnit`, the environment node, sequencer, MIDI player and recorder.
-3. **VideoToolbox**: pixel transfer (Finch's own conversion and scaling), then decoding
-   and encoding through open codecs.
+3. **VideoToolbox**: the first software codec path is in place. Add HEVC and wider
+   public API coverage after the owner decides whether Finch should distribute its
+   source-built H.264 implementation.
 4. **AVFoundation**: add composition, media selection and capture as their real data
    models and required hardware or services become available.
 5. **AVKit**.
@@ -144,9 +148,14 @@ audio stored in memory and files; hardware playback and recording remain open.
 
 Finch's own code does containers and PCM. Compressed formats come from open libraries,
 dynamically linked where their licence asks for it (see `docs/LICENSING.md`):
-H.264 (openh264, BSD-2), AV1 (dav1d, BSD-2), VP8/VP9 (libvpx, BSD-3), Opus, Vorbis and
+H.264 (openh264 v2.6.0, BSD-2), AV1 (dav1d 1.5.4, BSD-2), VP8/VP9 (libvpx v1.17.0, BSD-3), Opus, Vorbis and
 FLAC (BSD), MP3 (minimp3, CC0); HEVC and AAC from LGPL decoders, linked dynamically.
 Each is pinned to an exact release.
+
+**Patent question for the project owner:** Cisco's H.264 patent license covers Cisco-built
+openh264 binaries, not Finch's builds from source. The owner must decide whether Finch
+should distribute source-built H.264 support; this note records the choice to be made and
+does not make it.
 
 ## 2026-10-15: CoreVideo and CoreMedia C APIs
 

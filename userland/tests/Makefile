@@ -17,6 +17,7 @@ all: $(OUT)/finch-appkit-gaps-test
 all: $(OUT)/finch-urlsession-trust-test
 all: $(OUT)/finch-network-test
 all: $(OUT)/finch-accelerate-test
+all: $(OUT)/finch-videotoolbox-test
 all: $(OUT)/finch-contacts-search-links-test
 all: $(OUT)/finch-contacts-search-links-fetch-test
 all: $(OUT)/finch-contacts-search-links-swift-test
@@ -47,6 +48,11 @@ $(OUT)/finch-accelerate-test: accelerate-test.c
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework Accelerate -framework CoreGraphics
 	codesign -f -s - -i org.finch.test.accelerate $@
+
+# VideoToolbox's software encode/decode, pixel transfer and rotation against Apple's.
+$(OUT)/finch-videotoolbox-test: videotoolbox-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -o $@ $< -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework CoreFoundation
 
 all: $(OUT)/finch-coredata-test
 

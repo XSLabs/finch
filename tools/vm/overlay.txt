@@ -55,6 +55,7 @@ build/root/System/Library/Frameworks/Accelerate.framework/Versions/A/Accelerate 
 build/root/System/Library/Frameworks/ContactsUI.framework/Versions/A/ContactsUI /System/Library/Frameworks/ContactsUI.framework/Versions/A/ContactsUI
 build/root/System/Library/Frameworks/CoreSpotlight.framework/Versions/A/CoreSpotlight /System/Library/Frameworks/CoreSpotlight.framework/Versions/A/CoreSpotlight
 build/root/System/Library/Frameworks/LinkPresentation.framework/Versions/A/LinkPresentation /System/Library/Frameworks/LinkPresentation.framework/Versions/A/LinkPresentation
+build/root/System/Library/Frameworks/VideoToolbox.framework/Versions/A/VideoToolbox /System/Library/Frameworks/VideoToolbox.framework/Versions/A/VideoToolbox
 build/userland/finch-accelerate-test /usr/local/bin/finch-accelerate-test
 build/userland/finch-swift-overlay-test /usr/local/bin/finch-swift-overlay-test
 build/userland/finch-network-test /usr/local/bin/finch-network-test
@@ -223,6 +224,7 @@ build/userland/finch-cfurl-test /usr/local/bin/finch-cfurl-test
 build/userland/finch-pasteboard-test /usr/local/bin/finch-pasteboard-test
 build/userland/finch-coremedia-test /usr/local/bin/finch-coremedia-test
 build/userland/finch-corevideo-test /usr/local/bin/finch-corevideo-test
+build/userland/finch-videotoolbox-test /usr/local/bin/finch-videotoolbox-test
 build/userland/finch-audiotoolbox-test /usr/local/bin/finch-audiotoolbox-test
 build/userland/finch-audiounit-framework-test /usr/local/bin/finch-audiounit-framework-test
 build/userland/finch-coremidi-test /usr/local/bin/finch-coremidi-test

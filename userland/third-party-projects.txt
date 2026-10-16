@@ -3,3 +3,6 @@
 cmark-gfm 0.29.0.gfm.13 https://github.com/github/cmark-gfm.git
 swift-crypto 5.0.1 https://github.com/apple/swift-crypto.git
 sqlite-amalgamation 3.54.0 https://www.sqlite.org/2026/sqlite-amalgamation-3540000.zip
+openh264 v2.6.0 https://github.com/cisco/openh264.git
+libvpx v1.17.0 https://github.com/webmproject/libvpx.git
+dav1d 1.5.4 https://github.com/videolan/dav1d.git

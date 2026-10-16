@@ -5,18 +5,22 @@ What runs on Finch today and where each piece comes from, bottom to top.
 These diagrams are updated in every commit that changes the stack, and
 `tools/render-stack.sh` checks that they render.
 
-**As of 2026-10-15:** CoreData reads compiled models and supports basic SQLite and
-in-memory stores, contexts, fetches, and to-one relationships. ContactsUI presents
-a contact picker and card over Finch Contacts; CoreSpotlight stores searchable items
-in a local index and runs queries; LinkPresentation fetches page metadata through
+**As of 2026-10-15:** VideoToolbox moves pixels between Finch's CoreVideo buffers,
+rotates them, decodes H.264, VP8, VP9 and AV1, and encodes H.264 through open static
+codecs. Its comparison test checks pixel operations exactly and allows up to 16 levels
+of difference in each average decoded RGB channel. CoreData reads compiled models and
+supports basic SQLite and in-memory stores, contexts, fetches, and to-one relationships.
+ContactsUI presents a contact picker and card over Finch Contacts; CoreSpotlight stores
+searchable items in a local index and runs queries; LinkPresentation fetches page metadata through
 Foundation and shows it in an AppKit card. CryptoKit is built
 from swift-crypto 5.0.1, with BoringSSL and
 XKCP linked privately; fixed-key host comparisons cover its hashes, HMAC, HKDF,
 AES-GCM, ChaChaPoly, and P-256, P-384 and Curve25519 keys and signatures. Nothing
 Finch builds links a closed library (`tools/check-closed.py`). MetalKit now keeps
 MTKView settings even though Finch has no GPU; AudioUnit re-exports AudioToolbox, and
-CoreMIDI sends virtual endpoint packets inside a process. OpenAL and VideoToolbox
-remain out because Finch has no audio output device or codec backend. Finch's own
+CoreMIDI sends virtual endpoint packets inside a process. OpenAL remains out because
+Finch has no audio output device. VideoToolbox reports no hardware codec support; AVKit
+remains planned. Finch's own
 Foundation covers about 140 of Apple's
 classes, on a CoreFoundation that dispatches to Objective-C objects as Apple's
 does (`docs/design/FOUNDATION.md`); its Markdown constructors use cmark-gfm,
@@ -74,7 +78,9 @@ re-exports Finch's AudioToolbox at Apple's install name. CoreMIDI's client API k
 virtual sources, destinations and ports in a process-local graph; there is no hardware
 or system-wide routing. MetalKit keeps MTKView's settings, while texture
 and mesh creation report the missing Metal device. OpenAL stays out while CoreAudio has
-no output device, and VideoToolbox stays planned until Finch has a codec backend.
+no output device. VideoToolbox moves pixels between Finch's CoreVideo buffers, scales
+and rotates them, decodes H.264, VP8, VP9 and AV1, and encodes H.264 with statically
+linked OpenH264, libvpx and dav1d.
 OpenGL is Mesa's software
 renderer (softpipe through OSMesa, built by Finch) under Finch's own CGL and GLU, and
 AppKit's NSOpenGL views draw with it; AppKit's named system images and symbol images are Finch's own artwork; PrintCore is Finch's own (sessions, settings, page formats and papers, printing to PDF; no printers until there's a printing system), as are Quartz filters, which change a context's colours through CoreGraphics; windows draw into a back buffer that each flush copies to the window server; typedstream archives (NSArchiver) of AppKit's
@@ -163,6 +169,7 @@ block-beta
         imageio["ImageIO<br/>image sources, thumbnails,<br/>destinations, property keys<br/>(libpng, libjpeg-turbo, libwebp,<br/>wuffs, via Skia); TIFF (own codec)"]
         accelerate["Accelerate<br/>vDSP, vForce, vImage,<br/>BLAS and LAPACK calls<br/>apps import today;<br/>Finch's CPU routines"]
         coreimage["CoreImage<br/>images as recipes, CPU rendering<br/>in linear light, ~70 filters"]
+        videotoolbox["VideoToolbox<br/>pixel transfer and rotation;<br/>H.264, VP8, VP9 and AV1 codecs"]
         services["UserNotifications (local),<br/>ServiceManagement (launchd jobs),<br/>CoreLocation, LocalAuthentication,<br/>CoreWLAN, IOBluetooth (and its<br/>UI's panels), StoreKit,<br/>Accounts, GSS (answering as a Mac<br/>without those services would)"]
         contacts["Contacts<br/>the user's contacts in Finch's<br/>own store, groups, change history;<br/>name and address formatters, vCard"]
         contactui["ContactsUI<br/>CNContactPicker popover,<br/>CNContactViewController card<br/>(Contacts + AppKit)"]
@@ -171,7 +178,7 @@ block-beta
         ctio["CoreText<br/>fonts, shaping, lines, frames<br/>(HarfBuzz, FreeType, ICU)"]
         quartzcore["QuartzCore<br/>layers drawn through CoreGraphics,<br/>animation objects, transactions;<br/>animation playback still to come"]
         imagecap["ImageCaptureCore (device<br/>browser, finds no devices yet),<br/>ICADevices; Quartz umbrella<br/>with ImageKit's device views<br/>and save options, QuartzFilters<br/>(Finch's own filters)"]
-        avplanned["VideoToolbox, AVKit,<br/>AVFoundation codecs (planned:<br/>docs/design/MEDIA.md)"]
+        avplanned["AVKit (planned:<br/>docs/design/MEDIA.md)"]
         opengl["OpenGL<br/>CGL contexts and GLU (Finch's),<br/>NSOpenGL views; software<br/>rendering by Mesa"]
         coreservices["CoreServices<br/>app lookup and launch,<br/>local Apple events, files"]
         later["Metal and MetalKit:<br/>MTKView settings; no GPU,<br/>device or drawable"]
@@ -267,7 +274,7 @@ block-beta
     class t7,t6,t5,t4,t3,t2,t1,t0 layer
     class avplanned,kexts,metal planned
     class apps testapp
-    class opengl,later,mediaaddons,coreimage,services,contacts,contactui,corespotlight,linkpresentation,cfnetwork,appsupport,shell,uti,appkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
+    class opengl,later,mediaaddons,coreimage,videotoolbox,services,contacts,contactui,corespotlight,linkpresentation,cfnetwork,appsupport,shell,uti,appkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
     class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui,cmark,sqlite upstream
     class vz firmware
@@ -285,8 +292,9 @@ block-beta
 
 ## How the libraries link
 
-The edges shown are load-time links (`otool -L`); common links to libSystem and
-libobjc are omitted for most frameworks. CoreFoundation's upward link to
+Solid edges are load-time links (`otool -L`); dotted edges show static links or dependencies
+marked as linked but unused. Common links to libSystem and libobjc are omitted for
+most frameworks. CoreFoundation's upward link to
 Foundation follows Apple's layout.
 
 ```mermaid
@@ -326,7 +334,9 @@ flowchart LR
     metalfw["Metal"]:::finch
     metalkit["MetalKit"]:::finch
     iosurfacefw["IOSurface"]:::finch
+    corevideofw["CoreVideo"]:::finch
     coremediafw["CoreMedia"]:::finch
+    videotoolboxfw["VideoToolbox"]:::finch
     audiotoolbox["AudioToolbox"]:::finch
     audiounit["AudioUnit"]:::finch
     coremidi["CoreMIDI"]:::finch
@@ -354,6 +364,9 @@ flowchart LR
     cfnetwork["CFNetwork"]:::finch
     openssl["OpenSSL (static)"]:::upstream
     swiftcrypto["swift-crypto 5.0.1<br/>BoringSSL + XKCP (static)"]:::upstream
+    openh264["OpenH264 (static)"]:::upstream
+    libvpx["libvpx (static)"]:::upstream
+    dav1d["dav1d (static)"]:::upstream
     skialib["Skia, FreeType<br/>(static)"]:::upstream
     cmark["cmark-gfm 0.29.0.gfm.13<br/>(static)"]:::upstream
     sqlite["libsqlite3<br/>(SQLite 3.54.0)"]:::upstream
@@ -439,6 +452,11 @@ flowchart LR
     metalkit --> qc
     metalkit --> ffound
     iosurfacefw --> ffound
+    videotoolboxfw --> corevideofw
+    videotoolboxfw --> coremediafw
+    videotoolboxfw -.->|"static"| openh264
+    videotoolboxfw -.->|"static"| libvpx
+    videotoolboxfw -.->|"static"| dav1d
     coremediafw --> ffound
     avfaudio --> audiotoolbox
     avfoundation -->|"re-exports"| avfaudio

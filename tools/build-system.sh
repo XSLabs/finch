@@ -198,6 +198,7 @@ steps=(
     "IOSurface|userland/IOSurface/build.sh"
     "GSS|userland/GSS/build.sh"
     "CoreMedia|userland/CoreMedia/build.sh"
+    "VideoToolbox|userland/VideoToolbox/build.sh"
     "AVFAudio|userland/AVFAudio/build.sh"
     "AVFoundation|userland/AVFoundation/build.sh"
     # Link metadata fetched by Finch Foundation's URL loader and shown with AppKit.
