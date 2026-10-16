@@ -1114,6 +1114,16 @@ binaries.
 Installer (the standalone install from Phase 3, run from recoveryOS), updates, Finch desktop polish, security model (code signing, sandbox, SIP-like
 protections under Finch's own keys).
 
+**Compatibility target (decided 2026-10-15).** Finch 1.0 claims compatibility with Mac
+apps built against a pinned macOS SDK baseline, today the build Mac's macOS 26.4 SDK, and
+each later macOS release moves the baseline forward by its API diff. It's measured per
+framework, not per app: each framework's whole public API at the baseline (from the SDK's
+headers, Swift interfaces and export lists) is tracked, and each piece counts once it
+behaves as Apple's under generated comparison tests (many inputs, Apple's framework and
+Finch's, diffed on the build Mac) and replayed traces of real apps' framework calls
+recorded on macOS. The app set below are acceptance tests and trace sources;
+tools/app-sweep.py only orders which frameworks come first.
+
 Earlier unchecked work remains part of the release. A completed framework entry means
 its listed operations work; exported names and passing small tests do not establish
 that every app works. These release checks were missing from the Phase 5 list:
