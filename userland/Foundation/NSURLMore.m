@@ -9,6 +9,8 @@
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
 
+#include "NSURLStringEncoding_Finch.h"
+
 static CFURLRef
 create_url_from_data(NSData *data, NSURL *baseURL, BOOL absolute)
 {
@@ -23,7 +25,49 @@ create_url_from_data(NSData *data, NSURL *baseURL, BOOL absolute)
     return result;
 }
 
+static CFURLRef
+create_url_from_string(NSString *string, NSURL *baseURL, BOOL encodeInvalidCharacters)
+{
+    if (!string)
+        return NULL;
+    NSString *value = string;
+    if (encodeInvalidCharacters)
+        value = FinchURLStringByEncodingInvalidCharacters(string);
+    if (!value)
+        return NULL;
+    return CFURLCreateWithString(kCFAllocatorDefault, (CFStringRef)value, (CFURLRef)baseURL);
+}
+
 @implementation NSURL (FinchConstruction)
+
++ (instancetype)URLWithString:(NSString *)string
+{
+    return [(id)create_url_from_string(string, nil, YES) autorelease];
+}
+
++ (instancetype)URLWithString:(NSString *)string relativeToURL:(NSURL *)baseURL
+{
+    return [(id)create_url_from_string(string, baseURL, YES) autorelease];
+}
+
+- (instancetype)initWithString:(NSString *)string
+{
+    return [self initWithString:string relativeToURL:nil];
+}
+
+- (instancetype)initWithString:(NSString *)string relativeToURL:(NSURL *)baseURL
+{
+    CFURLRef url = create_url_from_string(string, baseURL, YES);
+    [self release];
+    return (id)url;
+}
+
+- (instancetype)initWithString:(NSString *)string encodingInvalidCharacters:(BOOL)encode
+{
+    CFURLRef url = create_url_from_string(string, nil, encode);
+    [self release];
+    return (id)url;
+}
 
 - (instancetype)initWithDataRepresentation:(NSData *)data relativeToURL:(NSURL *)baseURL
 {
@@ -52,19 +96,6 @@ create_url_from_data(NSData *data, NSURL *baseURL, BOOL absolute)
     components.path = path;
     NSURL *url = [[NSURL alloc] initWithString:[components string]];
     [components release];
-    [self release];
-    return url;
-}
-
-- (instancetype)initWithString:(NSString *)string encodingInvalidCharacters:(BOOL)encode
-{
-    NSURL *url = nil;
-    if (encode) {
-        NSURLComponents *components = [[[NSURLComponents alloc] initWithString:string encodingInvalidCharacters:YES] autorelease];
-        url = [[NSURL alloc] initWithString:[components string]];
-    } else {
-        url = [[NSURL alloc] initWithString:string];
-    }
     [self release];
     return url;
 }

@@ -506,25 +506,49 @@ base64_encode(NSData *data, NSDataBase64EncodingOptions opts)
     return out;
 }
 
+static int
+base64_value(uint8_t c)
+{
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+}
+
+static BOOL
+base64_has_data_after(const uint8_t *in, NSUInteger n, NSUInteger index)
+{
+    for (NSUInteger i = index + 1; i < n; i++)
+        if (base64_value(in[i]) >= 0) return YES;
+    return NO;
+}
+
 static NSData *
 base64_decode(const uint8_t *in, NSUInteger n, NSDataBase64DecodingOptions opts)
 {
     NSMutableData *out = [NSMutableData dataWithCapacity:n / 4 * 3];
     uint32_t acc = 0;
-    int bits = 0, pad = 0;
+    int bits = 0;
+    NSUInteger padding = 0;
     NSUInteger count = 0;
+    BOOL ignoredUnknown = NO;
     for (NSUInteger i = 0; i < n; i++) {
         uint8_t c = in[i];
         int v;
-        if (c >= 'A' && c <= 'Z') v = c - 'A';
-        else if (c >= 'a' && c <= 'z') v = c - 'a' + 26;
-        else if (c >= '0' && c <= '9') v = c - '0' + 52;
-        else if (c == '+') v = 62;
-        else if (c == '/') v = 63;
-        else if (c == '=') { pad++; count++; continue; }
-        else if (opts & NSDataBase64DecodingIgnoreUnknownCharacters) continue;
-        else return nil;
-        if (pad) return nil;
+        if (c == '=') {
+            if ((opts & NSDataBase64DecodingIgnoreUnknownCharacters) && base64_has_data_after(in, n, i)) {
+                ignoredUnknown = YES;
+                continue;
+            }
+            padding++;
+            v = 0;
+        } else if ((v = base64_value(c)) < 0) {
+            if (opts & NSDataBase64DecodingIgnoreUnknownCharacters) { ignoredUnknown = YES; continue; }
+            return nil;
+        }
+        if (padding && c != '=') return nil;
         acc = acc << 6 | (uint32_t)v;
         bits += 6;
         count++;
@@ -534,7 +558,11 @@ base64_decode(const uint8_t *in, NSUInteger n, NSDataBase64DecodingOptions opts)
             [out appendBytes:&b length:1];
         }
     }
-    if (count % 4 || pad > 2) return nil;
+    NSUInteger remainder = count % 4;
+    if (remainder && !(ignoredUnknown && remainder == 3)) return nil;
+    NSUInteger trim = MIN(padding, 2);
+    if (trim > [out length]) return nil;
+    [out setLength:[out length] - trim];
     return out;
 }
 

@@ -10,6 +10,7 @@
 #import <Foundation/Foundation.h>
 
 #include "Foundation_Finch.h"
+#include "NSURLStringEncoding_Finch.h"
 
 typedef struct __CFURLComponents *CFURLComponentsRef;
 CF_EXPORT CFURLComponentsRef _CFURLComponentsCreate(CFAllocatorRef);
@@ -146,19 +147,19 @@ split_items(NSArray *items, CFArrayRef *names, CFArrayRef *values)
 
 - (instancetype)initWithString:(NSString *)URLString
 {
-    if ((self = [super init])) {
-        _c = URLString ? _CFURLComponentsCreateWithString(NULL, (CFStringRef)URLString) : NULL;
-        if (!_c) { [self release]; return nil; }
-    }
-    return self;
+    return [self initWithString:URLString encodingInvalidCharacters:YES];
 }
 
 - (instancetype)initWithString:(NSString *)URLString encodingInvalidCharacters:(BOOL)encode
 {
-    if (!encode)
-        return [self initWithString:URLString];
-    NSString *escaped = [URLString stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLFragmentAllowedCharacterSet]];
-    return [self initWithString:escaped ?: URLString];
+    NSString *input = URLString;
+    if (encode && input)
+        input = FinchURLStringByEncodingInvalidCharacters(input);
+    if ((self = [super init])) {
+        _c = input ? _CFURLComponentsCreateWithString(NULL, (CFStringRef)input) : NULL;
+        if (!_c) { [self release]; return nil; }
+    }
+    return self;
 }
 
 + (instancetype)componentsWithURL:(NSURL *)url resolvingAgainstBaseURL:(BOOL)resolve

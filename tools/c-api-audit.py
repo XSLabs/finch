@@ -80,7 +80,7 @@ def public_headers(framework, name):
     return headers.resolve(), [str(path) for path in sorted(found)], [root.resolve() for root in roots]
 
 
-def declaration_source(node, header_root, header_paths):
+def declaration_source(node, header_root, header_paths, header_lines):
     """Return the SDK header that owns a declaration, including macro uses."""
     locations = []
     for key in ("range", "loc"):
@@ -109,7 +109,7 @@ def declaration_source(node, header_root, header_paths):
         candidates = []
         token = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])")
         for path in header_paths:
-            lines = open(path, errors="replace").read().splitlines()
+            lines = header_lines[path]
             if line <= len(lines) and token.search(lines[line - 1]):
                 if not column or token.search(lines[line - 1][max(0, column - 1):]):
                     candidates.append(path)
@@ -163,6 +163,10 @@ def sdk_declarations(name):
         raise RuntimeError(f"Clang could not parse {name}'s SDK headers:\n{parsed.stderr.strip()}")
     ast = json.loads(parsed.stdout)
     sources = {}
+    # Clang omits the file name on many AST locations after the first one in
+    # each header. Cache these lines once; without this, every declaration
+    # would reopen every SDK header while resolving its source.
+    header_lines = {path: Path(path).read_text(errors="replace").splitlines() for path in header_paths}
     declarations = {}
 
     def walk(node, inside_function=False):
@@ -174,7 +178,7 @@ def sdk_declarations(name):
             if (symbol and identifier and not identifier.startswith("_") and
                     node.get("storageClass") != "static" and not inline and
                     not unavailable_on_macos(node, sources)):
-                path = declaration_source(node, header_root, header_paths)
+                path = declaration_source(node, header_root, header_paths, header_lines)
                 if path:
                     relative = os.path.relpath(path, header_root)
                     declarations.setdefault(symbol, set()).add(relative)

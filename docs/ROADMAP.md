@@ -1122,7 +1122,9 @@ headers, Swift interfaces and export lists) is tracked, and each piece counts on
 behaves as Apple's under generated comparison tests (many inputs, Apple's framework and
 Finch's, diffed on the build Mac) and replayed traces of real apps' framework calls
 recorded on macOS. The app set below are acceptance tests and trace sources;
-tools/app-sweep.py only orders which frameworks come first.
+tools/app-sweep.py only orders which frameworks come first. See
+[generated compatibility testing](COMPATIBILITY-TESTING.md) for the current
+CoreFoundation and Foundation comparison runner.
 
 Earlier unchecked work remains part of the release. A completed framework entry means
 its listed operations work; exported names and passing small tests do not establish

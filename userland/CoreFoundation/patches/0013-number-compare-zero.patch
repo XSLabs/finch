@@ -1,0 +1,26 @@
+diff --git a/Sources/CoreFoundation/CFNumber.c b/Sources/CoreFoundation/CFNumber.c
+--- a/Sources/CoreFoundation/CFNumber.c
++++ b/Sources/CoreFoundation/CFNumber.c
+@@ -1246,6 +1246,7 @@ static CFComparisonResult CFNumberCompare_new(CFNumberRef number1, CFNumberRef n
+ 	if (isnan(d1) && isnan(d2)) return kCFCompareEqualTo;
+ 	if (isnan(d1)) return (s2 < 0.0) ? kCFCompareGreaterThan : kCFCompareLessThan;
+ 	if (isnan(d2)) return (s1 < 0.0) ? kCFCompareLessThan : kCFCompareGreaterThan;
++	if (d1 == 0.0 && d2 == 0.0) return kCFCompareEqualTo;
+ 	// at this point, we know we don't have any NaNs
+ 	if (s1 < s2) return kCFCompareLessThan;
+ 	if (s2 < s1) return kCFCompareGreaterThan;
+@@ -1292,12 +1293,13 @@ static CFComparisonResult CFNumberCompare_new(CFNumberRef number1, CFNumberRef n
+ 	return !swapResult ? kCFCompareLessThan : kCFCompareGreaterThan;
+     }
+     // at this point, we know we don't have NaN
++    __CFNumberGetValue(number2, kCFNumberFloat64Type, &d2);
++    if (d1 == 0.0 && d2 == 0.0) return kCFCompareEqualTo;
+     double s1 = copysign(1.0, d1);
+     double s2 = isNeg128(&i2) ? -1.0 : 1.0;
+     if (s1 < s2) return !swapResult ? kCFCompareLessThan : kCFCompareGreaterThan;
+     if (s2 < s1) return !swapResult ? kCFCompareGreaterThan : kCFCompareLessThan;
+     // at this point, we know the signs are the same; do not combine these tests
+-    __CFNumberGetValue(number2, kCFNumberFloat64Type, &d2);
+     if (d1 < d2) return !swapResult ? kCFCompareLessThan : kCFCompareGreaterThan;
+     if (d2 < d1) return !swapResult ? kCFCompareGreaterThan : kCFCompareLessThan;
+     return kCFCompareEqualTo;

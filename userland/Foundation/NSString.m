@@ -53,6 +53,15 @@ cf_encoding(NSStringEncoding enc)
     return e == kCFStringEncodingInvalidId ? kCFStringEncodingUTF8 : e;
 }
 
+static CFStringCompareFlags
+cf_compare_flags(NSStringCompareOptions options)
+{
+    CFStringCompareFlags flags = (CFStringCompareFlags)options;
+    if (!(options & NSLiteralSearch))
+        flags |= kCFCompareNonliteral;
+    return flags;
+}
+
 /* A CFString with self's characters, for abstract subclasses (+1). */
 static CFStringRef
 cf_copy_of(NSString *s)
@@ -313,7 +322,7 @@ cf_copy_of(NSString *s)
     CFLocaleRef l = locale && CFGetTypeID((CFTypeRef)locale) == CFLocaleGetTypeID() ? (CFLocaleRef)locale
         : (locale ? CFLocaleCopyCurrent() : NULL);
     CFComparisonResult r = CFStringCompareWithOptionsAndLocale((CFStringRef)self, (CFStringRef)string,
-        CFRangeMake((CFIndex)range.location, (CFIndex)range.length), (CFStringCompareFlags)mask, l);
+        CFRangeMake((CFIndex)range.location, (CFIndex)range.length), cf_compare_flags(mask), l);
     if (l && l != (CFLocaleRef)locale) CFRelease(l);
     return (NSComparisonResult)r;
 }
@@ -389,7 +398,7 @@ cf_copy_of(NSString *s)
     if (mask & NSRegularExpressionSearch) return FinchRegexRange(self, searchString, mask, range);
     if ([searchString length] == 0 || [self length] == 0) return NSMakeRange(NSNotFound, 0);
     if (CFStringFindWithOptionsAndLocale((CFStringRef)self, (CFStringRef)searchString,
-            CFRangeMake((CFIndex)range.location, (CFIndex)range.length), (CFStringCompareFlags)mask, (CFLocaleRef)locale, &found))
+            CFRangeMake((CFIndex)range.location, (CFIndex)range.length), cf_compare_flags(mask), (CFLocaleRef)locale, &found))
         return NSMakeRange((NSUInteger)found.location, (NSUInteger)found.length);
     return NSMakeRange(NSNotFound, 0);
 }
