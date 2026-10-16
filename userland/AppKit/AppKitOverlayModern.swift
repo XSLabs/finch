@@ -8,6 +8,145 @@
 import Foundation
 @_exported import AppKit
 
+// MARK: - Toolbar badges
+
+@_silgen_name("FinchAppKitSwiftItemBadgeWithCount")
+private func _finchItemBadgeWithCount(_ count: Int) -> AnyObject
+@_silgen_name("FinchAppKitSwiftItemBadgeWithText")
+private func _finchItemBadgeWithText(_ text: NSString) -> AnyObject
+@_silgen_name("FinchAppKitSwiftItemBadgeIndicator")
+private func _finchItemBadgeIndicator() -> AnyObject
+@_silgen_name("FinchAppKitSwiftItemBadgeText")
+private func _finchItemBadgeText(_ badge: AnyObject) -> NSString
+@_silgen_name("FinchAppKitSwiftToolbarItemBadge")
+private func _finchToolbarItemBadge(_ item: NSToolbarItem) -> AnyObject?
+@_silgen_name("FinchAppKitSwiftSetToolbarItemBadge")
+private func _finchSetToolbarItemBadge(_ item: NSToolbarItem, _ badge: AnyObject?)
+
+@available(macOS 26.0, *)
+public struct NSItemBadge : Equatable {
+  fileprivate let _object: AnyObject
+
+  fileprivate init(_object: AnyObject) { self._object = _object }
+
+  public static func count(_ count: Int) -> NSItemBadge {
+    NSItemBadge(_object: _finchItemBadgeWithCount(count))
+  }
+
+  public static func text(_ text: String) -> NSItemBadge {
+    NSItemBadge(_object: _finchItemBadgeWithText(text as NSString))
+  }
+
+  public static var indicator: NSItemBadge {
+    NSItemBadge(_object: _finchItemBadgeIndicator())
+  }
+
+  public var text: String { _finchItemBadgeText(_object) as String }
+
+  public static func == (lhs: NSItemBadge, rhs: NSItemBadge) -> Bool {
+    lhs.text == rhs.text
+  }
+}
+
+@available(macOS 26.0, *)
+@MainActor
+extension NSToolbarItem {
+  public var badge: NSItemBadge? {
+    get {
+      guard let object = _finchToolbarItemBadge(self) else { return nil }
+      return NSItemBadge(_object: object)
+    }
+    set {
+      _finchSetToolbarItemBadge(self, newValue?._object)
+    }
+  }
+}
+
+// MARK: - View layout regions
+
+@_silgen_name("FinchAppKitSwiftLayoutGuideForRegion")
+private func _finchLayoutGuideForRegion(_ view: NSView, _ kind: Int, _ axis: Int) -> NSLayoutGuide
+@_silgen_name("FinchAppKitSwiftEdgeInsetsForRegion")
+private func _finchEdgeInsetsForRegion(_ view: NSView, _ kind: Int, _ axis: Int) -> NSEdgeInsets
+@_silgen_name("FinchAppKitSwiftRectForRegion")
+private func _finchRectForRegion(_ view: NSView, _ kind: Int, _ axis: Int) -> NSRect
+
+@available(macOS 26.0, *)
+extension NSView {
+  public struct LayoutRegion : Hashable, Equatable {
+    public enum AdaptivityAxis : Equatable, Hashable {
+      case horizontal
+      case vertical
+
+      fileprivate var _value: Int {
+        switch self {
+        case .horizontal: return 1
+        case .vertical: return 2
+        }
+      }
+
+      public static func == (a: AdaptivityAxis, b: AdaptivityAxis) -> Bool {
+        a._value == b._value
+      }
+
+      public func hash(into hasher: inout Hasher) { hasher.combine(_value) }
+
+      public var hashValue: Int {
+        var hasher = Hasher()
+        hash(into: &hasher)
+        return hasher.finalize()
+      }
+    }
+
+    private enum _Kind: Int { case safeArea, margins }
+    private let _kind: _Kind
+    private let _axis: AdaptivityAxis?
+
+    private init(kind: _Kind, axis: AdaptivityAxis?) {
+      _kind = kind
+      _axis = axis
+    }
+
+    fileprivate var _kindValue: Int { _kind.rawValue }
+    fileprivate var _axisValue: Int { _axis?._value ?? 0 }
+
+    public static func safeArea(cornerAdaptation: AdaptivityAxis? = nil) -> LayoutRegion {
+      LayoutRegion(kind: .safeArea, axis: cornerAdaptation)
+    }
+
+    public static func margins(cornerAdaptation: AdaptivityAxis? = nil) -> LayoutRegion {
+      LayoutRegion(kind: .margins, axis: cornerAdaptation)
+    }
+
+    public static func == (a: LayoutRegion, b: LayoutRegion) -> Bool {
+      a._kind == b._kind && a._axis == b._axis
+    }
+
+    public func hash(into hasher: inout Hasher) {
+      hasher.combine(_kind.rawValue)
+      hasher.combine(_axis?._value ?? 0)
+    }
+
+    public var hashValue: Int {
+      var hasher = Hasher()
+      hash(into: &hasher)
+      return hasher.finalize()
+    }
+  }
+
+  public func layoutGuide(for region: LayoutRegion) -> NSLayoutGuide {
+    _finchLayoutGuideForRegion(self, region._kindValue, region._axisValue)
+  }
+
+  public func edgeInsets(for region: LayoutRegion) -> NSEdgeInsets {
+    _finchEdgeInsetsForRegion(self, region._kindValue, region._axisValue)
+  }
+
+  public func rect(for region: LayoutRegion) -> NSRect {
+    _finchRectForRegion(self, region._kindValue, region._axisValue)
+  }
+}
+
 // MARK: - Snapshots
 
 @available(macOS 10.15.1, *)

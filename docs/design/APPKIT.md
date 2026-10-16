@@ -794,3 +794,22 @@ draws (`userland/tests/app-test.c`).
   The attachment path updater, full typesetter APIs, the system-managed insertion
   indicator, and cached, EPS and PICT image reps remain out because Finch lacks their
   attachment lifecycle, layout callbacks, rendering integration or image decoders.
+- 2026-10-16: toolbar badges and view layout regions. `NSItemBadge` formats counts with
+  the current locale, keeps text and indicator badges, and attaches to `NSToolbarItem`.
+  Finch draws a small red badge over the item's image or custom view. `NSViewLayoutRegion`
+  measures the safe area and the 20-point content margins within it; Finch's rectangular
+  views have no corner insets for the corner-adaptation axis to adjust. The AppKit
+  Swift overlay exposes Apple's `NSItemBadge` and `NSView.LayoutRegion` values over
+  those Objective-C implementations. `NSSharingCollaborationModeRestriction` stores
+  the disabled mode and its alert and recovery details, and supports secure coding and
+  copying without needing the share service itself. The comparison tests cover badge
+  values, mutable text, toolbar-item copies, region insets and guides, and secure sharing
+  restriction archives.
+  The API inventory now finds 14,714 of 18,585 items present; the Objective-C audit still
+  has 24 missing classes and 20 missing methods.
+  Full typesetter callbacks, window-backed cached images, EPS and PICT decoders, Core Data
+  documents and OpenGL pixel buffers still need missing layout, image, storage or driver
+  support. Spell suggestions and correction panels, font downloads, speech recognition,
+  input servers, media library browsing, file authorization and account-backed sharing
+  need Apple services Finch does not have. Writing Tools, Touch Bar interaction and touch
+  tracking also need missing services or hardware.

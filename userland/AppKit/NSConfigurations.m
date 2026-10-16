@@ -1,11 +1,13 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
 /*
  * Small AppKit value classes: NSMenuItemBadge (counts with "1 update", "2 new",
- * "1,234 alerts"), NSPressureConfiguration, NSTintConfiguration (the shared default and
- * monochrome configurations, a preferred colour that follows the accent colour, a fixed
- * one that doesn't), NSUserInterfaceCompressionOptions (sets of identifiers; the
- * standard ones are shared instances) and NSScrollEdgeEffectStyle (three shared styles).
- * Behaviour, sharing and equality as Apple's.
+ * "1,234 alerts"), NSItemBadge (toolbar labels and indicators),
+ * NSSharingCollaborationModeRestriction (a mode and its optional alert),
+ * NSPressureConfiguration, NSTintConfiguration (the shared default and monochrome
+ * configurations, a preferred colour that follows the accent colour, a fixed one that
+ * doesn't), NSUserInterfaceCompressionOptions (sets of identifiers; the standard ones
+ * are shared instances) and NSScrollEdgeEffectStyle (three shared styles). Behaviour,
+ * sharing, coding and equality as Apple's.
  */
 #import <AppKit/AppKit.h>
 
@@ -66,6 +68,217 @@ counted(NSInteger count, NSString *one, NSString *many)
 - (NSMenuItemBadgeType)type { return _type; }
 - (NSString *)stringValue { return _stringValue; }
 - (id)copyWithZone:(NSZone *)zone { return [self retain]; }
+
+@end
+
+/* ---- NSItemBadge ---- */
+
+@interface NSItemBadge () <NSCopying>
+@end
+
+@implementation NSItemBadge {
+    NSString *_text;
+}
+
+- (instancetype)init
+{
+    if ((self = [super init]))
+        _text = [@"" copy];
+    return self;
+}
+
+- (void)dealloc
+{
+    [_text release];
+    [super dealloc];
+}
+
++ (NSItemBadge *)badgeWithCount:(NSInteger)count
+{
+    NSString *text = [NSNumberFormatter localizedStringFromNumber:@(count) numberStyle:NSNumberFormatterDecimalStyle];
+    return [self badgeWithText:text];
+}
+
++ (NSItemBadge *)badgeWithText:(NSString *)text
+{
+    NSItemBadge *badge = [[[self alloc] init] autorelease];
+    [badge->_text release];
+    badge->_text = [text retain];
+    return badge;
+}
+
++ (NSItemBadge *)indicatorBadge
+{
+    return [[[self alloc] init] autorelease];
+}
+
+- (NSString *)text { return _text; }
+- (id)copyWithZone:(NSZone *)zone { return [self retain]; }
+
+@end
+
+/* The SDK refines these Objective-C declarations away in Swift, so the Swift overlay
+   reaches them through these small ownership-aware helpers. */
+id FinchAppKitSwiftItemBadgeWithCount(NSInteger count);
+id FinchAppKitSwiftItemBadgeWithText(NSString *text);
+id FinchAppKitSwiftItemBadgeIndicator(void);
+NSString *FinchAppKitSwiftItemBadgeText(id badge);
+id FinchAppKitSwiftToolbarItemBadge(NSToolbarItem *item);
+void FinchAppKitSwiftSetToolbarItemBadge(NSToolbarItem *item, id badge);
+
+id FinchAppKitSwiftItemBadgeWithCount(NSInteger count)
+{
+    return [[NSItemBadge badgeWithCount:count] retain];
+}
+
+id FinchAppKitSwiftItemBadgeWithText(NSString *text)
+{
+    return [[NSItemBadge badgeWithText:text] retain];
+}
+
+id FinchAppKitSwiftItemBadgeIndicator(void)
+{
+    return [[NSItemBadge indicatorBadge] retain];
+}
+
+NSString *FinchAppKitSwiftItemBadgeText(id badge)
+{
+    return [[(NSItemBadge *)badge text] retain];
+}
+
+id FinchAppKitSwiftToolbarItemBadge(NSToolbarItem *item)
+{
+    return [[item badge] retain];
+}
+
+void FinchAppKitSwiftSetToolbarItemBadge(NSToolbarItem *item, id badge)
+{
+    [item setBadge:badge];
+}
+
+/* ---- NSSharingCollaborationModeRestriction ---- */
+
+@interface NSSharingCollaborationModeRestriction (FinchRestriction)
+- (instancetype)_finchInitWithDisabledMode:(NSSharingCollaborationMode)mode
+                                alertTitle:(NSString *)title
+                              alertMessage:(NSString *)message
+                 alertDismissButtonTitle:(NSString *)dismissTitle
+       alertRecoverySuggestionButtonTitle:(NSString *)recoveryTitle
+ alertRecoverySuggestionButtonLaunchURL:(NSURL *)recoveryURL;
+@end
+
+@implementation NSSharingCollaborationModeRestriction {
+    NSSharingCollaborationMode _disabledMode;
+    NSString *_alertTitle, *_alertMessage, *_alertDismissButtonTitle;
+    NSString *_alertRecoverySuggestionButtonTitle;
+    NSURL *_alertRecoverySuggestionButtonLaunchURL;
+    BOOL _allowContinueToMode;
+}
+
+- (instancetype)_finchInitWithDisabledMode:(NSSharingCollaborationMode)mode
+                                alertTitle:(NSString *)title
+                              alertMessage:(NSString *)message
+                 alertDismissButtonTitle:(NSString *)dismissTitle
+       alertRecoverySuggestionButtonTitle:(NSString *)recoveryTitle
+ alertRecoverySuggestionButtonLaunchURL:(NSURL *)recoveryURL
+{
+    if ((self = [super init])) {
+        _disabledMode = mode;
+        _alertTitle = [title copy];
+        _alertMessage = [message copy];
+        _alertDismissButtonTitle = [dismissTitle copy];
+        _alertRecoverySuggestionButtonTitle = [recoveryTitle copy];
+        _alertRecoverySuggestionButtonLaunchURL = [recoveryURL copy];
+    }
+    return self;
+}
+
+- (instancetype)initWithDisabledMode:(NSSharingCollaborationMode)mode
+{
+    return [self _finchInitWithDisabledMode:mode alertTitle:nil alertMessage:nil
+                    alertDismissButtonTitle:nil alertRecoverySuggestionButtonTitle:nil
+          alertRecoverySuggestionButtonLaunchURL:nil];
+}
+
+- (instancetype)initWithDisabledMode:(NSSharingCollaborationMode)mode alertTitle:(NSString *)title alertMessage:(NSString *)message
+{
+    return [self _finchInitWithDisabledMode:mode alertTitle:title alertMessage:message
+                    alertDismissButtonTitle:nil alertRecoverySuggestionButtonTitle:nil
+          alertRecoverySuggestionButtonLaunchURL:nil];
+}
+
+- (instancetype)initWithDisabledMode:(NSSharingCollaborationMode)mode alertTitle:(NSString *)title alertMessage:(NSString *)message
+             alertDismissButtonTitle:(NSString *)dismissTitle
+{
+    return [self _finchInitWithDisabledMode:mode alertTitle:title alertMessage:message
+                    alertDismissButtonTitle:dismissTitle alertRecoverySuggestionButtonTitle:nil
+          alertRecoverySuggestionButtonLaunchURL:nil];
+}
+
+- (instancetype)initWithDisabledMode:(NSSharingCollaborationMode)mode alertTitle:(NSString *)title alertMessage:(NSString *)message
+             alertDismissButtonTitle:(NSString *)dismissTitle
+     alertRecoverySuggestionButtonTitle:(NSString *)recoveryTitle
+       alertRecoverySuggestionButtonLaunchURL:(NSURL *)recoveryURL
+{
+    return [self _finchInitWithDisabledMode:mode alertTitle:title alertMessage:message
+                    alertDismissButtonTitle:dismissTitle alertRecoverySuggestionButtonTitle:recoveryTitle
+          alertRecoverySuggestionButtonLaunchURL:recoveryURL];
+}
+
+- (NSSharingCollaborationMode)disabledMode { return _disabledMode; }
+- (NSString *)alertTitle { return _alertTitle; }
+- (NSString *)alertMessage { return _alertMessage; }
+- (NSString *)alertDismissButtonTitle { return _alertDismissButtonTitle; }
+- (NSString *)alertRecoverySuggestionButtonTitle { return _alertRecoverySuggestionButtonTitle; }
+- (NSURL *)alertRecoverySuggestionButtonLaunchURL { return _alertRecoverySuggestionButtonLaunchURL; }
+
+- (id)copyWithZone:(NSZone *)zone
+{
+    NSSharingCollaborationModeRestriction *copy = [[[self class] allocWithZone:zone]
+        _finchInitWithDisabledMode:_disabledMode
+                        alertTitle:_alertTitle
+                      alertMessage:_alertMessage
+         alertDismissButtonTitle:_alertDismissButtonTitle
+ alertRecoverySuggestionButtonTitle:_alertRecoverySuggestionButtonTitle
+alertRecoverySuggestionButtonLaunchURL:_alertRecoverySuggestionButtonLaunchURL];
+    copy->_allowContinueToMode = _allowContinueToMode;
+    return copy;
+}
+
++ (BOOL)supportsSecureCoding { return YES; }
+
+- (void)encodeWithCoder:(NSCoder *)coder
+{
+    [coder encodeInteger:_disabledMode forKey:@"disabledMode"];
+    [coder encodeBool:_allowContinueToMode forKey:@"allowContinueToMode"];
+    [coder encodeObject:_alertTitle forKey:@"alertTitle"];
+    [coder encodeObject:_alertMessage forKey:@"alertMessage"];
+    [coder encodeObject:_alertDismissButtonTitle forKey:@"alertDismissButtonTitle"];
+    [coder encodeObject:_alertRecoverySuggestionButtonTitle forKey:@"alertRecoverySuggestionButtonTitle"];
+    [coder encodeObject:_alertRecoverySuggestionButtonLaunchURL forKey:@"alertRecoverySuggestionButtonLaunchURL"];
+}
+
+- (instancetype)initWithCoder:(NSCoder *)coder
+{
+    if ((self = [self _finchInitWithDisabledMode:(NSSharingCollaborationMode)[coder decodeIntegerForKey:@"disabledMode"]
+                                       alertTitle:[coder decodeObjectOfClass:[NSString class] forKey:@"alertTitle"]
+                                     alertMessage:[coder decodeObjectOfClass:[NSString class] forKey:@"alertMessage"]
+                        alertDismissButtonTitle:[coder decodeObjectOfClass:[NSString class] forKey:@"alertDismissButtonTitle"]
+              alertRecoverySuggestionButtonTitle:[coder decodeObjectOfClass:[NSString class] forKey:@"alertRecoverySuggestionButtonTitle"]
+        alertRecoverySuggestionButtonLaunchURL:[coder decodeObjectOfClass:[NSURL class] forKey:@"alertRecoverySuggestionButtonLaunchURL"]]))
+        _allowContinueToMode = [coder decodeBoolForKey:@"allowContinueToMode"];
+    return self;
+}
+
+- (void)dealloc
+{
+    [_alertTitle release];
+    [_alertMessage release];
+    [_alertDismissButtonTitle release];
+    [_alertRecoverySuggestionButtonTitle release];
+    [_alertRecoverySuggestionButtonLaunchURL release];
+    [super dealloc];
+}
 
 @end
 

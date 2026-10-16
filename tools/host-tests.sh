@@ -82,15 +82,39 @@ done
 MAIN_1X=0
 system_profiler SPDisplaysDataType 2>/dev/null | awk '/Resolution:/ { r = $0 } /Main Display: Yes/ { print r }' |
     grep -q Retina || MAIN_1X=1
+# A nib can restore its window onto an attached 1x display even when the main display is
+# Retina. Finch has no display list, so that window's saved screen position cannot match.
+ATTACHED_1X=0
+if system_profiler SPDisplaysDataType 2>/dev/null | awk '
+    /Resolution:/ {
+        split($0, size, /[^0-9]+/)
+        width = size[2]
+        height = size[3]
+        matches = 0
+    }
+    /UI Looks like:/ {
+        split($0, size, /[^0-9]+/)
+        if (width == size[2] && height == size[3]) matches = 1
+    }
+    /Online: Yes/ {
+        if (matches) found = 1
+        matches = 0
+    }
+    END { exit !found }
+'; then
+    ATTACHED_1X=1
+fi
 exception() {
     local line name rest
     while IFS= read -r line; do
         [[ -z "${line}" || "${line}" == \#* ]] && continue
         name="${line%%:*}"
         rest="${line#*:}"
-        if [[ "${name}" == "$1 (1x display)" && "${MAIN_1X}" -eq 1 ]]; then
-            echo "display:${rest# }"
-            return 0
+        if [[ "${name}" == "$1 (1x display)" ]]; then
+            if [[ "${MAIN_1X}" -eq 1 || ( "$1" == "nib-test" && "${ATTACHED_1X}" -eq 1 ) ]]; then
+                echo "display:${rest# }"
+                return 0
+            fi
         fi
         if [[ "${name}" == "$1" ]]; then
             echo "${rest# }"

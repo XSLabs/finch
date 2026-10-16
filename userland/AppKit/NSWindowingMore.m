@@ -225,7 +225,48 @@ NSViewFullScreenModeOptionKey const NSFullScreenModeSetting = @"NSFullScreenMode
 NSViewFullScreenModeOptionKey const NSFullScreenModeWindowLevel = @"NSFullScreenModeWindowLevel";
 NSViewFullScreenModeOptionKey const NSFullScreenModeApplicationPresentationOptions = @"NSFullScreenModeApplicationPresentationOptions";
 
+typedef NS_ENUM(NSInteger, FinchViewLayoutRegionKind) {
+    FinchViewLayoutRegionKindSafeArea,
+    FinchViewLayoutRegionKindMargins,
+};
+
+@interface NSViewLayoutRegion (FinchLayoutRegion)
+- (instancetype)_finchInitWithKind:(FinchViewLayoutRegionKind)kind axis:(NSViewLayoutRegionAdaptivityAxis)axis;
+- (BOOL)_finchIsMarginsRegion;
+- (NSViewLayoutRegionAdaptivityAxis)_finchCornerAdaptivityAxis;
+@end
+
+@implementation NSViewLayoutRegion {
+    FinchViewLayoutRegionKind _kind;
+    NSViewLayoutRegionAdaptivityAxis _axis;
+}
+
+- (instancetype)_finchInitWithKind:(FinchViewLayoutRegionKind)kind axis:(NSViewLayoutRegionAdaptivityAxis)axis
+{
+    if ((self = [super init])) {
+        _kind = kind;
+        _axis = axis;
+    }
+    return self;
+}
+
++ (NSViewLayoutRegion *)safeAreaLayoutRegionWithCornerAdaptation:(NSViewLayoutRegionAdaptivityAxis)axis
+{
+    return [[[self alloc] _finchInitWithKind:FinchViewLayoutRegionKindSafeArea axis:axis] autorelease];
+}
+
++ (NSViewLayoutRegion *)marginsLayoutRegionWithCornerAdaptation:(NSViewLayoutRegionAdaptivityAxis)axis
+{
+    return [[[self alloc] _finchInitWithKind:FinchViewLayoutRegionKindMargins axis:axis] autorelease];
+}
+
+- (BOOL)_finchIsMarginsRegion { return _kind == FinchViewLayoutRegionKindMargins; }
+- (NSViewLayoutRegionAdaptivityAxis)_finchCornerAdaptivityAxis { return _axis; }
+
+@end
+
 static char full_screen_key, compact_key, safe_guide_key, margins_guide_key;
+static char region_guide_keys[2][2];
 
 @implementation NSView (FinchWindowingMore)
 
@@ -293,10 +334,67 @@ edge_guide(NSView *view, void *key, NSEdgeInsets insets)
 - (NSLayoutGuide *)safeAreaLayoutGuide { return edge_guide(self, &safe_guide_key, [self safeAreaInsets]); }
 - (NSLayoutGuide *)layoutMarginsGuide { return edge_guide(self, &margins_guide_key, NSEdgeInsetsMake(0, 0, 0, 0)); }
 
-/* (macOS 26's regions: the safe area for every region but the view's whole bounds) */
-- (NSEdgeInsets)edgeInsetsForLayoutRegion:(NSViewLayoutRegion *)layoutRegion { return [self safeAreaInsets]; }
-- (NSRect)rectForLayoutRegion:(NSViewLayoutRegion *)layoutRegion { return [self safeAreaRect]; }
-- (NSLayoutGuide *)layoutGuideForLayoutRegion:(NSViewLayoutRegion *)layoutRegion { return [self safeAreaLayoutGuide]; }
+/* A margins region adds the standard 20-point inset inside the safe area. Finch's views
+   are rectangular, so the corner-adaptation axis doesn't change these edge measurements. */
+- (NSEdgeInsets)edgeInsetsForLayoutRegion:(NSViewLayoutRegion *)layoutRegion
+{
+    NSEdgeInsets insets = [self safeAreaInsets];
+    if ([layoutRegion _finchIsMarginsRegion]) {
+        insets.top += 20;
+        insets.left += 20;
+        insets.bottom += 20;
+        insets.right += 20;
+    }
+    return insets;
+}
+
+- (NSRect)rectForLayoutRegion:(NSViewLayoutRegion *)layoutRegion
+{
+    NSRect bounds = [self bounds];
+    NSEdgeInsets insets = [self edgeInsetsForLayoutRegion:layoutRegion];
+    return NSMakeRect(NSMinX(bounds) + insets.left,
+                      NSMinY(bounds) + ([self isFlipped] ? insets.top : insets.bottom),
+                      NSWidth(bounds) - insets.left - insets.right,
+                      NSHeight(bounds) - insets.top - insets.bottom);
+}
+
+- (NSLayoutGuide *)layoutGuideForLayoutRegion:(NSViewLayoutRegion *)layoutRegion
+{
+    NSViewLayoutRegionAdaptivityAxis axis = [layoutRegion _finchCornerAdaptivityAxis];
+    if (axis == NSViewLayoutRegionAdaptivityAxisNone)
+        return [self safeAreaLayoutGuide];
+
+    NSInteger kind = [layoutRegion _finchIsMarginsRegion] ? FinchViewLayoutRegionKindMargins : FinchViewLayoutRegionKindSafeArea;
+    return edge_guide(self, &region_guide_keys[kind][axis - NSViewLayoutRegionAdaptivityAxisHorizontal],
+                      [self edgeInsetsForLayoutRegion:layoutRegion]);
+}
+
+static NSViewLayoutRegion *
+swift_layout_region(NSInteger kind, NSInteger axis)
+{
+    if (kind == FinchViewLayoutRegionKindMargins)
+        return [NSViewLayoutRegion marginsLayoutRegionWithCornerAdaptation:(NSViewLayoutRegionAdaptivityAxis)axis];
+    return [NSViewLayoutRegion safeAreaLayoutRegionWithCornerAdaptation:(NSViewLayoutRegionAdaptivityAxis)axis];
+}
+
+NSLayoutGuide *FinchAppKitSwiftLayoutGuideForRegion(NSView *view, NSInteger kind, NSInteger axis);
+NSEdgeInsets FinchAppKitSwiftEdgeInsetsForRegion(NSView *view, NSInteger kind, NSInteger axis);
+NSRect FinchAppKitSwiftRectForRegion(NSView *view, NSInteger kind, NSInteger axis);
+
+NSLayoutGuide *FinchAppKitSwiftLayoutGuideForRegion(NSView *view, NSInteger kind, NSInteger axis)
+{
+    return [[view layoutGuideForLayoutRegion:swift_layout_region(kind, axis)] retain];
+}
+
+NSEdgeInsets FinchAppKitSwiftEdgeInsetsForRegion(NSView *view, NSInteger kind, NSInteger axis)
+{
+    return [view edgeInsetsForLayoutRegion:swift_layout_region(kind, axis)];
+}
+
+NSRect FinchAppKitSwiftRectForRegion(NSView *view, NSInteger kind, NSInteger axis)
+{
+    return [view rectForLayoutRegion:swift_layout_region(kind, axis)];
+}
 
 - (NSRect)rectForSmartMagnificationAtPoint:(NSPoint)location inRect:(NSRect)visibleRect { return NSZeroRect; }
 

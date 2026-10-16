@@ -10,4 +10,4 @@
 appkit-layout-test (1x display): frames rounded to whole points by Apple's AppKit
 appkit-tables-test (1x display): a collection view item's frame rounded to whole points by Apple's AppKit
 compositional-test (1x display): compositional layout frames rounded to whole points by Apple's AppKit
-nib-test (1x display): Apple's AppKit places the nib's window on the 1x screen; Finch has no screen
+nib-test (1x display): Apple's AppKit restores the nib window to an attached 1x screen; Finch has no screen list

@@ -1140,29 +1140,49 @@ def main(argv=None):
                "target": TARGET + sdk_version, "c_audit": load_tool("tools/c-api-audit.py", "finch_c_api_audit")}
         specs = framework_specs(sdk)
         resolve_reexports(specs, sdk)
+        specs_by_id = {spec["id"]: spec for spec in specs}
+        only_missing = bool(args.missing and not args.markdown and not args.json)
+        work_specs = specs
+        if only_missing:
+            matches = [spec for spec in specs
+                       if spec["name"] == args.missing or spec["id"] == args.missing]
+            if not matches:
+                print(f"No framework or dylib named {args.missing!r} in the SDK.", file=sys.stderr)
+                return 2
+            included = set()
+
+            def include_reexports(spec_id):
+                if spec_id in included:
+                    return
+                included.add(spec_id)
+                for child_id in specs_by_id[spec_id].get("reexport_ids", []):
+                    include_reexports(child_id)
+
+            for spec in matches:
+                include_reexports(spec["id"])
+            work_specs = [spec for spec in specs if spec["id"] in included]
         SDK_CACHE.mkdir(parents=True, exist_ok=True)
-        module_root, finch_modules = prepare_finch_modules(specs, args.build_root)
-        prepare_sdk_modules(specs)
+        module_root, finch_modules = prepare_finch_modules(work_specs, args.build_root)
+        prepare_sdk_modules(work_specs)
         verify = verification_results()
         try:
             compile_responder()
         except RuntimeError as error:
             print(f"Objective-C responder build failed: {error}", file=sys.stderr)
             return 2
-        specs_by_id = {spec["id"]: spec for spec in specs}
         manifests = {}
-        for index, spec in enumerate(specs, 1):
+        for index, spec in enumerate(work_specs, 1):
             if index == 1 or index % 20 == 0:
-                print(f"Reading SDK API manifests: {index}/{len(specs)} ({spec['name']})", flush=True)
+                print(f"Reading SDK API manifests: {index}/{len(work_specs)} ({spec['name']})", flush=True)
             manifests[spec["id"]] = parse_sdk_api(spec, ctx, force=args.refresh)
 
         results = []
         merged_cache = {}
-        for index, spec in enumerate(specs, 1):
+        for index, spec in enumerate(work_specs, 1):
             items, errors, sources = merged_sdk_manifest(
                 spec["id"], specs_by_id, manifests, merged_cache)
             if index == 1 or index % 20 == 0:
-                print(f"Checking Finch images: {index}/{len(specs)} ({spec['name']})", flush=True)
+                print(f"Checking Finch images: {index}/{len(work_specs)} ({spec['name']})", flush=True)
             binary = target_binary(spec, args.build_root)
             image_found = binary is not None
             spec["binary"] = binary
@@ -1226,6 +1246,14 @@ def main(argv=None):
                    "binary": str(binary) if binary else None, "image_found": image_found,
                    "items": items}
             results.append(row)
+
+        if only_missing:
+            row = next(row for row in results
+                       if row["name"] == args.missing or row["id"] == args.missing)
+            render_missing(row)
+            print(f"{row['name']}: {row['present']:,} present, {row['missing']:,} missing of "
+                  f"{row['total']:,} API items ({row['percent']:.1f}% coverage).")
+            return 0
 
         app_counts, app_error, app_fingerprint = app_sweep_counts()
         overall = summarize(results, app_counts, app_error)

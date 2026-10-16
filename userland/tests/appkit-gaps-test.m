@@ -184,6 +184,80 @@ appkit_additions(void)
         provider.sourceFrame.origin.y, provider.containerFrame.size.width, provider.containerFrame.size.height,
         provider.preferredPresentationSize.width, provider.preferredPresentationSize.height);
 
+    NSItemBadge *zero = [NSItemBadge badgeWithCount:0];
+    NSItemBadge *count = [NSItemBadge badgeWithCount:1234];
+    NSItemBadge *negative = [NSItemBadge badgeWithCount:-4];
+    NSItemBadge *indicator = [NSItemBadge indicatorBadge];
+    NSMutableString *mutableText = [NSMutableString stringWithString:@"New"];
+    NSItemBadge *textBadge = [NSItemBadge badgeWithText:mutableText];
+    [mutableText appendString:@" item"];
+    NSItemBadge *plainBadge = [[NSItemBadge alloc] init];
+    NSToolbarItem *toolbarItem = [[NSToolbarItem alloc] initWithItemIdentifier:@"badge-test"];
+    toolbarItem.badge = count;
+    NSToolbarItem *toolbarCopy = [toolbarItem copy];
+    out(@"  toolbar badges %@ %@ %@ indicator '%@' text '%@' init '%@' attached %d copy nil %d",
+        zero.text, count.text, negative.text, indicator.text, textBadge.text, plainBadge.text,
+        toolbarItem.badge == count, toolbarCopy.badge == nil);
+
+    NSView *regionView = [[NSView alloc] initWithFrame:NSMakeRect(10, 20, 100, 60)];
+    regionView.additionalSafeAreaInsets = NSEdgeInsetsMake(3, 4, 5, 6);
+    NSViewLayoutRegion *safeRegion = [NSViewLayoutRegion safeAreaLayoutRegionWithCornerAdaptation:NSViewLayoutRegionAdaptivityAxisNone];
+    NSViewLayoutRegion *wideRegion = [NSViewLayoutRegion safeAreaLayoutRegionWithCornerAdaptation:NSViewLayoutRegionAdaptivityAxisHorizontal];
+    NSViewLayoutRegion *marginsRegion = [NSViewLayoutRegion marginsLayoutRegionWithCornerAdaptation:NSViewLayoutRegionAdaptivityAxisNone];
+    NSEdgeInsets safeInsets = [regionView edgeInsetsForLayoutRegion:safeRegion];
+    NSEdgeInsets marginsInsets = [regionView edgeInsetsForLayoutRegion:marginsRegion];
+    out(@"  layout regions safe %.0f %.0f %.0f %.0f %@; margins %.0f %.0f %.0f %.0f %@; horizontal same %d guides %d %d",
+        safeInsets.top, safeInsets.left, safeInsets.bottom, safeInsets.right,
+        NSStringFromRect([regionView rectForLayoutRegion:safeRegion]),
+        marginsInsets.top, marginsInsets.left, marginsInsets.bottom, marginsInsets.right,
+        NSStringFromRect([regionView rectForLayoutRegion:marginsRegion]),
+        NSEqualRects([regionView rectForLayoutRegion:safeRegion], [regionView rectForLayoutRegion:wideRegion]),
+        [regionView layoutGuideForLayoutRegion:safeRegion] == regionView.safeAreaLayoutGuide,
+        [regionView layoutGuideForLayoutRegion:marginsRegion] == regionView.safeAreaLayoutGuide);
+
+    NSSharingCollaborationModeRestriction *copyRestriction =
+        [[NSSharingCollaborationModeRestriction alloc] initWithDisabledMode:NSSharingCollaborationModeSendCopy];
+    NSSharingCollaborationModeRestriction *messageRestriction =
+        [[NSSharingCollaborationModeRestriction alloc] initWithDisabledMode:NSSharingCollaborationModeCollaborate
+                                                                    alertTitle:@"Restricted"
+                                                                  alertMessage:@"This account cannot share." ];
+    NSSharingCollaborationModeRestriction *dismissRestriction =
+        [[NSSharingCollaborationModeRestriction alloc] initWithDisabledMode:NSSharingCollaborationModeCollaborate
+                                                                    alertTitle:@"Restricted"
+                                                                  alertMessage:@"This account cannot share."
+                                                   alertDismissButtonTitle:@"Close"];
+    NSURL *recoveryURL = [NSURL URLWithString:@"https://example.invalid/recover"];
+    NSSharingCollaborationModeRestriction *recoveryRestriction =
+        [[NSSharingCollaborationModeRestriction alloc] initWithDisabledMode:NSSharingCollaborationModeCollaborate
+                                                                    alertTitle:@"Restricted"
+                                                                  alertMessage:@"This account cannot share."
+                                                   alertDismissButtonTitle:@"Close"
+                                           alertRecoverySuggestionButtonTitle:@"Review account"
+                                     alertRecoverySuggestionButtonLaunchURL:recoveryURL];
+    NSError *archiveError = nil;
+    NSData *restrictionArchive = [NSKeyedArchiver archivedDataWithRootObject:recoveryRestriction
+                                                       requiringSecureCoding:YES
+                                                                       error:&archiveError];
+    NSSharingCollaborationModeRestriction *decodedRestriction = restrictionArchive ?
+        [NSKeyedUnarchiver unarchivedObjectOfClass:[NSSharingCollaborationModeRestriction class]
+                                           fromData:restrictionArchive
+                                              error:&archiveError] : nil;
+    NSSharingCollaborationModeRestriction *restrictionCopy = [recoveryRestriction copy];
+    out(@"  share restrictions modes %ld %ld default %@ %@; alert %@ %@ dismiss %@ recovery %@ %@ secure %d copy same %d archive %d",
+        (long)copyRestriction.disabledMode, (long)messageRestriction.disabledMode,
+        copyRestriction.alertTitle, copyRestriction.alertDismissButtonTitle,
+        messageRestriction.alertTitle, messageRestriction.alertMessage,
+        dismissRestriction.alertDismissButtonTitle,
+        recoveryRestriction.alertRecoverySuggestionButtonTitle,
+        recoveryRestriction.alertRecoverySuggestionButtonLaunchURL.absoluteString,
+        [NSSharingCollaborationModeRestriction supportsSecureCoding], restrictionCopy == recoveryRestriction,
+        decodedRestriction.disabledMode == recoveryRestriction.disabledMode &&
+            [decodedRestriction.alertTitle isEqual:recoveryRestriction.alertTitle] &&
+            [decodedRestriction.alertMessage isEqual:recoveryRestriction.alertMessage] &&
+            [decodedRestriction.alertDismissButtonTitle isEqual:recoveryRestriction.alertDismissButtonTitle] &&
+            [decodedRestriction.alertRecoverySuggestionButtonTitle isEqual:recoveryRestriction.alertRecoverySuggestionButtonTitle] &&
+            [decodedRestriction.alertRecoverySuggestionButtonLaunchURL isEqual:recoveryRestriction.alertRecoverySuggestionButtonLaunchURL]);
+
     NSMutableDictionary *source = [NSMutableDictionary dictionaryWithDictionary:@{@"alpha" : @1, @"beta" : @2}];
     NSDictionaryController *controller = [[NSDictionaryController alloc] initWithContent:source];
     NSDictionaryControllerKeyValuePair *pair = [controller.arrangedObjects firstObject];

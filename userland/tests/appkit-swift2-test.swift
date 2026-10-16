@@ -119,6 +119,48 @@ struct Main {
     let pop = NSPopUpButton(title: "Actions", pullDownMenu: menu)
     print("pull-down:", pop.pullsDown, pop.menu === menu, pop.title, pop.numberOfItems)
 
+    // toolbar badges and view layout regions
+    let countBadge = NSItemBadge.count(1234)
+    let textBadge = NSItemBadge.text("Ready")
+    let indicatorBadge = NSItemBadge.indicator
+    print("badges:", countBadge.text, textBadge.text, indicatorBadge.text.isEmpty,
+          countBadge == NSItemBadge.count(1234), countBadge == textBadge,
+          indicatorBadge == NSItemBadge.text(""))
+    let toolbarItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("swift-badge"))
+    toolbarItem.badge = countBadge
+    print("  toolbar badge:", toolbarItem.badge?.text ?? "-", toolbarItem.badge == countBadge)
+
+    let regionView = NSView(frame: NSRect(x: 10, y: 20, width: 100, height: 60))
+    regionView.additionalSafeAreaInsets = NSEdgeInsets(top: 3, left: 4, bottom: 5, right: 6)
+    let safeRegion = NSView.LayoutRegion.safeArea(cornerAdaptation: .horizontal)
+    let sameRegion = NSView.LayoutRegion.safeArea()
+    let marginsRegion = NSView.LayoutRegion.margins()
+    print("  regions made")
+    let safeInsets = regionView.edgeInsets(for: safeRegion)
+    print("  safe insets:", safeInsets.top, safeInsets.left, safeInsets.bottom, safeInsets.right)
+    let marginInsets = regionView.edgeInsets(for: marginsRegion)
+    print("  margin insets:", marginInsets.top, marginInsets.left, marginInsets.bottom, marginInsets.right)
+    let marginRect = regionView.rect(for: marginsRegion)
+    print("  margin rect:", marginRect)
+    let safeDefaultGuide = regionView.layoutGuide(for: sameRegion)
+    let safeGuide = regionView.layoutGuide(for: safeRegion)
+    let safeVerticalGuide = regionView.layoutGuide(for: .safeArea(cornerAdaptation: .vertical))
+    let marginsGuide = regionView.layoutGuide(for: marginsRegion)
+    let marginsHorizontalGuide = regionView.layoutGuide(for: .margins(cornerAdaptation: .horizontal))
+    let repeatedSafeGuide = regionView.layoutGuide(for: safeRegion)
+    print("layout regions:", safeRegion == sameRegion, Set([safeRegion, sameRegion]).count,
+          safeInsets.top, safeInsets.left, safeInsets.bottom, safeInsets.right,
+          marginRect, marginInsets.top, marginInsets.left,
+          marginInsets.bottom, marginInsets.right)
+    print("  region guides:", safeDefaultGuide === regionView.safeAreaLayoutGuide,
+          safeGuide === regionView.safeAreaLayoutGuide,
+          safeVerticalGuide === regionView.safeAreaLayoutGuide,
+          marginsGuide === regionView.safeAreaLayoutGuide,
+          safeGuide === safeVerticalGuide,
+          marginsHorizontalGuide === safeGuide,
+          marginsHorizontalGuide === regionView.safeAreaLayoutGuide,
+          safeGuide === repeatedSafeGuide)
+
     // the attribute scope
     var a = AttributedString("hi")
     a.appKit.foregroundColor = NSColor.red

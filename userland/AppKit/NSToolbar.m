@@ -43,6 +43,7 @@ const CGFloat FinchToolbarHeight = 34;
     NSMenuItem *_menuForm;
     NSToolbarItemVisibilityPriority _priority;
     NSSize _minSize, _maxSize;
+    NSItemBadge *_badge;
     BOOL _enabled, _autovalidates, _bordered, _navigational, _hidden;
     NSRect _frame;  /* in the toolbar's row, while laid out */
 }
@@ -76,6 +77,7 @@ const CGFloat FinchToolbarHeight = 34;
     [_image release];
     [_view release];
     [_menuForm release];
+    [_badge release];
     [super dealloc];
 }
 
@@ -151,6 +153,15 @@ const CGFloat FinchToolbarHeight = 34;
 - (BOOL)isVisible { return _toolbar && [_toolbar isVisible] && !_hidden; }
 - (NSToolbarItemVisibilityPriority)visibilityPriority { return _priority; }
 - (void)setVisibilityPriority:(NSToolbarItemVisibilityPriority)p { _priority = p; }
+- (NSItemBadge *)badge { return _badge; }
+- (void)setBadge:(NSItemBadge *)badge
+{
+    if (_badge == badge)
+        return;
+    [_badge release];
+    _badge = [badge copy];
+    [_toolbar _finchChanged];
+}
 - (NSMenuItem *)menuFormRepresentation { return _menuForm; }
 - (void)setMenuFormRepresentation:(NSMenuItem *)m { [_menuForm autorelease]; _menuForm = [m retain]; }
 - (NSSize)minSize { return _minSize; }
@@ -352,6 +363,78 @@ decode_size(NSCoder *coder, NSString *key)
 @end
 
 #pragma mark - The toolbar's row
+
+static NSDictionary *
+badge_attributes(void)
+{
+    return @{NSFontAttributeName : [NSFont boldSystemFontOfSize:9],
+             NSForegroundColorAttributeName : [NSColor whiteColor]};
+}
+
+static NSSize
+badge_size(NSItemBadge *badge)
+{
+    NSString *text = [badge text];
+    if (![text length])
+        return NSMakeSize(8, 8);
+    NSSize size = [text sizeWithAttributes:badge_attributes()];
+    return NSMakeSize(MAX(16, ceil(size.width) + 8), MAX(14, ceil(size.height) + 2));
+}
+
+@interface FinchToolbarBadgeView : NSView {
+    NSToolbarItem *_item;  /* retained */
+    NSItemBadge *_badge;
+}
+- (NSToolbarItem *)item;
+- (void)setItem:(NSToolbarItem *)item;
+- (void)setBadge:(NSItemBadge *)badge;
+@end
+
+@implementation FinchToolbarBadgeView
+
+- (BOOL)isFlipped { return YES; }
+- (NSToolbarItem *)item { return _item; }
+- (void)setItem:(NSToolbarItem *)item
+{
+    if (_item == item)
+        return;
+    [_item release];
+    _item = [item retain];
+}
+- (void)setBadge:(NSItemBadge *)badge
+{
+    if (_badge == badge)
+        return;
+    [_badge release];
+    _badge = [badge copy];
+    [self setNeedsDisplay:YES];
+}
+- (NSView *)hitTest:(NSPoint)point { return nil; }
+- (void)drawRect:(NSRect)dirty
+{
+    NSRect bounds = [self bounds];
+    [[NSColor systemRedColor] setFill];
+    NSString *text = [_badge text];
+    if (![text length]) {
+        [[NSBezierPath bezierPathWithOvalInRect:NSInsetRect(bounds, 1, 1)] fill];
+        return;
+    }
+    CGFloat radius = bounds.size.height / 2;
+    [[NSBezierPath bezierPathWithRoundedRect:bounds xRadius:radius yRadius:radius] fill];
+    NSSize size = [text sizeWithAttributes:badge_attributes()];
+    [text drawAtPoint:NSMakePoint(floor(NSMidX(bounds) - size.width / 2),
+                                  floor(NSMidY(bounds) - size.height / 2))
+       withAttributes:badge_attributes()];
+}
+
+- (void)dealloc
+{
+    [_item release];
+    [_badge release];
+    [super dealloc];
+}
+
+@end
 
 @interface FinchToolbarView : NSView
 @property (assign) NSToolbar *toolbar;
@@ -661,8 +744,36 @@ natural_width(NSToolbarItem *i)
                 [[i view] setNeedsDisplay:YES];
             }
         }
+        if ([i badge]) {
+            FinchToolbarBadgeView *badge = nil;
+            for (NSView *subview in [self subviews])
+                if ([subview isKindOfClass:[FinchToolbarBadgeView class]] &&
+                    [(FinchToolbarBadgeView *)subview item] == i) {
+                    badge = (FinchToolbarBadgeView *)subview;
+                    break;
+                }
+            if (!badge) {
+                badge = [[[FinchToolbarBadgeView alloc] initWithFrame:NSZeroRect] autorelease];
+                [badge setItem:i];
+                [self addSubview:badge];
+            }
+            [badge setBadge:[i badge]];
+            NSSize size = badge_size([i badge]);
+            [badge setFrame:NSMakeRect(NSMaxX(r) - size.width / 2, 0, size.width, size.height)];
+            [self addSubview:badge positioned:NSWindowAbove relativeTo:nil];
+        }
         x += w + 8;
     }
+    NSArray *subviews = [[self subviews] copy];
+    for (NSView *subview in subviews) {
+        if (![subview isKindOfClass:[FinchToolbarBadgeView class]])
+            continue;
+        FinchToolbarBadgeView *badge = (FinchToolbarBadgeView *)subview;
+        NSToolbarItem *item = [badge item];
+        if (![items containsObject:item] || ![item badge])
+            [badge removeFromSuperview];
+    }
+    [subviews release];
 }
 
 - (void)drawRect:(NSRect)dirty
