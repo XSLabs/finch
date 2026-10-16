@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Cocoa.framework: the umbrella most Mac apps link, with no code of its own
 # (docs/design/APPKIT.md). Apple's re-exports AppKit and CoreData; Finch's
-# re-exports AppKit (which brings Foundation), and CoreData once Finch has it.
+# does the same, with Foundation carried by AppKit.
 #
 # Linked as Apple ships it: Versions/A, current version 24, compatibility
 # version 1.
@@ -19,6 +19,7 @@ CC="$(xcrun -f clang)"
 log() { echo "==> $*"; }
 
 [[ -f "${ROOT}/System/Library/Frameworks/AppKit.framework/AppKit" ]] || { echo "build AppKit first" >&2; exit 1; }
+[[ -f "${ROOT}/System/Library/Frameworks/CoreData.framework/CoreData" ]] || { echo "build CoreData first" >&2; exit 1; }
 
 log "linking"
 rm -rf "${OBJ}" && mkdir -p "${OBJ}" "${FW}/Versions/A"
@@ -28,7 +29,7 @@ echo 'const double CocoaVersionNumber = 24.0;' > "${OBJ}/version.c"
     -current_version 24 -compatibility_version 1 \
     "${OBJ}/version.c" -o "${FW}/Versions/A/Cocoa" \
     -F"${ROOT}/System/Library/Frameworks" -F"${ROOT}/System/Library/PrivateFrameworks" \
-    -Wl,-reexport_framework,AppKit
+    -Wl,-reexport_framework,AppKit -Wl,-reexport_framework,CoreData
 ln -sfn A "${FW}/Versions/Current"
 ln -sfn Versions/Current/Cocoa "${FW}/Cocoa"
 "${FINCH_ROOT}/tools/mkframeworkplist.sh" "${FW}" A Cocoa com.apple.Cocoa Cocoa 24 24 English

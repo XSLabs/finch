@@ -30,8 +30,8 @@ Measured on the host (`dyld_info -exports`, `-linked_dylibs`, macOS 26.4):
 Finch keeps the same split and install names: an `AppKit.framework` that
 re-exports a private `UIFoundation.framework`, an `ApplicationServices`
 umbrella re-exporting CoreGraphics, CoreText and ImageIO, Foundation, and a
-`Cocoa` umbrella. Frameworks Finch doesn't have yet (ColorSync, HIServices,
-CoreData, ...) join the umbrellas as they are written.
+`Cocoa` umbrella. CoreData now joins Cocoa's re-exports. Other framework
+exports join as Finch adds them.
 
 ## Implementation
 

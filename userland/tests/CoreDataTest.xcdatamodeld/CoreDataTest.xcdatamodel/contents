@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="26000" systemVersion="25A" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Owner" representedClassName="NSManagedObject" syncable="YES" codeGenerationType="class">
+        <attribute name="name" optional="NO" attributeType="String"/>
+        <relationship name="records" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="Record" inverseName="owner" inverseEntity="Record"/>
+    </entity>
+    <entity name="Record" representedClassName="NSManagedObject" syncable="YES" codeGenerationType="class">
+        <attribute name="name" optional="NO" attributeType="String"/>
+        <attribute name="score" optional="NO" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="NO"/>
+        <relationship name="owner" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Owner" inverseName="records" inverseEntity="Owner"/>
+    </entity>
+</model>

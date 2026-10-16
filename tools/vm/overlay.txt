@@ -198,6 +198,8 @@ build/userland/finch-smallprivate-test /usr/local/bin/finch-smallprivate-test
 build/userland/finch-quicklook-test /usr/local/bin/finch-quicklook-test
 build/userland/finch-exports-test /usr/local/bin/finch-exports-test
 build/userland/finch-cookies-test /usr/local/bin/finch-cookies-test
+build/userland/finch-coredata-test /usr/local/bin/finch-coredata-test
+build/userland/CoreDataTest.momd /usr/local/share/finch/CoreDataTest.momd
 build/userland/finch-foundation-more-test /usr/local/bin/finch-foundation-more-test
 build/userland/finch-appkit-values-test /usr/local/bin/finch-appkit-values-test
 build/userland/finch-hiservices-test /usr/local/bin/finch-hiservices-test

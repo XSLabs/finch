@@ -39,7 +39,7 @@ LIBS="build/root/usr/lib/swift:${TMP}/lib:${R}/Frameworks/OpenGL.framework/Versi
 # name|arguments: comparison tests (arguments are relative to the repo root)
 COMPARE=(
     "calculate-test|" "swiftdata-test|" "tipkit-test|" "avaudio-file-test|" "avaudio-converter-test|" "avaudio-engine-test|" "avaudio-player-test|" "avaudio-unit-test|" "audiounit-effects-test|" "itemprovider-test|" "formatters2-test|" "urlcache-test|" "appkit-small3-test|" "compositional-test|" "filepromise-test|" "appkit-swift2-test|" "private-calls-test|" "mobilegestalt-test|" "utilities-test|" "foundation-audit-test|" "tree-test|" "outline-bindings-test|" "typeselect-test|" "screencapturekit-test|" "appkit-compat-test|" "pdf-image-rep-test|" "sounddesc-test|" "avasset-test|" "avreader-test|" "avwriter-test|" "avimage-test|" "avplayer-test|" "opengl-test|" "appkit-typedstream-test|" "system-images-test|" "quartzfilters-test|" "printcore-test|" "symbols-test|" "xml-test|" "document-more-test|" "textview-more-test|" "windowing-more-test|"
-    "cf-test|" "foundation-test|" "foundation-gaps-test|" "intl-test|" "misc-test|" "data-test|" "collections-test|" "kvc-test|" "typedstream-test|" "tiff-test|" "colorsync-test|" "colorsync-devices-test|" "iconservices-test|" "smallprivate-test|" "quicklook-test|" "exports-test|" "cookies-test|" "foundation-more-test|" "appkit-values-test|" "hiservices-test|" "scripting-test|" "cfnetwork-test|" "coreimage-test|" "cgevent-test|" "keylayout-test|" "contacts-test|" "accounts-test|" "metal-test|" "metalkit-test|" "audiounit-framework-test|" "coremidi-test|" "iosurface-test|" "gss-test|" "cfurl-test|" "pasteboard-test|" "coremedia-test|" "corevideo-test|" "audiotoolbox-test|" "audioconverter-test|" "extaudiofile-test|" "extaudiofile-test|--src-check" "applescript-test|" "fileversion-test|" "textformats-test|" "worddoc-test|" "network-test|"
+    "cf-test|" "foundation-test|" "foundation-gaps-test|" "intl-test|" "misc-test|" "data-test|" "collections-test|" "kvc-test|" "typedstream-test|" "tiff-test|" "colorsync-test|" "colorsync-devices-test|" "iconservices-test|" "smallprivate-test|" "quicklook-test|" "exports-test|" "cookies-test|" "foundation-more-test|" "appkit-values-test|" "hiservices-test|" "scripting-test|" "cfnetwork-test|" "coreimage-test|" "cgevent-test|" "keylayout-test|" "contacts-test|" "accounts-test|" "metal-test|" "metalkit-test|" "audiounit-framework-test|" "coremidi-test|" "iosurface-test|" "gss-test|" "cfurl-test|" "pasteboard-test|" "coremedia-test|" "corevideo-test|" "audiotoolbox-test|" "audioconverter-test|" "extaudiofile-test|" "extaudiofile-test|--src-check" "applescript-test|" "fileversion-test|" "textformats-test|" "worddoc-test|" "network-test|" "coredata-test|"
     "archive-test|" "predicate-test|" "measurement-test|" "bridge-test|" "streams-test|" "documents-test|"
     "files-test|" "xmlparser-test|" "cfnotify-test|" "l10n-test|" "uti-test|" "cg-test|" \
     "cg-draw-test|userland/tests/cg-draw-reference.bin" "cgpdf-test|" "imageio-test|"
@@ -150,12 +150,41 @@ for entry in "${COMPARE[@]}"; do
         skip=$((skip + 1))
         continue
     fi
-    # shellcheck disable=SC2086
-    "${bin}" ${args} > "${TMP}/apple" 2> "${TMP}/apple.err"
-    apple_status=$?
-    # shellcheck disable=SC2086
-    DYLD_FRAMEWORK_PATH="${FW}" DYLD_LIBRARY_PATH="${LIBS}" FINCH_FILTER_DIRS="build/root/System/Library/Filters" FINCH_FONT_DIRS="${R}/Fonts" "${bin}" ${args} > "${TMP}/finch" 2> "${TMP}/finch.err"
-    finch_status=$?
+    if [[ "${name}" == coredata-test ]]; then
+        apple_store="${TMP}/coredata-apple.sqlite"
+        finch_store="${TMP}/coredata-finch.sqlite"
+        model="${B}/CoreDataTest.momd"
+        "${bin}" write "${apple_store}" "${model}" > "${TMP}/apple" 2> "${TMP}/apple.err"
+        apple_status=$?
+        DYLD_FRAMEWORK_PATH="${FW}" DYLD_LIBRARY_PATH="${LIBS}" "${bin}" read "${apple_store}" "${model}" > "${TMP}/finch" 2> "${TMP}/finch.err"
+        finch_status=$?
+        if [[ "${apple_status}" -eq 0 && "${finch_status}" -eq 0 ]]; then
+            DYLD_FRAMEWORK_PATH="${FW}" DYLD_LIBRARY_PATH="${LIBS}" "${bin}" write "${finch_store}" "${model}" > /dev/null 2> "${TMP}/finch-write.err"
+            finch_write_status=$?
+            if [[ "${finch_write_status}" -eq 0 ]]; then
+                "${bin}" read "${finch_store}" "${model}" > "${TMP}/apple-read" 2> "${TMP}/apple-read.err"
+                apple_read_status=$?
+                if [[ "${apple_read_status}" -eq 0 ]] && ! diff <(tail -n +2 "${TMP}/finch") <(tail -n +2 "${TMP}/apple-read") > "${TMP}/cross-store.diff"; then
+                    apple_read_status=1
+                fi
+            else
+                apple_read_status=1
+            fi
+            if [[ "${finch_write_status}" -ne 0 || "${apple_read_status}" -ne 0 ]]; then
+                printf 'cross-store check failed (Finch write %s, Apple read %s)\n' "${finch_write_status}" "${apple_read_status}" > "${TMP}/finch.err"
+                cat "${TMP}/finch-write.err" "${TMP}/apple-read.err" >> "${TMP}/finch.err"
+                if [[ -s "${TMP}/cross-store.diff" ]]; then cat "${TMP}/cross-store.diff" >> "${TMP}/finch.err"; fi
+                finch_status=1
+            fi
+        fi
+    else
+        # shellcheck disable=SC2086
+        "${bin}" ${args} > "${TMP}/apple" 2> "${TMP}/apple.err"
+        apple_status=$?
+        # shellcheck disable=SC2086
+        DYLD_FRAMEWORK_PATH="${FW}" DYLD_LIBRARY_PATH="${LIBS}" FINCH_FILTER_DIRS="build/root/System/Library/Filters" FINCH_FONT_DIRS="${R}/Fonts" "${bin}" ${args} > "${TMP}/finch" 2> "${TMP}/finch.err"
+        finch_status=$?
+    fi
     n=$(tail -n +2 "${TMP}/apple" | wc -l | tr -d ' ')
     d=$(diff <(tail -n +2 "${TMP}/apple" > "${TMP}/a"; masked "${name}" "${TMP}/a") \
         <(tail -n +2 "${TMP}/finch" > "${TMP}/f"; masked "${name}" "${TMP}/f") | grep -c '^[<>]')

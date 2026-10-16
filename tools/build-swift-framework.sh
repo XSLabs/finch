@@ -44,7 +44,7 @@ fi
 for m in ${objc[@]+"${objc[@]}"}; do
     o="${OBJ}/$(basename "${m%.m}").o"
     xcrun clang -arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -Os -g "${arc}" -fobjc-exceptions ${includes[@]+"${includes[@]}"} \
-        -fblocks -Wall -Wextra -Werror -Wno-unused-parameter -Wno-objc-designated-initializers \
+        -fblocks -Wall -Wextra -Werror -Wno-unused-parameter ${FINCH_OBJC_FLAGS:-} -Wno-objc-designated-initializers \
         -Wno-objc-property-implementation -c "${m}" -o "${o}"
     objects+=("${o}")
     underlying=(-import-underlying-module)

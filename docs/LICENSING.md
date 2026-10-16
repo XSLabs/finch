@@ -43,6 +43,7 @@ Contributions are accepted under the same dual license (inbound = outbound).
 | LZFSE 1.0, LZ4 1.10.0 (lib), Brotli 1.1.0 | BSD-3 / BSD-2 / MIT | Built and linked statically into Finch's libcompression |
 | XZ Utils 5.4.3 (liblzma), libxo, libsbuf | 0BSD / BSD | Build directly |
 | libxml2 (Apple's libxml2-39.10) | MIT | Build directly (Foundation's NSXMLParser links it) |
+| SQLite 3.54.0 amalgamation | Public domain | Built as `/usr/lib/libsqlite3.dylib` for CoreData. The exact download and SHA3-256 pin are in `userland/libsqlite3/build.sh`; the build installs a source and public-domain notice. |
 | OpenCombine 0.14.0 | MIT | Adapted and built as Combine.framework (`docs/design/COMBINE.md`) |
 | OpenSwiftUI (`aefa4e6`), OpenAttributeGraph, OpenObservation, OpenRenderBox, OpenCoreGraphics (revisions pinned by OpenSwiftUI's `Package.resolved`), Compute 0.6.0 (the attribute graph) | MIT | Adapted and built as SwiftUI.framework and SwiftUICore.framework (`docs/design/SWIFTUI.md`). Notices ship in the image. OpenSwiftUI's DarwinPrivateFrameworks package (headers for Apple's private frameworks) is fetched by SwiftPM but switched off: nothing from it is linked. swift-numerics and swift-syntax (Apache 2.0) are build-time dependencies only. Finch patches Compute for arm64e (`userland/SwiftUI/patches/Compute`). |
 | Skia (chrome/m155) | BSD-3 | Built and linked statically into Finch's CoreGraphics |

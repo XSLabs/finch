@@ -20,6 +20,18 @@ $(OUT)/finch-accelerate-test: accelerate-test.c
 	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework Accelerate -framework CoreGraphics
 	codesign -f -s - -i org.finch.test.accelerate $@
 
+all: $(OUT)/finch-coredata-test
+
+# Compiled-model loading, fetches and SQLite stores shared with Apple's CoreData.
+$(OUT)/finch-coredata-test: coredata-test.swift $(OUT)/CoreDataTest.momd
+	@mkdir -p $(OUT)
+	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -O -o $@ $< -framework CoreData
+	codesign -f -s - -i org.finch.test.coredata $@
+
+$(OUT)/CoreDataTest.momd: CoreDataTest.xcdatamodeld/CoreDataTest.xcdatamodel/contents
+	@mkdir -p $(OUT)
+	xcrun momc CoreDataTest.xcdatamodeld $@
+
 $(OUT)/finch-console-policy-test: console-policy-test.c ../finch-init/console-policy.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -o $@ $<

@@ -5,7 +5,9 @@ What runs on Finch today and where each piece comes from, bottom to top.
 These diagrams are updated in every commit that changes the stack, and
 `tools/render-stack.sh` checks that they render.
 
-**As of 2026-10-16:** CryptoKit is built from swift-crypto 5.0.1, with BoringSSL and
+**As of 2026-10-15:** CoreData reads compiled models and supports basic SQLite and
+in-memory stores, contexts, fetches, and to-one relationships. CryptoKit is built
+from swift-crypto 5.0.1, with BoringSSL and
 XKCP linked privately; fixed-key host comparisons cover its hashes, HMAC, HKDF,
 AES-GCM, ChaChaPoly, and P-256, P-384 and Curve25519 keys and signatures. Nothing
 Finch builds links a closed library (`tools/check-closed.py`). MetalKit now keeps
@@ -128,6 +130,12 @@ on the host with Finch's frameworks and headless window server. It shows English
 strings, its title bar, an empty toolbar and an empty device list. The framework
 comparison also passes in the VM; the Tier 2 display and input work remains.
 
+CoreData now reads compiled models and supports basic SQLite and in-memory
+stores, contexts, fetches, and to-one relationships. Its host comparison opens
+a simple Apple-created store in Finch and a Finch-created store in Apple.
+Changed-model migrations, history tracking, Spotlight indexing, and several
+other store features remain unavailable (`docs/design/COREDATA.md`).
+
 ```mermaid
 block-beta
     columns 1
@@ -177,6 +185,7 @@ block-beta
         iokit["IOKit.framework<br/>(IOKitUser)"]
         gcore["GCoreFramework<br/>(gcore, on Finch Foundation)"]
         sysconfig["SystemConfiguration<br/>preferences and network reads;<br/>shared store via Finch configd;<br/>manual IPv4 and DNS apply"]
+        coredata["CoreData<br/>compiled models, contexts,<br/>fetches, to-one relationships,<br/>SQLite and memory stores"]
     end
     block:L4
         columns 4
@@ -192,6 +201,7 @@ block-beta
         tz["tzdata 2026c (IANA)"]
         skia["Skia m155 + FreeType, HarfBuzz,<br/>libpng, libjpeg-turbo, libwebp, wuffs<br/>(static, for CoreGraphics,<br/>ImageIO and ColorSync)"]
         fonts["Open fonts (data, not code)<br/>Inter, Open Runde, Fragment Mono,<br/>XCharter, Pagella, Liberation, DejaVu,<br/>Noto for other scripts and emoji,<br/>in place of Apple's, which can't ship"]
+        sqlite["SQLite 3.54.0<br/>(public-domain, libsqlite3)"]
     end
     block:L3
         columns 4
@@ -245,9 +255,9 @@ block-beta
     class t7,t6,t5,t4,t3,t2,t1,t0 layer
     class avplanned,kexts,metal planned
     class apps testapp
-    class opengl,later,mediaaddons,coreimage,services,contacts,cfnetwork,appsupport,shell,uti,appkit,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,accelerate,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit finch
+    class opengl,later,mediaaddons,coreimage,services,contacts,cfnetwork,appsupport,shell,uti,appkit,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,coredata,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,accelerate finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
-    class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui,cmark upstream
+    class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui,cmark,sqlite upstream
     class vz firmware
     class space3,space3b,space3c,space3d,space2,space2b,space2c,space1 blank
 ```
@@ -288,6 +298,7 @@ flowchart LR
     imagecapture["ImageCaptureCore"]:::finch
     icadevices["ICADevices"]:::finch
     ffound["Foundation"]:::finch
+    coredatafw["CoreData"]:::finch
     cgfw["CoreGraphics"]:::finch
     acceleratefw["Accelerate<br/>(app-imported subset)"]:::finch
     ctfw["CoreText"]:::finch
@@ -328,6 +339,7 @@ flowchart LR
     swiftcrypto["swift-crypto 5.0.1<br/>BoringSSL + XKCP (static)"]:::upstream
     skialib["Skia, FreeType<br/>(static)"]:::upstream
     cmark["cmark-gfm 0.29.0.gfm.13<br/>(static)"]:::upstream
+    sqlite["libsqlite3<br/>(SQLite 3.54.0)"]:::upstream
     cxxlib["libc++"]:::upstream
     cf["CoreFoundation"]:::finch
     cal["CoreAutoLayout"]:::finch
@@ -361,6 +373,10 @@ flowchart LR
     swiftui --> appsup
     appsup["CoreVideo, Accessibility,<br/>CoreTransferable,<br/>DeveloperToolsSupport"]:::finch
     ffound --> combine
+    coredatafw --> ffound
+    coredatafw --> combine
+    coredatafw --> sqlite
+    coredatafw --> swift
     ffound --> openssl
     ffound --> cmark
     gcore --> ffound

@@ -89,10 +89,16 @@ steps=(
     "configd|userland/oss/configd.daemon.build.sh"
     # libxml2, for Foundation's NSXMLParser
     "libxml2|oss libxml2"
+    # SQLite's pinned public-domain amalgamation, shared by CoreData.
+    "libsqlite3|userland/libsqlite3/build.sh"
     # Auto Layout's private framework, which Foundation re-exports (docs/design/APPKIT.md)
     "CoreAutoLayout|userland/CoreAutoLayout/build.sh"
+    # Foundation and CoreData both use the Combine framework's public API.
+    "Combine|userland/Combine/build.sh"
     # Finch's Foundation (CF links it upward; docs/design/FOUNDATION.md)
     "Foundation|userland/Foundation/build.sh"
+    # Finch's CoreData implementation (models, contexts, SQLite and memory stores).
+    "CoreData|userland/CoreData/build.sh"
     # CFNetwork (HTTP, sockets, hosts, Bonjour, proxies), which CoreServices re-exports
     "CFNetwork|userland/CFNetwork/build.sh"
     "UniformTypeIdentifiers|userland/UniformTypeIdentifiers/build.sh"
