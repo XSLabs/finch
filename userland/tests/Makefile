@@ -749,6 +749,12 @@ $(OUT)/finch-metal-test: metal-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-deprecated-declarations -o $@ $< -framework Metal -framework Foundation
 
+# MetalKit: view state and resource errors when no Metal device is available.
+all: $(OUT)/finch-metalkit-test
+$(OUT)/finch-metalkit-test: metalkit-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-nonnull -Wno-deprecated-declarations -o $@ $< -framework MetalKit -framework Metal -framework AppKit -framework Foundation
+
 # IOSurface: layouts, locks, attachments, use counts, lookups (diff host and VM runs).
 $(OUT)/finch-iosurface-test: iosurface-test.m
 	@mkdir -p $(OUT)
@@ -784,6 +790,18 @@ $(OUT)/finch-corevideo-test: corevideo-test.c
 $(OUT)/finch-audiotoolbox-test: audiotoolbox-test.c
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -Wno-unused-parameter -Wno-deprecated-declarations -Wno-four-char-constants -o $@ $< -framework AudioToolbox -framework CoreFoundation
+
+# AudioUnit: the compatibility framework must re-export AudioToolbox's unit calls.
+all: $(OUT)/finch-audiounit-framework-test
+$(OUT)/finch-audiounit-framework-test: audiounit-framework-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -Wno-unused-parameter -Wno-deprecated-declarations -o $@ $< -framework AudioUnit
+
+# CoreMIDI: virtual endpoints carry real packets in a process-local graph.
+all: $(OUT)/finch-coremidi-test
+$(OUT)/finch-coremidi-test: coremidi-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fblocks -Wno-unused-parameter -Wno-deprecated-declarations -Wno-nonnull -o $@ $< -framework CoreMIDI -framework CoreFoundation
 
 # AudioConverter: compare samples, channel maps and callback reads with the host.
 $(OUT)/finch-audioconverter-test: audioconverter-test.c

@@ -5,11 +5,14 @@ What runs on Finch today and where each piece comes from, bottom to top.
 These diagrams are updated in every commit that changes the stack, and
 `tools/render-stack.sh` checks that they render.
 
-**As of 2026-10-15:** CryptoKit is built from swift-crypto 5.0.1, with BoringSSL
-and XKCP linked privately; fixed-key host comparisons cover its hashes, HMAC, HKDF,
+**As of 2026-10-15:** CryptoKit is built from swift-crypto 5.0.1, with BoringSSL and
+XKCP linked privately; fixed-key host comparisons cover its hashes, HMAC, HKDF,
 AES-GCM, ChaChaPoly, and P-256, P-384 and Curve25519 keys and signatures. Nothing
-Finch builds links a closed library
-(`tools/check-closed.py`). Finch's own Foundation covers about 140 of Apple's
+Finch builds links a closed library (`tools/check-closed.py`). MetalKit now keeps
+MTKView settings even though Finch has no GPU; AudioUnit re-exports AudioToolbox, and
+CoreMIDI sends virtual endpoint packets inside a process. OpenAL and VideoToolbox
+remain out because Finch has no audio output device or codec backend. Finch's own
+Foundation covers about 140 of Apple's
 classes, on a CoreFoundation that dispatches to Objective-C objects as Apple's
 does (`docs/design/FOUNDATION.md`); its Markdown constructors use cmark-gfm,
 linked privately into Foundation, and its NSXMLParser and NSXMLDocument read
@@ -61,7 +64,13 @@ would, so apps that link them run. CoreVideo's pixel buffers and pools are Finch
 byte for byte as Apple's are (in memory of their own or an IOSurface's), and CoreMedia's
 times, block buffers, format descriptions (including those from H.264 and HEVC
 parameter sets), sample buffers, clocks, timebases, queues, memory pools, metadata
-identifiers and tags match Apple's in their comparison tests. OpenGL is Mesa's software
+identifiers and tags match Apple's in their comparison tests. AudioUnit.framework now
+re-exports Finch's AudioToolbox at Apple's install name. CoreMIDI's client API keeps
+virtual sources, destinations and ports in a process-local graph; there is no hardware
+or system-wide routing. MetalKit keeps MTKView's settings, while texture
+and mesh creation report the missing Metal device. OpenAL stays out while CoreAudio has
+no output device, and VideoToolbox stays planned until Finch has a codec backend.
+OpenGL is Mesa's software
 renderer (softpipe through OSMesa, built by Finch) under Finch's own CGL and GLU, and
 AppKit's NSOpenGL views draw with it; AppKit's named system images and symbol images are Finch's own artwork; PrintCore is Finch's own (sessions, settings, page formats and papers, printing to PDF; no printers until there's a printing system), as are Quartz filters, which change a context's colours through CoreGraphics; windows draw into a back buffer that each flush copies to the window server; typedstream archives (NSArchiver) of AppKit's
 colours, fonts, images, paragraph styles, shadows, paths and print info match Apple's. AppleScript is Finch's own
@@ -144,7 +153,8 @@ block-beta
         avplanned["VideoToolbox, AVKit,<br/>AVFoundation codecs (planned:<br/>docs/design/MEDIA.md)"]
         opengl["OpenGL<br/>CGL contexts and GLU (Finch's),<br/>NSOpenGL views; software<br/>rendering by Mesa"]
         coreservices["CoreServices<br/>app lookup and launch,<br/>local Apple events, files"]
-        later["Metal (no GPU driven yet:<br/>no devices, descriptors<br/>as values)"]
+        later["Metal and MetalKit:<br/>MTKView settings; no GPU,<br/>device or drawable"]
+        mediaaddons["AudioUnit<br/>(re-exports AudioToolbox);<br/>CoreMIDI (local virtual<br/>endpoint graph)"]
         coreui["CoreUI<br/>compiled asset catalogs,<br/>named images and colors"]
         appsupport["CoreVideo (display link),<br/>Accessibility, CoreTransferable,<br/>DeveloperToolsSupport; CoreAudio,<br/>AudioToolbox (system sounds,<br/>Finch's own alert sound,<br/>AudioFormat properties, audio files,<br/>PCM/G.711 conversion,<br/>ExtAudioFile, software audio units:<br/>effects, EQ, reverbs, time-pitch,<br/>varispeed, sampler; offline<br/>PCM queues); AVFAudio<br/>(formats, layouts, PCM buffers,<br/>PCM/G.711 files and conversion,<br/>times, the engine graph:<br/>players, mixer, effect and<br/>instrument units, offline render;<br/>AVAudioPlayer, constants,<br/>session, silent speech),<br/>Carbon/HIToolbox (events, keys),<br/>OpenScripting (Finch's AppleScript:<br/>the OSA calls, osascript), OSAKit<br/>(script view and controller),<br/>ATS and FontServices (font<br/>registry; no validator yet),<br/>Network (path monitor),<br/>MobileAsset (empty catalogs),<br/>CoreAnalytics, libScreenReader;<br/>FeatureFlags, libMobileGestalt<br/>(the device's answers),<br/>libDiagnosticMessagesClient<br/>(messages sent nowhere);<br/>SkyLight's SLS calls (window<br/>capture, display queries);<br/>ScreenCaptureKit (shareable content,<br/>filters, screenshots, streams);<br/>ColorSync (profiles, devices,<br/>transforms);<br/>HIServices (AX client, Process Manager),<br/>PrintCore (sessions, settings, page<br/>formats, papers; print to PDF; no<br/>printers yet), SystemAdministration (empty);<br/>IconServices (app, file and type<br/>icons at the Mac's icon sizes);<br/>small private frameworks (SoftLinking,<br/>AppSupport, UserManagement, ...);<br/>OnBoardingKit (welcome and<br/>privacy screens);<br/>MagnifierSupport (Finch's<br/>Magnifier: the screen enlarged);<br/>ConsoleKit (live logs from the<br/>log store, log reports) and<br/>OSAnalytics (diagnostic reports);<br/>AppleSRP (SRP-6a client),<br/>AOSKit (no iCloud account);<br/>Quick Look (thumbnails, the<br/>preview panel and view);<br/>DataDetectorsCore (links in text);<br/>Text Input Sources, UCKeyTranslate,<br/>Carbon event handlers, hot keys;<br/>IOSurface (shared pixel buffers);<br/>CoreVideo pixel buffers and pools;<br/>CoreMedia (times, block, format<br/>and sample buffers, clocks,<br/>timebases, queues, metadata, tags,<br/>image and sound descriptions);<br/>AVFoundation (assets, tracks,<br/>metadata, readers, writers, image<br/>generation, playback and player<br/>layers over Finch's QuickTime/<br/>ISO reader and muxer; JPEG, PCM)"]
         swiftui["SwiftUI, SwiftUICore<br/>(OpenSwiftUI on Compute's<br/>attribute graph; first app draws)"]
@@ -234,7 +244,7 @@ block-beta
     class t7,t6,t5,t4,t3,t2,t1,t0 layer
     class avplanned,kexts,metal planned
     class apps testapp
-    class opengl,later,coreimage,services,contacts,cfnetwork,appsupport,shell,uti,appkit,quartzcore,coreservices,coreui,security,cryptokit,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd finch
+    class opengl,later,mediaaddons,coreimage,services,contacts,cfnetwork,appsupport,shell,uti,appkit,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
     class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui,cmark upstream
     class vz firmware
@@ -284,9 +294,12 @@ flowchart LR
     servicesfw["UserNotifications, CoreLocation,<br/>ServiceManagement, StoreKit, ..."]:::finch
     contactsfw["Contacts"]:::finch
     metalfw["Metal"]:::finch
+    metalkit["MetalKit"]:::finch
     iosurfacefw["IOSurface"]:::finch
     coremediafw["CoreMedia"]:::finch
     audiotoolbox["AudioToolbox"]:::finch
+    audiounit["AudioUnit"]:::finch
+    coremidi["CoreMIDI"]:::finch
     avfaudio["AVFAudio"]:::finch
     avfoundation["AVFoundation"]:::finch
     openglfw["OpenGL<br/>(CGL, GLU)"]:::finch
@@ -366,6 +379,10 @@ flowchart LR
     contactsfw --> ffound
     contactsfw --> imageio
     metalfw --> ffound
+    metalkit --> metalfw
+    metalkit --> appkit
+    metalkit --> qc
+    metalkit --> ffound
     iosurfacefw --> ffound
     coremediafw --> ffound
     avfaudio --> audiotoolbox
@@ -394,6 +411,8 @@ flowchart LR
     sck --> imageio
     btui --> servicesfw
     audiotoolbox --> cf
+    audiounit -->|"re-exports"| audiotoolbox
+    coremidi --> cf
     coreimagefw --> ffound
     coreimagefw --> cgfw
     coreimagefw --> imageio

@@ -8,8 +8,11 @@ is built on it.
 AVKit                          playback views
 AVFoundation                   assets, players, readers and writers, capture, metadata
 AVFAudio                       formats, buffers, files, players, the engine graph, units, speech
-VideoToolbox                   decode, encode, pixel transfer
-AudioToolbox / AudioUnit       formats, files, converters, queues, audio units
+VideoToolbox (planned)          decode, encode, pixel transfer
+AudioToolbox                   formats, files, converters, queues, audio units
+AudioUnit.framework            re-exports AudioToolbox
+CoreMIDI                       local virtual ports and endpoints, no hardware
+OpenAL                         not built: Finch has no audio output device
 CoreMedia / CoreVideo          times, buffers, format descriptions, pixel buffers  (done)
 CoreAudio (HAL)                devices: none until Finch has an audio driver
 ```
@@ -21,6 +24,15 @@ CoreAudio (HAL)                devices: none until Finch has an audio driver
 - CoreMedia: times, block buffers, format descriptions (and from H.264/HEVC parameter
   sets, and to and from QuickTime/ISO image descriptions), sample buffers, clocks and
   timebases, queues, memory pools, metadata, tags.
+- `AudioUnit.framework` is a small compatibility image that re-exports AudioToolbox,
+  the same framework that owns most of Apple's AudioUnit API.
+- CoreMIDI keeps clients, ports and virtual sources or destinations in a local
+  process graph. Virtual endpoints exchange MIDI 1.0 packets and MIDI 2.0 event lists;
+  Finch has no hardware devices or system-wide MIDI service.
+- OpenAL is not built. CoreAudio has no output device, and Finch has no honest playback
+  path for OpenAL to use. VideoToolbox remains planned until Finch has a codec backend
+  for the H.264 encode and decode sessions Zed imports. Apple's host supports those
+  codecs, so Finch cannot verify what error Apple returns when a codec is unavailable.
 
 - AudioToolbox: format properties and audio files (WAVE, AIFF/AIFC, CAF and
   NeXT/Sun). `AudioConverter` handles packed and unpacked integer PCM, float

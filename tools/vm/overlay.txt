@@ -207,6 +207,7 @@ build/userland/finch-appkit-statusbar-test /usr/local/bin/finch-appkit-statusbar
 build/userland/finch-contacts-test /usr/local/bin/finch-contacts-test
 build/userland/finch-accounts-test /usr/local/bin/finch-accounts-test
 build/userland/finch-metal-test /usr/local/bin/finch-metal-test
+build/userland/finch-metalkit-test /usr/local/bin/finch-metalkit-test
 build/userland/finch-iosurface-test /usr/local/bin/finch-iosurface-test
 build/userland/finch-gss-test /usr/local/bin/finch-gss-test
 build/userland/finch-cfurl-test /usr/local/bin/finch-cfurl-test
@@ -214,6 +215,8 @@ build/userland/finch-pasteboard-test /usr/local/bin/finch-pasteboard-test
 build/userland/finch-coremedia-test /usr/local/bin/finch-coremedia-test
 build/userland/finch-corevideo-test /usr/local/bin/finch-corevideo-test
 build/userland/finch-audiotoolbox-test /usr/local/bin/finch-audiotoolbox-test
+build/userland/finch-audiounit-framework-test /usr/local/bin/finch-audiounit-framework-test
+build/userland/finch-coremidi-test /usr/local/bin/finch-coremidi-test
 build/userland/finch-audioconverter-test /usr/local/bin/finch-audioconverter-test
 
 # Offline HTTPS chain for Finch root-store checks.
