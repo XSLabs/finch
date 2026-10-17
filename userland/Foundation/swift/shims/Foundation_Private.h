@@ -44,6 +44,11 @@ FOUNDATION_EXPORT NSString * const NSLocaleMeasurementSystemUK;
 FOUNDATION_EXPORT NSString * const NSLocaleTemperatureUnitCelsius;
 FOUNDATION_EXPORT NSString * const NSLocaleTemperatureUnitFahrenheit;
 
+@interface NSMeasurementFormatter (NSMeasurementFormatterPrivateForSwift)
+- (void)_setFinchUsageOverride:(nullable NSString *)usage;
+- (void)_setFinchAllowsMultipleUnits:(BOOL)allows;
+@end
+
 @interface NSString (NSStringPrivateForSwift)
 - (nullable const unichar *)_fastCharacterContents;   // the UTF-16 buffer, when there is one
 - (nullable const char *)_fastCStringContents:(BOOL)nullTerminationRequired;   // the 8-bit buffer, when there is one

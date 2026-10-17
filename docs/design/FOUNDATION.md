@@ -119,6 +119,18 @@ GNUstep is LGPL and isn't copied (`docs/LICENSING.md`).
   as Apple's do. The existing `finch-urlsession-test` still matches Apple's run;
   `finch-urlsession-trust-test` matches Apple's with a generated self-signed certificate.
   NTLM remains to come.
+- 2026-10-17: closed 607 items in the Foundation API audit. Added URL component formatting
+  and parsing, locale-aware `PersonNameComponents` formatting and parsing, and measurement
+  styles with usage-based unit choice, attributed number and unit parts, temperature options,
+  and multi-unit person-height output. Exported existing Locale value getters, AttributedString
+  view methods, and integer number and percent style factories from Finch's library. The
+  123-line `finch-swift-overlay-test` matches Apple's output on the host; it covers URL and
+  measurement formatting and parsing, attributed-string views, person names, and integer
+  number and percent styles. The API audit reports 12,048 of 13,636 items
+  present (88.4%), up from 11,441 at the start of this work. The app sweep checked 101 apps;
+  26 are ready across Finch's frameworks, and 11 still have 24 missing Foundation imports.
+  The requested host suite passes all nine tests. The Foundation diff run reports 1,916
+  verified cases, 96 differences, and no crashes.
 - 2026-10-15: Markdown constructors for `NSAttributedString` and Swift's
   `AttributedString(markdown:)` use the pinned cmark-gfm parser. Full syntax
   maps inline styles, links, images, headings, paragraphs, lists, quotes, code
@@ -153,7 +165,7 @@ GNUstep is LGPL and isn't copied (`docs/LICENSING.md`).
   The string bridge now handles Swift strings through CF copying, substring
   and byte conversion. NSError uses registered value providers for Swift
   localized errors, and NSIndexSet supplies the range access used by Swift.
-  `finch-swift-overlay-test` matches Apple's 78 lines on the host, with the
+  At that point `finch-swift-overlay-test` matched Apple's 78 lines on the host, with the
   loaded library paths checked separately. It covers collection and string
   bridges, Data, URL, dates, calendars, indexes, measurements, errors, Codable,
   logging and the tested AppKit Swift extensions. The Foundation, bridging,
@@ -190,7 +202,7 @@ NSBundle methods, `NSPersonNameComponents`, `NSFileSecurity`, the Markdown and
 inflection attribute names). Where Apple's NSURL, NSURLComponents, NSUUID and
 NSProcessInfo are Swift subclasses, Finch keeps its Objective-C classes and
 bridges through them (`swift-foundation.exclude`; `Finch/URL+NSURL.swift`,
-`Darwin/UUID+NSUUID.swift`). Six small changes to swift-foundation are in
+`Darwin/UUID+NSUUID.swift`). Five patches change swift-foundation in
 `userland/patches/swift-foundation`. `Darwin/` is the swift-5.4 Darwin overlay,
 less what swift-foundation now carries: collection and NSError bridging,
 NSString API, IndexSet, CharacterSet, Notification, Measurement and the NS*
@@ -201,13 +213,11 @@ tables; `AttributedString(markdown:)` with a small Markdown parser;
 `Morphology`, `InflectionRule`, `TermOfAddress` and `PresentationIntent` (carried,
 not applied); and the linked-on-or-after switches (all current behaviour).
 
-Of the 1,429 Foundation Swift symbols the apps in `/System/Applications` import,
-85 are still missing. Most need Combine (the run loop scheduler, notification,
-timer and KVO publishers) or CFNetwork (`URLSession`); the others are
-`URLRequest`, `NSUndoManager`'s macOS 26 messages and
-`MeasurementFormatUnitUsage`. Predicate archiving and conversion to
-`NSPredicate` need reflection and NSExpression SPI Finch lacks, and
-`Measurement.FormatStyle` has no usage option yet.
+The current app sweep checks 101 apps. Twenty-six load with no missing Finch framework
+symbols; 11 still have 24 missing Foundation imports. Most other app blocks come from
+frameworks Finch does not ship. The Foundation API audit reports 12,048 of 13,636 public
+items present (88.4%). Predicate archiving and conversion to `NSPredicate` still need
+reflection and `NSExpression` SPI Finch does not have.
 
 The current compiler also needs pointer signing that the open Swift runtime
 does not yet apply in every place. `userland/swift/patches` handles metadata,

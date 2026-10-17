@@ -1,0 +1,146 @@
+diff --git a/Sources/FoundationInternationalization/Formatting/Number/IntegerFormatStyle.swift b/Sources/FoundationInternationalization/Formatting/Number/IntegerFormatStyle.swift
+index fa8afdf..c06a6e4 100644
+--- a/Sources/FoundationInternationalization/Formatting/Number/IntegerFormatStyle.swift
++++ b/Sources/FoundationInternationalization/Formatting/Number/IntegerFormatStyle.swift
+@@ -335,70 +335,60 @@ extension IntegerFormatStyle.Percent: ParseableFormatStyle {
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<Int> {
+-    @_alwaysEmitIntoClient
+     static var number: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<Int16> {
+-    @_alwaysEmitIntoClient
+     static var number: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<Int32> {
+-    @_alwaysEmitIntoClient
+     static var number: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<Int64> {
+-    @_alwaysEmitIntoClient
+     static var number: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<Int8> {
+-    @_alwaysEmitIntoClient
+     static var number: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<UInt> {
+-    @_alwaysEmitIntoClient
+     static var number: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<UInt16> {
+-    @_alwaysEmitIntoClient
+     static var number: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<UInt32> {
+-    @_alwaysEmitIntoClient
+     static var number: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<UInt64> {
+-    @_alwaysEmitIntoClient
+     static var number: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<UInt8> {
+-    @_alwaysEmitIntoClient
+     static var number: Self { Self() }
+ }
+ 
+@@ -407,70 +397,60 @@ public extension FormatStyle where Self == IntegerFormatStyle<UInt8> {
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<Int>.Percent {
+-    @_alwaysEmitIntoClient
+     static var percent: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<Int16>.Percent {
+-    @_alwaysEmitIntoClient
+     static var percent: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<Int32>.Percent {
+-    @_alwaysEmitIntoClient
+     static var percent: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<Int64>.Percent {
+-    @_alwaysEmitIntoClient
+     static var percent: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<Int8>.Percent {
+-    @_alwaysEmitIntoClient
+     static var percent: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<UInt>.Percent {
+-    @_alwaysEmitIntoClient
+     static var percent: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<UInt16>.Percent {
+-    @_alwaysEmitIntoClient
+     static var percent: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<UInt32>.Percent {
+-    @_alwaysEmitIntoClient
+     static var percent: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<UInt64>.Percent {
+-    @_alwaysEmitIntoClient
+     static var percent: Self { Self() }
+ }
+ 
+ 
+ @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+ public extension FormatStyle where Self == IntegerFormatStyle<UInt8>.Percent {
+-    @_alwaysEmitIntoClient
+     static var percent: Self { Self() }
+ }
+ 

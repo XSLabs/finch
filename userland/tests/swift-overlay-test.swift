@@ -98,6 +98,15 @@ show("URL back", (nsurl as URL) == url)
 var comps = URLComponents(string: "https://example.com/a?b=1&c=2")!
 comps.queryItems?.append(URLQueryItem(name: "d", value: "3"))
 show("components", comps.url?.absoluteString ?? "nil")
+show("URL default style", url.formatted(.url))
+show("URL all fields", url.formatted(URL.FormatStyle().user(.always).password(.always).query(.always).fragment(.always)))
+let privateURL = URL(string: "https://www.example.com:443/a?q=1#top")!
+show("URL host rule", privateURL.formatted(URL.FormatStyle().host(.omitSpecificSubdomains(["www"]))))
+show("URL parse", (try? URL("https://example.com/a?q=1", strategy: URL.ParseStrategy()))?.absoluteString ?? "failed")
+let defaultPortStrategy = URL.ParseStrategy(port: .defaultValue(443))
+show("URL parse default", (try? URL("https://example.com/a", strategy: defaultPortStrategy))?.port ?? -1)
+show("integer number styles", [Int(1234).formatted(.number), Int8(123).formatted(.number), Int16(123).formatted(.number), Int32(123).formatted(.number), Int64(123).formatted(.number), UInt(123).formatted(.number), UInt8(123).formatted(.number), UInt16(123).formatted(.number), UInt32(123).formatted(.number), UInt64(123).formatted(.number)].joined(separator: "|"))
+show("integer percent styles", [Int(12).formatted(.percent), Int8(12).formatted(.percent), Int16(12).formatted(.percent), Int32(12).formatted(.percent), Int64(12).formatted(.percent), UInt(12).formatted(.percent), UInt8(12).formatted(.percent), UInt16(12).formatted(.percent), UInt32(12).formatted(.percent), UInt64(12).formatted(.percent)].joined(separator: "|"))
 
 // MARK: Value types
 print("== values")
@@ -124,6 +133,36 @@ show("notification", "\(note.name.rawValue) \(note.userInfo?["k"] as? Int ?? 0)"
 show("CharacterSet", CharacterSet.decimalDigits.contains("7"))
 let m = Measurement(value: 1.5, unit: UnitLength.kilometers)
 show("measurement", m.converted(to: .meters).value)
+show("measurement formatted", m.formatted(.measurement(width: .abbreviated)))
+show("measurement road", m.formatted(.measurement(width: .wide, usage: .road)))
+let meterValue = Measurement(value: 1500.0, unit: UnitLength.meters)
+show("measurement general", meterValue.formatted(.measurement(width: .abbreviated)))
+show("measurement as provided", meterValue.formatted(.measurement(width: .wide, usage: .asProvided)))
+show("measurement number style", meterValue.formatted(.measurement(width: .wide, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(2)))))
+let mAttributed = m.formatted(.measurement(width: .wide).attributed)
+show("measurement attributed", String(mAttributed.characters))
+show("measurement attribute parts", mAttributed.runs.compactMap { run in run.measurement.map { "\(String(mAttributed[run.range].characters))=\($0)" } })
+let characterView = mAttributed.characters
+let characterIndex = characterView.index(characterView.startIndex, offsetBy: 3, limitedBy: characterView.endIndex)!
+let scalarView = mAttributed.unicodeScalars
+let scalarIndex = scalarView.index(scalarView.startIndex, offsetBy: 3, limitedBy: scalarView.endIndex)!
+let runsView = mAttributed.runs
+let runIndex = runsView.index(runsView.startIndex, offsetBy: 1, limitedBy: runsView.endIndex)!
+show("attributed view indexes", "\(characterView.count)/\(characterView.distance(from: characterView.startIndex, to: characterIndex)) \(scalarView.count)/\(scalarView.distance(from: scalarView.startIndex, to: scalarIndex)) \(runsView.distance(from: runsView.startIndex, to: runIndex))")
+let height = Measurement(value: 1.75, unit: UnitLength.meters)
+show("person height", height.formatted(.measurement(width: .abbreviated, usage: .personHeight)))
+let temperature = Measurement(value: 23.5, unit: UnitTemperature.celsius)
+show("temperature without scale", temperature.formatted(.measurement(width: .abbreviated, hidesScaleName: true)))
+let name = PersonNameComponents(namePrefix: "Dr.", givenName: "John", middleName: "Q", familyName: "Public", nameSuffix: "Jr.")
+show("person name medium", name.formatted())
+show("person name long", name.formatted(.name(style: .long)))
+show("person name abbreviated", name.formatted(.name(style: .abbreviated)))
+show("person name style values", "\(PersonNameComponents.FormatStyle.Style.short.rawValue),\(PersonNameComponents.FormatStyle.Style.medium.rawValue),\(PersonNameComponents.FormatStyle.Style.long.rawValue),\(PersonNameComponents.FormatStyle.Style.abbreviated.rawValue)")
+let parsedName = try! PersonNameComponents("Jane Doe")
+show("person name parse", parsedName.formatted(.name(style: .long)))
+let annotatedName = name.formatted(.name(style: .long).attributed)
+show("person name annotated", String(annotatedName.characters))
+show("person name components", annotatedName.runs.compactMap { run in run.personNameComponent.map { "\(String(annotatedName[run.range].characters))=\($0)" } })
 let cg: CGFloat = 1.5
 show("CGFloat", cg * 2 + CGFloat(Double(3)))
 show("CGRect", NSStringFromRect(NSRect(x: 1, y: 2, width: 3, height: 4)))

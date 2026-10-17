@@ -6,7 +6,7 @@ This report compares public C declarations and SDK export lists, Objective-C cla
 
 Behavior-verified counts come from item IDs in build/compat-results/*.json. Generated comparisons and constant checks merge their item records into the same framework file. Records with status verified (or the older verified/passed flags) count; a later result replaces the status for that item ID. The full name-by-name report is kept in build/api-coverage.json.
 
-Overall: **26.5%** (143,813 of 543,220 API items across 843 parsed frameworks or dylibs).
+Overall: **26.6%** (144,420 of 543,220 API items across 843 parsed frameworks or dylibs).
 
 6 frameworks or dylibs had a parse or load issue and are left out of the overall percentage. 141 parsed successfully but had no public macOS API items.
 
@@ -156,7 +156,7 @@ Overall: **26.5%** (143,813 of 543,220 API items across 843 parsed frameworks or
 | FinanceKitUI | 11 | 0 | 11 | 0.0% | 0/11 | complete |
 | FinderSync | 25 | 0 | 25 | 0.0% | 0/25 | complete |
 | ForceFeedback | 20 | 0 | 20 | 0.0% | 0/20 | complete |
-| Foundation | 13,636 | 11,441 | 2,195 | 83.9% | 2495/13636 | complete |
+| Foundation | 13,636 | 12,048 | 1,588 | 88.4% | 2495/13636 | complete |
 | FoundationModels | 442 | 0 | 442 | 0.0% | 0/442 | complete |
 | FSKit | 317 | 0 | 317 | 0.0% | 0/317 | complete |
 | GameController | 907 | 0 | 907 | 0.0% | 0/907 | complete |
@@ -1378,12 +1378,12 @@ Priority score is missing API items multiplied by the number of apps app-sweep.p
 | WebKit | 2,908 | 32 | 93,056 |
 | AppKit | 3,452 | 26 | 89,752 |
 | AppIntents | 3,139 | 15 | 47,085 |
-| Foundation | 2,195 | 17 | 37,315 |
 | Vision | 2,674 | 13 | 34,762 |
 | ApplicationServices | 1,704 | 15 | 25,560 |
 | Carbon | 2,004 | 12 | 24,048 |
 | CoreServices | 1,019 | 19 | 19,361 |
 | MetalPerformanceShaders | 2,675 | 7 | 18,725 |
+| Foundation | 1,588 | 11 | 17,468 |
 | Intents | 1,065 | 15 | 15,975 |
 | CloudKit | 1,208 | 13 | 15,704 |
 | CoreServices/CarbonCore | 618 | 19 | 11,742 |

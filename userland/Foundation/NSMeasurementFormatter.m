@@ -19,11 +19,16 @@
 #import <Foundation/Foundation.h>
 
 #include "Foundation_Finch.h"
+#include <math.h>
 
 /* Apple's ICU (libicucore), declared here as CF declares what it uses. */
 typedef uint16_t UChar;
 typedef int UErrorCode;
 typedef struct UAMeasureFormat UAMeasureFormat;
+typedef struct {
+    double value;
+    int unit;
+} UAMeasure;
 typedef struct UNumberFormat UNumberFormat;
 extern UNumberFormat *unum_open(int style, const UChar *pattern, int32_t patternLength, const char *locale, void *parseError, UErrorCode *status);
 extern void unum_setAttribute(UNumberFormat *fmt, int attr, int32_t value);
@@ -31,6 +36,7 @@ extern void unum_close(UNumberFormat *fmt);
 extern UAMeasureFormat *uameasfmt_open(const char *locale, int width, UNumberFormat *nfToAdopt, UErrorCode *status);
 extern void uameasfmt_close(UAMeasureFormat *fmt);
 extern int32_t uameasfmt_format(const UAMeasureFormat *fmt, double value, int unit, UChar *result, int32_t capacity, UErrorCode *status);
+extern int32_t uameasfmt_formatMultiple(const UAMeasureFormat *fmt, const UAMeasure *measures, int32_t measureCount, UChar *result, int32_t capacity, UErrorCode *status);
 extern int32_t uameasfmt_getUnitName(const UAMeasureFormat *fmt, int unit, UChar *result, int32_t capacity, UErrorCode *status);
 extern int32_t uameasfmt_getUnitsForUsage(const char *locale, const char *category, const char *usage, int *units, int32_t capacity, UErrorCode *status);
 enum { UNUM_PATTERN_DECIMAL = 0, UNUM_ROUNDING_MODE = 11 };
@@ -61,6 +67,7 @@ enum {
     NSLocale *_locale;
     NSString *_usageOverride;
     BOOL _hasUsageOverride;
+    BOOL _allowsMultipleUnits;
 }
 @property NSMeasurementFormatterUnitOptions unitOptions;
 @property NSFormattingUnitStyle unitStyle;
@@ -68,10 +75,13 @@ enum {
 @property (copy) NSNumberFormatter *numberFormatter;
 - (NSString *)stringFromUnit:(NSUnit *)unit;
 - (NSString *)stringForValue:(double)value unit:(NSInteger)unit;
+- (NSString *)stringForMeasurements:(const UAMeasure *)measures count:(int32_t)count;
 - (NSString *)usageOverride;
 - (void)setUsageOverride:(NSString *)usage;
 - (BOOL)hasUsageOverride;
 - (void)setHasUsageOverride:(BOOL)hasOverride;
+- (BOOL)allowsMultipleUnits;
+- (void)setAllowsMultipleUnits:(BOOL)allows;
 - (int)determineUnitsToFormat:(int *)units fromMeasurement:(NSMeasurement *)measurement;
 @end
 
@@ -173,6 +183,7 @@ usage_for(int spec)
     c->_numberFormatter = [_numberFormatter copy];
     c->_usageOverride = [_usageOverride copy];
     c->_hasUsageOverride = _hasUsageOverride;
+    c->_allowsMultipleUnits = _allowsMultipleUnits;
     return c;
 }
 
@@ -190,6 +201,8 @@ usage_for(int spec)
 }
 - (BOOL)hasUsageOverride { return _hasUsageOverride; }
 - (void)setHasUsageOverride:(BOOL)hasOverride { _hasUsageOverride = hasOverride; }
+- (BOOL)allowsMultipleUnits { return _allowsMultipleUnits; }
+- (void)setAllowsMultipleUnits:(BOOL)allows { _allowsMultipleUnits = allows; }
 
 - (void)setLocale:(NSLocale *)locale
 {
@@ -266,6 +279,25 @@ usage_for(int spec)
     return U_FAILURE(err) ? nil : [NSString stringWithCharacters:buf length:n];
 }
 
+- (NSString *)stringForMeasurements:(const UAMeasure *)measures count:(int32_t)count
+{
+    UAMeasureFormat *f = [self _measureFormat];
+    if (!f || count < 1) return nil;
+    UChar buf[128];
+    UErrorCode err = 0;
+    int32_t n = uameasfmt_formatMultiple(f, measures, count, buf, 128, &err);
+    if (n > 128) {
+        UChar *large = malloc((size_t)(n + 1) * sizeof(UChar));
+        if (!large) return nil;
+        err = 0;
+        n = uameasfmt_formatMultiple(f, measures, count, large, n + 1, &err);
+        NSString *s = U_FAILURE(err) ? nil : [NSString stringWithCharacters:large length:n];
+        free(large);
+        return s;
+    }
+    return U_FAILURE(err) ? nil : [NSString stringWithCharacters:buf length:n];
+}
+
 - (NSString *)stringFromUnit:(NSUnit *)unit
 {
     if (!has_specifier(unit)) return [unit symbol];
@@ -333,7 +365,30 @@ usage_for(int spec)
         return [self _plainStringForValue:value unit:unit];
     }
     int units[8];
-    if ([self _determineUnitsToFormat:units fromMeasurement:m] != 1) return [self _plainStringForValue:value unit:unit];
+    int unitCount = [self _determineUnitsToFormat:units fromMeasurement:m];
+    if (unitCount > 1) {
+        if (!_allowsMultipleUnits || unitCount > 8) return [self _plainStringForValue:value unit:unit];
+        UAMeasure measures[8];
+        NSMeasurement *remaining = m;
+        for (int i = 0; i < unitCount && i < 8; i++) {
+            NSDimension *target = FinchUnitForSpecifier(units[i]);
+            if (!target) return [self _plainStringForValue:value unit:unit];
+            NSMeasurement *converted = [remaining measurementByConvertingToUnit:target];
+            double convertedValue = [converted doubleValue];
+            measures[i].unit = units[i];
+            if (i + 1 < unitCount) {
+                double wholeValue = trunc(convertedValue);
+                measures[i].value = wholeValue;
+                NSMeasurement *whole = [[[NSMeasurement alloc] initWithDoubleValue:wholeValue unit:target] autorelease];
+                remaining = [converted measurementBySubtractingMeasurement:whole];
+            } else {
+                measures[i].value = convertedValue;
+            }
+        }
+        NSString *formatted = [self stringForMeasurements:measures count:unitCount];
+        return formatted ?: [self _plainStringForValue:value unit:unit];
+    }
+    if (unitCount != 1) return [self _plainStringForValue:value unit:unit];
     if (units[0] == -1) return nil;
     if (units[0] == TEMPERATURE_GENERIC) {
         if (!(_unitOptions & NSMeasurementFormatterUnitOptionsProvidedUnit)) {
@@ -416,6 +471,17 @@ usage_for(int spec)
 - (void)setLocale:(NSLocale *)l { [UNIT_FORMATTER setLocale:l ? l : [NSLocale currentLocale]]; }
 - (NSNumberFormatter *)numberFormatter { return [UNIT_FORMATTER numberFormatter]; }
 - (void)setNumberFormatter:(NSNumberFormatter *)nf { [UNIT_FORMATTER setNumberFormatter:nf]; }
+
+- (void)_setFinchUsageOverride:(NSString *)usage
+{
+    [UNIT_FORMATTER setUsageOverride:usage];
+    [UNIT_FORMATTER setHasUsageOverride:usage != nil];
+}
+
+- (void)_setFinchAllowsMultipleUnits:(BOOL)allows
+{
+    [UNIT_FORMATTER setAllowsMultipleUnits:allows];
+}
 
 - (NSString *)stringFromMeasurement:(NSMeasurement *)measurement
 {

@@ -1,0 +1,149 @@
+diff --git a/Sources/FoundationEssentials/AttributedString/AttributedString+CharacterView.swift b/Sources/FoundationEssentials/AttributedString/AttributedString+CharacterView.swift
+index 12af670..7b42496 100644
+--- a/Sources/FoundationEssentials/AttributedString/AttributedString+CharacterView.swift
++++ b/Sources/FoundationEssentials/AttributedString/AttributedString+CharacterView.swift
+@@ -113,7 +113,6 @@ extension AttributedString.CharacterView: BidirectionalCollection {
+         .init(_range.upperBound, version: _guts.version)
+     }
+ 
+-    @_alwaysEmitIntoClient
+     public var count: Int {
+     #if FOUNDATION_FRAMEWORK
+         if #available(macOS 14, iOS 17, tvOS 17, watchOS 10, *) {
+@@ -143,7 +142,6 @@ extension AttributedString.CharacterView: BidirectionalCollection {
+         return j
+     }
+ 
+-    @_alwaysEmitIntoClient
+     public func index(_ i: AttributedString.Index, offsetBy distance: Int) -> AttributedString.Index {
+     #if FOUNDATION_FRAMEWORK
+         if #available(macOS 14, iOS 17, tvOS 17, watchOS 10, *) {
+@@ -162,7 +160,6 @@ extension AttributedString.CharacterView: BidirectionalCollection {
+         return j
+     }
+ 
+-    @_alwaysEmitIntoClient
+     public func index(
+         _ i: AttributedString.Index,
+         offsetBy distance: Int,
+@@ -195,7 +192,6 @@ extension AttributedString.CharacterView: BidirectionalCollection {
+         return Index(j, version: _guts.version)
+     }
+ 
+-    @_alwaysEmitIntoClient
+     public func distance(from start: AttributedString.Index, to end: AttributedString.Index) -> Int {
+     #if FOUNDATION_FRAMEWORK
+         if #available(macOS 14, iOS 17, tvOS 17, watchOS 10, *) {
+diff --git a/Sources/FoundationEssentials/AttributedString/AttributedString+Runs.swift b/Sources/FoundationEssentials/AttributedString/AttributedString+Runs.swift
+index 5a9df5f..a119689 100644
+--- a/Sources/FoundationEssentials/AttributedString/AttributedString+Runs.swift
++++ b/Sources/FoundationEssentials/AttributedString/AttributedString+Runs.swift
+@@ -330,7 +330,6 @@ extension AttributedString.Runs: BidirectionalCollection {
+         }
+     }
+     
+-    @_alwaysEmitIntoClient
+     public func distance(from start: Index, to end: Index) -> Int {
+         #if FOUNDATION_FRAMEWORK
+         if #available(macOS 26, iOS 26, tvOS 26, watchOS 26, visionOS 26, *) {
+@@ -358,7 +357,6 @@ extension AttributedString.Runs: BidirectionalCollection {
+         return dist
+     }
+ 
+-    @_alwaysEmitIntoClient
+     public func index(_ i: Index, offsetBy distance: Int) -> Index {
+     #if FOUNDATION_FRAMEWORK
+         if #available(macOS 14, iOS 17, tvOS 17, watchOS 10, *) {
+@@ -390,7 +388,6 @@ extension AttributedString.Runs: BidirectionalCollection {
+         return idx
+     }
+ 
+-    @_alwaysEmitIntoClient
+     public func index(_ i: Index, offsetBy distance: Int, limitedBy limit: Index) -> Index? {
+         // This is the stdlib's default implementation for RandomAccessCollection types.
+         // (It's _far_ more efficient than the O(n) algorithm that used to apply here by default,
+diff --git a/Sources/FoundationEssentials/AttributedString/AttributedString+UnicodeScalarView.swift b/Sources/FoundationEssentials/AttributedString/AttributedString+UnicodeScalarView.swift
+index a0f8ed9..d400817 100644
+--- a/Sources/FoundationEssentials/AttributedString/AttributedString+UnicodeScalarView.swift
++++ b/Sources/FoundationEssentials/AttributedString/AttributedString+UnicodeScalarView.swift
+@@ -114,7 +114,6 @@ extension AttributedString.UnicodeScalarView: BidirectionalCollection {
+         .init(_range.upperBound, version: _guts.version)
+     }
+ 
+-    @_alwaysEmitIntoClient
+     public var count: Int {
+     #if FOUNDATION_FRAMEWORK
+         if #available(macOS 14, iOS 17, tvOS 17, watchOS 10, *) {
+@@ -151,7 +150,6 @@ extension AttributedString.UnicodeScalarView: BidirectionalCollection {
+         return j
+     }
+ 
+-    @_alwaysEmitIntoClient
+     public func index(
+         _ i: AttributedString.Index,
+         offsetBy distance: Int,
+@@ -184,7 +182,6 @@ extension AttributedString.UnicodeScalarView: BidirectionalCollection {
+         return Index(j, version: _guts.version)
+     }
+ 
+-    @_alwaysEmitIntoClient
+     public func distance(
+         from start: AttributedString.Index,
+         to end: AttributedString.Index
+diff --git a/Sources/FoundationEssentials/AttributedString/Collection Stdlib Defaults.swift b/Sources/FoundationEssentials/AttributedString/Collection Stdlib Defaults.swift
+index 65d5538..de2665a 100644
+--- a/Sources/FoundationEssentials/AttributedString/Collection Stdlib Defaults.swift	
++++ b/Sources/FoundationEssentials/AttributedString/Collection Stdlib Defaults.swift	
+@@ -14,12 +14,10 @@
+ // FIXME: The stdlib should expose these as callable entry points.
+ 
+ extension Collection {
+-  @_alwaysEmitIntoClient
+   internal var _defaultCount: Int {
+     distance(from: startIndex, to: endIndex)
+   }
+   
+-  @_alwaysEmitIntoClient
+   internal func _defaultDistanceForward(from start: Index, to end: Index) -> Int {
+     precondition(start <= end,
+                  "Only BidirectionalCollections can have end come before start")
+@@ -32,7 +30,6 @@ extension Collection {
+     return count
+   }
+ 
+-  @_alwaysEmitIntoClient
+   internal func _defaultAdvanceForward(_ i: Index, by n: Int) -> Index {
+     precondition(n >= 0,
+                  "Only BidirectionalCollections can be advanced by a negative amount")
+@@ -44,7 +41,6 @@ extension Collection {
+     return i
+   }
+ 
+-  @_alwaysEmitIntoClient
+   internal func _defaultAdvanceForward(
+     _ i: Index, by n: Int, limitedBy limit: Index
+   ) -> Index? {
+@@ -63,7 +59,6 @@ extension Collection {
+ }
+ 
+ extension BidirectionalCollection {
+-  @_alwaysEmitIntoClient
+   internal func _defaultDistance(from start: Index, to end: Index) -> Int {
+     var start = start
+     var count = 0
+@@ -84,7 +79,6 @@ extension BidirectionalCollection {
+     return count
+   }
+ 
+-  @_alwaysEmitIntoClient
+   internal func _defaultIndex(_ i: Index, offsetBy distance: Int) -> Index {
+     if distance >= 0 {
+       return _defaultAdvanceForward(i, by: distance)
+@@ -96,7 +90,6 @@ extension BidirectionalCollection {
+     return i
+   }
+ 
+-  @_alwaysEmitIntoClient
+   internal func _defaultIndex(
+     _ i: Index, offsetBy distance: Int, limitedBy limit: Index
+   ) -> Index? {
