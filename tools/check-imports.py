@@ -123,7 +123,10 @@ def check(binary, root=ROOT):
     missing_libs = []
     absent = {}
     for short, syms in sorted(imports.items()):
-        install = next((v for k, v in libs.items() if k == short or k.startswith(short)), None)
+        install = libs.get(short)
+        if install is None:
+            install = next((v for k, v in sorted(libs.items(), key=lambda item: -len(item[0]))
+                            if k.startswith(short)), None)
         # (bundled libraries, and weak definitions bound wherever they're found)
         if install and install.startswith("@") or short in bundled or short.startswith("<"):
             continue

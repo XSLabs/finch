@@ -21,7 +21,7 @@ CFLAGS="-I${OPENSSL}/include -I${FINCH_ROOT}/build/src/openssl/include" \
     "${HERE}"/CFNetworkConstants.c "${HERE}"/CFHTTPMessage.c "${HERE}"/CFHTTPAuthentication.c \
     "${HERE}"/CFHTTPStream.c "${HERE}"/CFSocketStream.c "${HERE}"/CFHost.c "${HERE}"/CFNetServices.c \
     "${HERE}"/CFProxySupport.c "${HERE}"/CFFTPStream.c "${HERE}"/CFNetDiagnostics.c \
-    -- -framework CoreFoundation -framework SystemConfiguration \
+    -- -framework CoreFoundation -framework Foundation -framework SystemConfiguration -Wl,-reexport_framework,Foundation \
     -L"${OPENSSL}" -Wl,-hidden-lssl -Wl,-hidden-lcrypto -Wl,-no_warn_inits
 # Apple's bundle version (its User-Agent's "CFNetwork/..."), apart from the dylib's.
 plutil -replace CFBundleVersion -string 3860.500.112 "${FW}/Versions/A/Resources/Info.plist"

@@ -284,6 +284,23 @@ struct AppIntentsTest {
         print(info.dli_fname.map { String(cString: $0) } ?? "?")
 
         print("intent", RepeatIntent.title.key, RepeatIntent.persistentIdentifier, RepeatIntent.openAppWhenRun)
+        let person = IntentPerson(
+            identifier: .contact("person-1"), name: .displayName("Ada Lovelace"),
+            handle: IntentPerson.Handle(emailAddress: "ada@example.com", label: .work),
+            aliases: [IntentPerson.Handle(phoneNumber: "555-0100", label: .mobile)], isMe: true
+        )
+        let personData = try JSONEncoder().encode(person)
+        let personCopy = try JSONDecoder().decode(IntentPerson.self, from: personData)
+        print("person", person.displayRepresentation.title.key, person.identifier == .contact("person-1"),
+              person.handle?.value == .emailAddress("ada@example.com"), person.aliases.count,
+              person.isMe, personCopy == person)
+        let personFromHandle = IntentPerson(handle: IntentPerson.Handle(applicationDefined: "contact-token", label: "CRM"))
+        print("person-handle", personFromHandle.name == .unknown, personFromHandle.identifier == .unknown,
+              personFromHandle.displayRepresentation.title.key)
+        let foregroundModes: [IntentModes] = [
+            .foreground(.immediate), .foreground(.dynamic), .foreground(.deferred)
+        ]
+        print("foreground-modes", foregroundModes.map(\.rawValue).map(String.init).joined(separator: ","))
         print("summary", String(reflecting: SummaryIntent.parameterSummary))
         print("conditionalSummary", String(reflecting: ConditionalSummaryIntent.parameterSummary))
         print("assistant", LocalRecord.typeDisplayRepresentation.name.key, LocalMode.compact.rawValue,

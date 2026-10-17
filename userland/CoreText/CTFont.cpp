@@ -22,6 +22,8 @@
 #include <map>
 #include <string>
 
+extern "C" CFArrayRef CTFontCopyVariationAxesInternal(CTFontRef font);
+
 static pthread_mutex_t ft_lock = PTHREAD_MUTEX_INITIALIZER;
 static FT_Library ft_library;
 
@@ -962,6 +964,12 @@ CTFontCopyVariationAxes(CTFontRef f)
     }
     CFRelease(cgaxes);
     return out;
+}
+
+extern "C" CFArrayRef
+CTFontCopyVariationAxesInternal(CTFontRef font)
+{
+    return CTFontCopyVariationAxes(font);
 }
 
 CFDictionaryRef

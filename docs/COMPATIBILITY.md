@@ -6,7 +6,7 @@ This report compares public C declarations and SDK export lists, Objective-C cla
 
 Behavior-verified counts come from item IDs in build/compat-results/*.json. Generated comparisons and constant checks merge their item records into the same framework file. Records with status verified (or the older verified/passed flags) count; a later result replaces the status for that item ID. The full name-by-name report is kept in build/api-coverage.json.
 
-Overall: **27.1%** (147,464 of 543,220 API items across 843 parsed frameworks or dylibs).
+Overall: **27.2%** (147,511 of 543,220 API items across 843 parsed frameworks or dylibs).
 
 6 frameworks or dylibs had a parse or load issue and are left out of the overall percentage. 141 parsed successfully but had no public macOS API items.
 
@@ -29,7 +29,7 @@ Overall: **27.1%** (147,464 of 543,220 API items across 843 parsed frameworks or
 | AddressBook | 975 | 0 | 975 | 0.0% | 0/975 | complete |
 | AdServices | 4 | 0 | 4 | 0.0% | 0/4 | complete |
 | AdSupport | 3 | 0 | 3 | 0.0% | 0/3 | complete |
-| AppIntents | 4,043 | 904 | 3,139 | 22.4% | 0/4043 | complete |
+| AppIntents | 4,043 | 995 | 3,048 | 24.6% | 0/4043 | complete |
 | AppKit | 18,585 | 15,933 | 2,652 | 85.7% | 3578/18585 | complete |
 | AppleConvergedTransport | 14 | 0 | 14 | 0.0% | 0/14 | complete |
 | AppleScriptKit | 96 | 0 | 96 | 0.0% | 0/96 | complete |
@@ -656,7 +656,7 @@ Overall: **27.1%** (147,464 of 543,220 API items across 843 parsed frameworks or
 | NotificationCenter | 38 | 0 | 38 | 0.0% | 0/38 | complete |
 | OpenAL | 98 | 0 | 98 | 0.0% | 0/98 | complete |
 | OpenCL | 142 | 0 | 142 | 0.0% | 0/142 | complete |
-| OpenDirectory | 629 | 617 | 12 | 98.1% | 395/629 | complete |
+| OpenDirectory | 629 | 573 | 56 | 91.1% | 395/629 | complete |
 | OpenDirectory/CFOpenDirectory | 463 | 401 | 62 | 86.6% | 387/463 | complete |
 | OpenGL | 1,408 | 1,179 | 229 | 83.7% | 0/1408 | complete |
 | OpenGL/libGL | 1,278 | 1,104 | 174 | 86.4% | 0/1278 | complete |
@@ -1374,7 +1374,7 @@ Priority score is missing API items multiplied by the number of apps app-sweep.p
 | SwiftUI | 3,729 | 25 | 93,225 |
 | WebKit | 2,908 | 32 | 93,056 |
 | AppKit | 2,652 | 26 | 68,952 |
-| AppIntents | 3,139 | 15 | 47,085 |
+| AppIntents | 3,048 | 15 | 45,720 |
 | Vision | 2,674 | 13 | 34,762 |
 | ApplicationServices | 1,704 | 15 | 25,560 |
 | Carbon | 2,004 | 12 | 24,048 |
@@ -1383,6 +1383,6 @@ Priority score is missing API items multiplied by the number of apps app-sweep.p
 | Foundation | 1,588 | 11 | 17,468 |
 | Intents | 1,065 | 15 | 15,975 |
 | CloudKit | 1,208 | 13 | 15,704 |
+| AVFoundation | 508 | 25 | 12,700 |
 | CoreServices/CarbonCore | 618 | 19 | 11,742 |
-| AVFoundation | 508 | 23 | 11,684 |
 | QuartzCore | 1,122 | 10 | 11,220 |

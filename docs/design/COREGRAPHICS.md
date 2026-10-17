@@ -497,6 +497,15 @@ The tests follow Foundation's:
 - 2026-10-15: ImageIO now stores metadata tags, reads and writes XMP packets,
   maps common image properties to metadata tags and runs GIF animation callbacks.
   All 808 public C declarations are exported, and `imageio-test` matches Apple's.
+- 2026-10-17: ImageIO now exports 14 additional metadata and decode-option keys that
+  installed apps import. `imageio-test` compares their exact strings with Apple's framework;
+  all 1,227 output lines match. The app sweep's ImageIO gap fell from 20 app-symbol pairs
+  to 5.
+- 2026-10-17: CoreText now exports the app-imported text-style keys, reports whether a line
+  starts right-to-left from its shaped runs, and exposes the internal variation-axis query
+  through the public variation-axis implementation. `ct-test` checks the key values, a
+  Hebrew line, and agreement with the public axis query. The app sweep's CoreText gap fell
+  from 21 pairs to 7.
 - 2026-10-15: CoreGraphics now exports the private ICC-compatibility check,
   device-color-space copy and base-CTM accessors. It also has a counted region
   object for a single rectangle, with bounds and rectangle queries. The Swift

@@ -27,6 +27,21 @@
 #include <string.h>
 #include <unistd.h>
 
+extern const CFStringRef kCGImageAuxiliaryDataTypeAlpha;
+extern const CFStringRef kCGImageCopyFileSetOrientation;
+extern const CFStringRef kCGImageDestinationICCProfile;
+extern const CFStringRef kCGImagePropertyASTCPreTwiddle;
+extern const CFStringRef kCGImagePropertyASTCUseLZFSE;
+extern const CFStringRef kCGImagePropertyJPEGDictionary;
+extern const CFStringRef kCGImagePropertyPNGBandCount;
+extern const CFStringRef kCGImageSourceAddJPEGQualityInformation;
+extern const CFStringRef kCGImageSourcePreferredThreadCount;
+extern const CFStringRef kCGImageSourceRawReconstructionDefaults;
+extern const CFStringRef kCGImageSourceShouldExtendRaw;
+extern const CFStringRef kCGImageSourceShouldPreferRGB32;
+extern const CFStringRef kCGImageSourceSkipMetadata;
+extern const CFStringRef kCGImageSourceUseHardwareAcceleration;
+
 /* ---- the test images --------------------------------------------------- */
 
 static const unsigned char rgb8_png[] = {
@@ -3362,6 +3377,20 @@ static const struct { const char *name; const CFStringRef *value; } consts[] = {
     C(kIIOCameraModel_Intrinsics)
     C(kCGImageProviderPreferredTileWidth)
     C(kCGImageProviderPreferredTileHeight)
+    C(kCGImageAuxiliaryDataTypeAlpha)
+    C(kCGImageCopyFileSetOrientation)
+    C(kCGImageDestinationICCProfile)
+    C(kCGImagePropertyASTCPreTwiddle)
+    C(kCGImagePropertyASTCUseLZFSE)
+    C(kCGImagePropertyJPEGDictionary)
+    C(kCGImagePropertyPNGBandCount)
+    C(kCGImageSourceAddJPEGQualityInformation)
+    C(kCGImageSourcePreferredThreadCount)
+    C(kCGImageSourceRawReconstructionDefaults)
+    C(kCGImageSourceShouldExtendRaw)
+    C(kCGImageSourceShouldPreferRGB32)
+    C(kCGImageSourceSkipMetadata)
+    C(kCGImageSourceUseHardwareAcceleration)
 };
 
 static void

@@ -44,13 +44,18 @@ $(OBJ)/OpenDirectoryConstants_Generated.o: OpenDirectoryConstants_Generated.m
 	@mkdir -p $(OBJ)
 	$(CC) $(CFLAGS) -fno-objc-arc -c $< -o $@
 
-$(FW)/Versions/A/OpenDirectory: $(CFOD)/Versions/A/CFOpenDirectory $(OBJ)/OpenDirectoryConstants_Generated.o
+$(OBJ)/ODObjects.o: ODObjects.m
+	@mkdir -p $(OBJ)
+	$(CC) $(CFLAGS) -Wno-incomplete-implementation -fno-objc-arc -c $< -o $@
+
+$(FW)/Versions/A/OpenDirectory: $(CFOD)/Versions/A/CFOpenDirectory $(OBJ)/OpenDirectoryConstants_Generated.o $(OBJ)/ODObjects.o
 	@mkdir -p $(OBJ)
 	echo 'int finch_opendirectory_placeholder;' | $(CC) -arch arm64e -mmacosx-version-min=26.0 -x c -c - -o $(OBJ)/od.o
-	$(CC) -arch arm64e -mmacosx-version-min=26.0 -dynamiclib -o $@ $(OBJ)/od.o $(OBJ)/OpenDirectoryConstants_Generated.o \
+	$(CC) -arch arm64e -mmacosx-version-min=26.0 -dynamiclib -o $@ $(OBJ)/od.o $(OBJ)/OpenDirectoryConstants_Generated.o $(OBJ)/ODObjects.o \
 	    -install_name /System/Library/Frameworks/OpenDirectory.framework/Versions/A/OpenDirectory \
 	    -current_version 1.0.0 -compatibility_version 1.0.0 -Wl,-reexport_library,$< -Wl,-unexported_symbol,_finch_opendirectory_placeholder \
-	    -F$(ROOT)/System/Library/Frameworks -framework CoreFoundation
+	    -F$(FW)/Versions/A/Frameworks -framework CFOpenDirectory -F$(ROOT)/System/Library/Frameworks -framework CoreFoundation -framework Foundation \
+	    -L$(ROOT)/usr/lib/system -lfinchaccount
 	ln -sfn A $(FW)/Versions/Current
 	ln -sfn Versions/Current/OpenDirectory $(FW)/OpenDirectory
 	$(FINCH_ROOT)/tools/mkframeworkplist.sh $(FW) A OpenDirectory com.apple.OpenDirectory OpenDirectory 26.4 666.100.1 English

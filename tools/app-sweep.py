@@ -78,12 +78,15 @@ def main():
     ap.add_argument("dirs", nargs="*", default=DIRS)
     ap.add_argument("--root", default=check_imports.ROOT)
     ap.add_argument("--markdown", action="store_true", help="print the report as Markdown tables")
+    ap.add_argument("--symbols", action="store_true", help="print every missing import for each framework")
     args = ap.parse_args()
 
     ready, blocked = [], {}
     no_image = collections.defaultdict(set)    # framework -> apps
     short = collections.defaultdict(set)       # framework -> apps missing its symbols
     short_count = collections.Counter()        # framework -> missing symbols, summed
+    short_symbols = collections.defaultdict(set)  # framework -> missing symbol names
+    short_symbol_apps = collections.defaultdict(lambda: collections.defaultdict(set))
     for d in args.dirs:
         if not os.path.isdir(d):
             continue
@@ -111,6 +114,9 @@ def main():
                 if syms:
                     short[f].add(app)
                     short_count[f] += len(syms)
+                    short_symbols[f] |= syms
+                    for symbol in syms:
+                        short_symbol_apps[f][symbol].add(app)
                     needs.append(f"{f} ({len(syms)} symbols)")
             if needs:
                 blocked[app] = needs
@@ -118,6 +124,14 @@ def main():
                 ready.append(app)
 
     total = len(ready) + len(blocked)
+    if args.symbols:
+        print(f"ready ({len(ready)} of {total})")
+        for f in sorted(short_symbols):
+            print(f"\n{f} ({len(short[f])} apps, {short_count[f]} app-symbol imports, {len(short_symbols[f])} unique symbols):")
+            for symbol in sorted(short_symbols[f]):
+                apps = sorted(short_symbol_apps[f][symbol])
+                print(f"  {symbol} ({len(apps)}): {', '.join(apps)}")
+        return 0
     if args.markdown:
         print(f"{len(ready)} of {total} apps have every import Finch's frameworks provide.\n")
         print("| Missing | Apps blocked | Kind |\n|---|---|---|")

@@ -6,6 +6,7 @@ import AppIntents
 import AppKit
 import _AppIntents_AppKit
 import Darwin
+import Foundation
 
 struct LocalEntity: AppEntity {
     let id: String
@@ -27,6 +28,139 @@ struct LocalEntityQuery: EntityQuery {
 
     func suggestedEntities() async throws -> [LocalEntity] {
         [LocalEntity(id: "one")]
+    }
+}
+
+enum LocalSetting: String, AppEnum, CaseIterable {
+    case enabled
+
+    static var typeDisplayRepresentation: TypeDisplayRepresentation { "Setting" }
+    static var caseDisplayRepresentations: [LocalSetting: DisplayRepresentation] { [.enabled: "Enabled"] }
+}
+
+struct EmptyEntityQuery<Value: AppEntity>: EntityQuery {
+    typealias Entity = Value
+    init() {}
+    func entities(for identifiers: [Value.ID]) async throws -> [Value] { [] }
+}
+
+struct MailAddress: MailAddressee {
+    var id: String
+    var displayName: String?
+    var emailAddress: String
+
+    static var typeDisplayRepresentation: TypeDisplayRepresentation { "Mail address" }
+    static var defaultQuery = EmptyEntityQuery<MailAddress>()
+
+    init(displayName: String?, emailAddress: String) {
+        self.id = emailAddress
+        self.displayName = displayName
+        self.emailAddress = emailAddress
+    }
+}
+
+struct MailAccountRecord: MailAccount {
+    var id: String
+    var displayName: String?
+    var emailAddress: String
+
+    static var typeDisplayRepresentation: TypeDisplayRepresentation { "Mail account" }
+    static var defaultQuery = EmptyEntityQuery<MailAccountRecord>()
+}
+
+struct MailboxRecord: Mailbox {
+    var id: String
+    var name: String
+    var account: MailAccountRecord?
+
+    static var typeDisplayRepresentation: TypeDisplayRepresentation { "Mailbox" }
+    static var defaultQuery = EmptyEntityQuery<MailboxRecord>()
+}
+
+struct MailMessageRecord: MailMessage {
+    typealias Addressee = MailAddress
+    typealias Account = MailAccountRecord
+    typealias Mailbox = MailboxRecord
+
+    var id: String
+    var attributes: [MailMessageAttribute] = []
+    var dateReceived = Date(timeIntervalSince1970: 1)
+    var dateSent = Date(timeIntervalSince1970: 2)
+    var to: [MailAddress] = []
+    var cc: [MailAddress] = []
+    var bcc: [MailAddress] = []
+    var body: AttributedString? = nil
+    var isJunk = false
+    var isRead = false
+    var sender: MailAddress
+    var account: MailAccountRecord? = nil
+    var mailbox: MailboxRecord? = nil
+    var replyTo: [MailAddress] = []
+    var subject: String? = "Subject"
+
+    static var typeDisplayRepresentation: TypeDisplayRepresentation { "Mail message" }
+    static var defaultQuery = EmptyEntityQuery<MailMessageRecord>()
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: LocalizedStringResource(stringLiteral: subject ?? ""))
+    }
+
+    init(id: String) {
+        self.id = id
+        sender = MailAddress(displayName: "Ada", emailAddress: "ada@example.com")
+    }
+}
+
+struct SendMailAction: SendMailIntent {
+    typealias Addressee = MailAddress
+    typealias Account = MailAccountRecord
+    typealias ReplyMessage = MailMessageRecord
+
+    static var title: LocalizedStringResource { "Send mail" }
+    var attachments: [IntentFile] = []
+    var cc: [MailAddress] = []
+    var to = [MailAddress(displayName: "Ada", emailAddress: "ada@example.com")]
+    var bcc: [MailAddress] = []
+    var body: AttributedString? = AttributedString("Hello")
+    var account: MailAccountRecord? = nil
+    var subject: String? = "Hello"
+    var inReplyTo: MailMessageRecord? = nil
+
+    func perform() async throws -> some IntentResult { .result(value: subject ?? "") }
+}
+
+struct MarkMailReadAction: SetMailMessageIsReadIntent {
+    typealias Message = MailMessageRecord
+    static var title: LocalizedStringResource { "Mark mail read" }
+    var read = true
+    var message = MailMessageRecord(id: "message-1")
+
+    func perform() async throws -> some IntentResult { .result(value: read) }
+}
+
+struct SearchAction: SearchIntent {
+    static var title: LocalizedStringResource { "Search" }
+    var searchPhrase = "letters"
+    func perform() async throws -> some IntentResult { .result(value: searchPhrase) }
+}
+
+struct CreateAction: CreateIntent {
+    typealias Entity = LocalEntity
+    static var title: LocalizedStringResource { "Create" }
+    var name: String? = "new record"
+    func perform() async throws -> some IntentResult { .result(value: LocalEntity(id: name ?? "new")) }
+}
+
+struct ToggleAction: ChangeBinarySettingIntent {
+    typealias Setting = LocalSetting
+    static var title: LocalizedStringResource { "Toggle" }
+    var setting = LocalSetting.enabled
+    var changeOperation = ChangeOperation.toggle
+    func perform() async throws -> some IntentResult { .result() }
+
+    init() {}
+
+    init(changeOperation: ChangeOperation) {
+        self.changeOperation = changeOperation
     }
 }
 
@@ -133,6 +267,33 @@ struct AppIntentsLocalTest {
         print("search-parameter", searchParameter.title.key, searchParameter.defaultValue == nil)
 
         print("audio-marker", PlaybackMarkerIntent.title.key, PlaybackMarkerIntent.openAppWhenRun)
+
+        let address = MailAddress(displayName: "Ada", emailAddress: "ada@example.com")
+        let account = MailAccountRecord(id: "account-1", displayName: "Work", emailAddress: "work@example.com")
+        let mailbox = MailboxRecord(id: "inbox", name: "Inbox", account: account)
+        var message = MailMessageRecord(id: "message-1")
+        message.to = [address]
+        message.account = account
+        message.mailbox = mailbox
+        let send = SendMailAction(account: account, inReplyTo: message)
+        try await send.prepare()
+        let sendResult = try await send.perform()
+        let markRead = MarkMailReadAction(message: message)
+        try await markRead.prepare()
+        let readResult = try await markRead.perform()
+        print("mail-contract", address.displayRepresentation.title.key,
+              account.displayRepresentation.title.key, mailbox.displayRepresentation.title.key,
+              message.to.first?.emailAddress ?? "-", send.attachments.count,
+              sendResult.value ?? "-", readResult.value ?? false)
+
+        let search = SearchAction(searchPhrase: "finch")
+        let searchResult = try await search.perform()
+        let create = CreateAction(name: "new item")
+        let createResult = try await create.perform()
+        let toggle = ToggleAction(changeOperation: .disable)
+        print("system-intent-contracts", search.searchPhrase, searchResult.value ?? "-",
+              create.name ?? "-", createResult.value != nil, toggle.changeOperation.rawValue,
+              toggle.setting.rawValue, NavigateSequentiallyDirection.next.rawValue)
 
         let urlText: any CustomURLRepresentationParameterConvertible = "a song"
         let urlNumber: any CustomURLRepresentationParameterConvertible = 42

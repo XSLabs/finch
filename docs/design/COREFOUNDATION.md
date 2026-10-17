@@ -192,6 +192,10 @@ still link. That's the work list for "nothing closed". On 2026-10-08 it found 14
   for LZMA and Brotli, which return 0). Not done: LZBITMAP (Apple's
   undocumented format) and the private `compression_stream_*` calls.
   `tools/check-closed.py` is down to 1: Foundation.
+- 2026-10-17: OpenDirectory's Objective-C session, node, record and query classes now read
+  local user records and search their supported attributes. Password checks use Finch's
+  shared account verifier. The implementation does not change accounts or claim remote
+  directory support. `opendirectory-objects-test` matches Apple's on the host.
 - 2026-10-08: Foundation is Finch's (`docs/design/FOUNDATION.md`), so
   `tools/check-closed.py` finds no closed library in anything Finch builds.
 - 2026-10-09: `CFNotificationCenter`'s local, Darwin and in-process distributed

@@ -17,6 +17,18 @@
 #include <stdlib.h>
 #include <string.h>
 
+extern Boolean CTLineIsRightToLeft(CTLineRef line);
+extern CFArrayRef CTFontCopyVariationAxesInternal(CTFontRef font);
+extern const CFStringRef kCTFontAllowCellularDownloadAttribute;
+extern const CFStringRef kCTFontDescriptorTextStyleAttribute;
+extern const CFStringRef kCTFontMarketingNameKey;
+extern const CFStringRef kCTUIFontTextStyleShortBody;
+extern const CFStringRef kCTUIFontTextStyleShortCaption1;
+extern const CFStringRef kCTUIFontTextStyleShortFootnote;
+extern const CFStringRef kCTUIFontTextStyleShortHeadline;
+extern const CFStringRef kCTUIFontTextStyleShortSubhead;
+extern const CFStringRef kCTUIFontTextStyleTallBody;
+
 static void
 str(const char *label, CFStringRef s)
 {
@@ -24,6 +36,24 @@ str(const char *label, CFStringRef s)
     if (s)
         CFStringGetCString(s, buf, sizeof buf, kCFStringEncodingUTF8);
     printf("%s: %s\n", label, buf);
+}
+
+static void
+private_constants(void)
+{
+    const struct { const char *name; CFStringRef value; } values[] = {
+        {"kCTFontAllowCellularDownloadAttribute", kCTFontAllowCellularDownloadAttribute},
+        {"kCTFontDescriptorTextStyleAttribute", kCTFontDescriptorTextStyleAttribute},
+        {"kCTFontMarketingNameKey", kCTFontMarketingNameKey},
+        {"kCTUIFontTextStyleShortBody", kCTUIFontTextStyleShortBody},
+        {"kCTUIFontTextStyleShortCaption1", kCTUIFontTextStyleShortCaption1},
+        {"kCTUIFontTextStyleShortFootnote", kCTUIFontTextStyleShortFootnote},
+        {"kCTUIFontTextStyleShortHeadline", kCTUIFontTextStyleShortHeadline},
+        {"kCTUIFontTextStyleShortSubhead", kCTUIFontTextStyleShortSubhead},
+        {"kCTUIFontTextStyleTallBody", kCTUIFontTextStyleTallBody},
+    };
+    for (unsigned i = 0; i < sizeof values / sizeof values[0]; i++)
+        str(values[i].name, values[i].value);
 }
 
 static CGFontRef
@@ -156,6 +186,12 @@ fonts(CTFontRef f)
         CFNumberGetValue(dsize, kCFNumberDoubleType, &dsz);
     printf("descriptor size %s\n", g(dsz));
     str("descriptor family", CTFontDescriptorCopyAttribute(d, kCTFontFamilyNameAttribute));
+    CFArrayRef publicAxes = CTFontCopyVariationAxes(f);
+    CFArrayRef internalAxes = CTFontCopyVariationAxesInternal(f);
+    printf("private variation axes match public: %d\n", (!publicAxes && !internalAxes) ||
+        (publicAxes && internalAxes && CFEqual(publicAxes, internalAxes)));
+    if (publicAxes) CFRelease(publicAxes);
+    if (internalAxes) CFRelease(internalAxes);
     CFRelease(ps);
     CGFontRef back = CTFontCopyGraphicsFont(f, NULL);
     printf("graphics font round trip: %d\n", back != NULL);
@@ -234,6 +270,12 @@ lines(CTFontRef f)
         CFRelease(line);
         CFRelease(a);
     }
+    CFAttributedStringRef leftToRight = attributed("Hello", f, NULL);
+    CFAttributedStringRef rightToLeft = attributed("שלום", f, NULL);
+    CTLineRef ltrLine = CTLineCreateWithAttributedString(leftToRight);
+    CTLineRef rtlLine = CTLineCreateWithAttributedString(rightToLeft);
+    printf("line directions: %d %d\n", CTLineIsRightToLeft(ltrLine), CTLineIsRightToLeft(rtlLine));
+    CFRelease(ltrLine); CFRelease(rtlLine); CFRelease(leftToRight); CFRelease(rightToLeft);
     /* attributes: kerning, ligatures off, two fonts, a colour */
     double kern = 2.5;
     CFNumberRef kn = CFNumberCreate(NULL, kCFNumberDoubleType, &kern);
@@ -381,6 +423,7 @@ main(int argc, char **argv)
     }
     CGFontRef cg = cgfont("Roboto-Regular.ttf");
     CTFontRef f = CTFontCreateWithGraphicsFont(cg, 18, NULL, NULL);
+    private_constants();
     fonts(f);
     lines(f);
     frames(f);

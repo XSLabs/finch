@@ -31,6 +31,11 @@ all: $(OUT)/finch-videotoolbox-test
 all: $(OUT)/finch-contacts-search-links-test
 all: $(OUT)/finch-contacts-search-links-fetch-test
 all: $(OUT)/finch-contacts-search-links-swift-test
+all: $(OUT)/finch-opendirectory-objects-test
+
+$(OUT)/finch-opendirectory-objects-test: opendirectory-objects-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fno-objc-arc -o $@ $< -framework OpenDirectory -framework Foundation
 
 # ContactsUI, CoreSpotlight and LinkPresentation against the local Contacts store,
 # Finch's searchable index and Finch Foundation's URL loader.

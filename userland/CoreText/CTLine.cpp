@@ -16,6 +16,8 @@
 #include <math.h>
 #include <algorithm>
 
+extern "C" Boolean CTLineIsRightToLeft(CTLineRef line);
+
 #pragma mark - CTRun
 
 static void
@@ -735,6 +737,13 @@ CTLineCreateWithAttributedString(CFAttributedStringRef string)
 CFIndex CTLineGetGlyphCount(CTLineRef l) { return l ? l->glyph_count : 0; }
 CFArrayRef CTLineGetGlyphRuns(CTLineRef l) { return l ? l->runs : NULL; }
 CFRange CTLineGetStringRange(CTLineRef l) { return l ? l->range : CFRangeMake(0, 0); }
+extern "C" Boolean CTLineIsRightToLeft(CTLineRef l)
+{
+    if (!l || !l->runs || CFArrayGetCount(l->runs) == 0)
+        return false;
+    CTRunRef first = (CTRunRef)CFArrayGetValueAtIndex(l->runs, 0);
+    return (CTRunGetStatus(first) & kCTRunStatusRightToLeft) != 0;
+}
 double CTLineGetTrailingWhitespaceWidth(CTLineRef l) { return l ? l->trailing_whitespace : 0; }
 
 double

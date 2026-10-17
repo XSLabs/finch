@@ -1,6 +1,6 @@
 # AppIntents
 
-Design note dated 2026-10-15. The app sweep and comparison tests were run on 2026-10-16.
+Design note updated 2026-10-17. The app sweep and comparison tests were run on 2026-10-17.
 
 AppIntents lets an app describe actions, values and records that another part of the system
 can use. Finch's AppIntents framework now lets an app declare those types, read their
@@ -31,58 +31,59 @@ Siri and Spotlight indexing are not reported as successful.
 
 The table counts app-symbol pairs because one missing symbol can be imported by several
 apps. “Apps” counts apps with at least one missing import from that framework. “Unique” counts
-distinct missing symbols. The before list is the first sweep of the partial worktree; the
-after list is the sweep on 2026-10-16.
+distinct missing symbols. The before list uses the original AppIntents image with the import
+checker fixed to match framework names exactly. The earlier checker matched some short
+framework names by prefix, which hid or invented missing imports. The supplied first report
+said 26 ready apps; the corrected baseline and current sweep each report 19 of 101.
 
 | Framework | Before: apps / unique / pairs | After: apps / unique / pairs |
 |---|---:|---:|
-| AppIntents | 20 / 697 / 1,316 | 15 / 514 / 628 |
+| AppIntents | 15 / 514 / 628 | 15 / 267 / 315 |
 | _AppIntents_AppKit | 0 / 0 / 0 | 0 / 0 / 0 |
 | _AppIntents_SwiftUI | 0 / 0 / 0 | 0 / 0 / 0 |
 
-The sweep now marks Calculator ready. No app is blocked by AppIntents alone; every affected
-app also needs symbols from other Finch frameworks. The full sweep marks 25 of 101 apps
-ready across all their imports.
+No app is blocked by AppIntents alone; every affected app also needs symbols from other Finch
+frameworks. This change removed 313 AppIntents app-symbol pairs. The full sweep marks 19 of
+101 apps ready across all their imports.
 
 Remaining AppIntents pairs by app:
 
 | App | Missing pairs |
 |---|---:|
-| Mail | 187 |
-| Notes | 102 |
-| Books | 98 |
-| Freeform | 65 |
-| Podcasts | 63 |
-| VoiceMemos | 60 |
-| Weather | 16 |
-| Shortcuts | 14 |
-| Journal | 9 |
+| Books | 64 |
+| Podcasts | 60 |
+| Freeform | 58 |
+| Mail | 47 |
+| Notes | 29 |
+| VoiceMemos | 23 |
+| Weather | 13 |
 | Preview | 7 |
+| Journal | 5 |
 | CotEditor | 2 |
 | Reminders | 2 |
+| Shortcuts | 2 |
 | Contacts | 1 |
 | Print Center | 1 |
 | Tips | 1 |
 
 The complete list of remaining symbols and the apps that import them is in
-[APPINTENTS-MISSING-2026-10-16.tsv](APPINTENTS-MISSING-2026-10-16.tsv). The table groups an
+[APPINTENTS-MISSING-2026-10-17.tsv](APPINTENTS-MISSING-2026-10-17.tsv). The table groups an
 identical symbol once and names every affected app.
 
-The most common remaining groups need system features Finch does not have: donation manager
-symbols in Books, Freeform, Podcasts and Reminders, plus confirmation requests in Mail, Notes
-and VoiceMemos. Search and create intent protocol imports, and setting-change intent imports,
-also remain. These protocols are absent from the public AppIntents SDK interface, so Finch
-does not guess their requirements. Mail-specific message and send-mail protocols remain too.
-The TSV names each missing symbol and every app that imports it.
+The remaining imports include shortcut donation and confirmation flows, private entity-update
+protocols, and Mail-specific intent types. Donation and confirmation need system services
+Finch does not provide. Finch leaves those operations unavailable instead of reporting a
+successful system action.
 
 ## Build and checks
 
-Built the Finch SwiftUI framework, AppIntents and both private AppIntents bridges. The three
-comparison tests passed against Apple and Finch:
+Built AppIntents and ran its comparison tests against Apple and Finch:
 
-- `appintents-test` (45 output lines)
-- `appintents-local-test` (15 output lines)
-- `appintents-swiftui-test` (1 output line)
+- `appintents-test` (48 output lines)
+- `appintents-local-test` (17 output lines)
+
+The 2026-10-17 run passed both tests. `constants-test` also passed with 10,645 values checked
+and no differences.
 
 The SwiftUI bridge build still prints an actor-isolation warning at its intent-backed
 `Toggle` initializer and a linker warning for a missing iOS support private-framework search

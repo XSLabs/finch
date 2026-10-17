@@ -75,7 +75,7 @@ public struct DisplayRepresentation: ExpressibleByStringLiteral, Equatable {
     public var synonyms: [LocalizedStringResource] = []
 
     public struct Image: Equatable {
-        enum Source: Equatable { case systemName(String), named(String), url(URL), data(Data) }
+        enum Source: Equatable, Codable { case systemName(String), named(String), url(URL), data(Data) }
         var source: Source
         public var isTemplate: Bool?
 
@@ -126,6 +126,7 @@ public struct DisplayRepresentation: ExpressibleByStringLiteral, Equatable {
 
 extension DisplayRepresentation: @unchecked Sendable {}
 extension DisplayRepresentation.Image: @unchecked Sendable {}
+extension DisplayRepresentation.Image: Codable {}
 
 public struct AppEntityVisualState: OptionSet, Sendable {
     public let rawValue: Int
@@ -1307,21 +1308,138 @@ public struct IntentModes: OptionSet, Hashable, Equatable, Sendable {
         self.rawValue = rawValue
     }
 
-    public enum ForegroundMode: Sendable {
-        case immediate, dynamic, deferred
+    public struct ForegroundMode: Hashable, Sendable {
+        fileprivate let rawValue: Int
+
+        private init(rawValue: Int) {
+            self.rawValue = rawValue
+        }
+
+        public static var immediate: ForegroundMode { ForegroundMode(rawValue: 1 << 1) }
+        public static var dynamic: ForegroundMode { ForegroundMode(rawValue: 1 << 3) }
+        public static var deferred: ForegroundMode { ForegroundMode(rawValue: 1 << 2) }
     }
 
     public static func foreground(_ foregroundMode: ForegroundMode) -> IntentModes {
-        switch foregroundMode {
-        case .immediate: IntentModes(rawValue: 1 << 1)
-        case .dynamic: IntentModes(rawValue: 1 << 2)
-        case .deferred: IntentModes(rawValue: 1 << 3)
-        }
+        IntentModes(rawValue: foregroundMode.rawValue)
     }
 
     public static var background: IntentModes { IntentModes(rawValue: 1) }
     public static var foreground: IntentModes { .foreground(.immediate) }
 }
+
+public struct IntentPerson: Sendable, Equatable {
+    public enum Identifier: Equatable, Hashable, Sendable, Codable {
+        case contact(String)
+        case applicationDefined(String)
+        case unknown
+    }
+
+    public enum Name: Equatable, Sendable, Codable {
+        case displayName(String)
+        case components(PersonNameComponents)
+        case unknown
+    }
+
+    public struct Handle: Equatable, Hashable, Sendable, Codable {
+        public enum Value: Equatable, Hashable, Sendable, Codable {
+            case phoneNumber(String)
+            case emailAddress(String)
+            case applicationDefined(String)
+        }
+
+        public enum Label: Equatable, Hashable, Sendable, Codable {
+            case home
+            case work
+            case iPhone
+            case mobile
+            case main
+            case homeFax
+            case workFax
+            case pager
+            case other
+            case school
+            case custom(String)
+        }
+
+        public var value: Value
+        public var label: Label
+
+        public init(_ value: Value, label: Label = .other) {
+            self.value = value
+            self.label = label
+        }
+
+        public init(phoneNumber: String, label: Label = .other) {
+            self.init(.phoneNumber(phoneNumber), label: label)
+        }
+
+        public init(emailAddress: String, label: Label = .other) {
+            self.init(.emailAddress(emailAddress), label: label)
+        }
+
+        public init(applicationDefined stringValue: String, label labelString: String? = nil) {
+            self.init(.applicationDefined(stringValue), label: labelString.map(Label.custom) ?? .other)
+        }
+    }
+
+    public enum ParameterMode: String, Equatable, Hashable, Sendable {
+        case contact
+        case email
+        case phone
+        case emailOrPhone
+    }
+
+    public var name: Name
+    public var isMe: Bool
+    public var identifier: Identifier
+    public var handle: Handle?
+    public var aliases: [Handle]
+    public var image: DisplayRepresentation.Image?
+
+    public init(identifier: Identifier, name: Name, handle: Handle?, aliases: [Handle] = [],
+                isMe: Bool = false, image: DisplayRepresentation.Image? = nil) {
+        self.name = name
+        self.isMe = isMe
+        self.identifier = identifier
+        self.handle = handle
+        self.aliases = aliases
+        self.image = image
+    }
+
+    public init(handle: Handle) {
+        self.init(identifier: .unknown, name: .unknown, handle: handle)
+    }
+
+    public static var typeDisplayRepresentation: TypeDisplayRepresentation { "Person" }
+
+    public var displayRepresentation: DisplayRepresentation {
+        let title: String
+        switch name {
+        case .displayName(let value): title = value
+        case .components(let components):
+            title = PersonNameComponentsFormatter.localizedString(from: components, style: .default, options: [])
+        case .unknown:
+            title = handle.map(Self.handleDescription) ?? "Unknown"
+        }
+        let localizedTitle: LocalizedStringResource = "\(title)"
+        return DisplayRepresentation(title: localizedTitle, image: image)
+    }
+
+    private static func handleDescription(_ handle: Handle) -> String {
+        switch handle.value {
+        case .phoneNumber(let value), .emailAddress(let value), .applicationDefined(let value): value
+        }
+    }
+}
+
+extension IntentPerson: DisplayRepresentable, _IntentValue {
+    public static var defaultResolverSpecification: EmptyResolverSpecification<IntentPerson> {
+        EmptyResolverSpecification()
+    }
+}
+
+extension IntentPerson: Codable {}
 
 public struct ConfirmationConditions: OptionSet, Sendable {
     public let rawValue: Int
@@ -2633,6 +2751,194 @@ private func unavailableOpenIntent() throws -> IntentResultContainer<Never, Neve
 }
 
 public protocol SystemIntent: AppIntent {}
+
+public protocol PreparableIntent: AppIntent {
+    func prepare() async throws
+}
+
+extension PreparableIntent {
+    public func prepare() async throws {}
+}
+
+public protocol SearchIntent: SystemIntent {
+    var searchPhrase: String { get set }
+}
+
+public protocol CreateIntent: SystemIntent {
+    associatedtype Entity: AppEntity
+    var name: String? { get set }
+}
+
+public protocol _CreateIntent: SystemIntent where PerformResult.Value: AppEntity {
+    associatedtype Entity: AppEntity
+}
+
+public enum ChangeOperation: String, AppEnum, CaseIterable {
+    case enable
+    case disable
+    case toggle
+
+    public static var typeDisplayRepresentation: TypeDisplayRepresentation { "Change operation" }
+    public static var caseDisplayRepresentations: [ChangeOperation: DisplayRepresentation] {
+        [.enable: "Enable", .disable: "Disable", .toggle: "Toggle"]
+    }
+}
+
+public protocol ChangeBinarySettingIntent: SystemIntent {
+    associatedtype Setting: AppEnum
+    var setting: Setting { get set }
+    var changeOperation: ChangeOperation { get set }
+}
+
+public protocol CloseIntent: SystemIntent {
+    associatedtype Value: AppValue
+    var target: Value { get set }
+}
+
+public enum FavoriteOperation: String, AppEnum, CaseIterable {
+    case add
+    case remove
+
+    public static var typeDisplayRepresentation: TypeDisplayRepresentation { "Favorite operation" }
+    public static var caseDisplayRepresentations: [FavoriteOperation: DisplayRepresentation] {
+        [.add: "Add", .remove: "Remove"]
+    }
+}
+
+public protocol FavoriteIntent: SystemIntent {
+    associatedtype Entity: AppEntity
+    var entities: [Entity] { get }
+    var operation: FavoriteOperation { get }
+}
+
+public protocol PutInContainerIntent: SystemIntent {
+    associatedtype Entity: AppEntity
+    associatedtype Container: AppValue
+    var entities: [Entity] { get set }
+    var container: Container { get set }
+}
+
+public protocol SetValueIntent: AppIntent {
+    associatedtype ValueType: _IntentValue
+    var value: ValueType { get set }
+}
+
+public enum ResizeBehavior: Hashable, Sendable {
+    case larger(Double?)
+    case smaller(Double?)
+}
+
+public protocol ResizeIntent: SystemIntent {
+    var behavior: ResizeBehavior { get set }
+}
+
+public enum NavigateSequentiallyDirection: String, AppEnum, CaseIterable {
+    case next
+    case previous
+
+    public static var typeDisplayRepresentation: TypeDisplayRepresentation { "Direction" }
+    public static var caseDisplayRepresentations: [NavigateSequentiallyDirection: DisplayRepresentation] {
+        [.next: "Next", .previous: "Previous"]
+    }
+}
+
+public protocol NavigateSequentiallyIntent: SystemIntent {
+    var direction: NavigateSequentiallyDirection { get set }
+}
+
+public enum MailMessageAttribute: String, AppEnum, CaseIterable {
+    case flagged
+    case junk
+    case ready
+
+    public static var typeDisplayRepresentation: TypeDisplayRepresentation { "Mail message attribute" }
+    public static var caseDisplayRepresentations: [MailMessageAttribute: DisplayRepresentation] {
+        [.flagged: "Flagged", .junk: "Junk", .ready: "Ready"]
+    }
+}
+
+public protocol MailAddressee: AppEntity {
+    init(displayName: String?, emailAddress: String)
+    var displayName: String? { get set }
+    var emailAddress: String { get set }
+}
+
+extension MailAddressee {
+    public var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: "\(displayName ?? emailAddress)")
+    }
+}
+
+public protocol MailAccount: AppEntity {
+    var displayName: String? { get set }
+    var emailAddress: String { get set }
+}
+
+extension MailAccount {
+    public var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: "\(displayName ?? emailAddress)")
+    }
+}
+
+public protocol Mailbox: AppEntity {
+    associatedtype Account: MailAccount
+    var name: String { get set }
+    var account: Account? { get set }
+}
+
+extension Mailbox {
+    public var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: "\(name)")
+    }
+}
+
+public protocol MailMessage: AppEntity {
+    associatedtype Addressee: MailAddressee
+    associatedtype Account: MailAccount
+    associatedtype Mailbox: AppIntents.Mailbox
+    var attributes: [MailMessageAttribute] { get set }
+    var dateReceived: Date { get set }
+    var dateSent: Date { get set }
+    var to: [Addressee] { get set }
+    var cc: [Addressee] { get set }
+    var bcc: [Addressee] { get set }
+    var body: AttributedString? { get set }
+    var isJunk: Bool { get set }
+    var isRead: Bool { get set }
+    var sender: Addressee { get set }
+    var account: Account? { get set }
+    var mailbox: Mailbox? { get set }
+    var replyTo: [Addressee] { get set }
+    var subject: String? { get set }
+}
+
+public protocol SendMailIntent: PreparableIntent {
+    associatedtype Addressee: MailAddressee
+    associatedtype Account: MailAccount
+    associatedtype ReplyMessage: MailMessage
+    var attachments: [IntentFile] { get set }
+    var cc: [Addressee] { get set }
+    var to: [Addressee] { get set }
+    var bcc: [Addressee] { get set }
+    var body: AttributedString? { get set }
+    var account: Account? { get set }
+    var subject: String? { get set }
+    var inReplyTo: ReplyMessage? { get set }
+}
+
+public protocol SetMailMessageIsReadIntent: PreparableIntent {
+    associatedtype Message: MailMessage
+    var read: Bool { get set }
+    var message: Message { get set }
+}
+
+public protocol AppIntentsPackage {
+    static var includedPackages: [any AppIntentsPackage.Type] { get }
+}
+
+extension AppIntentsPackage {
+    public static var includedPackages: [any AppIntentsPackage.Type] { [] }
+}
 
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public protocol AudioPlaybackIntent: SystemIntent {}

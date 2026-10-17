@@ -1,6 +1,6 @@
 # Network.framework
 
-Date: 2026-10-15
+Date: 2026-10-17
 
 ## What this covers
 
@@ -74,3 +74,11 @@ a plain HTTP dropped-download resume difference: Apple requested byte 0 while Fi
 requested byte 32768. The latest combined run passed all three tests. That resume path is in
 Foundation, not Network's TLS client. The four comparisons in the command above passed on
 2026-10-15.
+
+## CFNetwork class imports
+
+On 2026-10-17, CFNetwork began re-exporting Finch's Foundation framework. Apple exposes
+`NSURLSession`, `NSURLConnection` and related classes through CFNetwork's export chain;
+Finch implements those classes in Foundation. The re-export lets apps that bind those names
+from CFNetwork reach the same implementations without adding duplicate classes. The app
+sweep now finds 44 fewer CFNetwork import pairs, and `cfnetwork-test` still matches Apple's.

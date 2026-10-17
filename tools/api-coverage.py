@@ -968,12 +968,19 @@ def objc_responses(spec, items, binary, build_root):
         system / "Frameworks/CoreServices.framework/Versions/A/Frameworks",
         system / "Frameworks/ApplicationServices.framework/Versions/A/Frameworks",
         system / "Frameworks/Carbon.framework/Versions/A/Frameworks"))
-    env["DYLD_LIBRARY_PATH"] = ":".join(str(path) for path in (
-        build_root / "usr/lib/swift",
-        build_root / "System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries",
-    ) if path.is_dir())
-    env["FINCH_THEME"] = "Classic"
-    result = command([str(RESPONDER), str(binary)], input="\n".join(lines) + "\n", env=env)
+    with tempfile.TemporaryDirectory() as standalone:
+        # Finch's standalone libraries, alone on the library path, as tools/host-tests.sh
+        # has them (all of usr/lib would swap in Finch's libSystem as well).
+        for library in ("usr/lib/libMobileGestalt.dylib", "usr/lib/libDiagnosticMessagesClient.dylib",
+                        "usr/lib/system/libfinchaccount.dylib", "usr/lib/system/libsystem_dnssd.dylib"):
+            if (build_root / library).is_file():
+                os.symlink(build_root / library, Path(standalone) / Path(library).name)
+        env["DYLD_LIBRARY_PATH"] = ":".join(str(path) for path in (
+            build_root / "usr/lib/swift", Path(standalone),
+            build_root / "System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries",
+        ) if path.is_dir())
+        env["FINCH_THEME"] = "Classic"
+        result = command([str(RESPONDER), str(binary)], input="\n".join(lines) + "\n", env=env)
     if result.returncode:
         return {item["id"]: False for item in runtime_items}, (result.stderr or result.stdout).strip()[-1400:]
     missing = {line.strip() for line in result.stdout.splitlines() if line.strip()}
