@@ -84,6 +84,13 @@ $(OUT)/finch-intents-test: intents-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-availability -o $@ $< -framework Intents -framework Foundation
 
+all: $(OUT)/finch-gamecontroller-test
+
+# GameController snapshot profiles and the framework image loaded by each run.
+$(OUT)/finch-gamecontroller-test: gamecontroller-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fno-objc-arc -Wno-deprecated-declarations -o $@ $< -framework GameController -framework Foundation
+
 # Compiled-model loading, fetches and SQLite stores shared with Apple's CoreData.
 $(OUT)/finch-coredata-test: coredata-test.swift $(OUT)/CoreDataTest.momd
 	@mkdir -p $(OUT)

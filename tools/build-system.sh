@@ -142,6 +142,8 @@ steps=(
     "UIFoundation|userland/UIFoundation/build.sh"
     "CoreUI|userland/CoreUI/build.sh"
     "AppKit|userland/AppKit/build.sh"
+    # GameController profiles use Finch AppKit input events and Finch IOKit.
+    "GameController|userland/GameController/build.sh"
     # PDFKit's document and page objects draw through CoreGraphics and CoreText.
     "PDFKit|userland/PDFKit/build.sh"
     # SwiftUI and the AppIntents bridge need Finch's AppKit and its SwiftUI dependency graph.

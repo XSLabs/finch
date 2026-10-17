@@ -6,7 +6,7 @@ This report compares public C declarations and SDK export lists, Objective-C cla
 
 Behavior-verified counts come from item IDs in build/compat-results/*.json. Generated comparisons and constant checks merge their item records into the same framework file. Records with status verified (or the older verified/passed flags) count; a later result replaces the status for that item ID. The full name-by-name report is kept in build/api-coverage.json.
 
-Overall: **27.9%** (151,563 of 543,220 API items across 843 parsed frameworks or dylibs).
+Overall: **28.0%** (152,108 of 543,220 API items across 843 parsed frameworks or dylibs).
 
 6 frameworks or dylibs had a parse or load issue and are left out of the overall percentage. 141 parsed successfully but had no public macOS API items.
 
@@ -159,7 +159,7 @@ Overall: **27.9%** (151,563 of 543,220 API items across 843 parsed frameworks or
 | Foundation | 13,636 | 12,048 | 1,588 | 88.4% | 2495/13636 | complete |
 | FoundationModels | 442 | 0 | 442 | 0.0% | 0/442 | complete |
 | FSKit | 317 | 0 | 317 | 0.0% | 0/317 | complete |
-| GameController | 907 | 0 | 907 | 0.0% | 0/907 | complete |
+| GameController | 907 | 545 | 362 | 60.1% | 0/907 | complete |
 | GameKit | 4,585 | 0 | 4,585 | 0.0% | 0/4585 | complete |
 | GameplayKit | 448 | 0 | 448 | 0.0% | 0/448 | complete |
 | GameSave | 51 | 0 | 51 | 0.0% | 0/51 | complete |
@@ -907,7 +907,6 @@ These SDK frameworks or dylibs have no Finch image. The size column is the numbe
 | libruby | 948 |
 | libruby.2.6 | 948 |
 | Ruby | 948 |
-| GameController | 907 |
 | CoreML | 900 |
 | swift/libswiftCoreML | 900 |
 | Charts | 840 |

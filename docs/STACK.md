@@ -11,6 +11,13 @@ resolution results. It stores donated interactions in
 the values it covers, and a separate check reads and clears a saved interaction. Finch
 has no Siri or voice-shortcut service. Its API audit finds 545 of 1,065 items; most
 missing names have no public declaration in the macOS SDK (`docs/design/INTENTS.md`).
+GameController builds from the macOS SDK headers, without shipping
+Apple headers. Snapshot gamepads have working button and direction-pad state. AppKit's
+local event stream feeds Finch's keyboard and mouse input objects. The API audit finds
+545 of 907 items, and its focused host comparison matches Apple's. Finch IOKit cannot
+enumerate HID devices, so physical controllers, their battery and light data, and haptics
+are unavailable; `GCVirtualController` is not available on macOS. The app sweep now finds
+GameController imports missing from 7 apps, down from 10.
 PDFKit reads pages and annotations through Finch CoreGraphics,
 extracts and searches text with CoreText font maps, reads and writes outlines, and shows
 documents in AppKit PDF views. It saves simple URL links and refuses a changed document
@@ -175,6 +182,7 @@ block-beta
         columns 4
         t6["App frameworks"]
         appkit["AppKit<br/>apps, windows, views, events,<br/>title bars, nib-loaded toolbars,<br/>drawing, nibs, storyboards,<br/>Auto Layout, stack views, text views and<br/>scrolling, tables, outlines and<br/>collection views (flow, grid and<br/>compositional layouts), menus and a menu bar,<br/>alerts, sheets, open and save panels,<br/>NSWorkspace (on the window server);<br/>Cocoa bindings and controllers,<br/>font and color panels, search/token/date controls,<br/>grids, popovers, drawers and rule editors;<br/>rulers, the find bar, text tables;<br/>animation groups and Touch Bar state;<br/>toolbar items, titlebar accessories,<br/>row actions, scrubbers, NSPreferences,<br/>file promises, glass views (slate);<br/>drag and drop (between apps<br/>through the window server);<br/>system and symbol images<br/>(Finch's own art);<br/>Fieldwork theme (Classic for Aqua compatibility);<br/>UIFoundation: fonts, string drawing,<br/>TextKit 1 and 2; Cocoa and<br/>ApplicationServices umbrellas"]
+        gamecontroller["GameController<br/>snapshot gamepad profiles and state;<br/>keyboard and mouse from AppKit events;<br/>no physical controllers until Finch IOKit<br/>can enumerate HID devices"]
         pdfkit["PDFKit<br/>pages, text and search,<br/>outlines, URL links, PDFView;<br/>docs/design/PDFKIT.md"]
         avkit["AVKit<br/>AVPlayerView, basic controls<br/>and full-screen mode;<br/>no routes or PiP service"]
         securityui["SecurityInterface<br/>certificate, trust, identity,<br/>keychain and authorization panels"]
@@ -288,7 +296,7 @@ block-beta
     class t7,t6,t5,t4,t3,t2,t1,t0 layer
     class kexts,metal planned
     class apps testapp
-    class opengl,later,mediaaddons,coreimage,videotoolbox,services,contacts,intents,contactui,corespotlight,linkpresentation,cfnetwork,appsupport,shell,uti,appkit,pdfkit,avkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
+    class opengl,later,mediaaddons,coreimage,videotoolbox,services,contacts,intents,contactui,corespotlight,linkpresentation,cfnetwork,appsupport,shell,uti,appkit,gamecontroller,pdfkit,avkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
     class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui,cmark,sqlite upstream
     class vz firmware
@@ -324,6 +332,7 @@ flowchart LR
     combine["Combine<br/>(OpenCombine + Finch)"]:::upstream
     gcore["GCoreFramework"]:::apple
     appkit["AppKit"]:::finch
+    gamecontroller["GameController"]:::finch
     pdfkit["PDFKit"]:::finch
     avkit["AVKit"]:::finch
     securityui["SecurityInterface"]:::finch
@@ -433,6 +442,9 @@ flowchart LR
     appkit -->|"re-exports"| appservices
     appkit --> cal
     appkit --> coreui
+    gamecontroller --> appkit
+    gamecontroller --> iokit
+    gamecontroller --> ffound
     pdfkit --> appkit
     pdfkit --> cgfw
     pdfkit --> ctfw
