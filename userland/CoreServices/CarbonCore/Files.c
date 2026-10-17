@@ -953,6 +953,85 @@ FSDeleteFork(const FSRef *ref, UniCharCount forkNameLength, const UniChar *forkN
     return removexattr(path, XATTR_RESOURCEFORK_NAME, 0) ? errFSForkNotFound : noErr;
 }
 
+OSErr
+FSIterateForks(const FSRef *ref, CatPositionRec *forkIterator, HFSUniStr255 *forkName, SInt64 *forkSize,
+               UInt64 *forkPhysicalSize)
+{
+    if (!ref || !forkIterator)
+        return paramErr;
+    if (!forkIterator->initialize) {
+        memset(forkIterator, 0, sizeof *forkIterator);
+        forkIterator->initialize = 1;
+    }
+    char path[PATH_MAX], forkPath[PATH_MAX + 32];
+    OSErr error = _FinchRefPath(ref, path, sizeof path);
+    if (error)
+        return error;
+    int index = forkIterator->priv[0];
+    if (index > 1)
+        return errFSNoMoreItems;
+    int kind = index == 0 ? 0 : 1;
+    if (kind == 1 && getxattr(path, XATTR_RESOURCEFORK_NAME, NULL, 0, 0, 0) < 0)
+        return errFSNoMoreItems;
+    if (kind == 1)
+        snprintf(forkPath, sizeof forkPath, "%s/..namedfork/rsrc", path);
+    else
+        strlcpy(forkPath, path, sizeof forkPath);
+    struct stat st;
+    if (stat(forkPath, &st) != 0)
+        return _FinchErrnoToOSErr(errno);
+    if (forkName)
+        *forkName = kind == 0 ? data_fork : rsrc_fork;
+    if (forkSize)
+        *forkSize = st.st_size;
+    if (forkPhysicalSize)
+        *forkPhysicalSize = (UInt64)st.st_blocks * 512;
+    forkIterator->priv[0]++;
+    return noErr;
+}
+
+OSStatus
+FSLockRange(FSIORefNum forkRefNum, UInt16 positionMode, SInt64 positionOffset, UInt64 requestCount,
+            UInt64 *rangeStart)
+{
+    struct fork *f = fork_of(forkRefNum);
+    if (!f)
+        return rfNumErr;
+    if (!requestCount || requestCount > (UInt64)INT64_MAX)
+        return paramErr;
+    SInt64 start;
+    OSErr error = position(f, positionMode, positionOffset, &start);
+    if (error)
+        return error;
+    struct flock lock = {.l_type = F_WRLCK, .l_whence = SEEK_SET, .l_start = start, .l_len = (off_t)requestCount};
+    if (fcntl(f->fd, F_SETLK, &lock) != 0)
+        return _FinchErrnoToOSErr(errno);
+    if (rangeStart)
+        *rangeStart = (UInt64)start;
+    return noErr;
+}
+
+OSStatus
+FSUnlockRange(FSIORefNum forkRefNum, UInt16 positionMode, SInt64 positionOffset, UInt64 requestCount,
+              UInt64 *rangeStart)
+{
+    struct fork *f = fork_of(forkRefNum);
+    if (!f)
+        return rfNumErr;
+    if (!requestCount || requestCount > (UInt64)INT64_MAX)
+        return paramErr;
+    SInt64 start;
+    OSErr error = position(f, positionMode, positionOffset, &start);
+    if (error)
+        return error;
+    struct flock lock = {.l_type = F_UNLCK, .l_whence = SEEK_SET, .l_start = start, .l_len = (off_t)requestCount};
+    if (fcntl(f->fd, F_SETLK, &lock) != 0)
+        return _FinchErrnoToOSErr(errno);
+    if (rangeStart)
+        *rangeStart = (UInt64)start;
+    return noErr;
+}
+
 #pragma mark - Iterating
 
 struct iterator {
@@ -1078,6 +1157,43 @@ FSGetVolumeInfo(FSVolumeRefNum volume, ItemCount volumeIndex, FSVolumeRefNum *ac
     if (rootDirectory)
         return _FinchPathRef(m->f_mntonname, rootDirectory, NULL, true);
     return noErr;
+}
+
+OSStatus
+FSResolveNodeID(FSVolumeRefNum volume, UInt32 nodeID, FSRef *newRef)
+{
+    if (!newRef || !nodeID)
+        return paramErr;
+    struct statfs *mounts;
+    int count = getmntinfo(&mounts, MNT_NOWAIT);
+    for (int i = 0; i < count; i++) {
+        if (volume_refnum(&mounts[i].f_fsid) != volume)
+            continue;
+        char path[PATH_MAX];
+        ssize_t length = fsgetpath(path, sizeof path, &mounts[i].f_fsid, nodeID);
+        if (length <= 0)
+            return fnfErr;
+        struct stat st;
+        if (stat(path, &st) != 0)
+            return _FinchErrnoToOSErr(errno);
+        if ((UInt32)st.st_ino != nodeID)
+            return fnfErr;
+        return _FinchPathRef(path, newRef, NULL, true);
+    }
+    return nsvErr;
+}
+
+OSStatus
+FSFlushVolume(FSVolumeRefNum vRefNum)
+{
+    struct statfs *mounts;
+    int count = getmntinfo(&mounts, MNT_NOWAIT);
+    for (int i = 0; i < count; i++)
+        if (volume_refnum(&mounts[i].f_fsid) == vRefNum) {
+            sync();
+            return noErr;
+        }
+    return nsvErr;
 }
 
 OSStatus

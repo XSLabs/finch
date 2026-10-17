@@ -57,3 +57,24 @@ DictionaryServices and Metadata need Finch's own dictionaries, search index and
 query service. The code-signing and LaunchServices helpers need private system
 services Finch does not have. The five LaunchServices open-option key strings now
 match Apple's in the focused comparison, but that does not supply those services.
+
+## CarbonCore work on 2026-10-17
+
+The CoreServices coverage scan started at 2,721 of 3,740 public API items. It
+now finds 3,222, a gain of 501. The 157 items already marked behavior-verified
+remain verified. The new CarbonCore code adds file reference, fork, catalog,
+volume, range-lock, parameter-block, folder, file-security and HFS string calls.
+It also adds collection saving, date and time conversion, Pascal string helpers,
+Unicode conversion, character properties, thread and timer helpers, and
+pthread-backed Multiprocessing calls. The OSServices additions read local POSIX
+users and groups through `CSIdentity`; they report the authority error for
+changes because Finch has no writable identity database. The old password-set
+and password-check exports stay absent because there is no password service to
+handle them.
+
+The host comparison suite covers the new file, folder, collection, text,
+time, thread, locale, Multiprocessing, timer and identity behavior against
+Apple's frameworks. `FSDetermineIfRefIsEnclosedByFolder` returns Apple's current
+`errFSBadFSRef` result on this macOS version. The retired Power Manager calls
+return the same zero values as Apple's current implementation. These checks run
+on the host; they do not prove that every call works inside the Finch guest.

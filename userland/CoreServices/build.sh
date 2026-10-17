@@ -27,6 +27,7 @@ FWS="${ROOT}/System/Library/Frameworks"
 FW="${FWS}/CoreServices.framework"
 SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 SDKCS="${SDKROOT}/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks"
+CFINC="${FINCH_ROOT}/build/src/swift-corelibs-foundation/Sources/CoreFoundation/include"
 CC="$(xcrun -f clang)"
 log() { echo "==> $*"; }
 
@@ -42,6 +43,10 @@ CFLAGS=(-arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -Os -g -fn
 
 rm -rf "${OBJ}" "${FW}"
 mkdir -p "${OBJ}" "${FW}/Versions/A/Frameworks"
+mkdir -p "${OBJ}/headers/CoreFoundation"
+sed -E 's|#include "(CF[A-Za-z]+\.h)"|#include <CoreFoundation/\1>|' \
+    "${CFINC}/CFRuntime.h" > "${OBJ}/headers/CoreFoundation/CFRuntime.h"
+CFLAGS+=(-I"${OBJ}/headers")
 
 sub() { echo "${FW}/Versions/A/Frameworks/$1.framework/Versions/A/$1"; }
 
@@ -95,8 +100,8 @@ EOF
     codesign -f -s - -i "${id}" "${dir}/Versions/A/${name}" 2>/dev/null
 }
 
-build CarbonCore 1383.2.1 1 com.apple.CoreServices.CarbonCore 1333 1333 English
-build OSServices 1141.1 1 com.apple.CoreServices.OSServices 1141.1 1141.1 English "$(sub CarbonCore)"
+build CarbonCore 1383.2.1 1 com.apple.CoreServices.CarbonCore 1333 1333 English -licucore
+build OSServices 1141.1 1 com.apple.CoreServices.OSServices 1141.1 1141.1 English "$(sub CarbonCore)" -framework SystemConfiguration
 build FSEvents 1413.100.6 1 com.apple.CoreServices.FSEvents 1413.100.6 1413.100.6 English
 build Metadata 2418.4.13 1 com.apple.Metadata 26.4 2418.4.13.404 English "$(sub CarbonCore)" -framework Foundation -lobjc
 build LaunchServices 1141.1 1 com.apple.LaunchServices 1141.1 1141.1 en \

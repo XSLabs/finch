@@ -6,7 +6,7 @@ This report compares public C declarations and SDK export lists, Objective-C cla
 
 Behavior-verified counts come from item IDs in build/compat-results/*.json. Generated comparisons and constant checks merge their item records into the same framework file. Records with status verified (or the older verified/passed flags) count; a later result replaces the status for that item ID. The full name-by-name report is kept in build/api-coverage.json.
 
-Overall: **27.2%** (147,511 of 543,220 API items across 843 parsed frameworks or dylibs).
+Overall: **27.8%** (151,018 of 543,220 API items across 843 parsed frameworks or dylibs).
 
 6 frameworks or dylibs had a parse or load issue and are left out of the overall percentage. 141 parsed successfully but had no public macOS API items.
 
@@ -30,11 +30,11 @@ Overall: **27.2%** (147,511 of 543,220 API items across 843 parsed frameworks or
 | AdServices | 4 | 0 | 4 | 0.0% | 0/4 | complete |
 | AdSupport | 3 | 0 | 3 | 0.0% | 0/3 | complete |
 | AppIntents | 4,043 | 995 | 3,048 | 24.6% | 0/4043 | complete |
-| AppKit | 18,585 | 15,933 | 2,652 | 85.7% | 3578/18585 | complete |
+| AppKit | 18,585 | 16,434 | 2,151 | 88.4% | 3578/18585 | complete |
 | AppleConvergedTransport | 14 | 0 | 14 | 0.0% | 0/14 | complete |
 | AppleScriptKit | 96 | 0 | 96 | 0.0% | 0/96 | complete |
 | AppleScriptObjC | 1 | 0 | 1 | 0.0% | 0/1 | complete |
-| ApplicationServices | 6,898 | 5,194 | 1,704 | 75.3% | 0/6898 | complete |
+| ApplicationServices | 6,898 | 5,695 | 1,203 | 82.6% | 0/6898 | complete |
 | ApplicationServices/ATS | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | ApplicationServices/ATSUI | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | ApplicationServices/ColorSync | 205 | 205 | 0 | 100.0% | 0/205 | complete |
@@ -69,7 +69,7 @@ Overall: **27.2%** (147,511 of 543,220 API items across 843 parsed frameworks or
 | BusinessChat | 9 | 0 | 9 | 0.0% | 0/9 | complete |
 | CalendarStore | 129 | 0 | 129 | 0.0% | 0/129 | complete |
 | CallKit | 99 | 0 | 99 | 0.0% | 0/99 | complete |
-| Carbon | 7,367 | 5,363 | 2,004 | 72.8% | 0/7367 | complete |
+| Carbon | 7,367 | 5,864 | 1,503 | 79.6% | 0/7367 | complete |
 | Carbon/CommonPanels | 43 | 0 | 43 | 0.0% | 0/43 | complete |
 | Carbon/Help | 6 | 0 | 6 | 0.0% | 0/6 | complete |
 | Carbon/HIToolbox | 261 | 100 | 161 | 38.3% | 44/261 | complete |
@@ -85,7 +85,7 @@ Overall: **27.2%** (147,511 of 543,220 API items across 843 parsed frameworks or
 | ClassKit | 176 | 0 | 176 | 0.0% | 0/176 | complete |
 | ClassKitUI | 20 | 0 | 20 | 0.0% | 0/20 | complete |
 | CloudKit | 1,208 | 0 | 1,208 | 0.0% | 0/1208 | complete |
-| Cocoa | 19,543 | 16,530 | 3,013 | 84.6% | 0/19543 | complete |
+| Cocoa | 19,543 | 17,031 | 2,512 | 87.1% | 0/19543 | complete |
 | Collaboration | 48 | 0 | 48 | 0.0% | 0/48 | complete |
 | ColorSync | 205 | 205 | 0 | 100.0% | 150/205 | complete |
 | Combine | 1,299 | 1,291 | 8 | 99.4% | 0/1299 | complete |
@@ -110,14 +110,14 @@ Overall: **27.2%** (147,511 of 543,220 API items across 843 parsed frameworks or
 | CoreMIDIServer | 319 | 0 | 319 | 0.0% | 0/319 | complete |
 | CoreML | 900 | 0 | 900 | 0.0% | 0/900 | complete |
 | CoreMotion | 222 | 0 | 222 | 0.0% | 0/222 | complete |
-| CoreServices | 3,740 | 2,721 | 1,019 | 72.8% | 157/3740 | complete |
+| CoreServices | 3,740 | 3,222 | 518 | 86.1% | 157/3740 | complete |
 | CoreServices/AE | 136 | 100 | 36 | 73.5% | 4/136 | complete |
-| CoreServices/CarbonCore | 847 | 229 | 618 | 27.0% | 11/847 | complete |
+| CoreServices/CarbonCore | 847 | 675 | 172 | 79.7% | 11/847 | complete |
 | CoreServices/DictionaryServices | 2 | 0 | 2 | 0.0% | 0/2 | complete |
 | CoreServices/FSEvents | 22 | 22 | 0 | 100.0% | 0/22 | complete |
 | CoreServices/LaunchServices | 295 | 229 | 66 | 77.6% | 163/295 | complete |
 | CoreServices/Metadata | 269 | 219 | 50 | 81.4% | 211/269 | complete |
-| CoreServices/OSServices | 166 | 35 | 131 | 21.1% | 33/166 | complete |
+| CoreServices/OSServices | 166 | 90 | 76 | 54.2% | 33/166 | complete |
 | CoreServices/SearchKit | 79 | 0 | 79 | 0.0% | 0/79 | complete |
 | CoreServices/SharedFileList | 42 | 37 | 5 | 88.1% | 15/42 | complete |
 | CoreSpotlight | 455 | 321 | 134 | 70.5% | 208/455 | complete |
@@ -732,7 +732,7 @@ Overall: **27.2%** (147,511 of 543,220 API items across 843 parsed frameworks or
 | swift/libswift_time | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswift_Volatile | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftAccelerate | 0 | 0 | 0 | 0.0% | 0/0 | empty |
-| swift/libswiftAppKit | 18,585 | 15,864 | 2,721 | 85.4% | 0/18585 | complete |
+| swift/libswiftAppKit | 18,585 | 16,365 | 2,220 | 88.1% | 0/18585 | complete |
 | swift/libswiftAppleArchive | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftARKit | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftAVFoundation | 671 | 605 | 66 | 90.2% | 0/671 | complete |
@@ -1373,16 +1373,16 @@ Priority score is missing API items multiplied by the number of apps app-sweep.p
 |---|---:|---:|---:|
 | SwiftUI | 3,729 | 25 | 93,225 |
 | WebKit | 2,908 | 32 | 93,056 |
-| AppKit | 2,652 | 26 | 68,952 |
+| AppKit | 2,151 | 26 | 55,926 |
 | AppIntents | 3,048 | 15 | 45,720 |
 | Vision | 2,674 | 13 | 34,762 |
-| ApplicationServices | 1,704 | 15 | 25,560 |
-| Carbon | 2,004 | 12 | 24,048 |
-| CoreServices | 1,019 | 19 | 19,361 |
 | MetalPerformanceShaders | 2,675 | 7 | 18,725 |
+| ApplicationServices | 1,203 | 15 | 18,045 |
+| Carbon | 1,503 | 12 | 18,036 |
 | Foundation | 1,588 | 11 | 17,468 |
 | Intents | 1,065 | 15 | 15,975 |
 | CloudKit | 1,208 | 13 | 15,704 |
 | AVFoundation | 508 | 25 | 12,700 |
-| CoreServices/CarbonCore | 618 | 19 | 11,742 |
 | QuartzCore | 1,122 | 10 | 11,220 |
+| Quartz | 2,192 | 5 | 10,960 |
+| MetalPerformanceShaders/MPSNeuralNetwork | 1,541 | 7 | 10,787 |

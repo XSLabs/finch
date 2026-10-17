@@ -18,4 +18,7 @@
 /* Seconds between the Mac epoch (1904) and the Unix one (1970). */
 #define FINCH_MAC_EPOCH_DELTA 2082844800LL
 
+/* LocaleRef stays opaque to callers; collators use its CoreFoundation value. */
+FINCH_HIDDEN CFLocaleRef _FinchLocaleValue(LocaleRef locale);
+
 #endif

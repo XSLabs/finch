@@ -10,6 +10,12 @@ CONSTANT_TEST_LINKS := $(foreach path,$(CONSTANT_TEST_FRAMEWORK_SEARCH_PATHS),-F
 	$(foreach framework,$(CONSTANT_TEST_FRAMEWORKS),-framework $(framework))
 
 all: $(OUT)/finch-constants-test
+all: $(OUT)/finch-coreservices-additions-test
+all: $(OUT)/finch-coreservices-locales-test
+all: $(OUT)/finch-coreservices-threads-test
+all: $(OUT)/finch-coreservices-time-manager-test
+all: $(OUT)/finch-coreservices-mp-timers-test
+all: $(OUT)/finch-coreservices-identity-test
 
 $(OUT)/finch-constants-test: constants-test.m ../../tools/constants/frameworks.mk
 	@mkdir -p $(OUT)
@@ -94,6 +100,26 @@ $(OUT)/finch-coreservices-test: coreservices-test.m coreservices-uttypes.inc
 $(OUT)/finch-coreservices-option-keys-test: coreservices-test.m coreservices-uttypes.inc
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -o $@ $< -framework CoreServices -framework Foundation
+
+$(OUT)/finch-coreservices-additions-test: coreservices-additions-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -F$(SDKROOT)/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks \
+	    -Wno-deprecated-declarations -o $@ $< -framework CoreServices
+
+$(OUT)/finch-coreservices-locales-test: $(OUT)/finch-coreservices-additions-test
+	ln -sf finch-coreservices-additions-test $@
+
+$(OUT)/finch-coreservices-threads-test: $(OUT)/finch-coreservices-additions-test
+	ln -sf finch-coreservices-additions-test $@
+
+$(OUT)/finch-coreservices-time-manager-test: $(OUT)/finch-coreservices-additions-test
+	ln -sf finch-coreservices-additions-test $@
+
+$(OUT)/finch-coreservices-mp-timers-test: $(OUT)/finch-coreservices-additions-test
+	ln -sf finch-coreservices-additions-test $@
+
+$(OUT)/finch-coreservices-identity-test: $(OUT)/finch-coreservices-additions-test
+	ln -sf finch-coreservices-additions-test $@
 
 # Finch's supported keys, certificates and explicit unavailable-service errors.
 $(OUT)/finch-security-core-test: security-core-test.c security-test-certs.inc

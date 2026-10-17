@@ -11,6 +11,7 @@
 #include "CarbonCore_Finch.h"
 #include <errno.h>
 #include <math.h>
+#include <pthread.h>
 #include <pwd.h>
 #include <sys/xattr.h>
 #include <unistd.h>
@@ -200,22 +201,6 @@ struct OpaqueCollatorRef {
     UCCollateOptions options;
 };
 
-/* A LocaleRef is a CFLocale (Apple's are its own; only Locale Utilities read them). */
-OSStatus
-LocaleRefFromLocaleString(const char *localeString, LocaleRef *locale)
-{
-    if (!localeString || !locale)
-        return paramErr;
-    CFStringRef s = CFStringCreateWithCString(NULL, localeString, kCFStringEncodingUTF8);
-    if (!s)
-        return paramErr;
-    CFStringRef canonical = CFLocaleCreateCanonicalLocaleIdentifierFromString(NULL, s);
-    CFRelease(s);
-    *locale = (LocaleRef)CFLocaleCreate(NULL, canonical);
-    CFRelease(canonical);
-    return *locale ? noErr : paramErr;
-}
-
 OSStatus
 UCCreateCollator(LocaleRef locale, LocaleOperationVariant opVariant, UCCollateOptions options, CollatorRef *collatorRef)
 {
@@ -224,7 +209,12 @@ UCCreateCollator(LocaleRef locale, LocaleOperationVariant opVariant, UCCollateOp
     CollatorRef c = calloc(1, sizeof *c);
     if (!c)
         return memFullErr;
-    c->locale = locale ? (CFLocaleRef)CFRetain((CFTypeRef)locale) : CFLocaleCopyCurrent();
+    CFLocaleRef localeValue = locale ? _FinchLocaleValue(locale) : NULL;
+    if (locale && !localeValue) {
+        free(c);
+        return paramErr;
+    }
+    c->locale = localeValue ? (CFLocaleRef)CFRetain((CFTypeRef)localeValue) : CFLocaleCopyCurrent();
     c->options = options;
     *collatorRef = c;
     return noErr;
@@ -308,9 +298,113 @@ GetScriptInfoFromTextEncoding(TextEncoding iEncoding, ScriptCode *oTextScriptID,
     return noErr;
 }
 
+OSStatus
+UpgradeScriptInfoToTextEncoding(ScriptCode script, LangCode language, RegionCode region,
+                                ConstStr255Param fontName, TextEncoding *encoding)
+{
+    (void)fontName;
+    return GetTextEncodingFromScriptInfo(script, language, region, encoding);
+}
+
+OSStatus
+RevertTextEncodingToScriptInfo(TextEncoding encoding, ScriptCode *script, LangCode *language,
+                               Str255 fontName)
+{
+    OSStatus status = GetScriptInfoFromTextEncoding(encoding, script, language);
+    if (fontName)
+        fontName[0] = 0;
+    return status;
+}
+
 struct converter {
     CFStringEncoding from, to;
 };
+
+static CFStringEncoding cf_encoding(TextEncoding te);
+
+OSStatus
+ChangeTextToUnicodeInfo(TextToUnicodeInfo info, ConstUnicodeMappingPtr mapping)
+{
+    if (!info || !mapping || !CFStringIsEncodingAvailable(cf_encoding(mapping->otherEncoding)))
+        return paramErr;
+    ((struct converter *)info)->from = cf_encoding(mapping->otherEncoding);
+    return noErr;
+}
+
+OSStatus
+ChangeUnicodeToTextInfo(UnicodeToTextInfo info, ConstUnicodeMappingPtr mapping)
+{
+    if (!info || !mapping || !CFStringIsEncodingAvailable(cf_encoding(mapping->otherEncoding)))
+        return paramErr;
+    ((struct converter *)info)->to = cf_encoding(mapping->otherEncoding);
+    return noErr;
+}
+
+OSStatus
+ResetTextToUnicodeInfo(TextToUnicodeInfo info)
+{
+    return info ? noErr : paramErr;
+}
+
+OSStatus
+ResetUnicodeToTextInfo(UnicodeToTextInfo info)
+{
+    return info ? noErr : paramErr;
+}
+
+OSStatus
+TruncateForTextToUnicode(ConstTextToUnicodeInfo info, ByteCount sourceLength, ConstLogicalAddress source,
+                         ByteCount maximumLength, ByteCount *truncatedLength)
+{
+    if (!info || (!source && sourceLength) || !truncatedLength)
+        return paramErr;
+    struct converter *converter = (struct converter *)info;
+    ByteCount length = sourceLength < maximumLength ? sourceLength : maximumLength;
+    while (length) {
+        CFStringRef text = CFStringCreateWithBytes(NULL, source, length, converter->from, false);
+        if (text) {
+            CFRelease(text);
+            break;
+        }
+        length--;
+    }
+    *truncatedLength = length;
+    return noErr;
+}
+
+OSStatus
+TruncateForUnicodeToText(ConstUnicodeToTextInfo info, ByteCount sourceLength, const UniChar source[],
+                         OptionBits controlFlags, ByteCount maximumLength, ByteCount *truncatedLength)
+{
+    if (!info || (!source && sourceLength) || !truncatedLength)
+        return paramErr;
+    struct converter *converter = (struct converter *)info;
+    CFIndex units = sourceLength / sizeof(UniChar);
+    CFStringRef text = CFStringCreateWithCharacters(NULL, source, units);
+    if (!text)
+        return memFullErr;
+    ByteCount inputLength = 0;
+    UInt8 lossByte = (controlFlags & kUnicodeUseFallbacksMask) ? '?' : 0;
+    for (CFIndex count = units; count >= 0; count--) {
+        CFIndex converted = 0, outputBytes = 0;
+        CFStringGetBytes(text, CFRangeMake(0, count), converter->to, lossByte, false, NULL, 0, &outputBytes);
+        UInt8 *buffer = malloc(outputBytes ? (size_t)outputBytes : 1);
+        if (!buffer) {
+            CFRelease(text);
+            return memFullErr;
+        }
+        CFIndex bytes = CFStringGetBytes(text, CFRangeMake(0, count), converter->to, lossByte, false,
+                                         buffer, outputBytes, &converted);
+        free(buffer);
+        if (converted == count && bytes >= 0 && (ByteCount)bytes <= maximumLength) {
+            inputLength = (ByteCount)count * sizeof(UniChar);
+            break;
+        }
+    }
+    *truncatedLength = inputLength;
+    CFRelease(text);
+    return noErr;
+}
 
 static CFStringEncoding
 cf_encoding(TextEncoding te)
@@ -323,6 +417,41 @@ cf_encoding(TextEncoding te)
                                                                                           : kCFStringEncodingUTF16LE;
     }
     return (CFStringEncoding)base;  /* CFStringEncoding uses the Text Encoding Converter's base values */
+}
+
+OSStatus
+GetTextEncodingName(TextEncoding encoding, TextEncodingNameSelector selector, RegionCode preferredRegion,
+                    TextEncoding preferredEncoding, ByteCount outputCapacity, ByteCount *nameLength,
+                    RegionCode *actualRegion, TextEncoding *actualEncoding, TextPtr output)
+{
+    (void)preferredRegion;
+    (void)preferredEncoding;
+    if (selector > kTextEncodingFormatName || (outputCapacity && !output))
+        return paramErr;
+    if (nameLength)
+        *nameLength = 0;
+    if (actualRegion)
+        *actualRegion = -1;
+    if (actualEncoding)
+        *actualEncoding = 0;
+    if (selector == kTextEncodingVariantName || selector == kTextEncodingFormatName)
+        return noErr;
+    CFStringRef name = CFStringGetNameOfEncoding(cf_encoding(encoding));
+    if (!name)
+        return noErr;
+    CFIndex required = CFStringGetLength(name) * (CFIndex)sizeof(UniChar);
+    CFIndex converted = 0;
+    CFIndex written = CFStringGetBytes(name, CFRangeMake(0, CFStringGetLength(name)), kCFStringEncodingUTF16LE,
+                                       0, false, output, outputCapacity, &converted);
+    if (nameLength)
+        *nameLength = (ByteCount)written;
+    if (actualRegion)
+        *actualRegion = verUS;
+    if (actualEncoding)
+        *actualEncoding = kTextEncodingUnicodeV3_0;
+    if (converted != CFStringGetLength(name) || outputCapacity < (ByteCount)required)
+        return kTECOutputBufferFullStatus;
+    return noErr;
 }
 
 OSStatus
@@ -438,6 +567,767 @@ ConvertFromUnicodeToText(UnicodeToTextInfo iUnicodeToTextInfo, ByteCount iUnicod
         *oOutputLen = used;
     if (converted < len)
         return used >= (CFIndex)iOutputBufLen ? kTECOutputBufferFullStatus : kTECUnmappableElementErr;
+    return noErr;
+}
+
+OSStatus
+ConvertFromPStringToUnicode(TextToUnicodeInfo info, ConstStr255Param pascalString,
+                            ByteCount outputCapacity, ByteCount *unicodeLength, UniChar unicodeString[])
+{
+    if (!info || !pascalString || (!unicodeString && outputCapacity))
+        return paramErr;
+    ByteCount sourceRead = 0;
+    return ConvertFromTextToUnicode(info, pascalString[0], pascalString + 1, 0, 0, NULL, NULL, NULL,
+                                    outputCapacity, &sourceRead, unicodeLength, unicodeString);
+}
+
+OSStatus
+ConvertFromUnicodeToPString(UnicodeToTextInfo info, ByteCount unicodeLength, const UniChar unicodeString[],
+                            Str255 pascalString)
+{
+    if (!info || (!unicodeString && unicodeLength) || !pascalString)
+        return paramErr;
+    UInt8 bytes[255];
+    ByteCount inputRead = 0, outputLength = 0;
+    OSStatus status = ConvertFromUnicodeToText(info, unicodeLength, unicodeString, 0, 0, NULL, NULL, NULL,
+                                               sizeof bytes, &inputRead, &outputLength, bytes);
+    ByteCount copied = outputLength < sizeof bytes ? outputLength : sizeof bytes;
+    pascalString[0] = (UInt8)copied;
+    if (copied)
+        memcpy(pascalString + 1, bytes, copied);
+    return status;
+}
+
+/* The Text Encoding Converter uses the same encodings as CFString. Stateful
+   converter plug-ins are not installed in Finch, but the system encodings can
+   be converted directly through Unicode. */
+struct tec_object {
+    struct tec_object *next;
+    TextEncoding input;
+    TextEncoding outputs[16];
+    ItemCount outputCount;
+    OptionBits options;
+    bool sniffer;
+};
+
+static struct tec_object *tec_objects;
+static pthread_mutex_t tec_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static struct tec_object *
+tec_find(void *ref, bool sniffer)
+{
+    for (struct tec_object *o = tec_objects; o; o = o->next)
+        if (o == ref && o->sniffer == sniffer)
+            return o;
+    return NULL;
+}
+
+static void
+tec_add(struct tec_object *o)
+{
+    o->next = tec_objects;
+    tec_objects = o;
+}
+
+static void
+tec_remove(struct tec_object *o)
+{
+    struct tec_object **p = &tec_objects;
+    while (*p && *p != o)
+        p = &(*p)->next;
+    if (*p)
+        *p = o->next;
+    free(o);
+}
+
+static bool
+tec_encoding_supported(TextEncoding encoding)
+{
+    return CFStringIsEncodingAvailable(cf_encoding(encoding));
+}
+
+static TextEncoding
+tec_encoding_from_cf(CFStringEncoding encoding)
+{
+    if (encoding == kCFStringEncodingUTF8)
+        return CreateTextEncoding(kTextEncodingUnicodeDefault, kTextEncodingDefaultVariant, kUnicodeUTF8Format);
+    if (encoding == kCFStringEncodingUTF32LE)
+        return CreateTextEncoding(kTextEncodingUnicodeDefault, kTextEncodingDefaultVariant, kUnicode32BitFormat);
+    if (encoding <= 0xffff)
+        return (TextEncoding)encoding;
+    return kTextEncodingUnknown;
+}
+
+static ItemCount
+tec_encoding_list(TextEncoding *out, ItemCount capacity)
+{
+    const CFStringEncoding *list = CFStringGetListOfAvailableEncodings();
+    ItemCount n = 0;
+    for (; *list != kCFStringEncodingInvalidId; list++) {
+        TextEncoding te = tec_encoding_from_cf(*list);
+        if (te == kTextEncodingUnknown || !tec_encoding_supported(te))
+            continue;
+        bool duplicate = false;
+        for (ItemCount i = 0; out && i < n && i < capacity; i++)
+            if (out[i] == te) {
+                duplicate = true;
+                break;
+            }
+        if (duplicate)
+            continue;
+        if (out && n < capacity)
+            out[n] = te;
+        n++;
+    }
+    return n;
+}
+
+static OSStatus
+tec_fill_encodings(TextEncoding *out, ItemCount capacity, ItemCount *actual)
+{
+    if (actual)
+        *actual = 0;
+    if (capacity && !out)
+        return paramErr;
+    ItemCount n = tec_encoding_list(out, capacity);
+    if (actual)
+        *actual = n < capacity ? n : capacity;
+    return n > capacity ? kTECArrayFullErr : noErr;
+}
+
+static CFStringRef
+tec_encoding_name(TextEncoding encoding)
+{
+    if (!tec_encoding_supported(encoding))
+        return NULL;
+    return CFStringConvertEncodingToIANACharSetName(cf_encoding(encoding));
+}
+
+static int
+tec_mib_for_name(CFStringRef name)
+{
+    if (!name)
+        return -1;
+    struct mib_entry { const char *name; int mib; };
+    static const struct mib_entry mib[] = {
+        {"US-ASCII", 3}, {"ISO-8859-1", 4}, {"ISO-8859-2", 5}, {"ISO-8859-5", 8},
+        {"ISO-8859-6", 9}, {"ISO-8859-7", 10}, {"ISO-8859-8", 11}, {"ISO-8859-9", 12},
+        {"Shift_JIS", 17}, {"EUC-JP", 18}, {"ISO-2022-JP", 39}, {"GB2312", 57},
+        {"Big5", 2026}, {"KOI8-R", 2084}, {"UTF-8", 106}, {"UTF-16", 1015},
+        {"UTF-16BE", 1013}, {"UTF-16LE", 1014}, {"UTF-32", 1017}, {"UTF-32BE", 1018},
+        {"UTF-32LE", 1019}, {"windows-1252", 2252}, {"windows-1251", 2251},
+    };
+    for (size_t i = 0; i < sizeof mib / sizeof *mib; i++) {
+        CFStringRef candidate = CFStringCreateWithCString(NULL, mib[i].name, kCFStringEncodingASCII);
+        Boolean equal = candidate && CFStringCompare(name, candidate, kCFCompareCaseInsensitive) == kCFCompareEqualTo;
+        if (candidate)
+            CFRelease(candidate);
+        if (equal)
+            return mib[i].mib;
+    }
+    return -1;
+}
+
+static TextEncoding
+tec_encoding_for_mib(SInt32 mib)
+{
+    switch (mib) {
+    case 3: return kTextEncodingMacRoman;
+    case 4: return kTextEncodingISOLatin1;
+    case 5: return kTextEncodingISOLatin2;
+    case 8: return kTextEncodingISOLatinCyrillic;
+    case 9: return kTextEncodingISOLatinArabic;
+    case 10: return kTextEncodingISOLatinGreek;
+    case 11: return kTextEncodingISOLatinHebrew;
+    case 12: return kTextEncodingISOLatin5;
+    case 17: return kTextEncodingShiftJIS;
+    case 18: return kTextEncodingEUC_JP;
+    case 57: return kTextEncodingGB_2312_80;
+    case 2026: return kTextEncodingBig5;
+    case 2084: return kTextEncodingKOI8_R;
+    case 106: return CreateTextEncoding(kTextEncodingUnicodeDefault, kTextEncodingDefaultVariant, kUnicodeUTF8Format);
+    case 1015: return kTextEncodingUnicodeDefault;
+    case 1013: return kTextEncodingUnicodeDefault;
+    case 1014: return kTextEncodingUnicodeDefault;
+    case 1017: return CreateTextEncoding(kTextEncodingUnicodeDefault, kTextEncodingDefaultVariant, kUnicode32BitFormat);
+    case 1018: return CreateTextEncoding(kTextEncodingUnicodeDefault, kTextEncodingDefaultVariant, kUnicode32BitFormat);
+    case 1019: return CreateTextEncoding(kTextEncodingUnicodeDefault, kTextEncodingDefaultVariant, kUnicode32BitFormat);
+    case 2252: return kTextEncodingWindowsLatin1;
+    case 2251: return kTextEncodingWindowsCyrillic;
+    default: return kTextEncodingUnknown;
+    }
+}
+
+static OSStatus
+tec_create(TECObjectRef *out, TextEncoding input, const TextEncoding *outputs, ItemCount count)
+{
+    if (!out || !outputs || count == 0 || count > 16 || !tec_encoding_supported(input))
+        return paramErr;
+    for (ItemCount i = 0; i < count; i++)
+        if (!tec_encoding_supported(outputs[i]))
+            return kTextUnsupportedEncodingErr;
+    struct tec_object *o = calloc(1, sizeof *o);
+    if (!o)
+        return memFullErr;
+    o->input = input;
+    o->outputCount = count;
+    memcpy(o->outputs, outputs, count * sizeof *outputs);
+    pthread_mutex_lock(&tec_lock);
+    tec_add(o);
+    pthread_mutex_unlock(&tec_lock);
+    *out = (TECObjectRef)o;
+    return noErr;
+}
+
+OSStatus
+TECCountAvailableTextEncodings(ItemCount *numberEncodings)
+{
+    if (!numberEncodings)
+        return paramErr;
+    *numberEncodings = tec_encoding_list(NULL, 0);
+    return noErr;
+}
+
+OSStatus
+TECGetAvailableTextEncodings(TextEncoding availableEncodings[], ItemCount maxAvailableEncodings,
+                             ItemCount *actualAvailableEncodings)
+{
+    return tec_fill_encodings(availableEncodings, maxAvailableEncodings, actualAvailableEncodings);
+}
+
+OSStatus
+TECCountDirectTextEncodingConversions(ItemCount *numberOfEncodings)
+{
+    if (!numberOfEncodings)
+        return paramErr;
+    ItemCount n = tec_encoding_list(NULL, 0);
+    *numberOfEncodings = n > 1 ? n * (n - 1) : 0;
+    return noErr;
+}
+
+OSStatus
+TECGetDirectTextEncodingConversions(TECConversionInfo availableConversions[], ItemCount maxAvailableConversions,
+                                    ItemCount *actualAvailableConversions)
+{
+    if (actualAvailableConversions)
+        *actualAvailableConversions = 0;
+    if (maxAvailableConversions && !availableConversions)
+        return paramErr;
+    ItemCount n = tec_encoding_list(NULL, 0), at = 0;
+    TextEncoding *enc = malloc(n * sizeof *enc);
+    if (!enc && n)
+        return memFullErr;
+    tec_encoding_list(enc, n);
+    for (ItemCount i = 0; i < n && at < maxAvailableConversions; i++)
+        for (ItemCount j = 0; j < n && at < maxAvailableConversions; j++)
+            if (i != j)
+                availableConversions[at++] = (TECConversionInfo){enc[i], enc[j], 0, 0};
+    free(enc);
+    if (actualAvailableConversions)
+        *actualAvailableConversions = at;
+    return (n > 1 && (UInt64)n * (n - 1) > maxAvailableConversions) ? kTECArrayFullErr : noErr;
+}
+
+OSStatus
+TECCountDestinationTextEncodings(TextEncoding inputEncoding, ItemCount *numberOfEncodings)
+{
+    if (!numberOfEncodings)
+        return paramErr;
+    if (!tec_encoding_supported(inputEncoding))
+        return kTextUnsupportedEncodingErr;
+    *numberOfEncodings = tec_encoding_list(NULL, 0) - 1;
+    return noErr;
+}
+
+OSStatus
+TECGetDestinationTextEncodings(TextEncoding inputEncoding, TextEncoding destinationEncodings[],
+                               ItemCount maxDestinationEncodings, ItemCount *actualDestinationEncodings)
+{
+    if (!tec_encoding_supported(inputEncoding)) {
+        if (actualDestinationEncodings)
+            *actualDestinationEncodings = 0;
+        return kTextUnsupportedEncodingErr;
+    }
+    if (maxDestinationEncodings && !destinationEncodings)
+        return paramErr;
+    ItemCount n = tec_encoding_list(destinationEncodings, maxDestinationEncodings);
+    ItemCount at = 0;
+    for (ItemCount i = 0; i < n && i < maxDestinationEncodings; i++)
+        if (destinationEncodings[i] != inputEncoding)
+            destinationEncodings[at++] = destinationEncodings[i];
+    if (actualDestinationEncodings)
+        *actualDestinationEncodings = at;
+    return n > maxDestinationEncodings ? kTECArrayFullErr : noErr;
+}
+
+OSStatus
+TECGetTextEncodingInternetName(TextEncoding textEncoding, Str255 encodingName)
+{
+    if (!encodingName)
+        return paramErr;
+    CFStringRef name = tec_encoding_name(textEncoding);
+    if (!name)
+        return kTextUnsupportedEncodingErr;
+    char bytes[256];
+    if (!CFStringGetCString(name, bytes, sizeof bytes, kCFStringEncodingASCII)) {
+        CFRelease(name);
+        return kTextUnsupportedEncodingErr;
+    }
+    CFRelease(name);
+    size_t n = strlen(bytes);
+    if (n > 255)
+        n = 255;
+    encodingName[0] = (UInt8)n;
+    memcpy(encodingName + 1, bytes, n);
+    return noErr;
+}
+
+OSStatus
+TECGetTextEncodingFromInternetName(TextEncoding *textEncoding, ConstStr255Param encodingName)
+{
+    if (!textEncoding || !encodingName)
+        return paramErr;
+    CFStringRef name = CFStringCreateWithBytes(NULL, encodingName + 1, encodingName[0], kCFStringEncodingASCII, false);
+    if (!name)
+        return kTextUnsupportedEncodingErr;
+    CFStringEncoding cf = CFStringConvertIANACharSetNameToEncoding(name);
+    CFRelease(name);
+    if (cf == kCFStringEncodingInvalidId)
+        return kTextUnsupportedEncodingErr;
+    *textEncoding = tec_encoding_from_cf(cf);
+    return *textEncoding == kTextEncodingUnknown ? kTextUnsupportedEncodingErr : noErr;
+}
+
+OSStatus
+TECCreateConverter(TECObjectRef *newEncodingConverter, TextEncoding inputEncoding, TextEncoding outputEncoding)
+{
+    return tec_create(newEncodingConverter, inputEncoding, &outputEncoding, 1);
+}
+
+OSStatus
+TECCreateConverterFromPath(TECObjectRef *newEncodingConverter, const TextEncoding inputPath[], ItemCount inputEncodings)
+{
+    if (!inputPath || inputEncodings == 0)
+        return paramErr;
+    return tec_create(newEncodingConverter, inputPath[0], &inputPath[inputEncodings - 1], 1);
+}
+
+OSStatus
+TECDisposeConverter(TECObjectRef encodingConverter)
+{
+    pthread_mutex_lock(&tec_lock);
+    struct tec_object *o = tec_find(encodingConverter, false);
+    if (o)
+        tec_remove(o);
+    pthread_mutex_unlock(&tec_lock);
+    return o ? noErr : kTECCorruptConverterErr;
+}
+
+OSStatus
+TECClearConverterContextInfo(TECObjectRef encodingConverter)
+{
+    pthread_mutex_lock(&tec_lock);
+    struct tec_object *o = tec_find(encodingConverter, false);
+    pthread_mutex_unlock(&tec_lock);
+    return o ? noErr : kTECCorruptConverterErr;
+}
+
+static OSStatus
+tec_convert(struct tec_object *o, ConstTextPtr inputBuffer, ByteCount inputBufferLength,
+            ByteCount *actualInputLength, TextPtr outputBuffer, ByteCount outputBufferLength,
+            ByteCount *actualOutputLength)
+{
+    if (actualInputLength)
+        *actualInputLength = 0;
+    if (actualOutputLength)
+        *actualOutputLength = 0;
+    if ((inputBufferLength && !inputBuffer) || (outputBufferLength && !outputBuffer))
+        return paramErr;
+    CFStringRef text = CFStringCreateWithBytes(NULL, inputBuffer, inputBufferLength, cf_encoding(o->input), false);
+    if (!text)
+        return kTECUnmappableElementErr;
+    CFIndex used = 0;
+    UInt8 loss = (o->options & kTECDisableFallbacksMask) ? 0 : '?';
+    CFIndex converted = CFStringGetBytes(text, CFRangeMake(0, CFStringGetLength(text)),
+                                         cf_encoding(o->outputs[0]), loss, false, outputBuffer,
+                                         outputBufferLength, &used);
+    CFIndex sourceUsed = inputBufferLength;
+    OSStatus result = noErr;
+    if (converted != CFStringGetLength(text)) {
+        result = used == outputBufferLength ? kTECOutputBufferFullStatus : kTECUnmappableElementErr;
+        if (result == kTECOutputBufferFullStatus && converted > 0) {
+            CFMutableStringRef prefix = CFStringCreateMutableCopy(NULL, converted, text);
+            CFDataRef bytes = CFStringCreateExternalRepresentation(NULL, prefix, cf_encoding(o->input), 0);
+            if (bytes) {
+                sourceUsed = CFDataGetLength(bytes);
+                CFRelease(bytes);
+            }
+            CFRelease(prefix);
+        } else {
+            sourceUsed = 0;
+        }
+    }
+    CFRelease(text);
+    if (actualInputLength)
+        *actualInputLength = sourceUsed;
+    if (actualOutputLength)
+        *actualOutputLength = (ByteCount)used;
+    return result;
+}
+
+OSStatus
+TECConvertText(TECObjectRef encodingConverter, ConstTextPtr inputBuffer, ByteCount inputBufferLength,
+               ByteCount *actualInputLength, TextPtr outputBuffer, ByteCount outputBufferLength,
+               ByteCount *actualOutputLength)
+{
+    pthread_mutex_lock(&tec_lock);
+    struct tec_object *o = tec_find(encodingConverter, false);
+    OSStatus e = o ? tec_convert(o, inputBuffer, inputBufferLength, actualInputLength,
+                                 outputBuffer, outputBufferLength, actualOutputLength) : kTECCorruptConverterErr;
+    pthread_mutex_unlock(&tec_lock);
+    return e;
+}
+
+OSStatus
+TECFlushText(TECObjectRef encodingConverter, TextPtr outputBuffer, ByteCount outputBufferLength,
+             ByteCount *actualOutputLength)
+{
+    if (actualOutputLength)
+        *actualOutputLength = 0;
+    if (outputBufferLength && !outputBuffer)
+        return paramErr;
+    pthread_mutex_lock(&tec_lock);
+    bool valid = tec_find(encodingConverter, false) != NULL;
+    pthread_mutex_unlock(&tec_lock);
+    return valid ? noErr : kTECCorruptConverterErr;
+}
+
+OSStatus
+TECCountSubTextEncodings(TextEncoding inputEncoding, ItemCount *numberOfEncodings)
+{
+    if (!numberOfEncodings)
+        return paramErr;
+    if (!tec_encoding_supported(inputEncoding))
+        return kTextUnsupportedEncodingErr;
+    *numberOfEncodings = 0;
+    return noErr;
+}
+
+OSStatus
+TECGetSubTextEncodings(TextEncoding inputEncoding, TextEncoding subEncodings[], ItemCount maxSubEncodings,
+                       ItemCount *actualSubEncodings)
+{
+    if (!tec_encoding_supported(inputEncoding)) {
+        if (actualSubEncodings)
+            *actualSubEncodings = 0;
+        return kTextUnsupportedEncodingErr;
+    }
+    if (actualSubEncodings)
+        *actualSubEncodings = 0;
+    if (maxSubEncodings && !subEncodings)
+        return paramErr;
+    return noErr;
+}
+
+OSStatus
+TECGetEncodingList(TECObjectRef encodingConverter, ItemCount *numEncodings, Handle *encodingList)
+{
+    if (!numEncodings || !encodingList)
+        return paramErr;
+    pthread_mutex_lock(&tec_lock);
+    bool valid = tec_find(encodingConverter, false) != NULL;
+    pthread_mutex_unlock(&tec_lock);
+    if (!valid)
+        return kTECCorruptConverterErr;
+    ItemCount n = tec_encoding_list(NULL, 0);
+    Handle h = NewHandle(n * sizeof(TextEncoding));
+    if (!h)
+        return MemError();
+    tec_encoding_list((TextEncoding *)*h, n);
+    *numEncodings = n;
+    *encodingList = h;
+    return noErr;
+}
+
+OSStatus
+TECCreateOneToManyConverter(TECObjectRef *newEncodingConverter, TextEncoding inputEncoding,
+                            ItemCount numOutputEncodings, const TextEncoding outputEncodings[])
+{
+    return tec_create(newEncodingConverter, inputEncoding, outputEncodings, numOutputEncodings);
+}
+
+OSStatus
+TECConvertTextToMultipleEncodings(TECObjectRef encodingConverter, ConstTextPtr inputBuffer,
+                                  ByteCount inputBufferLength, ByteCount *actualInputLength,
+                                  TextPtr outputBuffer, ByteCount outputBufferLength,
+                                  ByteCount *actualOutputLength, TextEncodingRun outEncodingsBuffer[],
+                                  ItemCount maxOutEncodingRuns, ItemCount *actualOutEncodingRuns)
+{
+    if (actualOutEncodingRuns)
+        *actualOutEncodingRuns = 0;
+    if (maxOutEncodingRuns && !outEncodingsBuffer)
+        return paramErr;
+    pthread_mutex_lock(&tec_lock);
+    struct tec_object *o = tec_find(encodingConverter, false);
+    if (!o) {
+        pthread_mutex_unlock(&tec_lock);
+        return kTECCorruptConverterErr;
+    }
+    OSStatus e = tec_convert(o, inputBuffer, inputBufferLength, actualInputLength,
+                             outputBuffer, outputBufferLength, actualOutputLength);
+    if (!e && maxOutEncodingRuns) {
+        outEncodingsBuffer[0].offset = 0;
+        outEncodingsBuffer[0].textEncoding = o->outputs[0];
+        if (actualOutEncodingRuns)
+            *actualOutEncodingRuns = 1;
+    }
+    pthread_mutex_unlock(&tec_lock);
+    return e;
+}
+
+OSStatus
+TECFlushMultipleEncodings(TECObjectRef encodingConverter, TextPtr outputBuffer, ByteCount outputBufferLength,
+                          ByteCount *actualOutputLength, TextEncodingRun outEncodingsBuffer[],
+                          ItemCount maxOutEncodingRuns, ItemCount *actualOutEncodingRuns)
+{
+    if (actualOutEncodingRuns)
+        *actualOutEncodingRuns = 0;
+    if (actualOutputLength)
+        *actualOutputLength = 0;
+    if (outputBufferLength && !outputBuffer)
+        return paramErr;
+    if (maxOutEncodingRuns && !outEncodingsBuffer)
+        return paramErr;
+    pthread_mutex_lock(&tec_lock);
+    bool valid = tec_find(encodingConverter, false) != NULL;
+    pthread_mutex_unlock(&tec_lock);
+    return valid ? noErr : kTECCorruptConverterErr;
+}
+
+static const TextEncoding tec_mail_web_encodings[] = {
+    kTextEncodingUnicodeDefault,
+    kTextEncodingMacRoman,
+    kTextEncodingWindowsLatin1,
+    kTextEncodingShiftJIS,
+    kTextEncodingEUC_JP,
+    kTextEncodingGB_2312_80,
+    kTextEncodingBig5,
+};
+
+static OSStatus
+tec_locale_encodings(TextEncoding availableEncodings[], ItemCount maxAvailableEncodings,
+                     ItemCount *actualAvailableEncodings)
+{
+    if (actualAvailableEncodings)
+        *actualAvailableEncodings = 0;
+    if (maxAvailableEncodings && !availableEncodings)
+        return paramErr;
+    ItemCount n = sizeof tec_mail_web_encodings / sizeof *tec_mail_web_encodings;
+    ItemCount count = 0;
+    for (ItemCount i = 0; i < n && count < maxAvailableEncodings; i++)
+        if (tec_encoding_supported(tec_mail_web_encodings[i]))
+            availableEncodings[count++] = tec_mail_web_encodings[i];
+    if (actualAvailableEncodings)
+        *actualAvailableEncodings = count;
+    return count < n ? kTECArrayFullErr : noErr;
+}
+
+OSStatus TECCountWebTextEncodings(RegionCode locale, ItemCount *numberEncodings)
+{
+    if (!numberEncodings)
+        return paramErr;
+    *numberEncodings = sizeof tec_mail_web_encodings / sizeof *tec_mail_web_encodings;
+    return noErr;
+}
+OSStatus TECGetWebTextEncodings(RegionCode locale, TextEncoding availableEncodings[], ItemCount maxAvailableEncodings,
+                               ItemCount *actualAvailableEncodings)
+{
+    return tec_locale_encodings(availableEncodings, maxAvailableEncodings, actualAvailableEncodings);
+}
+OSStatus TECCountMailTextEncodings(RegionCode locale, ItemCount *numberEncodings)
+{
+    return TECCountWebTextEncodings(locale, numberEncodings);
+}
+OSStatus TECGetMailTextEncodings(RegionCode locale, TextEncoding availableEncodings[], ItemCount maxAvailableEncodings,
+                                ItemCount *actualAvailableEncodings)
+{
+    return tec_locale_encodings(availableEncodings, maxAvailableEncodings, actualAvailableEncodings);
+}
+
+OSStatus TECCountAvailableSniffers(ItemCount *numberOfEncodings)
+{
+    if (!numberOfEncodings)
+        return paramErr;
+    *numberOfEncodings = 4;
+    return noErr;
+}
+OSStatus TECGetAvailableSniffers(TextEncoding availableSniffers[], ItemCount maxAvailableSniffers,
+                                ItemCount *actualAvailableSniffers)
+{
+    static const TextEncoding sniffers[] = {
+        kTextEncodingUnicodeDefault,
+        kTextEncodingUnicodeDefault | ((kUnicodeUTF8Format & 0x3f) << 26),
+        kTextEncodingMacRoman,
+        kTextEncodingWindowsLatin1,
+    };
+    if (actualAvailableSniffers)
+        *actualAvailableSniffers = 0;
+    if (maxAvailableSniffers && !availableSniffers)
+        return paramErr;
+    ItemCount n = 0;
+    for (ItemCount i = 0; i < sizeof sniffers / sizeof *sniffers && n < maxAvailableSniffers; i++)
+        if (tec_encoding_supported(sniffers[i]))
+            availableSniffers[n++] = sniffers[i];
+    if (actualAvailableSniffers)
+        *actualAvailableSniffers = n;
+    return n < 4 ? kTECArrayFullErr : noErr;
+}
+
+OSStatus
+TECCreateSniffer(TECSnifferObjectRef *encodingSniffer, const TextEncoding testEncodings[], ItemCount numTextEncodings)
+{
+    if (!encodingSniffer || (numTextEncodings && !testEncodings) || numTextEncodings > 16)
+        return paramErr;
+    struct tec_object *o = calloc(1, sizeof *o);
+    if (!o)
+        return memFullErr;
+    o->sniffer = true;
+    o->outputCount = numTextEncodings;
+    if (numTextEncodings)
+        memcpy(o->outputs, testEncodings, numTextEncodings * sizeof *testEncodings);
+    pthread_mutex_lock(&tec_lock);
+    tec_add(o);
+    pthread_mutex_unlock(&tec_lock);
+    *encodingSniffer = (TECSnifferObjectRef)o;
+    return noErr;
+}
+
+OSStatus
+TECSniffTextEncoding(TECSnifferObjectRef encodingSniffer, ConstTextPtr inputBuffer, ByteCount inputBufferLength,
+                     TextEncoding testEncodings[], ItemCount numTextEncodings, ItemCount numErrsArray[],
+                     ItemCount maxErrs, ItemCount numFeaturesArray[], ItemCount maxFeatures)
+{
+    if ((inputBufferLength && !inputBuffer) || (numTextEncodings && !testEncodings) ||
+        (numTextEncodings && maxErrs && !numErrsArray) || (numTextEncodings && maxFeatures && !numFeaturesArray))
+        return paramErr;
+    pthread_mutex_lock(&tec_lock);
+    struct tec_object *o = tec_find(encodingSniffer, true);
+    if (!o) {
+        pthread_mutex_unlock(&tec_lock);
+        return kTECCorruptConverterErr;
+    }
+    OSStatus result = noErr;
+    for (ItemCount i = 0; i < numTextEncodings; i++) {
+        CFStringEncoding enc = cf_encoding(testEncodings[i]);
+        CFStringRef s = CFStringCreateWithBytes(NULL, inputBuffer, inputBufferLength, enc, false);
+        if (i < maxErrs && numErrsArray)
+            numErrsArray[i] = s ? 0 : 1;
+        if (i < maxFeatures && numFeaturesArray) {
+            UInt32 features = 0;
+            if (inputBufferLength >= 3 && !memcmp(inputBuffer, "\xef\xbb\xbf", 3) && enc == kCFStringEncodingUTF8)
+                features = 1;
+            else if (inputBufferLength >= 2 && (enc == kCFStringEncodingUTF16LE || enc == kCFStringEncodingUTF16BE))
+                features = ((const UInt8 *)inputBuffer)[0] == 0xff && ((const UInt8 *)inputBuffer)[1] == 0xfe ? 1 : 0;
+            numFeaturesArray[i] = features;
+        }
+        if (!s)
+            result = kTECUnmappableElementErr;
+        else
+            CFRelease(s);
+    }
+    pthread_mutex_unlock(&tec_lock);
+    return result;
+}
+
+OSStatus
+TECDisposeSniffer(TECSnifferObjectRef encodingSniffer)
+{
+    pthread_mutex_lock(&tec_lock);
+    struct tec_object *o = tec_find(encodingSniffer, true);
+    if (o)
+        tec_remove(o);
+    pthread_mutex_unlock(&tec_lock);
+    return o ? noErr : kTECCorruptConverterErr;
+}
+
+OSStatus
+TECClearSnifferContextInfo(TECSnifferObjectRef encodingSniffer)
+{
+    pthread_mutex_lock(&tec_lock);
+    bool valid = tec_find(encodingSniffer, true) != NULL;
+    pthread_mutex_unlock(&tec_lock);
+    return valid ? noErr : kTECCorruptConverterErr;
+}
+
+OSStatus
+TECSetBasicOptions(TECObjectRef encodingConverter, OptionBits controlFlags)
+{
+    if (controlFlags & ~(kTECDisableFallbacksMask | kTECDisableLooseMappingsMask))
+        return paramErr;
+    pthread_mutex_lock(&tec_lock);
+    struct tec_object *o = tec_find(encodingConverter, false);
+    if (o)
+        o->options = controlFlags;
+    pthread_mutex_unlock(&tec_lock);
+    return o ? noErr : kTECCorruptConverterErr;
+}
+
+OSStatus
+TECCopyTextEncodingInternetNameAndMIB(TextEncoding textEncoding, TECInternetNameUsageMask usage,
+                                      CFStringRef *encodingNamePtr, SInt32 *mibEnumPtr)
+{
+    CFStringRef name = tec_encoding_name(textEncoding);
+    if (!name)
+        return kTextUnsupportedEncodingErr;
+    if (encodingNamePtr)
+        *encodingNamePtr = name;
+    else
+        CFRelease(name);
+    if (mibEnumPtr) {
+        CFStringRef candidate = encodingNamePtr ? *encodingNamePtr : tec_encoding_name(textEncoding);
+        *mibEnumPtr = tec_mib_for_name(candidate);
+        if (!encodingNamePtr && candidate)
+            CFRelease(candidate);
+    }
+    return noErr;
+}
+
+OSStatus
+TECGetTextEncodingFromInternetNameOrMIB(TextEncoding *textEncodingPtr, TECInternetNameUsageMask usage,
+                                        CFStringRef encodingName, SInt32 mibEnum)
+{
+    if (!textEncodingPtr)
+        return paramErr;
+    if (encodingName) {
+        CFStringEncoding cf = CFStringConvertIANACharSetNameToEncoding(encodingName);
+        if (cf == kCFStringEncodingInvalidId)
+            return kTextUnsupportedEncodingErr;
+        TextEncoding te = tec_encoding_from_cf(cf);
+        if (te == kTextEncodingUnknown || !tec_encoding_supported(te))
+            return kTextUnsupportedEncodingErr;
+        *textEncodingPtr = te;
+        return noErr;
+    }
+    TextEncoding te = tec_encoding_for_mib(mibEnum);
+    if (te == kTextEncodingUnknown || !tec_encoding_supported(te))
+        return kTextUnsupportedEncodingErr;
+    *textEncodingPtr = te;
+    return noErr;
+}
+
+OSStatus TECGetInfo(TECInfoHandle *tecInfo)
+{
+    if (!tecInfo)
+        return paramErr;
+    TECInfoHandle h = (TECInfoHandle)NewHandleClear(sizeof(TECInfo));
+    if (!h)
+        return MemError();
+    (*h)->format = kTECInfoCurrentFormat;
+    (*h)->tecVersion = 0x0200;
+    (*h)->tecTextConverterFeatures = 0;
+    (*h)->tecUnicodeConverterFeatures = 0;
+    (*h)->tecTextCommonFeatures = 0;
+    *tecInfo = h;
     return noErr;
 }
 

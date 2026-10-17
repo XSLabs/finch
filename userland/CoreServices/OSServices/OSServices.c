@@ -27,6 +27,12 @@ mhz(const char *name)
 
 long GetCPUSpeed(void) { return mhz("hw.cpufrequency"); }
 
+/* These Power Manager calls are retired; Apple's current implementation returns zero. */
+short MaximumProcessorSpeed(void) { return 0; }
+short MinimumProcessorSpeed(void) { return 0; }
+short CurrentProcessorSpeed(void) { return 0; }
+short BatteryCount(void) { return 0; }
+
 FINCH_EXPORT Boolean _CSDeviceSupportsAirDrop(void);
 Boolean
 _CSDeviceSupportsAirDrop(void)
