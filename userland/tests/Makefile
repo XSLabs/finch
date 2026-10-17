@@ -65,6 +65,7 @@ $(OUT)/finch-videotoolbox-test: videotoolbox-test.c
 	$(CC) $(CFLAGS) -o $@ $< -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework CoreFoundation
 
 all: $(OUT)/finch-coredata-test
+all: $(OUT)/finch-pdfkit-test $(OUT)/finch-avkit-test
 
 # Compiled-model loading, fetches and SQLite stores shared with Apple's CoreData.
 $(OUT)/finch-coredata-test: coredata-test.swift $(OUT)/CoreDataTest.momd
@@ -356,6 +357,16 @@ $(OUT)/finch-cg-draw-test: cg-draw-test.c
 $(OUT)/finch-cgpdf-test: cgpdf-test.c
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -Wno-unused-parameter -Wno-deprecated-declarations -o $@ $< -framework CoreGraphics -framework CoreFoundation -lz
+
+# PDFKit documents, page text, links, outlines and page-view navigation.
+$(OUT)/finch-pdfkit-test: pdfkit-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fno-objc-arc -Wno-deprecated-declarations -o $@ $< -framework PDFKit -framework AppKit -framework CoreGraphics
+
+# AVKit player and route-picker view state plus the Picture in Picture support query.
+$(OUT)/finch-avkit-test: avkit-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fno-objc-arc -Wno-deprecated-declarations -o $@ $< -framework AVKit -framework AVFoundation -framework AppKit
 
 # AppKit's drawing classes: state printed for diffing host and VM runs (on the host,
 # Finch's with DYLD_FRAMEWORK_PATH), and scenes against Apple's renders (appkit-draw-reference.bin).

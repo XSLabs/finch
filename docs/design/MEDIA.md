@@ -123,6 +123,15 @@ CoreAudio (HAL)                devices: none until Finch has an audio driver
   shows decoded frames as its contents, so they reach the window server like any layer.
   `avplayer-test` matches Apple's; `appkit-avplayer-test` checks the screen. Audio waits
   for a device; HEVC and AAC remain for VideoToolbox and AudioToolbox.
+- AVKit: `AVPlayerView` shows an `AVPlayerLayer`, a play or pause button and an optional
+  full-screen button. Its control style, player, video gravity and basic view settings
+  work. `AVRoutePickerView` has no route service to open; its button is drawn disabled
+  and its accessibility label says no playback routes are available. Picture in Picture
+  is unsupported because Finch has no separate video window service, so its support
+  query returns false and its initializers return nil. The host comparison covers the
+  view state and calls the support query. The API audit finds 66 of 136 public items;
+  capture views, route menus, trimming, chapter controls, PiP and other AVKit APIs remain
+  unavailable.
 
 The converter, extended-file, software-unit, queue and AVFAudio buffer checks
 pass on the host, in QEMU and in the VZ guest (2026-10-11). These checks exercise
@@ -142,7 +151,8 @@ audio stored in memory and files; hardware playback and recording remain open.
    source-built H.264 implementation.
 4. **AVFoundation**: add composition, media selection and capture as their real data
    models and required hardware or services become available.
-5. **AVKit**.
+5. **AVKit**: the first playback views are in place. Add more controls only when their
+   player state or system service can be matched honestly.
 
 ## Codecs
 

@@ -142,6 +142,8 @@ steps=(
     "UIFoundation|userland/UIFoundation/build.sh"
     "CoreUI|userland/CoreUI/build.sh"
     "AppKit|userland/AppKit/build.sh"
+    # PDFKit's document and page objects draw through CoreGraphics and CoreText.
+    "PDFKit|userland/PDFKit/build.sh"
     # SwiftUI and the AppIntents bridge need Finch's AppKit and its SwiftUI dependency graph.
     "SwiftUI|userland/SwiftUI/build.sh"
     "RecapPerformanceTesting|userland/RecapPerformanceTesting/build.sh"
@@ -206,6 +208,8 @@ steps=(
     "VideoToolbox|userland/VideoToolbox/build.sh"
     "AVFAudio|userland/AVFAudio/build.sh"
     "AVFoundation|userland/AVFoundation/build.sh"
+    # AVKit's player and route views sit on AppKit and AVFoundation.
+    "AVKit|userland/AVKit/build.sh"
     # Link metadata fetched by Finch Foundation's URL loader and shown with AppKit.
     "LinkPresentation|userland/LinkPresentation/build.sh"
     "OpenGL|userland/OpenGL/build.sh"

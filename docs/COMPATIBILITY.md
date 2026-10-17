@@ -6,7 +6,7 @@ This report compares public C declarations and SDK export lists, Objective-C cla
 
 Behavior-verified counts come from item IDs in build/compat-results/*.json. Generated comparisons and constant checks merge their item records into the same framework file. Records with status verified (or the older verified/passed flags) count; a later result replaces the status for that item ID. The full name-by-name report is kept in build/api-coverage.json.
 
-Overall: **27.0%** (146,622 of 543,220 API items across 843 parsed frameworks or dylibs).
+Overall: **27.1%** (147,464 of 543,220 API items across 843 parsed frameworks or dylibs).
 
 6 frameworks or dylibs had a parse or load issue and are left out of the overall percentage. 141 parsed successfully but had no public macOS API items.
 
@@ -60,7 +60,7 @@ Overall: **27.0%** (146,622 of 543,220 API items across 843 parsed frameworks or
 | AVFAudio | 670 | 605 | 65 | 90.3% | 107/670 | complete |
 | AVFoundation | 2,681 | 2,173 | 508 | 81.1% | 0/2681 | complete |
 | AVFoundation/AVFAudio | 670 | 605 | 65 | 90.3% | 0/670 | complete |
-| AVKit | 136 | 0 | 136 | 0.0% | 0/136 | complete |
+| AVKit | 136 | 66 | 70 | 48.5% | 0/136 | complete |
 | AVRouting | 47 | 0 | 47 | 0.0% | 0/47 | complete |
 | BackgroundAssets | 1,174 | 0 | 1,174 | 0.0% | 0/1174 | complete |
 | BackgroundTasks | 0 | 0 | 0 | 0.0% | 0/0 | empty |
@@ -667,7 +667,7 @@ Overall: **27.0%** (146,622 of 543,220 API items across 843 parsed frameworks or
 | ParavirtualizedGraphics | 64 | 0 | 64 | 0.0% | 0/64 | complete |
 | PassKit | 424 | 0 | 424 | 0.0% | 0/424 | complete |
 | PCSC | 62 | 0 | 62 | 0.0% | 0/62 | complete |
-| PDFKit | 562 | 0 | 562 | 0.0% | 0/562 | complete |
+| PDFKit | 562 | 371 | 191 | 66.0% | 0/562 | complete |
 | PencilKit | 286 | 0 | 286 | 0.0% | 0/286 | complete |
 | PermissionKit | 109 | 0 | 109 | 0.0% | 0/109 | complete |
 | PHASE | 360 | 0 | 360 | 0.0% | 0/360 | complete |
@@ -678,9 +678,9 @@ Overall: **27.0%** (146,622 of 543,220 API items across 843 parsed frameworks or
 | PushKit | 21 | 0 | 21 | 0.0% | 0/21 | complete |
 | PushToTalk | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | QTKit | 0 | 0 | 0 | 0.0% | 0/0 | empty |
-| Quartz | 5,322 | 3,096 | 2,226 | 58.2% | 0/5322 | complete |
+| Quartz | 5,322 | 3,130 | 2,192 | 58.8% | 0/5322 | complete |
 | Quartz/ImageKit | 378 | 290 | 88 | 76.7% | 86/378 | complete |
-| Quartz/PDFKit | 562 | 0 | 562 | 0.0% | 0/562 | complete |
+| Quartz/PDFKit | 562 | 371 | 191 | 66.0% | 0/562 | complete |
 | Quartz/QuartzComposer | 747 | 0 | 747 | 0.0% | 0/747 | complete |
 | Quartz/QuartzFilters | 33 | 29 | 4 | 87.9% | 8/33 | complete |
 | Quartz/QuickLookUI | 189 | 63 | 126 | 33.3% | 0/189 | complete |
@@ -948,8 +948,6 @@ These SDK frameworks or dylibs have no Finch image. The size column is the numbe
 | libtk8.5 | 585 |
 | Accelerate/vecLib/libvMisc | 582 |
 | MLCompute | 573 |
-| PDFKit | 562 |
-| Quartz/PDFKit | 562 |
 | libapr-1 | 510 |
 | libapr-1.0 | 510 |
 | Speech | 503 |
@@ -1056,7 +1054,6 @@ These SDK frameworks or dylibs have no Finch image. The size column is the numbe
 | OpenCL | 142 |
 | libSMC | 139 |
 | MatterSupport | 138 |
-| AVKit | 136 |
 | MetalPerformanceShaders/MPSRayIntersector | 136 |
 | libNFC_HAL | 135 |
 | MailKit | 135 |

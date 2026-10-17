@@ -5,7 +5,14 @@ What runs on Finch today and where each piece comes from, bottom to top.
 These diagrams are updated in every commit that changes the stack, and
 `tools/render-stack.sh` checks that they render.
 
-**As of 2026-10-15:** VideoToolbox moves pixels between Finch's CoreVideo buffers,
+**As of 2026-10-17:** PDFKit reads pages and annotations through Finch CoreGraphics,
+extracts and searches text with CoreText font maps, reads and writes outlines, and shows
+documents in AppKit PDF views. It saves simple URL links and refuses a changed document
+when it cannot preserve an annotation. Its API audit finds 371 of 562 public items.
+PDFKit and AVKit use the macOS SDK headers to build, without copying them into Finch.
+AVKit shows AVPlayer content with basic playback controls and full-screen mode. Finch has
+no external playback routes or picture-in-picture window service, so those features stay
+unavailable. The PDFKit and AVKit host comparisons match Apple's. VideoToolbox moves pixels between Finch's CoreVideo buffers,
 rotates them, decodes H.264, VP8, VP9 and AV1, and encodes H.264 through open static
 codecs. Its comparison test checks pixel operations exactly and allows up to 16 levels
 of difference in each average decoded RGB channel. CoreData reads compiled models and
@@ -19,8 +26,7 @@ AES-GCM, ChaChaPoly, and P-256, P-384 and Curve25519 keys and signatures. Nothin
 Finch builds links a closed library (`tools/check-closed.py`). MetalKit now keeps
 MTKView settings even though Finch has no GPU; AudioUnit re-exports AudioToolbox, and
 CoreMIDI sends virtual endpoint packets inside a process. OpenAL remains out because
-Finch has no audio output device. VideoToolbox reports no hardware codec support; AVKit
-remains planned. Finch's own
+Finch has no audio output device. VideoToolbox reports no hardware codec support. Finch's own
 Foundation covers about 140 of Apple's
 classes, on a CoreFoundation that dispatches to Objective-C objects as Apple's
 does (`docs/design/FOUNDATION.md`); its Markdown constructors use cmark-gfm,
@@ -137,8 +143,8 @@ authentication can use a registered browser handler (`docs/design/SECURITY.md`).
 
 Image Capture's frameworks are Finch's own
 (`docs/design/IMAGECAPTURE.md`): ImageCaptureCore's browser finds no cameras or
-scanners yet, and Quartz re-exports QuartzCore and ImageKit's device views
-(PDFKit and Quick Look come later). The unmodified Image Capture app launches
+scanners yet, and Quartz re-exports PDFKit, QuartzCore, ImageKit's device views and
+QuartzFilters; Quick Look remains to come. The unmodified Image Capture app launches
 on the host with Finch's frameworks and headless window server. It shows English
 strings, its title bar, an empty toolbar and an empty device list. The framework
 comparison also passes in the VM; the Tier 2 display and input work remains.
@@ -163,6 +169,8 @@ block-beta
         columns 4
         t6["App frameworks"]
         appkit["AppKit<br/>apps, windows, views, events,<br/>title bars, nib-loaded toolbars,<br/>drawing, nibs, storyboards,<br/>Auto Layout, stack views, text views and<br/>scrolling, tables, outlines and<br/>collection views (flow, grid and<br/>compositional layouts), menus and a menu bar,<br/>alerts, sheets, open and save panels,<br/>NSWorkspace (on the window server);<br/>Cocoa bindings and controllers,<br/>font and color panels, search/token/date controls,<br/>grids, popovers, drawers and rule editors;<br/>rulers, the find bar, text tables;<br/>animation groups and Touch Bar state;<br/>toolbar items, titlebar accessories,<br/>row actions, scrubbers, NSPreferences,<br/>file promises, glass views (slate);<br/>drag and drop (between apps<br/>through the window server);<br/>system and symbol images<br/>(Finch's own art);<br/>Fieldwork theme (Classic for Aqua compatibility);<br/>UIFoundation: fonts, string drawing,<br/>TextKit 1 and 2; Cocoa and<br/>ApplicationServices umbrellas"]
+        pdfkit["PDFKit<br/>pages, text and search,<br/>outlines, URL links, PDFView;<br/>docs/design/PDFKIT.md"]
+        avkit["AVKit<br/>AVPlayerView, basic controls<br/>and full-screen mode;<br/>no routes or PiP service"]
         securityui["SecurityInterface<br/>certificate, trust, identity,<br/>keychain and authorization panels"]
         authservices["AuthenticationServices<br/>web, Apple ID, password and<br/>passkey request APIs"]
         cg["CoreGraphics<br/>bitmap contexts, paths, images,<br/>gradients, patterns, fonts, text,<br/>shadows (over Skia, skcms);<br/>PDF writing (SkPDF), PDF reading<br/>and drawing (own parser);<br/>window server client, displays,<br/>Quartz events (posting, sources)"]
@@ -178,7 +186,6 @@ block-beta
         ctio["CoreText<br/>fonts, shaping, lines, frames<br/>(HarfBuzz, FreeType, ICU)"]
         quartzcore["QuartzCore<br/>layers drawn through CoreGraphics,<br/>animation objects, transactions;<br/>animation playback still to come"]
         imagecap["ImageCaptureCore (device<br/>browser, finds no devices yet),<br/>ICADevices; Quartz umbrella<br/>with ImageKit's device views<br/>and save options, QuartzFilters<br/>(Finch's own filters)"]
-        avplanned["AVKit (planned:<br/>docs/design/MEDIA.md)"]
         opengl["OpenGL<br/>CGL contexts and GLU (Finch's),<br/>NSOpenGL views; software<br/>rendering by Mesa"]
         coreservices["CoreServices<br/>app lookup and launch,<br/>local Apple events, files"]
         later["Metal and MetalKit:<br/>MTKView settings; no GPU,<br/>device or drawable"]
@@ -272,9 +279,9 @@ block-beta
     classDef testapp fill:#ede9fe,stroke:#7c3aed,color:#4c1d95
     classDef blank fill:none,stroke:none
     class t7,t6,t5,t4,t3,t2,t1,t0 layer
-    class avplanned,kexts,metal planned
+    class kexts,metal planned
     class apps testapp
-    class opengl,later,mediaaddons,coreimage,videotoolbox,services,contacts,contactui,corespotlight,linkpresentation,cfnetwork,appsupport,shell,uti,appkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
+    class opengl,later,mediaaddons,coreimage,videotoolbox,services,contacts,contactui,corespotlight,linkpresentation,cfnetwork,appsupport,shell,uti,appkit,pdfkit,avkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
     class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui,cmark,sqlite upstream
     class vz firmware
@@ -310,6 +317,8 @@ flowchart LR
     combine["Combine<br/>(OpenCombine + Finch)"]:::upstream
     gcore["GCoreFramework"]:::apple
     appkit["AppKit"]:::finch
+    pdfkit["PDFKit"]:::finch
+    avkit["AVKit"]:::finch
     securityui["SecurityInterface"]:::finch
     authservices["AuthenticationServices"]:::finch
     uif["UIFoundation<br/>TextKit 1 and 2"]:::finch
@@ -416,6 +425,12 @@ flowchart LR
     appkit -->|"re-exports"| appservices
     appkit --> cal
     appkit --> coreui
+    pdfkit --> appkit
+    pdfkit --> cgfw
+    pdfkit --> ctfw
+    avkit --> appkit
+    avkit --> avfoundation
+    avkit --> qc
     securityui --> appkit
     securityui --> security
     securityui --> ffound
@@ -512,6 +527,7 @@ flowchart LR
     colorsync --> cf
     colorsync --> skialib
     quartz -->|"re-exports"| qc
+    quartz -->|"re-exports"| pdfkit
     quartz -->|"re-exports"| imagekit
     quartz -->|"re-exports"| quartzfilters
     quartzfilters --> appkit

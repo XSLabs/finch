@@ -4,9 +4,9 @@
 # Apple ships inside it (Quartz.framework/Frameworks/ImageKit.framework).
 #
 # Apple's Quartz re-exports QuartzCore, PDFKit, QuickLookUI and its three
-# subframeworks (ImageKit, QuartzComposer, QuartzFilters). Finch's re-exports
-# what Finch has, QuartzCore, ImageKit and QuartzFilters, and gains the rest as
-# they are written (PDFKit is a later task; QuartzComposer is deprecated).
+# subframeworks (ImageKit, QuartzComposer, QuartzFilters). Finch re-exports the
+# frameworks it has built: QuartzCore, PDFKit, ImageKit and QuartzFilters.
+# QuickLookUI and QuartzComposer are not implemented yet.
 #
 # QuartzFilters (QuartzFilters/): Quartz filters and their manager, with
 # Finch's own filters in /System/Library/Filters (QuartzFilter.m explains them). Loading needs only the libraries Quartz lists, so apps that
@@ -84,6 +84,7 @@ cp "${HERE}"/QuartzFilters/Filters/*.qfilter "${ROOT}/System/Library/Filters/"
 
 log "linking Quartz"
 REEXPORTS=(
+    "${FWS}/PDFKit.framework/PDFKit"
     "${FWS}/QuartzCore.framework/QuartzCore"
     "${IK}/ImageKit"
     "${QF}/QuartzFilters"
