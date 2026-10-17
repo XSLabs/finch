@@ -37,7 +37,8 @@ static NSMutableArray *drawer_list(NSWindow *w, BOOL create)
     if (self) {
         _size = s;
         _preferred = e;
-        _edge = (NSRectEdge)(e | 2);
+        // (as Apple's: a vertical preferred edge reads as its maximum; horizontal as given)
+        _edge = (e == NSMinYEdge || e == NSMaxYEdge) ? NSMaxYEdge : e;
         _trailing = 15;
         _maxSize = NSMakeSize(FLT_MAX, FLT_MAX);
         _content = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, s.width, s.height)];
