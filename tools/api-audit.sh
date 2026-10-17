@@ -21,8 +21,14 @@ xcrun clang -fobjc-arc -o "${OUT}/api-audit-responds" "${FINCH_ROOT}/tools/api-a
 python3 "${FINCH_ROOT}/tools/api-audit/headers.py" "$@" > "${TMP}/declared"
 "${OUT}/api-audit-responds" < "${TMP}/declared" 2>/dev/null | sort > "${TMP}/apple"
 R="${FINCH_ROOT}/build/root/System/Library"
+# Finch's standalone libraries, alone on the library path, as tools/host-tests.sh has them
+mkdir -p "${TMP}/lib"
+for l in usr/lib/libMobileGestalt usr/lib/libDiagnosticMessagesClient usr/lib/libsandbox.1 \
+         usr/lib/system/libfinchaccount usr/lib/system/libsystem_dnssd; do
+    ln -s "${FINCH_ROOT}/build/root/${l}.dylib" "${TMP}/lib/"
+done
 DYLD_FRAMEWORK_PATH="${R}/Frameworks:${R}/PrivateFrameworks:${R}/Frameworks/Quartz.framework/Frameworks:${R}/Frameworks/CoreServices.framework/Versions/A/Frameworks:${R}/Frameworks/ApplicationServices.framework/Versions/A/Frameworks:${R}/Frameworks/Carbon.framework/Versions/A/Frameworks" \
-    DYLD_LIBRARY_PATH="${FINCH_ROOT}/build/root/usr/lib/swift" FINCH_THEME=Classic \
+    DYLD_LIBRARY_PATH="${FINCH_ROOT}/build/root/usr/lib/swift:${TMP}/lib" FINCH_THEME=Classic \
     "${OUT}/api-audit-responds" < "${TMP}/declared" 2>/dev/null | sort > "${TMP}/finch"
 comm -13 "${TMP}/apple" "${TMP}/finch" > "${TMP}/gaps"
 [[ "${SUMMARY}" -eq 0 ]] && cat "${TMP}/gaps"
