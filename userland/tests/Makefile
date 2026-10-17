@@ -77,6 +77,12 @@ $(OUT)/finch-videotoolbox-test: videotoolbox-test.c
 
 all: $(OUT)/finch-coredata-test
 all: $(OUT)/finch-pdfkit-test $(OUT)/finch-avkit-test
+all: $(OUT)/finch-intents-test
+
+# Intents value objects, secure coding, Siri's unavailable state and Finch's local store.
+$(OUT)/finch-intents-test: intents-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-availability -o $@ $< -framework Intents -framework Foundation
 
 # Compiled-model loading, fetches and SQLite stores shared with Apple's CoreData.
 $(OUT)/finch-coredata-test: coredata-test.swift $(OUT)/CoreDataTest.momd

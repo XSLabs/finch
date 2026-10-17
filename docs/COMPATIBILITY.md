@@ -6,7 +6,7 @@ This report compares public C declarations and SDK export lists, Objective-C cla
 
 Behavior-verified counts come from item IDs in build/compat-results/*.json. Generated comparisons and constant checks merge their item records into the same framework file. Records with status verified (or the older verified/passed flags) count; a later result replaces the status for that item ID. The full name-by-name report is kept in build/api-coverage.json.
 
-Overall: **27.8%** (151,018 of 543,220 API items across 843 parsed frameworks or dylibs).
+Overall: **27.9%** (151,563 of 543,220 API items across 843 parsed frameworks or dylibs).
 
 6 frameworks or dylibs had a parse or load issue and are left out of the overall percentage. 141 parsed successfully but had no public macOS API items.
 
@@ -206,7 +206,7 @@ Overall: **27.8%** (151,018 of 543,220 API items across 843 parsed frameworks or
 | InputMethodKit | 289 | 0 | 289 | 0.0% | 0/289 | complete |
 | InstallerPlugins | 59 | 0 | 59 | 0.0% | 0/59 | complete |
 | InstantMessage | 101 | 0 | 101 | 0.0% | 0/101 | complete |
-| Intents | 1,065 | 0 | 1,065 | 0.0% | 0/1065 | complete |
+| Intents | 1,065 | 545 | 520 | 51.2% | 0/1065 | complete |
 | IntentsUI | 32 | 0 | 32 | 0.0% | 0/32 | complete |
 | introspection/libdispatch | 321 | 0 | 321 | 0.0% | 0/321 | complete |
 | introspection/libsystem_pthread | 152 | 0 | 152 | 0.0% | 0/152 | complete |
@@ -899,7 +899,6 @@ These SDK frameworks or dylibs have no Finch image. The size column is the numbe
 | SceneKit | 1,093 |
 | libcorecrypto_trace | 1,092 |
 | libcorecrypto_noasm | 1,073 |
-| Intents | 1,065 |
 | libnetsnmp | 1,013 |
 | libnetsnmp.25 | 1,013 |
 | swift/libswiftCloudKit | 997 |
@@ -1380,9 +1379,9 @@ Priority score is missing API items multiplied by the number of apps app-sweep.p
 | ApplicationServices | 1,203 | 15 | 18,045 |
 | Carbon | 1,503 | 12 | 18,036 |
 | Foundation | 1,588 | 11 | 17,468 |
-| Intents | 1,065 | 15 | 15,975 |
 | CloudKit | 1,208 | 13 | 15,704 |
 | AVFoundation | 508 | 25 | 12,700 |
 | QuartzCore | 1,122 | 10 | 11,220 |
 | Quartz | 2,192 | 5 | 10,960 |
 | MetalPerformanceShaders/MPSNeuralNetwork | 1,541 | 7 | 10,787 |
+| CoreML | 900 | 11 | 9,900 |

@@ -5,7 +5,13 @@ What runs on Finch today and where each piece comes from, bottom to top.
 These diagrams are updated in every commit that changes the stack, and
 `tools/render-stack.sh` checks that they render.
 
-**As of 2026-10-17:** PDFKit reads pages and annotations through Finch CoreGraphics,
+**As of 2026-10-17:** Intents supplies SDK-declared data objects, typed initializers and
+resolution results. It stores donated interactions in
+`~/Library/Finch/Intents/interactions.archive`. Its host comparison matches Apple's for
+the values it covers, and a separate check reads and clears a saved interaction. Finch
+has no Siri or voice-shortcut service. Its API audit finds 545 of 1,065 items; most
+missing names have no public declaration in the macOS SDK (`docs/design/INTENTS.md`).
+PDFKit reads pages and annotations through Finch CoreGraphics,
 extracts and searches text with CoreText font maps, reads and writes outlines, and shows
 documents in AppKit PDF views. It saves simple URL links and refuses a changed document
 when it cannot preserve an annotation. Its API audit finds 371 of 562 public items.
@@ -180,6 +186,7 @@ block-beta
         videotoolbox["VideoToolbox<br/>pixel transfer and rotation;<br/>H.264, VP8, VP9 and AV1 codecs"]
         services["UserNotifications (local),<br/>ServiceManagement (launchd jobs),<br/>CoreLocation, LocalAuthentication,<br/>CoreWLAN, IOBluetooth (and its<br/>UI's panels), StoreKit,<br/>Accounts, GSS (answering as a Mac<br/>without those services would)"]
         contacts["Contacts<br/>the user's contacts in Finch's<br/>own store, groups, change history;<br/>name and address formatters, vCard"]
+        intents["Intents<br/>SDK data objects and resolution<br/>results; local interaction store;<br/>no Siri service"]
         contactui["ContactsUI<br/>CNContactPicker popover,<br/>CNContactViewController card<br/>(Contacts + AppKit)"]
         corespotlight["CoreSpotlight<br/>named local indexes,<br/>searchable items and query results"]
         linkpresentation["LinkPresentation<br/>HTTP(S) page metadata through<br/>Foundation; AppKit link cards"]
@@ -281,7 +288,7 @@ block-beta
     class t7,t6,t5,t4,t3,t2,t1,t0 layer
     class kexts,metal planned
     class apps testapp
-    class opengl,later,mediaaddons,coreimage,videotoolbox,services,contacts,contactui,corespotlight,linkpresentation,cfnetwork,appsupport,shell,uti,appkit,pdfkit,avkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
+    class opengl,later,mediaaddons,coreimage,videotoolbox,services,contacts,intents,contactui,corespotlight,linkpresentation,cfnetwork,appsupport,shell,uti,appkit,pdfkit,avkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
     class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui,cmark,sqlite upstream
     class vz firmware
@@ -337,6 +344,7 @@ flowchart LR
     coreimagefw["CoreImage"]:::finch
     servicesfw["UserNotifications, CoreLocation,<br/>ServiceManagement, StoreKit, ..."]:::finch
     contactsfw["Contacts"]:::finch
+    intentsfw["Intents<br/>(SDK data values and local<br/>interaction donations; no Siri)"]:::finch
     contactsuifw["ContactsUI"]:::finch
     corespotlightfw["CoreSpotlight"]:::finch
     linkpresentationfw["LinkPresentation"]:::finch
@@ -451,6 +459,7 @@ flowchart LR
     servicesfw --> ffound
     contactsfw --> ffound
     contactsfw --> imageio
+    intentsfw --> ffound
     contactsuifw --> contactsfw
     contactsuifw --> appkit
     contactsuifw --> ffound

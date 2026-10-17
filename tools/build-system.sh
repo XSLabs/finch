@@ -197,6 +197,8 @@ steps=(
     "ScreenCaptureKit|userland/ScreenCaptureKit/build.sh"
     "StoreKit|userland/StoreKit/build.sh"
     "Contacts|userland/Contacts/build.sh"
+    # Intents value objects and local interaction donations; Siri remains unavailable.
+    "Intents|userland/Intents/build.sh"
     # Contact pickers and cards over Finch Contacts and AppKit.
     "ContactsUI|userland/ContactsUI/build.sh"
     "Accounts|userland/Accounts/build.sh"
