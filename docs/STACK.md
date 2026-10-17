@@ -11,6 +11,14 @@ resolution results. It stores donated interactions in
 the values it covers, and a separate check reads and clears a saved interaction. Finch
 has no Siri or voice-shortcut service. Its API audit finds 545 of 1,065 items; most
 missing names have no public declaration in the macOS SDK (`docs/design/INTENTS.md`).
+Six small framework images now cover app imports for MediaPlayer, MediaAccessibility,
+CoreBluetooth, `libsandbox.1.dylib`, CryptoTokenKit, and WidgetKit. Together they expose
+712 of 1,433 API items. Host comparisons cover their now-playing values and artwork,
+caption defaults, Bluetooth identifiers and GATT values, sandbox checks and extension
+tokens, token TLV records and PIN formats, and WidgetKit timelines and no-host results.
+Finch has no media-key route, Bluetooth radio, card reader, sandbox enforcement, or widget
+host. `Widget` and `WidgetConfiguration` still need Finch SwiftUI support. Details and
+test boundaries are in `docs/design/SMALL-FRAMEWORKS.md`.
 GameController builds from the macOS SDK headers, without shipping
 Apple headers. Snapshot gamepads have working button and direction-pad state. AppKit's
 local event stream feeds Finch's keyboard and mouse input objects. The API audit finds
@@ -189,6 +197,11 @@ block-beta
         gamecontroller["GameController<br/>snapshot gamepad profiles and state;<br/>keyboard and mouse from AppKit events;<br/>no physical controllers until Finch IOKit<br/>can enumerate HID devices"]
         pdfkit["PDFKit<br/>pages, text and search,<br/>outlines, URL links, PDFView;<br/>docs/design/PDFKIT.md"]
         avkit["AVKit<br/>AVPlayerView, basic controls<br/>and full-screen mode;<br/>no routes or PiP service"]
+        mediaplayer["MediaPlayer<br/>now-playing state, remote commands,<br/>artwork; no media-key route"]
+        mediaaccessibility["MediaAccessibility<br/>caption preferences and profiles;<br/>no image-captioning model"]
+        corebluetooth["CoreBluetooth<br/>UUID and GATT values;<br/>managers report unsupported;<br/>no radio"]
+        cryptotokenkit["CryptoTokenKit<br/>TLV and token values;<br/>no tokens or card reader"]
+        widgetkit["WidgetKit<br/>timeline and rendering values;<br/>no widget host; Widget and<br/>configuration types need SwiftUI"]
         cloudkit["CloudKit<br/>local records, sharing,<br/>notifications and saved sync state;<br/>no iCloud service"]
         securityui["SecurityInterface<br/>certificate, trust, identity,<br/>keychain and authorization panels"]
         authservices["AuthenticationServices<br/>web, Apple ID, password and<br/>passkey request APIs"]
@@ -238,6 +251,7 @@ block-beta
         t4["Libraries"]
         comp["libcompression<br/>LZFSE, LZ4, Brotli, zlib, LZMA"]
         codecs["lzfse, lz4, brotli,<br/>liblzma, libxo, libsbuf"]
+        libsandbox["libsandbox.1.dylib<br/>unsandboxed answers,<br/>process-local extension tokens;<br/>profile install unavailable"]
         osslibs["zlib, bzip2, libedit, libresolv,<br/>libiconv, ncurses (+ terminfo), OpenBSM,<br/>libxml2"]
         cmark["cmark-gfm 0.29.0.gfm.13<br/>(static, Foundation Markdown)"]
         pam["OpenPAM + pam_modules"]
@@ -301,7 +315,7 @@ block-beta
     class t7,t6,t5,t4,t3,t2,t1,t0 layer
     class kexts,metal planned
     class apps testapp
-    class opengl,later,mediaaddons,coreimage,videotoolbox,services,contacts,intents,contactui,corespotlight,linkpresentation,cfnetwork,appsupport,shell,uti,appkit,gamecontroller,pdfkit,avkit,cloudkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
+    class opengl,later,mediaaddons,coreimage,videotoolbox,services,contacts,intents,contactui,corespotlight,linkpresentation,cfnetwork,appsupport,shell,uti,appkit,gamecontroller,pdfkit,avkit,mediaplayer,mediaaccessibility,corebluetooth,cryptotokenkit,widgetkit,libsandbox,cloudkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
     class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui,cmark,sqlite upstream
     class vz firmware
@@ -340,6 +354,12 @@ flowchart LR
     gamecontroller["GameController"]:::finch
     pdfkit["PDFKit"]:::finch
     avkit["AVKit"]:::finch
+    mediaplayer["MediaPlayer"]:::finch
+    mediaaccessibility["MediaAccessibility"]:::finch
+    corebluetooth["CoreBluetooth"]:::finch
+    cryptotokenkit["CryptoTokenKit"]:::finch
+    widgetkit["WidgetKit"]:::finch
+    libsandbox["libsandbox.1.dylib"]:::finch
     cloudkitfw["CloudKit"]:::finch
     securityui["SecurityInterface"]:::finch
     authservices["AuthenticationServices"]:::finch
@@ -456,6 +476,20 @@ flowchart LR
     pdfkit --> appkit
     pdfkit --> cgfw
     pdfkit --> ctfw
+    mediaplayer --> appkit
+    mediaplayer --> cgfw
+    mediaplayer --> ffound
+    mediaaccessibility --> imageio
+    mediaaccessibility --> ctfw
+    mediaaccessibility --> cgfw
+    mediaaccessibility --> ffound
+    mediaaccessibility --> cf
+    corebluetooth --> ffound
+    corebluetooth --> cf
+    cryptotokenkit --> security
+    cryptotokenkit --> ffound
+    widgetkit --> intentsfw
+    widgetkit --> ffound
     avkit --> appkit
     avkit --> avfoundation
     avkit --> qc

@@ -16,10 +16,40 @@ all: $(OUT)/finch-coreservices-threads-test
 all: $(OUT)/finch-coreservices-time-manager-test
 all: $(OUT)/finch-coreservices-mp-timers-test
 all: $(OUT)/finch-coreservices-identity-test
+all: $(OUT)/finch-media-player-test $(OUT)/finch-media-accessibility-test
+all: $(OUT)/finch-corebluetooth-test $(OUT)/finch-corebluetooth-unsupported-test
+all: $(OUT)/finch-libsandbox-test
+all: $(OUT)/finch-cryptotokenkit-test $(OUT)/finch-cryptotokenkit-empty-test
+all: $(OUT)/finch-widgetkit-test
 
 $(OUT)/finch-constants-test: constants-test.m ../../tools/constants/frameworks.mk
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework Foundation $(CONSTANT_TEST_LINKS)
+
+$(OUT)/finch-media-player-test: media-player-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -fblocks -Wno-availability -Wno-deprecated-declarations -o $@ $< -framework AppKit -framework MediaPlayer
+$(OUT)/finch-media-accessibility-test: media-accessibility-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -Wno-availability -Wno-deprecated-declarations -o $@ $< -framework MediaAccessibility -framework CoreGraphics -framework CoreFoundation -framework Foundation
+$(OUT)/finch-corebluetooth-test: corebluetooth-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-availability -Wno-deprecated-declarations -o $@ $< -framework CoreBluetooth
+$(OUT)/finch-corebluetooth-unsupported-test: corebluetooth-unsupported-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-availability -Wno-deprecated-declarations -o $@ $< -framework CoreBluetooth
+$(OUT)/finch-libsandbox-test: libsandbox-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -lsandbox
+$(OUT)/finch-cryptotokenkit-test: cryptotokenkit-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-availability -Wno-deprecated-declarations -o $@ $< -framework CryptoTokenKit
+$(OUT)/finch-cryptotokenkit-empty-test: cryptotokenkit-empty-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -fblocks -Wno-availability -Wno-deprecated-declarations -o $@ $< -framework CryptoTokenKit
+$(OUT)/finch-widgetkit-test: widgetkit-test.swift
+	@mkdir -p $(OUT)
+	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -parse-as-library -O -o $@ $< -framework WidgetKit
 
 all: $(OUT)/finch-appkit-containers2-test $(OUT)/finch-appkit-misc2-test $(OUT)/finch-swift-runtime-test $(OUT)/finch-coreservices-test $(OUT)/finch-security-core-test $(OUT)/finch-security-roots-test $(OUT)/finch-sysconfig-core-test $(OUT)/finch-appkit-gestures-test $(OUT)/finch-appkit-controls2-test $(OUT)/finch-libsystem-test $(OUT)/finch-xpc-service-test $(OUT)/finch-launch-bench $(OUT)/finch-cxx-test $(OUT)/finch-objc-test $(OUT)/finch-crypto-test $(OUT)/finch-log-test $(OUT)/finch-hardened-test $(OUT)/finch-debuggee $(OUT)/finch-introspect-test $(OUT)/finch-socket-test $(OUT)/finch-cf-test $(OUT)/finch-swift-hello $(OUT)/finch-dlopen $(OUT)/finch-pam-test $(OUT)/finch-compression-test $(OUT)/finch-bridge-test $(OUT)/finch-forward-test $(OUT)/finch-foundation-test $(OUT)/finch-runtime-test $(OUT)/finch-files-test $(OUT)/finch-intl-test $(OUT)/finch-kvc-test $(OUT)/finch-data-test $(OUT)/finch-archive-test $(OUT)/finch-collections-test $(OUT)/finch-misc-test $(OUT)/finch-streams-test $(OUT)/finch-predicate-test $(OUT)/finch-documents-test $(OUT)/finch-cg-test $(OUT)/finch-cg-overlay-test $(OUT)/finch-foundation-overlay-test $(OUT)/finch-cg-draw-test $(OUT)/finch-ct-test $(OUT)/finch-ctfonts-test $(OUT)/finch-font-replacements-test $(OUT)/finch-ws-test $(OUT)/finch-appkit-core-test $(OUT)/finch-appkit-window-test $(OUT)/finch-nib-test $(OUT)/finch-appkit-document-test $(OUT)/finch-uti-test $(OUT)/finch-quartzcore-test $(OUT)/finch-calayer-test $(OUT)/finch-cfnotify-test $(OUT)/finch-l10n-test $(OUT)/finch-appkit-containers-test $(OUT)/finch-app-test $(OUT)/apps/Hello.app/Contents/MacOS/Hello $(OUT)/finch-measurement-test $(OUT)/finch-xmlparser-test $(OUT)/finch-imageio-test $(OUT)/finch-cgpdf-test $(OUT)/finch-uifoundation-test $(OUT)/finch-appkit-draw-test $(OUT)/finch-appkit-menu-test $(OUT)/finch-appkit-menu-window-test $(OUT)/finch-appkit-controls-test $(OUT)/finch-appkit-controls-window-test $(OUT)/finch-appkit-text-test $(OUT)/finch-appkit-text-window-test $(OUT)/finch-textkit2-test $(OUT)/finch-appkit-bindings-test $(OUT)/finch-appkit-layout-test $(OUT)/finch-appkit-panels-test $(OUT)/finch-appkit-panels-window-test $(OUT)/apps/FinchXPCTest.app/Contents/MacOS/finch-nsxpc-test $(OUT)/finch-imagekit-test $(OUT)/apps/AssetsTest.app/Contents/MacOS/finch-assets-test $(OUT)/finch-appkit-tables-test $(OUT)/finch-appkit-tables-window-test $(OUT)/finch-swift-overlay-test $(OUT)/finch-rtf-test $(OUT)/finch-filecoordinator-test $(OUT)/finch-textfinder-test $(OUT)/finch-ruler-test $(OUT)/finch-textblock-test $(OUT)/finch-combine-test $(OUT)/finch-cftokenizer-test $(OUT)/finch-urlsession-test $(OUT)/finch-security-test $(OUT)/finch-sysconfig-test $(OUT)/finch-typedstream-test $(OUT)/finch-tiff-test $(OUT)/finch-colorsync-test $(OUT)/finch-colorsync-devices-test $(OUT)/finch-iconservices-test $(OUT)/finch-smallprivate-test $(OUT)/finch-quicklook-test $(OUT)/finch-exports-test $(OUT)/finch-cookies-test $(OUT)/finch-foundation-more-test $(OUT)/finch-appkit-values-test $(OUT)/finch-hiservices-test $(OUT)/finch-scripting-test $(OUT)/finch-cfnetwork-test $(OUT)/finch-coreimage-test $(OUT)/finch-cgevent-test $(OUT)/finch-keylayout-test $(OUT)/finch-appkit-statusbar-test $(OUT)/finch-contacts-test $(OUT)/finch-accounts-test $(OUT)/finch-metal-test $(OUT)/finch-iosurface-test $(OUT)/finch-gss-test $(OUT)/finch-cfurl-test $(OUT)/finch-pasteboard-test $(OUT)/finch-coremedia-test $(OUT)/finch-corevideo-test $(OUT)/finch-audiotoolbox-test $(OUT)/finch-audioconverter-test $(OUT)/finch-applescript-test $(OUT)/finch-fileversion-test $(OUT)/finch-textformats-test $(OUT)/finch-worddoc-test
 

@@ -97,6 +97,8 @@ steps=(
     "Combine|userland/Combine/build.sh"
     # Finch's Foundation (CF links it upward; docs/design/FOUNDATION.md)
     "Foundation|userland/Foundation/build.sh"
+    # Bluetooth values and managers, which report unsupported until Finch has a radio stack.
+    "CoreBluetooth|userland/CoreBluetooth/build.sh"
     # Finch's CoreData implementation (models, contexts, SQLite and memory stores).
     "CoreData|userland/CoreData/build.sh"
     # CloudKit local data models, sharing, operations and serialized sync state.
@@ -118,6 +120,8 @@ steps=(
     "CoreText|userland/CoreText/build.sh"
     "WindowServer|userland/WindowServer/build.sh"
     "ImageIO|userland/ImageIO/build.sh"
+    # Caption settings and image-caption metadata over Finch's media frameworks.
+    "MediaAccessibility|userland/MediaAccessibility/build.sh"
     # The app-imported CPU parts of Accelerate, over CoreGraphics and CoreFoundation.
     "Accelerate|userland/Accelerate/build.sh"
     # CoreImage: images as recipes, filters rendered on the CPU
@@ -144,6 +148,8 @@ steps=(
     "UIFoundation|userland/UIFoundation/build.sh"
     "CoreUI|userland/CoreUI/build.sh"
     "AppKit|userland/AppKit/build.sh"
+    # Now-playing values, remote commands and artwork over AppKit.
+    "MediaPlayer|userland/MediaPlayer/build.sh"
     # GameController profiles use Finch AppKit input events and Finch IOKit.
     "GameController|userland/GameController/build.sh"
     # PDFKit's document and page objects draw through CoreGraphics and CoreText.
@@ -203,6 +209,8 @@ steps=(
     "Contacts|userland/Contacts/build.sh"
     # Intents value objects and local interaction donations; Siri remains unavailable.
     "Intents|userland/Intents/build.sh"
+    # Timeline data and the no-host WidgetCenter API.
+    "WidgetKit|userland/WidgetKit/build.sh"
     # Contact pickers and cards over Finch Contacts and AppKit.
     "ContactsUI|userland/ContactsUI/build.sh"
     "Accounts|userland/Accounts/build.sh"
@@ -252,8 +260,11 @@ steps=(
     "pam_modules|oss pam_modules rootok uwtmp self env group nologin sacl launchd"
     "pam|make -s -C userland/pam"
     "libsystem-finch|make -s -C userland/libsystem"
+    # Sandbox checks and consumable extensions for Finch's unsandboxed processes.
+    "libsandbox|userland/libsandbox/build.sh"
     "libm|make -s -C userland/libm"
     "Security|userland/Security/build.sh"
+    "CryptoTokenKit|userland/CryptoTokenKit/build.sh"
     "securityd|userland/securityd/build.sh"
     "pam-keychain|make -s -C userland/pam keychain"
     "SecurityFoundation|userland/SecurityFoundation/build.sh"

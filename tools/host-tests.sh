@@ -37,11 +37,13 @@ mkdir -p "${TMP}/lib"
 for l in libMobileGestalt libDiagnosticMessagesClient; do ln -s "${FINCH_ROOT}/build/root/usr/lib/${l}.dylib" "${TMP}/lib/"; done
 ln -s "${FINCH_ROOT}/build/root/usr/lib/system/libfinchaccount.dylib" "${TMP}/lib/"
 ln -s "${FINCH_ROOT}/build/root/usr/lib/system/libsystem_dnssd.dylib" "${TMP}/lib/"
+ln -s "${FINCH_ROOT}/build/root/usr/lib/libsandbox.1.dylib" "${TMP}/lib/"
 LIBS="build/root/usr/lib/swift:${TMP}/lib:${R}/Frameworks/OpenGL.framework/Versions/A/Libraries"
 
 # name|arguments: comparison tests (arguments are relative to the repo root)
 COMPARE=(
     "iokit-test|" "pdfkit-test|" "avkit-test|" "intents-test|" "gamecontroller-test|" "cloudkit-test|"
+    "media-player-test|" "media-accessibility-test|" "corebluetooth-test|" "libsandbox-test|" "cryptotokenkit-test|" "widgetkit-test|"
     "constants-test|" "calculate-test|" "swiftdata-test|" "tipkit-test|" "avaudio-file-test|" "avaudio-compressed-buffer-test|" "avaudio-converter-test|" "avaudio-engine-test|" "avaudio-player-test|" "avaudio-unit-test|" "audiounit-effects-test|" "itemprovider-test|" "formatters2-test|" "urlcache-test|" "appkit-small3-test|" "compositional-test|" "filepromise-test|" "appkit-swift2-test|" "private-calls-test|" "mobilegestalt-test|" "utilities-test|" "foundation-audit-test|" "tree-test|" "outline-bindings-test|" "typeselect-test|" "screencapturekit-test|" "appkit-compat-test|" "pdf-image-rep-test|" "sounddesc-test|" "avasset-test|" "avexport-test|" "avfoundation-overlay-test|" "avreader-test|" "avwriter-test|" "avimage-test|" "avplayer-test|" "opengl-test|" "appkit-typedstream-test|" "system-images-test|" "quartzfilters-test|" "printcore-test|" "symbols-test|" "xml-test|" "document-more-test|" "textview-more-test|" "windowing-more-test|" "contacts-search-links-test|" "contacts-search-links-swift-test|"
     "cf-test|" "foundation-test|" "foundation-gaps-test|" "intl-test|" "misc-test|" "data-test|" "collections-test|" "kvc-test|" "typedstream-test|" "tiff-test|" "colorsync-test|" "colorsync-devices-test|" "iconservices-test|" "smallprivate-test|" "quicklook-test|" "exports-test|" "cookies-test|" "foundation-more-test|" "appkit-values-test|" "hiservices-test|" "scripting-test|" "cfnetwork-test|" "coreimage-test|" "cgevent-test|" "keylayout-test|" "contacts-test|" "accounts-test|" "opendirectory-objects-test|" "metal-test|" "metalkit-test|" "audiounit-framework-test|" "coremidi-test|" "iosurface-test|" "gss-test|" "cfurl-test|" "pasteboard-test|" "coremedia-test|" "corevideo-test|" "audiotoolbox-test|" "audioconverter-test|" "extaudiofile-test|" "extaudiofile-test|--src-check" "applescript-test|" "fileversion-test|" "textformats-test|" "worddoc-test|" "network-test|" "coredata-test|" "cfxml-test|" "cf-bundle-arch-test|" "cf-preferences-container-test|" "videotoolbox-test|" "appintents-test|" "appintents-local-test|" "appintents-swiftui-test|"
     "archive-test|" "predicate-test|" "measurement-test|" "bridge-test|" "streams-test|" "documents-test|"
@@ -56,7 +58,7 @@ COMPARE=(
 )
 # Finch-only window-server tests and their expected output
 EXPECT=(window controls-window menu-window text-window panels-window tables-window statusbar drag-window screencapture avplayer opengl)
-FINCH_ONLY=("cloudkit-unavailable-test|" "contacts-search-links-fetch-test|--fetch-local" "quartzcore-renderer-test|" "security-core-test|" "security-keychain-encryption-test|" "keychain-crypto-test|" "security-keychain-storage-test|" "security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "avaudio-services-test|" "configd-daemon-test|" "console-policy-test|")
+FINCH_ONLY=("cloudkit-unavailable-test|" "contacts-search-links-fetch-test|--fetch-local" "quartzcore-renderer-test|" "security-core-test|" "security-keychain-encryption-test|" "keychain-crypto-test|" "security-keychain-storage-test|" "security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "avaudio-services-test|" "configd-daemon-test|" "console-policy-test|" "corebluetooth-unsupported-test|" "cryptotokenkit-empty-test|")
 
 want() {
     [[ $# -eq 0 || -z "${SELECTED}" ]] && return 0

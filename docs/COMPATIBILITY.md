@@ -6,7 +6,7 @@ This report compares public C declarations and SDK export lists, Objective-C cla
 
 Behavior-verified counts come from item IDs in build/compat-results/*.json. Generated comparisons and constant checks merge their item records into the same framework file. Records with status verified (or the older verified/passed flags) count; a later result replaces the status for that item ID. The full name-by-name report is kept in build/api-coverage.json.
 
-Overall: **28.1%** (152,731 of 543,220 API items across 843 parsed frameworks or dylibs).
+Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or dylibs).
 
 6 frameworks or dylibs had a parse or load issue and are left out of the overall percentage. 141 parsed successfully but had no public macOS API items.
 
@@ -95,7 +95,7 @@ Overall: **28.1%** (152,731 of 543,220 API items across 843 parsed frameworks or
 | CoreAudio | 67 | 30 | 37 | 44.8% | 0/67 | complete |
 | CoreAudioKit | 54 | 0 | 54 | 0.0% | 0/54 | complete |
 | CoreAudioTypes | 0 | 0 | 0 | 0.0% | 0/0 | empty |
-| CoreBluetooth | 225 | 0 | 225 | 0.0% | 0/225 | complete |
+| CoreBluetooth | 225 | 136 | 89 | 60.4% | 0/225 | complete |
 | CoreData | 959 | 671 | 288 | 70.0% | 156/959 | complete |
 | CoreDisplay | 495 | 0 | 495 | 0.0% | 0/495 | complete |
 | CoreFoundation | 1,614 | 1,596 | 18 | 98.9% | 803/1614 | complete |
@@ -129,7 +129,7 @@ Overall: **28.1%** (152,731 of 543,220 API items across 843 parsed frameworks or
 | CreateML | 1,798 | 0 | 1,798 | 0.0% | 0/1798 | complete |
 | CreateMLComponents | 2,258 | 0 | 2,258 | 0.0% | 0/2258 | complete |
 | CryptoKit | 727 | 673 | 54 | 92.6% | 0/727 | complete |
-| CryptoTokenKit | 221 | 0 | 221 | 0.0% | 0/221 | complete |
+| CryptoTokenKit | 221 | 154 | 67 | 69.7% | 0/221 | complete |
 | DataDetection | 123 | 0 | 123 | 0.0% | 0/123 | complete |
 | DeclaredAgeRange | 50 | 0 | 50 | 0.0% | 0/50 | complete |
 | DeveloperToolsSupport | 56 | 56 | 0 | 100.0% | 0/56 | complete |
@@ -500,8 +500,8 @@ Overall: **28.1%** (152,731 of 543,220 API items across 843 parsed frameworks or
 | librpcsvc | 7,267 | 2 | 7,265 | 0.0% | 0/7267 | complete |
 | libruby | 948 | 0 | 948 | 0.0% | 0/948 | complete |
 | libruby.2.6 | 948 | 0 | 948 | 0.0% | 0/948 | complete |
-| libsandbox | 27 | 0 | 27 | 0.0% | 0/27 | complete |
-| libsandbox.1 | 27 | 0 | 27 | 0.0% | 0/27 | complete |
+| libsandbox | 27 | 7 | 20 | 25.9% | 0/27 | complete |
+| libsandbox.1 | 27 | 7 | 20 | 25.9% | 0/27 | complete |
 | libsasl2 | 66 | 0 | 66 | 0.0% | 0/66 | complete |
 | libsasl2.2 | 66 | 0 | 66 | 0.0% | 0/66 | complete |
 | libsasl2.2.0.1 | 66 | 0 | 66 | 0.0% | 0/66 | complete |
@@ -622,10 +622,10 @@ Overall: **28.1%** (152,731 of 543,220 API items across 843 parsed frameworks or
 | MapKit | 782 | 0 | 782 | 0.0% | 0/782 | complete |
 | Matter | 18,058 | 0 | 18,058 | 0.0% | 0/18058 | complete |
 | MatterSupport | 138 | 0 | 138 | 0.0% | 0/138 | complete |
-| MediaAccessibility | 53 | 0 | 53 | 0.0% | 0/53 | complete |
+| MediaAccessibility | 53 | 41 | 12 | 77.4% | 0/53 | complete |
 | MediaExtension | 210 | 0 | 210 | 0.0% | 0/210 | complete |
 | MediaLibrary | 187 | 0 | 187 | 0.0% | 0/187 | complete |
-| MediaPlayer | 635 | 0 | 635 | 0.0% | 0/635 | complete |
+| MediaPlayer | 635 | 275 | 360 | 43.3% | 0/635 | complete |
 | MediaToolbox | 30 | 0 | 30 | 0.0% | 0/30 | complete |
 | Message | 2 | 0 | 2 | 0.0% | 0/2 | complete |
 | Metal | 1,901 | 848 | 1,053 | 44.6% | 376/1901 | complete |
@@ -858,7 +858,7 @@ Overall: **28.1%** (152,731 of 543,220 API items across 843 parsed frameworks or
 | WeatherKit | 623 | 0 | 623 | 0.0% | 0/623 | complete |
 | WebKit | 2,908 | 0 | 2,908 | 0.0% | 0/2908 | complete |
 | WebKit/WebKitLegacy | 271 | 0 | 271 | 0.0% | 0/271 | complete |
-| WidgetKit | 272 | 0 | 272 | 0.0% | 0/272 | complete |
+| WidgetKit | 272 | 99 | 173 | 36.4% | 0/272 | complete |
 | WiFiAware | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | WorkoutKit | 240 | 0 | 240 | 0.0% | 0/240 | complete |
 
@@ -929,7 +929,6 @@ These SDK frameworks or dylibs have no Finch image. The size column is the numbe
 | ModelIO | 680 |
 | libxpc | 673 |
 | MetalPerformanceShadersGraph | 653 |
-| MediaPlayer | 635 |
 | libnetsnmpagent | 629 |
 | libnetsnmpagent.25 | 629 |
 | AudioVideoBridging | 627 |
@@ -988,7 +987,6 @@ These SDK frameworks or dylibs have no Finch image. The size column is the numbe
 | libmecabra | 281 |
 | SyncServices | 280 |
 | Symbols | 276 |
-| WidgetKit | 272 |
 | WebKit/WebKitLegacy | 271 |
 | Accelerate/vecLib/libBNNS | 269 |
 | PhotosUI | 268 |
@@ -1004,11 +1002,9 @@ These SDK frameworks or dylibs have no Finch image. The size column is the numbe
 | libAppleArchive | 232 |
 | MetalFX | 232 |
 | libNFC_Comet | 231 |
-| CoreBluetooth | 225 |
 | JavaScriptCore | 224 |
 | libcmark-gfm | 223 |
 | CoreMotion | 222 |
-| CryptoTokenKit | 221 |
 | iTunesLibrary | 221 |
 | swift/libswiftCryptoTokenKit | 221 |
 | libmdns | 218 |
@@ -1149,7 +1145,6 @@ These SDK frameworks or dylibs have no Finch image. The size column is the numbe
 | CoreAudioKit | 54 |
 | libFosl_dynamic | 54 |
 | libCoreEntitlements_V2 | 53 |
-| MediaAccessibility | 53 |
 | libiodbcinst | 52 |
 | libiodbcinst.2 | 52 |
 | libiodbcinst.2.1.18 | 52 |
@@ -1198,8 +1193,6 @@ These SDK frameworks or dylibs have no Finch image. The size column is the numbe
 | libAudioToolboxUtility | 29 |
 | MetalPerformanceShaders/MPSHost | 28 |
 | SensitiveContentAnalysis | 28 |
-| libsandbox | 27 |
-| libsandbox.1 | 27 |
 | swift/libswiftIdentityLookup | 27 |
 | Carbon/SecurityHI | 26 |
 | LocalAuthentication/DaemonUtils | 26 |
@@ -1381,4 +1374,4 @@ Priority score is missing API items multiplied by the number of apps app-sweep.p
 | Quartz | 2,192 | 5 | 10,960 |
 | MetalPerformanceShaders/MPSNeuralNetwork | 1,541 | 7 | 10,787 |
 | CoreML | 900 | 11 | 9,900 |
-| MediaPlayer | 635 | 15 | 9,525 |
+| RealityKit | 4,501 | 2 | 9,002 |
