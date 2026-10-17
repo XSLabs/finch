@@ -652,7 +652,7 @@ out_CILuminosityBlendMode(CIFilter *f)
 }
 
 static CIImage *
-mask_blend(CIFilter *f, BOOL alphaMask)
+mask_blend(CIFilter *f, int component)
 {
     CIImage *fg = img(f, kCIInputImageKey), *bg = img(f, kCIInputBackgroundImageKey), *mask = img(f, kCIInputMaskImageKey);
     if (!fg)
@@ -666,7 +666,7 @@ mask_blend(CIFilter *f, BOOL alphaMask)
       CIBuf a = ci_render(fg, r), b = ci_render(bg, r), m = ci_render(mask, r);
       for (size_t i = 0; i < a.w * a.h; i++) {
           const float *mp = m.px + i * 4;
-          float k = alphaMask ? mp[3] : luma(mp); /* a grey mask's luminance, or its alpha */
+          float k = component < 0 ? luma(mp) : mp[component];
           for (int c = 0; c < 4; c++)
               b.px[i * 4 + c] = mixf(b.px[i * 4 + c], a.px[i * 4 + c], k);
       }
@@ -676,8 +676,10 @@ mask_blend(CIFilter *f, BOOL alphaMask)
     });
 }
 
-static CIImage *out_CIBlendWithMask(CIFilter *f) { return mask_blend(f, NO); }
-static CIImage *out_CIBlendWithAlphaMask(CIFilter *f) { return mask_blend(f, YES); }
+static CIImage *out_CIBlendWithMask(CIFilter *f) { return mask_blend(f, -1); }
+static CIImage *out_CIBlendWithAlphaMask(CIFilter *f) { return mask_blend(f, 3); }
+static CIImage *out_CIBlendWithBlueMask(CIFilter *f) { return mask_blend(f, 2); }
+static CIImage *out_CIBlendWithRedMask(CIFilter *f) { return mask_blend(f, 0); }
 
 /* --- blurs --- */
 
@@ -1200,6 +1202,579 @@ area(CIFilter *f, AreaOp op)
 static CIImage *out_CIAreaAverage(CIFilter *f) { return area(f, AREA_AVERAGE); }
 static CIImage *out_CIAreaMaximum(CIFilter *f) { return area(f, AREA_MAXIMUM); }
 static CIImage *out_CIAreaMinimum(CIFilter *f) { return area(f, AREA_MINIMUM); }
+
+/* Sample a rendered buffer at CoreImage pixel coordinates, with transparent edges. */
+static void
+sample_buf(CIBuf b, double x, double y, float *out)
+{
+    double fx = x - b.r.origin.x - 0.5, fy = y - b.r.origin.y - 0.5;
+    long x0 = (long)floor(fx), y0 = (long)floor(fy);
+    float tx = (float)(fx - x0), ty = (float)(fy - y0);
+    out[0] = out[1] = out[2] = out[3] = 0;
+    for (int j = 0; j < 2; j++)
+        for (int i = 0; i < 2; i++) {
+            long sx = x0 + i, sy = y0 + j;
+            if (sx < 0 || sy < 0 || sx >= (long)b.w || sy >= (long)b.h)
+                continue;
+            float weight = (i ? tx : 1 - tx) * (j ? ty : 1 - ty);
+            const float *p = ci_buf_at(b, (size_t)sx, (size_t)sy);
+            for (int c = 0; c < 4; c++)
+                out[c] += p[c] * weight;
+        }
+}
+
+static double
+bounded(double v, double lo, double hi)
+{
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
+static CIImage *
+morphology_rectangle(CIImage *in, int width, int height, BOOL maximum)
+{
+    int nx = (int)bounded(ceil(width / 2.0) - 1, 0, 128), ny = (int)bounded(ceil(height / 2.0) - 1, 0, 128);
+    if (!nx && !ny)
+        return in;
+    CGRect extent = CGRectIsInfinite(in.extent) ? CGRectInfinite :
+                    maximum ? CGRectInset(in.extent, -nx, -ny) : CGRectInset(in.extent, nx, ny);
+    return ci_image(extent, ^CIBuf(CGRect r) {
+      CIBuf src = ci_render(in, CGRectInset(r, -nx, -ny)), out = ci_buf_alloc(r);
+      for (size_t y = 0; y < out.h; y++)
+          for (size_t x = 0; x < out.w; x++) {
+              float value[4];
+              for (int c = 0; c < 4; c++)
+                  value[c] = maximum ? -INFINITY : INFINITY;
+              for (int j = -ny; j <= ny; j++)
+                  for (int i = -nx; i <= nx; i++) {
+                      const float *p = ci_buf_at(src, x + (size_t)(nx + i), y + (size_t)(ny + j));
+                      for (int c = 0; c < 4; c++)
+                          value[c] = maximum ? fmaxf(value[c], p[c]) : fminf(value[c], p[c]);
+                  }
+              memcpy(ci_buf_at(out, x, y), value, sizeof value);
+          }
+      ci_buf_free(src);
+      return out;
+    });
+}
+
+static CIImage *
+median_filter(CIImage *in)
+{
+    return ci_image(in.extent, ^CIBuf(CGRect r) {
+      CIBuf src = ci_render(in, CGRectInset(r, -1, -1)), out = ci_buf_alloc(r);
+      for (size_t y = 0; y < out.h; y++)
+          for (size_t x = 0; x < out.w; x++) {
+              float values[4][9];
+              for (int j = -1, n = 0; j <= 1; j++)
+                  for (int i = -1; i <= 1; i++, n++) {
+                      const float *p = ci_buf_at(src, x + (size_t)(i + 1), y + (size_t)(j + 1));
+                      for (int c = 0; c < 4; c++)
+                          values[c][n] = p[c];
+                  }
+              float *dst = ci_buf_at(out, x, y);
+              for (int c = 0; c < 4; c++) {
+                  for (int i = 1; i < 9; i++) {
+                      float v = values[c][i];
+                      int j = i;
+                      while (j && values[c][j - 1] > v) {
+                          values[c][j] = values[c][j - 1];
+                          j--;
+                      }
+                      values[c][j] = v;
+                  }
+                  dst[c] = values[c][4];
+              }
+          }
+      ci_buf_free(src);
+      return out;
+    });
+}
+
+static CIImage *
+sharpen_luminance(CIImage *in, double radius, float amount)
+{
+    CIImage *blurred = gaussian(in, radius);
+    return ci_image(in.extent, ^CIBuf(CGRect r) {
+      CIBuf src = ci_render(in, r), blur = ci_render(blurred, r);
+      for (size_t i = 0; i < src.w * src.h; i++) {
+          float *p = src.px + i * 4, *q = blur.px + i * 4;
+          if (p[3] <= 0)
+              continue;
+          float a = p[3], b = q[3];
+          float rgb[3] = {p[0] / a, p[1] / a, p[2] / a};
+          float base[3] = {b > 0 ? q[0] / b : 0, b > 0 ? q[1] / b : 0, b > 0 ? q[2] / b : 0};
+          float delta = luma(rgb) - luma(base);
+          for (int c = 0; c < 3; c++)
+              p[c] = (rgb[c] + amount * delta) * a;
+      }
+      ci_buf_free(blur);
+      return src;
+    });
+}
+
+static CIImage *
+zoom_blur(CIImage *in, CGPoint center, double amount)
+{
+    amount = bounded(amount, 0, 100);
+    return ci_image(in.extent, ^CIBuf(CGRect r) {
+      CIBuf src = ci_render(in, CGRectInset(r, -(int)ceil(amount), -(int)ceil(amount))), out = ci_buf_alloc(r);
+      for (size_t y = 0; y < out.h; y++)
+          for (size_t x = 0; x < out.w; x++) {
+              CGPoint p = CGPointMake(r.origin.x + x + 0.5, r.origin.y + y + 0.5);
+              float *dst = ci_buf_at(out, x, y);
+              for (int s = 0; s < 9; s++) {
+                  double t = (double)s / 8 * amount / 100;
+                  float q[4];
+                  sample_buf(src, p.x + (center.x - p.x) * t, p.y + (center.y - p.y) * t, q);
+                  for (int c = 0; c < 4; c++)
+                      dst[c] += q[c] / 9;
+              }
+          }
+      ci_buf_free(src);
+      return out;
+    });
+}
+
+static CIImage *
+noise_reduce(CIImage *in, float noise, float sharpness)
+{
+    noise = fmaxf(noise, 0.0001f);
+    return ci_image(in.extent, ^CIBuf(CGRect r) {
+      CIBuf src = ci_render(in, CGRectInset(r, -2, -2)), out = ci_buf_alloc(r);
+      for (size_t y = 0; y < out.h; y++)
+          for (size_t x = 0; x < out.w; x++) {
+              const float *center = ci_buf_at(src, x + 2, y + 2);
+              float centerLuma = luma(center), sum[4] = {0, 0, 0, 0}, total = 0;
+              for (int j = -2; j <= 2; j++)
+                  for (int i = -2; i <= 2; i++) {
+                      const float *p = ci_buf_at(src, x + (size_t)(i + 2), y + (size_t)(j + 2));
+                      float d = luma(p) - centerLuma;
+                      float weight = expf(-(i * i + j * j) * fmaxf(sharpness, 0.05f) - d * d / noise);
+                      for (int c = 0; c < 4; c++)
+                          sum[c] += p[c] * weight;
+                      total += weight;
+                  }
+              float *dst = ci_buf_at(out, x, y);
+              for (int c = 0; c < 4; c++)
+                  dst[c] = total > 0 ? sum[c] / total : center[c];
+          }
+      ci_buf_free(src);
+      return out;
+    });
+}
+
+static CIImage *
+out_extra_blur(CIFilter *f)
+{
+    IMAGE_OR_NIL(in, kCIInputImageKey);
+    NSString *name = f.name;
+    if ([name isEqualToString:@"CIGloom"]) {
+        CIImage *blurred = gaussian(in, num(f, @"inputRadius"));
+        float intensity = (float)num(f, @"inputIntensity");
+        return ci_image(in.extent, ^CIBuf(CGRect r) {
+          CIBuf src = ci_render(in, r), glow = ci_render(blurred, r);
+          for (size_t i = 0; i < src.w * src.h; i++) {
+              float *p = src.px + i * 4, *q = glow.px + i * 4;
+              float b = q[3], l = b > 0 ? luma(q) / b : 0;
+              float k = (1 - l) * intensity;
+              for (int c = 0; c < 3; c++)
+                  p[c] *= 1 - k;
+          }
+          ci_buf_free(glow);
+          return src;
+        });
+    }
+    if ([name isEqualToString:@"CISharpenLuminance"])
+        return sharpen_luminance(in, num(f, @"inputRadius"), (float)num(f, @"inputSharpness"));
+    if ([name isEqualToString:@"CIMorphologyGradient"]) {
+        CIImage *hi = morphology(f, YES), *lo = morphology(f, NO);
+        return ci_image(in.extent, ^CIBuf(CGRect r) {
+          CIBuf a = ci_render(hi, r), b = ci_render(lo, r);
+          for (size_t i = 0; i < a.w * a.h * 4; i++)
+              a.px[i] = fmaxf(0, a.px[i] - b.px[i]);
+          ci_buf_free(b);
+          return a;
+        });
+    }
+    if ([name isEqualToString:@"CIMorphologyRectangleMaximum"] || [name isEqualToString:@"CIMorphologyRectangleMinimum"])
+        return morphology_rectangle(in, (int)num(f, @"inputWidth"), (int)num(f, @"inputHeight"),
+                                    [name isEqualToString:@"CIMorphologyRectangleMaximum"]);
+    if ([name isEqualToString:@"CIMaskedVariableBlur"]) {
+        CIImage *soft = gaussian(in, num(f, @"inputRadius")), *mask = img(f, @"inputMask");
+        if (!mask)
+            return soft;
+        return ci_image(in.extent, ^CIBuf(CGRect r) {
+          CIBuf a = ci_render(in, r), b = ci_render(soft, r), m = ci_render(mask, r);
+          for (size_t i = 0; i < a.w * a.h; i++) {
+              float k = clampf(luma(m.px + i * 4), 0, 1);
+              for (int c = 0; c < 4; c++)
+                  a.px[i * 4 + c] = mixf(a.px[i * 4 + c], b.px[i * 4 + c], k);
+          }
+          ci_buf_free(b);
+          ci_buf_free(m);
+          return a;
+        });
+    }
+    if ([name isEqualToString:@"CIMedianFilter"])
+        return median_filter(in);
+    if ([name isEqualToString:@"CIZoomBlur"])
+        return zoom_blur(in, [vec(f, @"inputCenter") CGPointValue], num(f, @"inputAmount"));
+    if ([name isEqualToString:@"CINoiseReduction"])
+        return noise_reduce(in, (float)num(f, @"inputNoiseLevel"), (float)num(f, @"inputSharpness"));
+    return nil;
+}
+
+static CIImage *
+out_extra_convolution(CIFilter *f)
+{
+    IMAGE_OR_NIL(in, kCIInputImageKey);
+    CIVector *weights = vec(f, @"inputWeights");
+    if (!weights)
+        return nil;
+    NSString *name = f.name;
+    int width = 3, height = 3;
+    if ([name containsString:@"5X5"])
+        width = height = 5;
+    else if ([name containsString:@"7X7"])
+        width = height = 7;
+    else if ([name containsString:@"9Horizontal"])
+        width = 9, height = 1;
+    else if ([name containsString:@"9Vertical"])
+        width = 1, height = 9;
+    if (weights.count < (NSUInteger)(width * height))
+        return nil;
+    int rx = width / 2, ry = height / 2;
+    BOOL rgbOnly = [name containsString:@"RGB"];
+    float bias = (float)num(f, @"inputBias");
+    CGRect extent = in.extent;
+    return ci_image(extent, ^CIBuf(CGRect r) {
+      CIBuf src = ci_render(in, CGRectInset(r, -rx, -ry)), out = ci_buf_alloc(r);
+      for (size_t y = 0; y < out.h; y++)
+          for (size_t x = 0; x < out.w; x++) {
+              float *dst = ci_buf_at(out, x, y);
+              int channelCount = rgbOnly ? 3 : 4;
+              for (int c = 0; c < channelCount; c++) {
+                  float value = c < 3 ? bias : 0;
+                  for (int j = 0; j < height; j++)
+                      for (int i = 0; i < width; i++) {
+                          const float *p = ci_buf_at(src, x + (size_t)i, y + (size_t)j);
+                          NSUInteger index = (NSUInteger)(j * width + i);
+                          value += p[c] * (float)[weights valueAtIndex:index];
+                      }
+                  dst[c] = value;
+              }
+              if (rgbOnly)
+                  dst[3] = ci_buf_at(src, x + (size_t)rx, y + (size_t)ry)[3];
+          }
+      ci_buf_free(src);
+      return out;
+    });
+}
+
+static void
+rgb_to_hsv(const float *rgb, float *hsv)
+{
+    float lo = fminf(rgb[0], fminf(rgb[1], rgb[2]));
+    float hi = fmaxf(rgb[0], fmaxf(rgb[1], rgb[2]));
+    float d = hi - lo;
+    hsv[2] = hi;
+    hsv[1] = hi > 0 ? d / hi : 0;
+    if (d <= 1e-7f)
+        hsv[0] = 0;
+    else if (hi == rgb[0])
+        hsv[0] = (rgb[1] - rgb[2]) / d + (rgb[1] < rgb[2] ? 6 : 0);
+    else if (hi == rgb[1])
+        hsv[0] = (rgb[2] - rgb[0]) / d + 2;
+    else
+        hsv[0] = (rgb[0] - rgb[1]) / d + 4;
+    hsv[0] /= 6;
+}
+
+static void
+hsv_to_rgb(const float *hsv, float *rgb)
+{
+    float h = hsv[0] - floorf(hsv[0]), s = clampf(hsv[1], 0, 1), v = hsv[2];
+    float x = h * 6, c = v * s, m = v - c, z = c * (1 - fabsf(fmodf(x, 2) - 1));
+    switch ((int)floorf(x) % 6) {
+    case 0: rgb[0] = c; rgb[1] = z; rgb[2] = 0; break;
+    case 1: rgb[0] = z; rgb[1] = c; rgb[2] = 0; break;
+    case 2: rgb[0] = 0; rgb[1] = c; rgb[2] = z; break;
+    case 3: rgb[0] = 0; rgb[1] = z; rgb[2] = c; break;
+    case 4: rgb[0] = z; rgb[1] = 0; rgb[2] = c; break;
+    default: rgb[0] = c; rgb[1] = 0; rgb[2] = z; break;
+    }
+    for (int i = 0; i < 3; i++)
+        rgb[i] += m;
+}
+
+static float
+tone_curve_value(CIFilter *f, float x)
+{
+    float px[5], py[5];
+    for (int i = 0; i < 5; i++) {
+        CIVector *v = vec(f, [NSString stringWithFormat:@"inputPoint%d", i]);
+        px[i] = v ? (float)[v valueAtIndex:0] : (float)i / 4;
+        py[i] = v ? (float)[v valueAtIndex:1] : (float)i / 4;
+    }
+    int segment = 0;
+    while (segment < 3 && x > px[segment + 1])
+        segment++;
+    float dx = px[segment + 1] - px[segment];
+    float t = dx > 0 ? clampf((x - px[segment]) / dx, 0, 1) : 0;
+    float p0 = py[segment ? segment - 1 : segment], p1 = py[segment],
+          p2 = py[segment + 1], p3 = py[segment < 3 ? segment + 2 : segment + 1];
+    float t2 = t * t, t3 = t2 * t;
+    return 0.5f * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+                   (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
+}
+
+static CIImage *
+edge_map(CIImage *in)
+{
+    return ci_image(in.extent, ^CIBuf(CGRect r) {
+      CIBuf src = ci_render(in, CGRectInset(r, -1, -1)), out = ci_buf_alloc(r);
+      for (size_t y = 0; y < out.h; y++)
+          for (size_t x = 0; x < out.w; x++) {
+              float a = luma(ci_buf_at(src, x, y)), b = luma(ci_buf_at(src, x + 1, y)),
+                    c = luma(ci_buf_at(src, x + 2, y));
+              float d = luma(ci_buf_at(src, x, y + 1)), e = luma(ci_buf_at(src, x + 2, y + 1));
+              float g = luma(ci_buf_at(src, x, y + 2)), h = luma(ci_buf_at(src, x + 1, y + 2)),
+                    j = luma(ci_buf_at(src, x + 2, y + 2));
+              float gx = -a + c - 2 * d + 2 * e - g + j;
+              float gy = -a - 2 * b - c + g + 2 * h + j;
+              float mag = fminf(1, sqrtf(gx * gx + gy * gy) * 0.25f);
+              float *p = ci_buf_at(out, x, y);
+              p[0] = p[1] = p[2] = mag;
+              p[3] = 1;
+          }
+      ci_buf_free(src);
+      return out;
+    });
+}
+
+static CIImage *
+apply_cube(CIImage *in, NSData *data, NSUInteger dimension)
+{
+    NSUInteger n = dimension;
+    if (n < 2 || n > 64 || data.length < n * n * n * 4 * sizeof(float))
+        return in;
+    const float *cube = data.bytes;
+    return ci_map(in, in.extent, ^(float *p) {
+      float alpha = p[3];
+      float pos[3];
+      for (int c = 0; c < 3; c++)
+          pos[c] = clampf(p[c], 0, 1) * (n - 1);
+      NSUInteger lo[3] = {(NSUInteger)floorf(pos[0]), (NSUInteger)floorf(pos[1]), (NSUInteger)floorf(pos[2])};
+      NSUInteger hi[3] = {MIN(lo[0] + 1, n - 1), MIN(lo[1] + 1, n - 1), MIN(lo[2] + 1, n - 1)};
+      float t[3] = {pos[0] - lo[0], pos[1] - lo[1], pos[2] - lo[2]}, result[4] = {0, 0, 0, 0};
+      for (int z = 0; z < 2; z++)
+          for (int y = 0; y < 2; y++)
+              for (int x = 0; x < 2; x++) {
+                  NSUInteger ix = x ? hi[0] : lo[0], iy = y ? hi[1] : lo[1], iz = z ? hi[2] : lo[2];
+                  float w = (x ? t[0] : 1 - t[0]) * (y ? t[1] : 1 - t[1]) * (z ? t[2] : 1 - t[2]);
+                  const float *q = cube + ((iz * n + iy) * n + ix) * 4;
+                  for (int c = 0; c < 4; c++)
+                      result[c] += q[c] * w;
+              }
+      memcpy(p, result, 3 * sizeof(float));
+      p[3] = alpha;
+    });
+}
+
+static CIImage *
+out_extra_color(CIFilter *f)
+{
+    IMAGE_OR_NIL(in, kCIInputImageKey);
+    NSString *name = f.name;
+    if ([name isEqualToString:@"CIColorPosterize"]) {
+        float levels = fmaxf(2, (float)num(f, @"inputLevels"));
+        return ci_map(in, in.extent, ^(float *p) {
+          for (int c = 0; c < 3; c++)
+              p[c] = floorf(clampf(p[c], 0, 1) * (levels - 1) + 0.5f) / (levels - 1);
+        });
+    }
+    if ([name isEqualToString:@"CIVibrance"]) {
+        float amount = (float)num(f, @"inputAmount");
+        return ci_map(in, in.extent, ^(float *p) {
+          float hsv[3], rgb[3] = {p[0], p[1], p[2]};
+          rgb_to_hsv(rgb, hsv);
+          if (hsv[1] < 1e-6f)
+              return;
+          hsv[1] = clampf(hsv[1] + amount * (1 - hsv[1]) * (1 - fabsf(2 * hsv[2] - 1)), 0, 1);
+          hsv_to_rgb(hsv, p);
+        });
+    }
+    if ([name isEqualToString:@"CIToneCurve"])
+        return ci_map(in, in.extent, ^(float *p) {
+          for (int c = 0; c < 3; c++) {
+              float gamma = sqrtf(fmaxf(p[c], 0));
+              p[c] = tone_curve_value(f, gamma) * tone_curve_value(f, gamma);
+          }
+        });
+    if ([name isEqualToString:@"CITemperatureAndTint"]) {
+        CIVector *neutral = vec(f, @"inputNeutral"), *target = vec(f, @"inputTargetNeutral");
+        float nx = neutral ? (float)[neutral valueAtIndex:0] : 6500, ny = neutral ? (float)[neutral valueAtIndex:1] : 0;
+        float tx = target ? (float)[target valueAtIndex:0] : nx, ty = target ? (float)[target valueAtIndex:1] : ny;
+        float warm = clampf((nx - tx) / 6500, -1, 1), tint = clampf(ty - ny, -1, 1);
+        return ci_map(in, in.extent, ^(float *p) {
+          p[0] *= 1 + warm * 0.18f + tint * 0.05f;
+          p[1] *= 1 - fabsf(tint) * 0.035f;
+          p[2] *= 1 - warm * 0.18f - tint * 0.05f;
+        });
+    }
+    if ([name isEqualToString:@"CIVignette"] || [name isEqualToString:@"CIVignetteEffect"]) {
+        CGPoint center = vec(f, @"inputCenter") ? [vec(f, @"inputCenter") CGPointValue]
+                                                     : CGPointMake(CGRectGetMidX(in.extent), CGRectGetMidY(in.extent));
+        float radius = (float)num(f, @"inputRadius"), amount = (float)num(f, @"inputIntensity");
+        float falloff = [name isEqualToString:@"CIVignetteEffect"] ? fmaxf((float)num(f, @"inputFalloff"), 0.001f) : 0.35f;
+        return ci_image(in.extent, ^CIBuf(CGRect r) {
+          CIBuf src = ci_render(in, r);
+          for (size_t y = 0; y < src.h; y++)
+              for (size_t x = 0; x < src.w; x++) {
+                  CGPoint p = CGPointMake(r.origin.x + x + 0.5, r.origin.y + y + 0.5);
+                  float d = (float)(hypot(p.x - center.x, p.y - center.y) / fmax(radius, 1));
+                  float t = clampf((d - 0.65f) / falloff, 0, 1);
+                  t = t * t * (3 - 2 * t) * amount;
+                  float *q = ci_buf_at(src, x, y);
+                  for (int c = 0; c < 3; c++)
+                      q[c] *= 1 - t;
+              }
+          return src;
+        });
+    }
+    if ([name isEqualToString:@"CISystemToneMap"]) {
+        float headroom = fmaxf((float)num(f, @"inputDisplayHeadroom"), 1);
+        return ci_map(in, in.extent, ^(float *p) {
+          for (int c = 0; c < 3; c++) {
+              float x = fmaxf(p[c], 0);
+              p[c] = x / (1 + x * (1 - 1 / headroom));
+          }
+        });
+    }
+    if ([name isEqualToString:@"CIColorAbsoluteDifference"]) {
+        CIImage *other = img(f, @"inputImage2");
+        if (!other)
+            return nil;
+        return ci_image(CGRectUnion(in.extent, other.extent), ^CIBuf(CGRect r) {
+          CIBuf a = ci_render(in, r), b = ci_render(other, r);
+          for (size_t i = 0; i < a.w * a.h; i++) {
+              float aa = a.px[i * 4 + 3], ba = b.px[i * 4 + 3];
+              for (int c = 0; c < 3; c++) {
+                  float x = aa > 0 ? a.px[i * 4 + c] / aa : 0;
+                  float y = ba > 0 ? b.px[i * 4 + c] / ba : 0;
+                  a.px[i * 4 + c] = fabsf(x - y);
+              }
+              a.px[i * 4 + 3] = fmaxf(aa, ba);
+          }
+          ci_buf_free(b);
+          return a;
+        });
+    }
+    if ([name isEqualToString:@"CIColorCube"] || [name isEqualToString:@"CIColorCubeWithColorSpace"])
+        return apply_cube(in, [f valueForKey:@"inputCubeData"], (NSUInteger)num(f, @"inputCubeDimension"));
+    if ([name isEqualToString:@"CIColorCubesMixedWithMask"]) {
+        NSData *first = [f valueForKey:@"inputCube0Data"], *second = [f valueForKey:@"inputCube1Data"];
+        NSUInteger dimension = (NSUInteger)num(f, @"inputCubeDimension");
+        CIImage *a = apply_cube(in, first, dimension), *b = apply_cube(in, second, dimension);
+        CIImage *mask = img(f, @"inputMaskImage");
+        if (!mask)
+            return a;
+        return ci_image(in.extent, ^CIBuf(CGRect r) {
+          CIBuf x = ci_render(a, r), y = ci_render(b, r), m = ci_render(mask, r);
+          for (size_t i = 0; i < x.w * x.h; i++) {
+              float k = clampf(luma(m.px + i * 4), 0, 1);
+              for (int c = 0; c < 4; c++)
+                  x.px[i * 4 + c] = mixf(x.px[i * 4 + c], y.px[i * 4 + c], k);
+          }
+          ci_buf_free(y);
+          ci_buf_free(m);
+          return x;
+        });
+    }
+    if ([name isEqualToString:@"CIColorMap"]) {
+        CIImage *gradient = img(f, @"inputGradientImage");
+        if (!gradient)
+            return nil;
+        return ci_image(in.extent, ^CIBuf(CGRect r) {
+          CIBuf src = ci_render(in, r), ramp = ci_render(gradient, gradient.extent);
+          double y = CGRectGetMidY(gradient.extent) + 0.5;
+          for (size_t i = 0; i < src.w * src.h; i++) {
+              float a = src.px[i * 4 + 3], t = a > 0 ? clampf(luma(src.px + i * 4) / a, 0, 1) : 0;
+              float q[4];
+              sample_buf(ramp, gradient.extent.origin.x + t * fmax(0, ramp.w - 1) + 0.5, y, q);
+              memcpy(src.px + i * 4, q, sizeof q);
+          }
+          ci_buf_free(ramp);
+          return src;
+        });
+    }
+    if ([name isEqualToString:@"CISpotColor"]) {
+        struct { float center[3][4], replacement[3][4], closeness[3], contrast[3]; } values;
+        for (int i = 0; i < 3; i++) {
+            NSString *suffix = [NSString stringWithFormat:@"%d", i + 1];
+            col_straight(f, [@"inputCenterColor" stringByAppendingString:suffix], values.center[i]);
+            col_straight(f, [@"inputReplacementColor" stringByAppendingString:suffix], values.replacement[i]);
+            values.closeness[i] = (float)num(f, [@"inputCloseness" stringByAppendingString:suffix]);
+            values.contrast[i] = (float)num(f, [@"inputContrast" stringByAppendingString:suffix]);
+        }
+        return ci_map(in, in.extent, ^(float *p) {
+          for (int k = 0; k < 3; k++) {
+              float d = sqrtf((p[0] - values.center[k][0]) * (p[0] - values.center[k][0]) +
+                              (p[1] - values.center[k][1]) * (p[1] - values.center[k][1]) +
+                              (p[2] - values.center[k][2]) * (p[2] - values.center[k][2]));
+              float t = clampf(1 - d / fmaxf(values.closeness[k], 0.001f), 0, 1);
+              t = powf(t, fmaxf(values.contrast[k], 0.01f));
+              for (int c = 0; c < 3; c++)
+                  p[c] = mixf(p[c], values.replacement[k][c], t);
+          }
+        });
+    }
+    if ([name isEqualToString:@"CIEdges"]) {
+        CIImage *edges = edge_map(in);
+        float intensity = (float)num(f, @"inputIntensity");
+        return ci_map(edges, in.extent, ^(float *p) { p[0] *= intensity; p[1] *= intensity; p[2] *= intensity; });
+    }
+    if ([name isEqualToString:@"CIEdgeWork"]) {
+        CIImage *edges = edge_map(in);
+        float radius = (float)num(f, @"inputRadius");
+        edges = gaussian(edges, fmaxf(radius * 0.25f, 0.5f));
+        return ci_image(in.extent, ^CIBuf(CGRect r) {
+          CIBuf src = ci_render(in, r), e = ci_render(edges, r);
+          for (size_t i = 0; i < src.w * src.h; i++) {
+              float k = clampf(luma(e.px + i * 4), 0, 1);
+              for (int c = 0; c < 3; c++)
+                  src.px[i * 4 + c] *= 1 - k;
+          }
+          ci_buf_free(e);
+          return src;
+        });
+    }
+    if ([name isEqualToString:@"CISpotLight"]) {
+        CIVector *position = vec(f, @"inputLightPosition"), *pointsAt = vec(f, @"inputLightPointsAt");
+        double lx = position ? [position valueAtIndex:0] : 0, ly = position ? [position valueAtIndex:1] : 0;
+        double tx = pointsAt ? [pointsAt valueAtIndex:0] : 0, ty = pointsAt ? [pointsAt valueAtIndex:1] : 0;
+        float brightness = (float)num(f, @"inputBrightness"), concentration = (float)num(f, @"inputConcentration");
+        struct { float color[4]; } values;
+        col_straight(f, @"inputColor", values.color);
+        return ci_image(in.extent, ^CIBuf(CGRect r) {
+          CIBuf src = ci_render(in, r);
+          double dx = tx - lx, dy = ty - ly, len = hypot(dx, dy) ?: 1;
+          dx /= len; dy /= len;
+          for (size_t y = 0; y < src.h; y++)
+              for (size_t x = 0; x < src.w; x++) {
+                  double px = r.origin.x + x + 0.5 - lx, py = r.origin.y + y + 0.5 - ly;
+                  double plen = hypot(px, py) ?: 1;
+                  float cone = (float)fmax(0, (px * dx + py * dy) / plen);
+                  float light = brightness * powf(cone, fmaxf(concentration, 0.01f)) / (1 + (float)(plen / 100));
+                  float *p = ci_buf_at(src, x, y);
+                  for (int c = 0; c < 3; c++)
+                      p[c] += values.color[c] * light * p[3];
+              }
+          return src;
+        });
+    }
+    return nil;
+}
 
 /* CIBlendKernel's built-in kernels, by name: the filter, or a Porter-Duff operator. */
 CIImage *

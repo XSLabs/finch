@@ -7,6 +7,7 @@
  * half floats on the GPU, so an 8-bit value can differ by one).
  */
 #import <CoreImage/CoreImage.h>
+#import <CoreImage/CIFilterBuiltins.h>
 #import <Foundation/Foundation.h>
 #include <dlfcn.h>
 #include <objc/message.h>
@@ -88,6 +89,98 @@ filter(NSString *name, NSDictionary *params, BOOL coarse, CGRect r)
 }
 
 static void
+builtin_float(NSString *factory, NSString *property, NSString *inputKey, float value)
+{
+    CIFilter *f = ((id (*)(id, SEL))objc_msgSend)([CIFilter class], NSSelectorFromString(factory));
+    SEL setter = NSSelectorFromString([NSString stringWithFormat:@"set%@:",
+                                      [[property substringToIndex:1].uppercaseString stringByAppendingString:
+                                          [property substringFromIndex:1]]]);
+    SEL getter = NSSelectorFromString(property);
+    ((void (*)(id, SEL, float))objc_msgSend)(f, setter, value);
+    float typed = ((float (*)(id, SEL))objc_msgSend)(f, getter);
+    printf("typed %s %s: %.3f %.3f\n", f.name.UTF8String, property.UTF8String, typed,
+           [[f valueForKey:inputKey] floatValue]);
+}
+
+static void
+builtin_point(NSString *factory, NSString *property, NSString *inputKey, CGPoint value)
+{
+    CIFilter *f = ((id (*)(id, SEL))objc_msgSend)([CIFilter class], NSSelectorFromString(factory));
+    SEL setter = NSSelectorFromString([NSString stringWithFormat:@"set%@:",
+                                      [[property substringToIndex:1].uppercaseString stringByAppendingString:
+                                          [property substringFromIndex:1]]]);
+    SEL getter = NSSelectorFromString(property);
+    ((void (*)(id, SEL, CGPoint))objc_msgSend)(f, setter, value);
+    CGPoint typed = ((CGPoint (*)(id, SEL))objc_msgSend)(f, getter);
+    CIVector *viaKey = [f valueForKey:inputKey];
+    printf("typed %s %s: %.3f %.3f | %.3f %.3f\n", f.name.UTF8String, property.UTF8String,
+           typed.x, typed.y, [viaKey valueAtIndex:0], [viaKey valueAtIndex:1]);
+}
+
+static void
+builtin_rect(NSString *factory, NSString *property, NSString *inputKey, CGRect value)
+{
+    CIFilter *f = ((id (*)(id, SEL))objc_msgSend)([CIFilter class], NSSelectorFromString(factory));
+    id<CIAreaAverage> typedFilter = (id<CIAreaAverage>)f;
+    typedFilter.extent = value;
+    CGRect typed = typedFilter.extent;
+    CGRect viaKey = [[f valueForKey:inputKey] CGRectValue];
+    printf("typed %s %s: %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f\n", f.name.UTF8String,
+           property.UTF8String, typed.origin.x, typed.origin.y, typed.size.width, typed.size.height,
+           viaKey.origin.x, viaKey.origin.y, viaKey.size.width, viaKey.size.height);
+}
+
+static void
+builtin_transform(NSString *factory, NSString *property, NSString *inputKey, CGAffineTransform value)
+{
+    CIFilter *f = ((id (*)(id, SEL))objc_msgSend)([CIFilter class], NSSelectorFromString(factory));
+    SEL setter = NSSelectorFromString([NSString stringWithFormat:@"set%@:",
+                                      [[property substringToIndex:1].uppercaseString stringByAppendingString:
+                                          [property substringFromIndex:1]]]);
+    SEL getter = NSSelectorFromString(property);
+    ((void (*)(id, SEL, CGAffineTransform))objc_msgSend)(f, setter, value);
+    CGAffineTransform typed = ((CGAffineTransform (*)(id, SEL))objc_msgSend)(f, getter);
+    id raw = [f valueForKey:inputKey];
+    CGAffineTransform viaKey = CGAffineTransformIdentity;
+    SEL transformStruct = NSSelectorFromString(@"transformStruct");
+    if ([raw respondsToSelector:transformStruct]) {
+        typedef struct { CGFloat m11, m12, m21, m22, tX, tY; } CIFilterAffineStruct;
+        CIFilterAffineStruct s = ((CIFilterAffineStruct (*)(id, SEL))objc_msgSend)(raw, transformStruct);
+        viaKey = CGAffineTransformMake(s.m11, s.m12, s.m21, s.m22, s.tX, s.tY);
+    } else
+        [raw getValue:&viaKey];
+    printf("typed %s %s: %.3f %.3f %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f %.3f %.3f\n",
+           f.name.UTF8String, property.UTF8String, typed.a, typed.b, typed.c, typed.d, typed.tx, typed.ty,
+           viaKey.a, viaKey.b, viaKey.c, viaKey.d, viaKey.tx, viaKey.ty);
+}
+
+static void
+builtin_object(NSString *factory, NSString *property, NSString *inputKey, id value)
+{
+    CIFilter *f = ((id (*)(id, SEL))objc_msgSend)([CIFilter class], NSSelectorFromString(factory));
+    SEL setter = NSSelectorFromString([NSString stringWithFormat:@"set%@:",
+                                      [[property substringToIndex:1].uppercaseString stringByAppendingString:
+                                          [property substringFromIndex:1]]]);
+    SEL getter = NSSelectorFromString(property);
+    ((void (*)(id, SEL, id))objc_msgSend)(f, setter, value);
+    id typed = ((id (*)(id, SEL))objc_msgSend)(f, getter);
+    printf("typed %s %s: same %d\n", f.name.UTF8String, property.UTF8String,
+           typed == [f valueForKey:inputKey]);
+}
+
+static void
+builtin_colorspace(void)
+{
+    CIFilter *f = ((id (*)(id, SEL))objc_msgSend)([CIFilter class], NSSelectorFromString(@"colorCubeWithColorSpaceFilter"));
+    CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceLinearSRGB);
+    ((void (*)(id, SEL, CGColorSpaceRef))objc_msgSend)(f, @selector(setColorSpace:), space);
+    CGColorSpaceRef typed = ((CGColorSpaceRef (*)(id, SEL))objc_msgSend)(f, @selector(colorSpace));
+    BOOL sameValue = (__bridge id)typed == [f valueForKey:@"inputColorSpace"];
+    printf("typed %s colorSpace: same %d %d\n", f.name.UTF8String, typed == space, sameValue);
+    CGColorSpaceRelease(space);
+}
+
+static void
 describe_filter(NSString *name)
 {
     CIFilter *f = [CIFilter filterWithName:name];
@@ -162,6 +255,7 @@ main(void)
         pixels("alpha one", [im imageBySettingAlphaOneInExtent:im.extent], CGRectMake(0, 0, 4, 2), NO);
 
         printf("== context\n");
+        printf("offline GPUs %u\n", [CIContext offlineGPUCount]);
         CGImageRef cg = [ctx createCGImage:im fromRect:im.extent];
         printf("cgimage %zux%zu bpc %zu bpp %zu alpha %d\n", CGImageGetWidth(cg), CGImageGetHeight(cg),
                CGImageGetBitsPerComponent(cg), CGImageGetBitsPerPixel(cg), (int)CGImageGetAlphaInfo(cg));
@@ -268,11 +362,30 @@ main(void)
         printf("inputRadius %s\n", [[blur valueForKey:@"inputRadius"] description].UTF8String);
         CIFilter *made = ((id (*)(id, SEL))objc_msgSend)([CIFilter class], NSSelectorFromString(@"sepiaToneFilter"));
         printf("factory %s\n", made.name.UTF8String);
+        builtin_float(@"colorPosterizeFilter", @"levels", @"inputLevels", 4.25f);
+        builtin_float(@"colorCubeFilter", @"cubeDimension", @"inputCubeDimension", 3.5f);
+        builtin_float(@"vignetteFilter", @"intensity", @"inputIntensity", 0.75f);
+        builtin_point(@"vignetteEffectFilter", @"center", @"inputCenter", CGPointMake(1.25, -2.5));
+        builtin_point(@"toneCurveFilter", @"point0", @"inputPoint0", CGPointMake(0.1, 0.2));
+        builtin_rect(@"areaAverageFilter", @"extent", @"inputExtent", CGRectMake(1.25, 2.5, 3.75, 4.5));
+        builtin_transform(@"affineClampFilter", @"transform", @"inputTransform",
+                          CGAffineTransformMake(1, 2, 3, 4, 5, 6));
+        builtin_object(@"gaussianBlurFilter", @"inputImage", @"inputImage", im);
+        builtin_object(@"convolution3X3Filter", @"weights", @"inputWeights",
+                       [CIVector vectorWithString:@"[0 0 0 0 1 0 0 0 0]"]);
+        builtin_colorspace();
         pixels("blend kernel", [[CIBlendKernel multiply] applyWithForeground:im background:background()], r, NO);
         pixels("blend kernel xor", [[CIBlendKernel exclusiveOr] applyWithForeground:im background:background()], r, NO);
         CIImageAccumulator *acc = [CIImageAccumulator imageAccumulatorWithExtent:r format:kCIFormatRGBA8];
         [acc setImage:im];
         pixels("accumulator", acc.image, r, NO);
+
+        printf("== added filters\n");
+        filter(@"CIColorPosterize", @{@"inputLevels" : @4}, YES, r);
+        filter(@"CIVibrance", @{@"inputAmount" : @0.5}, YES, r);
+        filter(@"CIMorphologyRectangleMaximum", @{@"inputWidth" : @3, @"inputHeight" : @1}, YES, CGRectMake(-1, -1, 6, 4));
+        filter(@"CIColorCube", nil, YES, r);
+        filter(@"CIConvolution3X3", nil, YES, r);
     }
     return 0;
 }

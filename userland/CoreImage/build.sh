@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # CoreImage.framework: Finch's. Images are recipes rendered on the CPU in Apple's
 # working space (extended linear sRGB, premultiplied); CIContext writes them to memory,
-# CGImages, CGContexts and files (ImageIO); about seventy of Apple's built-in filters
+# CGImages, CGContexts and files (ImageIO); over one hundred of Apple's built-in filters
 # (CIFilterTable.m, their interfaces generated from the published attributes in
 # CIFilterSpecs.inc). CIConstants.m has Apple's constant values.
 #   userland/CoreImage/build.sh -> build/root/System/Library/Frameworks/CoreImage.framework

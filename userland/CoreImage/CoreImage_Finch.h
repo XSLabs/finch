@@ -97,7 +97,7 @@ typedef struct CIFilterDescription {
     const char *displayName;
     const char *categories[10];
     const char *availableMac, *availableIOS;
-    CIFilterInput inputs[12];
+    CIFilterInput inputs[20];
     CIImage *(*output)(CIFilter *filter);
     const char *outputs[3]; /* when not just outputImage */
 } CIFilterDescription;

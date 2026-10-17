@@ -1,11 +1,13 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
 /*
- * finch-quartzcore-test: QuartzCore's CATransform3D functions and string
- * constants. Prints everything; run it against Apple's QuartzCore and
- * Finch's (DYLD_FRAMEWORK_PATH) and diff.
+ * finch-quartzcore-test: QuartzCore's Core Animation APIs and its CoreImage
+ * re-export. Prints everything; run it against Apple's QuartzCore and Finch's
+ * (DYLD_FRAMEWORK_PATH) and diff.
  */
 #import <QuartzCore/QuartzCore.h>
 #import <QuartzCore/CAEDRMetadata.h>
+#import <CoreImage/CoreImage.h>
+#import <CoreImage/CIFilterBuiltins.h>
 #import <Foundation/Foundation.h>
 #include <dlfcn.h>
 #include <math.h>
@@ -49,6 +51,9 @@ main(void)
     Dl_info info;
     dladdr((void *)CATransform3DConcat, &info);
     printf("%s\n", info.dli_fname);
+    CIFilter<CIGaussianBlur> *blur = [CIFilter gaussianBlurFilter];
+    blur.radius = 3.25f;
+    printf("CoreImage re-export %.2f %.2f\n", blur.radius, [[blur valueForKey:@"inputRadius"] doubleValue]);
     CATransform3D t = CATransform3DMakeTranslation(1, 2, 3);
     show("identity", CATransform3DIdentity);
     show("translation", t);

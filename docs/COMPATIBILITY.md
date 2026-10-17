@@ -6,7 +6,7 @@ This report compares public C declarations and SDK export lists, Objective-C cla
 
 Behavior-verified counts come from item IDs in build/compat-results/*.json. Generated comparisons and constant checks merge their item records into the same framework file. Records with status verified (or the older verified/passed flags) count; a later result replaces the status for that item ID. The full name-by-name report is kept in build/api-coverage.json.
 
-Overall: **26.1%** (141,909 of 543,220 API items across 843 parsed frameworks or dylibs).
+Overall: **26.5%** (143,813 of 543,220 API items across 843 parsed frameworks or dylibs).
 
 6 frameworks or dylibs had a parse or load issue and are left out of the overall percentage. 141 parsed successfully but had no public macOS API items.
 
@@ -30,7 +30,7 @@ Overall: **26.1%** (141,909 of 543,220 API items across 843 parsed frameworks or
 | AdServices | 4 | 0 | 4 | 0.0% | 0/4 | complete |
 | AdSupport | 3 | 0 | 3 | 0.0% | 0/3 | complete |
 | AppIntents | 4,043 | 904 | 3,139 | 22.4% | 0/4043 | complete |
-| AppKit | 18,585 | 15,137 | 3,448 | 81.4% | 3578/18585 | complete |
+| AppKit | 18,585 | 15,133 | 3,452 | 81.4% | 3578/18585 | complete |
 | AppleConvergedTransport | 14 | 0 | 14 | 0.0% | 0/14 | complete |
 | AppleScriptKit | 96 | 0 | 96 | 0.0% | 0/96 | complete |
 | AppleScriptObjC | 1 | 0 | 1 | 0.0% | 0/1 | complete |
@@ -85,7 +85,7 @@ Overall: **26.1%** (141,909 of 543,220 API items across 843 parsed frameworks or
 | ClassKit | 176 | 0 | 176 | 0.0% | 0/176 | complete |
 | ClassKitUI | 20 | 0 | 20 | 0.0% | 0/20 | complete |
 | CloudKit | 1,208 | 0 | 1,208 | 0.0% | 0/1208 | complete |
-| Cocoa | 19,543 | 15,833 | 3,710 | 81.0% | 0/19543 | complete |
+| Cocoa | 19,543 | 15,829 | 3,714 | 81.0% | 0/19543 | complete |
 | Collaboration | 48 | 0 | 48 | 0.0% | 0/48 | complete |
 | ColorSync | 205 | 205 | 0 | 100.0% | 150/205 | complete |
 | Combine | 1,299 | 1,291 | 8 | 99.4% | 0/1299 | complete |
@@ -102,7 +102,7 @@ Overall: **26.1%** (141,909 of 543,220 API items across 843 parsed frameworks or
 | CoreGraphics | 1,176 | 868 | 308 | 73.8% | 538/1176 | complete |
 | CoreHaptics | 127 | 0 | 127 | 0.0% | 0/127 | complete |
 | CoreHID | 3,214 | 0 | 3,214 | 0.0% | 0/3214 | complete |
-| CoreImage | 1,899 | 799 | 1,100 | 42.1% | 441/1899 | complete |
+| CoreImage | 1,899 | 1,399 | 500 | 73.7% | 479/1899 | complete |
 | CoreLocation | 259 | 130 | 129 | 50.2% | 3/259 | complete |
 | CoreMedia | 739 | 717 | 22 | 97.0% | 490/739 | complete |
 | CoreMediaIO | 168 | 0 | 168 | 0.0% | 0/168 | complete |
@@ -678,13 +678,13 @@ Overall: **26.1%** (141,909 of 543,220 API items across 843 parsed frameworks or
 | PushKit | 21 | 0 | 21 | 0.0% | 0/21 | complete |
 | PushToTalk | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | QTKit | 0 | 0 | 0 | 0.0% | 0/0 | empty |
-| Quartz | 5,322 | 2,438 | 2,884 | 45.8% | 0/5322 | complete |
-| Quartz/ImageKit | 378 | 291 | 87 | 77.0% | 86/378 | complete |
+| Quartz | 5,322 | 3,096 | 2,226 | 58.2% | 0/5322 | complete |
+| Quartz/ImageKit | 378 | 290 | 88 | 76.7% | 86/378 | complete |
 | Quartz/PDFKit | 562 | 0 | 562 | 0.0% | 0/562 | complete |
 | Quartz/QuartzComposer | 747 | 0 | 747 | 0.0% | 0/747 | complete |
 | Quartz/QuartzFilters | 33 | 29 | 4 | 87.9% | 8/33 | complete |
 | Quartz/QuickLookUI | 189 | 63 | 126 | 33.3% | 0/189 | complete |
-| QuartzCore | 3,413 | 1,632 | 1,781 | 47.8% | 728/3413 | complete |
+| QuartzCore | 3,413 | 2,291 | 1,122 | 67.1% | 728/3413 | complete |
 | QuickLook | 74 | 19 | 55 | 25.7% | 18/74 | complete |
 | QuickLookThumbnailing | 60 | 26 | 34 | 43.3% | 1/60 | complete |
 | QuickLookUI | 189 | 63 | 126 | 33.3% | 0/189 | complete |
@@ -732,7 +732,7 @@ Overall: **26.1%** (141,909 of 543,220 API items across 843 parsed frameworks or
 | swift/libswift_time | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswift_Volatile | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftAccelerate | 0 | 0 | 0 | 0.0% | 0/0 | empty |
-| swift/libswiftAppKit | 18,585 | 15,167 | 3,418 | 81.6% | 0/18585 | complete |
+| swift/libswiftAppKit | 18,585 | 15,163 | 3,422 | 81.6% | 0/18585 | complete |
 | swift/libswiftAppleArchive | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftARKit | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftAVFoundation | 671 | 605 | 66 | 90.2% | 0/671 | complete |
@@ -1376,7 +1376,7 @@ Priority score is missing API items multiplied by the number of apps app-sweep.p
 |---|---:|---:|---:|
 | SwiftUI | 3,729 | 25 | 93,225 |
 | WebKit | 2,908 | 32 | 93,056 |
-| AppKit | 3,448 | 26 | 89,648 |
+| AppKit | 3,452 | 26 | 89,752 |
 | AppIntents | 3,139 | 15 | 47,085 |
 | Foundation | 2,195 | 17 | 37,315 |
 | Vision | 2,674 | 13 | 34,762 |
@@ -1384,8 +1384,8 @@ Priority score is missing API items multiplied by the number of apps app-sweep.p
 | Carbon | 2,004 | 12 | 24,048 |
 | CoreServices | 1,019 | 19 | 19,361 |
 | MetalPerformanceShaders | 2,675 | 7 | 18,725 |
-| QuartzCore | 1,781 | 10 | 17,810 |
 | Intents | 1,065 | 15 | 15,975 |
 | CloudKit | 1,208 | 13 | 15,704 |
-| Quartz | 2,884 | 5 | 14,420 |
 | CoreServices/CarbonCore | 618 | 19 | 11,742 |
+| AVFoundation | 508 | 23 | 11,684 |
+| QuartzCore | 1,122 | 10 | 11,220 |

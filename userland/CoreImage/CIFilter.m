@@ -7,15 +7,59 @@
  * Apps' own CIFilter subclasses work as on macOS (they override outputImage).
  */
 #import "CoreImage_Finch.h"
+#include "CIFilterBuiltins.inc"
+#import <CoreImage/CIFilterBuiltins.h>
 #include <objc/runtime.h>
+#include <string.h>
 
 static NSMutableDictionary *registered; /* name -> constructor, from +registerFilterName: */
+
+/* Keep SDK protocol descriptions available for typed property dispatch.
+   Factories still resolve only to Finch filter descriptions. */
+static Protocol *builtinProtocols[160];
+static size_t builtinProtocolCount;
+
+static Protocol *
+builtin_protocol(NSString *name)
+{
+    for (size_t i = 0; i < builtinProtocolCount; i++)
+        if (builtinProtocols[i] && [name isEqualToString:@(protocol_getName(builtinProtocols[i]))])
+            return builtinProtocols[i];
+    return nil;
+}
+
+static Protocol *
+protocol_for_filter_name(NSString *name)
+{
+    if ([name hasPrefix:@"CIPhotoEffect"])
+        return builtin_protocol(@"CIPhotoEffect");
+    if ([name hasPrefix:@"CIConvolution"])
+        return builtin_protocol(@"CIConvolution");
+    if ([name isEqualToString:@"CIMedianFilter"])
+        return builtin_protocol(@"CIMedian");
+    if ([name isEqualToString:@"CIStraightenFilter"])
+        return builtin_protocol(@"CIStraighten");
+    if ([name isEqualToString:@"CIAreaAlphaWeightedHistogram"])
+        return builtin_protocol(@"CIAreaHistogram");
+    if ([name hasPrefix:@"CIBlendWith"])
+        return builtin_protocol(@"CIBlendWithMask");
+    return builtin_protocol(name);
+}
 
 @implementation CIFilter {
     NSMutableDictionary *_values;
     const CIFilterDescription *_desc;
     NSString *_name;
     BOOL _enabled;
+}
+
++ (void)load
+{
+#define CI_PROTOCOL_REF(name) @protocol(name),
+    Protocol *protocols[] = {CI_FILTER_BUILTIN_PROTOCOLS(CI_PROTOCOL_REF)};
+#undef CI_PROTOCOL_REF
+    builtinProtocolCount = sizeof protocols / sizeof protocols[0];
+    memcpy(builtinProtocols, protocols, sizeof protocols);
 }
 
 + (BOOL)supportsSecureCoding { return YES; }
@@ -43,6 +87,21 @@ value_from_string(const char *s)
     }
     case 'S':
         return rest;
+    case 'D': { /* the public 2 x 2 x 2 identity cube used by CIColorCube */
+        float cube[2 * 2 * 2 * 4];
+        size_t at = 0;
+        for (int b = 0; b < 2; b++)
+            for (int g = 0; g < 2; g++)
+                for (int r = 0; r < 2; r++) {
+                    cube[at++] = (float)r;
+                    cube[at++] = (float)g;
+                    cube[at++] = (float)b;
+                    cube[at++] = 1;
+                }
+        return [NSData dataWithBytes:cube length:sizeof cube];
+    }
+    case 'G':
+        return [(id)CGColorSpaceCreateWithName(kCGColorSpaceSRGB) autorelease];
     }
     return nil;
 }
@@ -150,7 +209,7 @@ class_for(NSString *name)
 {
     NSMutableArray *keys = [NSMutableArray array];
     if (_desc) {
-        for (int i = 0; i < 12 && _desc->inputs[i].key; i++)
+        for (size_t i = 0; i < sizeof _desc->inputs / sizeof _desc->inputs[0] && _desc->inputs[i].key; i++)
             [keys addObject:@(_desc->inputs[i].key)];
         return keys;
     }
@@ -191,7 +250,7 @@ input_named(const CIFilterDescription *d, NSString *key)
 {
     if (!d)
         return NULL;
-    for (int i = 0; i < 12 && d->inputs[i].key; i++)
+    for (size_t i = 0; i < sizeof d->inputs / sizeof d->inputs[0] && d->inputs[i].key; i++)
         if ([key isEqualToString:@(d->inputs[i].key)])
             return &d->inputs[i];
     return NULL;
@@ -211,7 +270,7 @@ default_value(const CIFilterInput *in)
 {
     if (!_desc)
         return;
-    for (int i = 0; i < 12 && _desc->inputs[i].key; i++) {
+    for (size_t i = 0; i < sizeof _desc->inputs / sizeof _desc->inputs[0] && _desc->inputs[i].key; i++) {
         id v = default_value(&_desc->inputs[i]);
         NSString *key = @(_desc->inputs[i].key);
         if (v)
@@ -303,7 +362,7 @@ default_value(const CIFilterInput *in)
         URLWithString:[NSString stringWithFormat:@"http://developer.apple.com/library/mac/documentation/GraphicsImaging/"
                                                  @"Reference/CoreImageFilterReference/index.html#//apple_ref/doc/filter/ci/%@",
                                                  _name]];
-    for (int i = 0; i < 12 && _desc->inputs[i].key; i++) {
+    for (size_t i = 0; i < sizeof _desc->inputs / sizeof _desc->inputs[0] && _desc->inputs[i].key; i++) {
         const CIFilterInput *in = &_desc->inputs[i];
         NSMutableDictionary *d = [NSMutableDictionary dictionary];
         if (in->cls)
@@ -459,13 +518,18 @@ static NSString *
 filter_for_selector(SEL sel)
 {
     NSString *s = NSStringFromSelector(sel);
-    if (![s hasSuffix:@"Filter"] || [s containsString:@":"] || s.length <= 6)
+    if ([s containsString:@":"] || !s.length)
         return nil;
-    NSString *base = [s substringToIndex:s.length - 6];
-    NSString *want = [@"CI" stringByAppendingString:base];
-    for (NSString *name in ci_filter_names())
-        if ([name caseInsensitiveCompare:want] == NSOrderedSame)
-            return name;
+    NSString *base = [s hasSuffix:@"Filter"] ? [s substringToIndex:s.length - 6] : s;
+    NSMutableArray *candidates = [NSMutableArray arrayWithObject:[@"CI" stringByAppendingString:base]];
+    if ([s hasSuffix:@"Filter"])
+        [candidates addObject:[[@"CI" stringByAppendingString:base] stringByAppendingString:@"Filter"]];
+    else if ([s isEqualToString:@"CMYKHalftone"])
+        [candidates addObject:@"CICMYKHalftone"];
+    for (NSString *candidate in candidates)
+        for (NSString *name in ci_filter_names())
+            if ([name caseInsensitiveCompare:candidate] == NSOrderedSame)
+                return name;
     return nil;
 }
 
@@ -501,28 +565,39 @@ input_for_property(const CIFilterDescription *d, NSString *prop)
     return input_named(d, [@"input" stringByAppendingString:prop]);
 }
 
-enum { P_OBJECT, P_FLOAT, P_BOOL, P_INTEGER, P_POINT, P_RECT, P_TRANSFORM };
+enum { P_OBJECT, P_FLOAT, P_DOUBLE, P_BOOL, P_INTEGER, P_POINT, P_RECT, P_SIZE, P_TRANSFORM, P_COLORSPACE };
 
 static int
-property_kind(const CIFilterInput *in)
+property_kind(const char *type)
 {
-    NSString *cls = in->cls ? @(in->cls) : @"";
-    NSString *type = in->type ? @(in->type) : @"";
-    if ([cls isEqualToString:@"NSNumber"]) {
-        if ([type isEqualToString:kCIAttributeTypeBoolean])
-            return P_BOOL;
-        if ([type isEqualToString:kCIAttributeTypeInteger] || [type isEqualToString:kCIAttributeTypeCount])
-            return P_INTEGER;
+    if (!type || !*type)
+        return P_OBJECT;
+    while (strchr("rnNoORV", *type))
+        type++;
+    if (*type == '@' || *type == '#')
+        return P_OBJECT;
+    if (*type == '^')
+        return strstr(type, "CGColorSpace") ? P_COLORSPACE : P_OBJECT;
+    if (*type == 'f')
         return P_FLOAT;
-    }
-    if ([cls isEqualToString:@"CIVector"]) {
-        if ([type isEqualToString:kCIAttributeTypePosition] || [type isEqualToString:kCIAttributeTypeOffset])
-            return P_POINT;
-        if ([type isEqualToString:kCIAttributeTypeRectangle])
+    if (*type == 'd')
+        return P_DOUBLE;
+    if (*type == 'B')
+        return P_BOOL;
+    if (strchr("qQ", *type))
+        return P_INTEGER;
+    if (strchr("cCsSiIlL", *type))
+        return P_INTEGER;
+    if (*type == '{') {
+        if (strstr(type, "CGRect"))
             return P_RECT;
+        if (strstr(type, "CGSize"))
+            return P_SIZE;
+        if (strstr(type, "CGPoint"))
+            return P_POINT;
+        if (strstr(type, "CGAffineTransform"))
+            return P_TRANSFORM;
     }
-    if ([cls isEqualToString:@"NSValue"] || [type isEqualToString:kCIAttributeTypeTransform])
-        return P_TRANSFORM;
     return P_OBJECT;
 }
 
@@ -548,6 +623,24 @@ input_for_selector(CIFilter *f, SEL sel, BOOL *setter)
     return in;
 }
 
+static objc_property_t
+property_in_protocol(Protocol *protocol, const char *name)
+{
+    if (!protocol)
+        return NULL;
+    objc_property_t property = protocol_getProperty(protocol, name, YES, YES);
+    if (!property)
+        property = protocol_getProperty(protocol, name, NO, YES);
+    if (property)
+        return property;
+    unsigned count = 0;
+    Protocol *__unsafe_unretained *adopted = protocol_copyProtocolList(protocol, &count);
+    for (unsigned i = 0; i < count && !property; i++)
+        property = property_in_protocol(adopted[i], name);
+    free(adopted);
+    return property;
+}
+
 static NSString *
 key_for(CIFilter *self, SEL _cmd)
 {
@@ -558,10 +651,17 @@ key_for(CIFilter *self, SEL _cmd)
 
 static id get_object(CIFilter *self, SEL _cmd) { return self->_values[key_for(self, _cmd)]; }
 static float get_float(CIFilter *self, SEL _cmd) { return [self->_values[key_for(self, _cmd)] floatValue]; }
+static double get_double(CIFilter *self, SEL _cmd) { return [self->_values[key_for(self, _cmd)] doubleValue]; }
 static BOOL get_bool(CIFilter *self, SEL _cmd) { return [self->_values[key_for(self, _cmd)] boolValue]; }
 static NSInteger get_integer(CIFilter *self, SEL _cmd) { return [self->_values[key_for(self, _cmd)] integerValue]; }
 static CGPoint get_point(CIFilter *self, SEL _cmd) { return [self->_values[key_for(self, _cmd)] CGPointValue]; }
 static CGRect get_rect(CIFilter *self, SEL _cmd) { return [self->_values[key_for(self, _cmd)] CGRectValue]; }
+static CGSize
+get_size(CIFilter *self, SEL _cmd)
+{
+    CIVector *v = self->_values[key_for(self, _cmd)];
+    return CGSizeMake([v valueAtIndex:0], [v valueAtIndex:1]);
+}
 static CGAffineTransform
 get_transform(CIFilter *self, SEL _cmd)
 {
@@ -576,14 +676,27 @@ get_transform(CIFilter *self, SEL _cmd)
 }
 static void set_object(CIFilter *self, SEL _cmd, id v) { [self setValue:v forKey:key_for(self, _cmd)]; }
 static void set_float(CIFilter *self, SEL _cmd, float v) { [self setValue:@(v) forKey:key_for(self, _cmd)]; }
+static void set_double(CIFilter *self, SEL _cmd, double v) { [self setValue:@(v) forKey:key_for(self, _cmd)]; }
 static void set_bool(CIFilter *self, SEL _cmd, BOOL v) { [self setValue:@(v) forKey:key_for(self, _cmd)]; }
 static void set_integer(CIFilter *self, SEL _cmd, NSInteger v) { [self setValue:@(v) forKey:key_for(self, _cmd)]; }
 static void set_point(CIFilter *self, SEL _cmd, CGPoint v) { [self setValue:[CIVector vectorWithCGPoint:v] forKey:key_for(self, _cmd)]; }
 static void set_rect(CIFilter *self, SEL _cmd, CGRect v) { [self setValue:[CIVector vectorWithCGRect:v] forKey:key_for(self, _cmd)]; }
+static void set_size(CIFilter *self, SEL _cmd, CGSize v) { [self setValue:[CIVector vectorWithX:v.width Y:v.height] forKey:key_for(self, _cmd)]; }
 static void
 set_transform(CIFilter *self, SEL _cmd, CGAffineTransform v)
 {
     [self setValue:[NSValue valueWithBytes:&v objCType:@encode(CGAffineTransform)] forKey:key_for(self, _cmd)];
+}
+static CGColorSpaceRef
+get_colorspace(CIFilter *self, SEL _cmd)
+{
+    id value = self->_values[key_for(self, _cmd)];
+    return [value isKindOfClass:[NSValue class]] ? [value pointerValue] : (CGColorSpaceRef)value;
+}
+static void
+set_colorspace(CIFilter *self, SEL _cmd, CGColorSpaceRef value)
+{
+    [self setValue:(id)value forKey:key_for(self, _cmd)];
 }
 
 /* A filter's typed accessors, added to its class the first time they're called. */
@@ -598,22 +711,20 @@ set_transform(CIFilter *self, SEL _cmd, CGAffineTransform v)
         if (!in && setter && prop.length > 1)
             in = input_for_property(d, [[[prop substringToIndex:1] uppercaseString] stringByAppendingString:[prop substringFromIndex:1]]);
         if (in) {
-            static const struct {
-                IMP get, set;
-                const char *gt, *st;
-            } kinds[] = {
-                [P_OBJECT] = {(IMP)get_object, (IMP)set_object, "@@:", "v@:@"},
-                [P_FLOAT] = {(IMP)get_float, (IMP)set_float, "f@:", "v@:f"},
-                [P_BOOL] = {(IMP)get_bool, (IMP)set_bool, "B@:", "v@:B"},
-                [P_INTEGER] = {(IMP)get_integer, (IMP)set_integer, "q@:", "v@:q"},
-                [P_POINT] = {(IMP)get_point, (IMP)set_point, "{CGPoint=dd}@:", "v@:{CGPoint=dd}"},
-                [P_RECT] = {(IMP)get_rect, (IMP)set_rect, "{CGRect={CGPoint=dd}{CGSize=dd}}@:", "v@:{CGRect={CGPoint=dd}{CGSize=dd}}"},
-                [P_TRANSFORM] = {(IMP)get_transform, (IMP)set_transform, "{CGAffineTransform=dddddd}@:",
-                                 "v@:{CGAffineTransform=dddddd}"},
-            };
-            int k = property_kind(in);
-            /* the image inputs are objects whatever their name */
-            class_addMethod(self, sel, setter ? kinds[k].set : kinds[k].get, setter ? kinds[k].st : kinds[k].gt);
+            Protocol *protocol = protocol_for_filter_name(name);
+            objc_property_t property = property_in_protocol(protocol, prop.UTF8String);
+            char *type = property ? property_copyAttributeValue(property, "T") : NULL;
+            int k = property_kind(type);
+            IMP get[] = {(IMP)get_object, (IMP)get_float, (IMP)get_double, (IMP)get_bool, (IMP)get_integer,
+                         (IMP)get_point, (IMP)get_rect, (IMP)get_size, (IMP)get_transform, (IMP)get_colorspace};
+            IMP set[] = {(IMP)set_object, (IMP)set_float, (IMP)set_double, (IMP)set_bool, (IMP)set_integer,
+                         (IMP)set_point, (IMP)set_rect, (IMP)set_size, (IMP)set_transform, (IMP)set_colorspace};
+            char getter[192], setterType[196];
+            const char *encoding = type ?: "@";
+            snprintf(getter, sizeof getter, "%s@:", encoding);
+            snprintf(setterType, sizeof setterType, "v@:%s", encoding);
+            class_addMethod(self, sel, setter ? set[k] : get[k], setter ? setterType : getter);
+            free(type);
             return YES;
         }
     }

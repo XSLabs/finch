@@ -15,6 +15,9 @@
     CIFormat _workingFormat;
 }
 
+/* Finch's CoreImage renderer has no GPU path. */
++ (unsigned int)offlineGPUCount { return 0; }
+
 + (CIContext *)context { return [[[self alloc] initWithOptions:nil] autorelease]; }
 + (CIContext *)contextWithOptions:(NSDictionary<CIContextOption, id> *)options
 {

@@ -109,7 +109,6 @@ steps=(
     # Finch's CoreGraphics over Skia (docs/design/COREGRAPHICS.md)
     "skia|userland/skia/build.sh"
     "CoreGraphics|userland/CoreGraphics/build.sh"
-    "QuartzCore|userland/QuartzCore/build.sh"
     # SkyLight's SLS calls apps import directly, over CoreGraphics
     "SkyLight|userland/SkyLight/build.sh"
     # The open fonts Finch ships for Apple's (userland/fonts)
@@ -121,6 +120,8 @@ steps=(
     "Accelerate|userland/Accelerate/build.sh"
     # CoreImage: images as recipes, filters rendered on the CPU
     "CoreImage|userland/CoreImage/build.sh"
+    # QuartzCore re-exports CoreImage, so link it after that framework is built.
+    "QuartzCore|userland/QuartzCore/build.sh"
     # ColorSync (over skcms) and HIServices, which ApplicationServices re-exports
     "ColorSync|userland/ColorSync/build.sh"
     "HIServices|userland/HIServices/build.sh"
