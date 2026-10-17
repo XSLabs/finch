@@ -9,10 +9,12 @@
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #include <openssl/rsa.h>
+#include <openssl/rand.h>
 #include <openssl/ec.h>
 #include <openssl/rand.h>
 #include <openssl/bio.h>
 #include <openssl/pem.h>
+#include <openssl/pkcs12.h>
 #include <time.h>
 #include <dispatch/dispatch.h>
 #include <pthread.h>
@@ -114,11 +116,17 @@ int SecRandomCopyBytes(SecRandomRef random, size_t count, void *bytes)
 typedef struct {
 	CFRuntimeBase base;
 	X509 *cert;
+	CFDataRef legacyData;
+	CSSM_X509_NAME *subject;
+	CSSM_X509_NAME *issuer;
+	CSSM_X509_ALGORITHM_IDENTIFIER algorithm;
+	bool hasAlgorithm;
 } Certificate;
 typedef struct {
 	CFRuntimeBase base;
 	EVP_PKEY *key;
 	bool private;
+	bool symmetric;
 	/* Public keys carry different attribute defaults depending on how Security made them. */
 	int attributeSource;
 } Key;
@@ -126,19 +134,53 @@ enum {KeyAttributesDefault, KeyAttributesPublicCopy, KeyAttributesTrust};
 typedef struct {
 	CFRuntimeBase base;
 	CFDictionaryRef properties;
+	CFDataRef oidData;
 } Policy;
+typedef struct {
+	CFRuntimeBase base;
+	SecPolicyRef policy;
+	bool returned;
+} PolicySearch;
 typedef struct {
 	CFRuntimeBase base;
 	CFArrayRef certs, anchors, policies;
 	CFArrayRef chain;   /* built by the last evaluation */
 	CFDateRef date;
+	CFDataRef exceptions;
 	CFIndex result;
 	OSStatus status;
+	OSStatus exceptionStatus;
+	SecTrustOptionFlags options;
 	bool anchorsOnly;
+	bool hasException;
 } Trust;
 static void certFree(CFTypeRef o)
 {
-	X509_free(((Certificate *)o)->cert);
+	Certificate *certificate = (Certificate *)o;
+	X509_free(certificate->cert);
+	if (certificate->legacyData)
+		CFRelease(certificate->legacyData);
+	CSSM_X509_NAME *names[] = {certificate->subject, certificate->issuer};
+	for (size_t n = 0; n < sizeof(names) / sizeof(names[0]); n++) {
+		CSSM_X509_NAME *name = names[n];
+		if (!name)
+			continue;
+		for (uint32_t i = 0; i < name->numberOfRDNs; i++) {
+			CSSM_X509_RDN *rdn = &name->RelativeDistinguishedName[i];
+			if (!rdn->AttributeTypeAndValue)
+				continue;
+			for (uint32_t j = 0; j < rdn->numberOfPairs; j++) {
+				CSSM_X509_TYPE_VALUE_PAIR *pair = &rdn->AttributeTypeAndValue[j];
+				free(pair->type.Data);
+				free(pair->value.Data);
+			}
+			free(rdn->AttributeTypeAndValue);
+		}
+		free(name->RelativeDistinguishedName);
+		free(name);
+	}
+	free(certificate->algorithm.algorithm.Data);
+	free(certificate->algorithm.parameters.Data);
 }
 static void keyFree(CFTypeRef o)
 {
@@ -146,7 +188,17 @@ static void keyFree(CFTypeRef o)
 }
 static void policyFree(CFTypeRef o)
 {
-	CFRelease(((Policy *)o)->properties);
+	Policy *policy = (Policy *)o;
+	if (policy->properties)
+		CFRelease(policy->properties);
+	if (policy->oidData)
+		CFRelease(policy->oidData);
+}
+static void policySearchFree(CFTypeRef o)
+{
+	PolicySearch *search = (PolicySearch *)o;
+	if (search->policy)
+		CFRelease(search->policy);
 }
 static void trustFree(CFTypeRef o)
 {
@@ -161,6 +213,8 @@ static void trustFree(CFTypeRef o)
 		CFRelease(t->date);
 	if (t->chain)
 		CFRelease(t->chain);
+	if (t->exceptions)
+		CFRelease(t->exceptions);
 }
 static Boolean certEqual(CFTypeRef a, CFTypeRef b)
 {
@@ -178,7 +232,8 @@ static CFHashCode certHash(CFTypeRef a)
 static Boolean keyEqual(CFTypeRef a, CFTypeRef b)
 {
 	Key *x = (Key *)a, *y = (Key *)b;
-	if (x->private != y->private || EVP_PKEY_base_id(x->key) != EVP_PKEY_base_id(y->key))
+	if (x->private != y->private || x->symmetric != y->symmetric ||
+	    EVP_PKEY_base_id(x->key) != EVP_PKEY_base_id(y->key))
 		return false;
 	return EVP_PKEY_eq(x->key, y->key) == 1;
 }
@@ -198,10 +253,12 @@ TYPE(Certificate, certFree, certEqual, certHash)
 TYPE(Key, keyFree, keyEqual, keyHash)
 TYPE(Policy, policyFree, NULL, NULL)
 TYPE(Trust, trustFree, NULL, NULL)
+TYPE(PolicySearch, policySearchFree, NULL, NULL)
 static bool valid(CFTypeRef o, CFTypeID t)
 {
 	return o && CFGetTypeID(o) == t;
 }
+static CFArrayRef currentChain(Trust *t);
 SecCertificateRef SecCertificateCreateWithData(CFAllocatorRef allocator, CFDataRef data)
 {
 	if (!valid(data, CFDataGetTypeID()))
@@ -229,6 +286,180 @@ CFDataRef SecCertificateCopyData(SecCertificateRef ref)
 	CFDataRef d = n > 0 ? CFDataCreate(NULL, out, n) : NULL;
 	OPENSSL_free(out);
 	return d;
+}
+static CSSM_X509_NAME *legacyName(X509_NAME *source)
+{
+	CSSM_X509_NAME *name = calloc(1, sizeof(*name));
+	if (!name)
+		return NULL;
+	int entries = X509_NAME_entry_count(source);
+	for (int i = 0; i < entries; i++) {
+		if (!i || X509_NAME_ENTRY_set(X509_NAME_get_entry(source, i)) !=
+		        X509_NAME_ENTRY_set(X509_NAME_get_entry(source, i - 1)))
+			name->numberOfRDNs++;
+	}
+	name->RelativeDistinguishedName = calloc(name->numberOfRDNs, sizeof(*name->RelativeDistinguishedName));
+	if (name->numberOfRDNs && !name->RelativeDistinguishedName) {
+		free(name);
+		return NULL;
+	}
+	uint32_t rdnIndex = 0;
+	for (int i = 0; i < entries;) {
+		int set = X509_NAME_ENTRY_set(X509_NAME_get_entry(source, i));
+		int end = i + 1;
+		while (end < entries && X509_NAME_ENTRY_set(X509_NAME_get_entry(source, end)) == set)
+			end++;
+		CSSM_X509_RDN *rdn = &name->RelativeDistinguishedName[rdnIndex++];
+		rdn->numberOfPairs = (uint32_t)(end - i);
+		rdn->AttributeTypeAndValue = calloc(rdn->numberOfPairs, sizeof(*rdn->AttributeTypeAndValue));
+		if (!rdn->AttributeTypeAndValue)
+			goto fail;
+		for (int j = i; j < end; j++) {
+			CSSM_X509_TYPE_VALUE_PAIR *pair = &rdn->AttributeTypeAndValue[j - i];
+			X509_NAME_ENTRY *entry = X509_NAME_get_entry(source, j);
+			ASN1_OBJECT *object = X509_NAME_ENTRY_get_object(entry);
+			ASN1_STRING *value = X509_NAME_ENTRY_get_data(entry);
+			int oidLength = OBJ_length(object);
+			int valueLength = ASN1_STRING_length(value);
+			pair->type.Length = (size_t)oidLength;
+			pair->type.Data = malloc(pair->type.Length);
+			pair->value.Length = (size_t)valueLength;
+			pair->value.Data = malloc(pair->value.Length ? pair->value.Length : 1);
+			if ((pair->type.Length && !pair->type.Data) || !pair->value.Data)
+				goto fail;
+			memcpy(pair->type.Data, OBJ_get0_data(object), pair->type.Length);
+			if (pair->value.Length)
+				memcpy(pair->value.Data, ASN1_STRING_get0_data(value), pair->value.Length);
+			pair->valueType = (CSSM_BER_TAG)ASN1_STRING_type(value);
+		}
+		i = end;
+	}
+	return name;
+fail:
+	for (uint32_t i = 0; i < name->numberOfRDNs; i++) {
+		CSSM_X509_RDN *rdn = &name->RelativeDistinguishedName[i];
+		for (uint32_t j = 0; rdn->AttributeTypeAndValue && j < rdn->numberOfPairs; j++) {
+			free(rdn->AttributeTypeAndValue[j].type.Data);
+			free(rdn->AttributeTypeAndValue[j].value.Data);
+		}
+		free(rdn->AttributeTypeAndValue);
+	}
+	free(name->RelativeDistinguishedName);
+	free(name);
+	return NULL;
+}
+OSStatus SecCertificateCreateFromData(const CSSM_DATA *data, CSSM_CERT_TYPE type,
+    CSSM_CERT_ENCODING encoding, SecCertificateRef *out)
+{
+	if (!out || !data || !data->Data || !data->Length)
+		return errSecParam;
+	*out = NULL;
+	if ((encoding != CSSM_CERT_ENCODING_DER && encoding != CSSM_CERT_ENCODING_BER) ||
+	    (type != CSSM_CERT_UNKNOWN && type != CSSM_CERT_X_509v1 &&
+	        type != CSSM_CERT_X_509v2 && type != CSSM_CERT_X_509v3))
+		return errSecUnsupportedFormat;
+	CFDataRef bytes = CFDataCreate(NULL, data->Data, (CFIndex)data->Length);
+	SecCertificateRef certificate = bytes ? SecCertificateCreateWithData(NULL, bytes) : NULL;
+	if (bytes)
+		CFRelease(bytes);
+	if (!certificate)
+		return errSecDecode;
+	*out = certificate;
+	return errSecSuccess;
+}
+OSStatus SecCertificateGetData(SecCertificateRef ref, CSSM_DATA_PTR out)
+{
+	if (!valid(ref, SecCertificateGetTypeID()) || !out)
+		return errSecParam;
+	Certificate *certificate = (Certificate *)ref;
+	if (!certificate->legacyData)
+		certificate->legacyData = SecCertificateCopyData(ref);
+	if (!certificate->legacyData)
+		return errSecDecode;
+	out->Length = (size_t)CFDataGetLength(certificate->legacyData);
+	out->Data = (uint8_t *)CFDataGetBytePtr(certificate->legacyData);
+	return errSecSuccess;
+}
+OSStatus SecCertificateGetType(SecCertificateRef ref, CSSM_CERT_TYPE *out)
+{
+	if (!valid(ref, SecCertificateGetTypeID()) || !out)
+		return errSecParam;
+	long version = X509_get_version(((Certificate *)ref)->cert);
+	*out = version <= 0 ? CSSM_CERT_X_509v1 : version == 1 ? CSSM_CERT_X_509v2 : CSSM_CERT_X_509v3;
+	return errSecSuccess;
+}
+OSStatus SecCertificateGetSubject(SecCertificateRef ref, const CSSM_X509_NAME **out)
+{
+	if (!valid(ref, SecCertificateGetTypeID()) || !out)
+		return errSecParam;
+	Certificate *certificate = (Certificate *)ref;
+	if (!certificate->subject)
+		certificate->subject = legacyName(X509_get_subject_name(certificate->cert));
+	if (!certificate->subject)
+		return errSecAllocate;
+	*out = certificate->subject;
+	return errSecSuccess;
+}
+OSStatus SecCertificateGetIssuer(SecCertificateRef ref, const CSSM_X509_NAME **out)
+{
+	if (!valid(ref, SecCertificateGetTypeID()) || !out)
+		return errSecParam;
+	Certificate *certificate = (Certificate *)ref;
+	if (!certificate->issuer)
+		certificate->issuer = legacyName(X509_get_issuer_name(certificate->cert));
+	if (!certificate->issuer)
+		return errSecAllocate;
+	*out = certificate->issuer;
+	return errSecSuccess;
+}
+OSStatus SecCertificateGetAlgorithmID(SecCertificateRef ref,
+    const CSSM_X509_ALGORITHM_IDENTIFIER **out)
+{
+	if (!valid(ref, SecCertificateGetTypeID()) || !out)
+		return errSecParam;
+	Certificate *certificate = (Certificate *)ref;
+	if (!certificate->hasAlgorithm) {
+		const X509_ALGOR *algorithm = X509_get0_tbs_sigalg(certificate->cert);
+		const ASN1_OBJECT *object = NULL;
+		int parameterType = V_ASN1_UNDEF;
+		const void *parameter = NULL;
+		X509_ALGOR_get0(&object, &parameterType, &parameter, algorithm);
+		int oidLength = object ? OBJ_length(object) : 0;
+		if (oidLength <= 0)
+			return errSecDecode;
+		certificate->algorithm.algorithm.Length = (size_t)oidLength;
+		certificate->algorithm.algorithm.Data = malloc((size_t)oidLength);
+		if (!certificate->algorithm.algorithm.Data)
+			return errSecAllocate;
+		memcpy(certificate->algorithm.algorithm.Data, OBJ_get0_data(object), (size_t)oidLength);
+		if (parameterType == V_ASN1_NULL) {
+			certificate->algorithm.parameters.Length = 2;
+			certificate->algorithm.parameters.Data = malloc(2);
+			if (!certificate->algorithm.parameters.Data)
+				return errSecAllocate;
+			certificate->algorithm.parameters.Data[0] = 0x05;
+			certificate->algorithm.parameters.Data[1] = 0x00;
+		}
+		certificate->hasAlgorithm = true;
+	}
+	*out = &certificate->algorithm;
+	return errSecSuccess;
+}
+CFDataRef SecCertificateCopyNormalizedIssuerContent(SecCertificateRef ref, CFErrorRef *error)
+{
+	if (!valid(ref, SecCertificateGetTypeID())) {
+		_SecSetError(error, errSecParam, NULL);
+		return NULL;
+	}
+	return SecCertificateCopyNormalizedIssuerSequence(ref);
+}
+CFDataRef SecCertificateCopyNormalizedSubjectContent(SecCertificateRef ref, CFErrorRef *error)
+{
+	if (!valid(ref, SecCertificateGetTypeID())) {
+		_SecSetError(error, errSecParam, NULL);
+		return NULL;
+	}
+	return SecCertificateCopyNormalizedSubjectSequence(ref);
 }
 static CFStringRef copyASN1String(const ASN1_STRING *s)
 {
@@ -568,6 +799,155 @@ SecKeyRef SecKeyCreateRandomKey(CFDictionaryRef attrs, CFErrorRef *e)
 	}
 	return wrapKey(p, true);
 }
+static SecKeyRef createSymmetricKey(const UInt8 *bytes, size_t length, CFErrorRef *error)
+{
+	if (!bytes || (length != 16 && length != 24 && length != 32)) {
+		_SecSetError(error, errSecUnsupportedKeySize, NULL);
+		return NULL;
+	}
+	EVP_PKEY *p = EVP_PKEY_new_raw_private_key(EVP_PKEY_HMAC, NULL, bytes, length);
+	SecKeyRef result = wrapKey(p, true);
+	if (!result) {
+		_SecSetError(error, errSecAllocate, NULL);
+		return NULL;
+	}
+	((Key *)result)->symmetric = true;
+	return result;
+}
+
+SecKeyRef SecKeyCreateFromData(CFDictionaryRef parameters, CFDataRef keyData, CFErrorRef *error)
+{
+	if (!valid(parameters, CFDictionaryGetTypeID()) || !valid(keyData, CFDataGetTypeID())) {
+		_SecSetError(error, errSecParam, NULL);
+		return NULL;
+	}
+	CFTypeRef type = CFDictionaryGetValue(parameters, kSecAttrKeyType);
+	if (!type) {
+		_SecSetError(error, errSecParam, NULL);
+		return NULL;
+	}
+	if (!CFEqual(type, kSecAttrKeyTypeAES))
+		return SecKeyCreateWithData(keyData, parameters, error);
+	CFTypeRef keyClass = CFDictionaryGetValue(parameters, kSecAttrKeyClass);
+	if (keyClass && !CFEqual(keyClass, kSecAttrKeyClassSymmetric)) {
+		_SecSetError(error, errSecParam, NULL);
+		return NULL;
+	}
+	return createSymmetricKey(CFDataGetBytePtr(keyData), (size_t)CFDataGetLength(keyData), error);
+}
+
+SecKeyRef SecKeyGenerateSymmetric(CFDictionaryRef parameters, CFErrorRef *error)
+{
+	if (!valid(parameters, CFDictionaryGetTypeID()) ||
+	    !CFEqual(CFDictionaryGetValue(parameters, kSecAttrKeyType) ?: kCFNull, kSecAttrKeyTypeAES)) {
+		_SecSetError(error, errSecParam, NULL);
+		return NULL;
+	}
+	CFTypeRef permanent = CFDictionaryGetValue(parameters, kSecAttrIsPermanent);
+	if (permanent == kCFBooleanTrue || CFDictionaryContainsKey(parameters, kSecAttrTokenID) ||
+	    CFDictionaryContainsKey(parameters, kSecUseKeychain)) {
+		_SecSetError(error, errSecNotAvailable, NULL);
+		return NULL;
+	}
+	int bits = 128;
+	CFNumberRef size = CFDictionaryGetValue(parameters, kSecAttrKeySizeInBits);
+	if (!size || CFGetTypeID(size) != CFNumberGetTypeID() ||
+	    !CFNumberGetValue(size, kCFNumberIntType, &bits) ||
+	    (bits != 128 && bits != 192 && bits != 256)) {
+		_SecSetError(error, errSecUnsupportedKeySize, NULL);
+		return NULL;
+	}
+	UInt8 bytes[32];
+	size_t length = (size_t)bits / 8;
+	if (RAND_bytes(bytes, (int)length) != 1) {
+		OPENSSL_cleanse(bytes, sizeof(bytes));
+		_SecSetError(error, errSecInternalError, NULL);
+		return NULL;
+	}
+	SecKeyRef result = createSymmetricKey(bytes, length, error);
+	OPENSSL_cleanse(bytes, sizeof(bytes));
+	return result;
+}
+
+SecKeyRef SecKeyDeriveFromPassword(CFStringRef password, CFDictionaryRef parameters, CFErrorRef *error)
+{
+	if (!valid(password, CFStringGetTypeID()) || !valid(parameters, CFDictionaryGetTypeID())) {
+		_SecSetError(error, errSecParam, NULL);
+		return NULL;
+	}
+	CFDataRef salt = CFDictionaryGetValue(parameters, kSecAttrSalt);
+	if (!valid(salt, CFDataGetTypeID()) || CFDataGetLength(salt) == 0) {
+		_SecSetError(error, errSecMissingAlgorithmParms, NULL);
+		return NULL;
+	}
+	int bits = 128, rounds = 0;
+	CFNumberRef size = CFDictionaryGetValue(parameters, kSecAttrKeySizeInBits);
+	CFNumberRef roundValue = CFDictionaryGetValue(parameters, kSecAttrRounds);
+	if (size && (CFGetTypeID(size) != CFNumberGetTypeID() || !CFNumberGetValue(size, kCFNumberIntType, &bits))) {
+		_SecSetError(error, errSecParam, NULL);
+		return NULL;
+	}
+	if (roundValue && (CFGetTypeID(roundValue) != CFNumberGetTypeID() || !CFNumberGetValue(roundValue, kCFNumberIntType, &rounds))) {
+		_SecSetError(error, errSecParam, NULL);
+		return NULL;
+	}
+	if (rounds == 0) rounds = 33333;
+	if (rounds < 1 || bits < 8 || bits > 4096 || (bits & 7)) {
+		_SecSetError(error, errSecParam, NULL);
+		return NULL;
+	}
+	CFTypeRef prf = CFDictionaryGetValue(parameters, kSecAttrPRF);
+	const EVP_MD *digest = EVP_sha256();
+	if (prf && CFEqual(prf, kSecAttrPRFHmacAlgSHA1)) digest = EVP_sha1();
+	else if (prf && CFEqual(prf, kSecAttrPRFHmacAlgSHA224)) digest = EVP_sha224();
+	else if (prf && CFEqual(prf, kSecAttrPRFHmacAlgSHA256)) digest = EVP_sha256();
+	else if (prf && CFEqual(prf, kSecAttrPRFHmacAlgSHA384)) digest = EVP_sha384();
+	else if (prf && CFEqual(prf, kSecAttrPRFHmacAlgSHA512)) digest = EVP_sha512();
+	else if (prf) {
+		_SecSetError(error, errSecInvalidAlgorithmParms, NULL);
+		return NULL;
+	}
+	CFIndex capacity = CFStringGetMaximumSizeForEncoding(CFStringGetLength(password), kCFStringEncodingUTF8) + 1;
+	if (capacity < 1 || capacity > INT_MAX) {
+		_SecSetError(error, errSecParam, NULL);
+		return NULL;
+	}
+	char *passwordBytes = malloc((size_t)capacity);
+	if (!passwordBytes) {
+		_SecSetError(error, errSecAllocate, NULL);
+		return NULL;
+	}
+	CFIndex used = 0;
+	Boolean converted = CFStringGetBytes(password, CFRangeMake(0, CFStringGetLength(password)),
+	    kCFStringEncodingUTF8, 0, false, (UInt8 *)passwordBytes, capacity - 1, &used) == CFStringGetLength(password);
+	UInt8 *derived = calloc((size_t)bits / 8, 1);
+	int ok = converted && derived && PKCS5_PBKDF2_HMAC(passwordBytes, (int)used,
+	    CFDataGetBytePtr(salt), (int)CFDataGetLength(salt), rounds, digest,
+	    bits / 8, derived) == 1;
+	SecKeyRef result = NULL;
+	if (ok)
+		result = createSymmetricKey(derived, (size_t)bits / 8, error);
+	else
+		_SecSetError(error, errSecParam, NULL);
+	OPENSSL_cleanse(passwordBytes, (size_t)capacity);
+	OPENSSL_clear_free(derived, (size_t)bits / 8);
+	free(passwordBytes);
+	return result;
+}
+
+CFDataRef SecKeyWrapSymmetric(SecKeyRef keyToWrap, SecKeyRef wrappingKey,
+	CFDictionaryRef parameters, CFErrorRef *error)
+{
+	_SecSetError(error, errSecUnimplemented, NULL);
+	return NULL;
+}
+
+SecKeyRef SecKeyUnwrapSymmetric(CFDataRef *keyToUnwrap, SecKeyRef unwrappingKey,
+	CFDictionaryRef parameters, CFErrorRef *error)
+{
+	_SecSetError(error, errSecUnimplemented, NULL);
+	return NULL;
+}
 CFDataRef SecKeyCopyExternalRepresentation(SecKeyRef ref, CFErrorRef *e)
 {
 	if (!valid(ref, SecKeyGetTypeID())) {
@@ -575,6 +955,10 @@ CFDataRef SecKeyCopyExternalRepresentation(SecKeyRef ref, CFErrorRef *e)
 		return NULL;
 	}
 	Key *k = (Key *)ref;
+	if (k->symmetric) {
+		_SecSetError(e, errSecInvalidAlgorithm, NULL);
+		return NULL;
+	}
 	unsigned char *out = NULL;
 	int n = 0;
 	CFDataRef result = NULL;
@@ -593,6 +977,13 @@ CFDataRef SecKeyCopyExternalRepresentation(SecKeyRef ref, CFErrorRef *e)
 			n = pub + (k->private ? bytes : 0);
 		}
 		EC_KEY_free(ec);
+	} else if (k->symmetric) {
+		size_t length = 0;
+		if (EVP_PKEY_get_raw_private_key(k->key, NULL, &length) > 0 && length <= INT_MAX) {
+			out = OPENSSL_malloc(length);
+			if (out && EVP_PKEY_get_raw_private_key(k->key, out, &length) > 0)
+				n = (int)length;
+		}
 	} else
 		n = k->private ? i2d_PrivateKey(k->key, &out) : i2d_PublicKey(k->key, &out);
 	if (n > 0)
@@ -602,9 +993,23 @@ CFDataRef SecKeyCopyExternalRepresentation(SecKeyRef ref, CFErrorRef *e)
 		_SecSetError(e, errSecDecode, NULL);
 	return result;
 }
+CFDataRef _SecKeyCopyPrivateKeyInfo(SecKeyRef ref)
+{
+	if (!valid(ref, SecKeyGetTypeID()) || !((Key *)ref)->private)
+		return NULL;
+	unsigned char *out = NULL;
+	PKCS8_PRIV_KEY_INFO *info = EVP_PKEY2PKCS8(((Key *)ref)->key);
+	int n = info ? i2d_PKCS8_PRIV_KEY_INFO(info, &out) : 0;
+	PKCS8_PRIV_KEY_INFO_free(info);
+	CFDataRef result = n > 0 ? CFDataCreate(NULL, out, n) : NULL;
+	OPENSSL_clear_free(out, n > 0 ? (size_t)n : 0);
+	return result;
+}
 SecKeyRef SecKeyCopyPublicKey(SecKeyRef ref)
 {
 	if (!valid(ref, SecKeyGetTypeID()))
+		return NULL;
+	if (((Key *)ref)->symmetric)
 		return NULL;
 	unsigned char *out = NULL;
 	int n = i2d_PUBKEY(((Key *)ref)->key, &out);
@@ -618,7 +1023,14 @@ SecKeyRef SecKeyCopyPublicKey(SecKeyRef ref)
 }
 size_t SecKeyGetBlockSize(SecKeyRef ref)
 {
-	return valid(ref, SecKeyGetTypeID()) ? (EVP_PKEY_bits(((Key *)ref)->key) + 7) / 8 : 0;
+	if (!valid(ref, SecKeyGetTypeID()))
+		return 0;
+	Key *key = (Key *)ref;
+	if (key->symmetric) {
+		size_t length = 0;
+		return EVP_PKEY_get_raw_private_key(key->key, NULL, &length) > 0 ? length : 0;
+	}
+	return (size_t)(EVP_PKEY_bits(key->key) + 7) / 8;
 }
 /* Only named algorithms below are accepted. Unknown names never fall back to a
  * weaker hash or padding mode. */
@@ -674,6 +1086,8 @@ Boolean SecKeyIsAlgorithmSupported(SecKeyRef ref, SecKeyOperationType op, SecKey
 	if (!valid(ref, SecKeyGetTypeID()))
 		return false;
 	Key *k = (Key *)ref;
+	if (k->symmetric)
+		return false;
 	Algorithm a;
 	if (op == kSecKeyOperationTypeKeyExchange)
 		return isEC(k) && k->private &&
@@ -842,27 +1256,29 @@ CFDictionaryRef SecKeyCopyAttributes(SecKeyRef ref)
 	if (!valid(ref, SecKeyGetTypeID()))
 		return NULL;
 	Key *k = (Key *)ref;
-	int bits = EVP_PKEY_bits(k->key);
+	int bits = k->symmetric ? (int)(SecKeyGetBlockSize(ref) * 8) : EVP_PKEY_bits(k->key);
 	CFNumberRef n = CFNumberCreate(NULL, kCFNumberIntType, &bits);
 	CFMutableDictionaryRef d = CFDictionaryCreateMutable(
 	    NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-	bool ec = isEC(k), priv = k->private;
+	bool ec = isEC(k), priv = k->private, symmetric = k->symmetric;
 	bool publicCopy = ec && !priv && k->attributeSource == KeyAttributesPublicCopy;
-	CFDictionarySetValue(d, kSecAttrKeyType, ec ? kSecAttrKeyTypeECSECPrimeRandom : kSecAttrKeyTypeRSA);
-	CFDictionarySetValue(d, kSecAttrKeyClass, priv ? kSecAttrKeyClassPrivate : kSecAttrKeyClassPublic);
+	if (!symmetric) {
+		CFDictionarySetValue(d, kSecAttrKeyType, ec ? kSecAttrKeyTypeECSECPrimeRandom : kSecAttrKeyTypeRSA);
+		CFDictionarySetValue(d, kSecAttrKeyClass, priv ? kSecAttrKeyClassPrivate : kSecAttrKeyClassPublic);
+	}
 	CFDictionarySetValue(d, kSecClass, kSecClassKey);
 	CFDictionarySetValue(d, kSecAttrKeySizeInBits, n);
 	CFDictionarySetValue(d, kSecAttrEffectiveKeySize, n);
-	CFDictionarySetValue(d, kSecAttrCanEncrypt, !priv ? kCFBooleanTrue : kCFBooleanFalse);
-	CFDictionarySetValue(d, kSecAttrCanDecrypt, (priv || !ec) ? kCFBooleanTrue : kCFBooleanFalse);
-	CFDictionarySetValue(d, kSecAttrCanSign, priv ? kCFBooleanTrue : kCFBooleanFalse);
-	CFDictionarySetValue(d, kSecAttrCanVerify, !priv ? kCFBooleanTrue : kCFBooleanFalse);
+	CFDictionarySetValue(d, kSecAttrCanEncrypt, symmetric || !priv ? kCFBooleanTrue : kCFBooleanFalse);
+	CFDictionarySetValue(d, kSecAttrCanDecrypt, symmetric || priv || !ec ? kCFBooleanTrue : kCFBooleanFalse);
+	CFDictionarySetValue(d, kSecAttrCanSign, symmetric || priv ? kCFBooleanTrue : kCFBooleanFalse);
+	CFDictionarySetValue(d, kSecAttrCanVerify, symmetric || !priv ? kCFBooleanTrue : kCFBooleanFalse);
 	CFDictionarySetValue(d, kSecAttrCanDerive, ec && !publicCopy ? kCFBooleanTrue : kCFBooleanFalse);
-	CFDictionarySetValue(d, kSecAttrIsPermanent, (priv || !ec || publicCopy) ? kCFBooleanTrue : kCFBooleanFalse);
+	CFDictionarySetValue(d, kSecAttrIsPermanent, symmetric ? kCFBooleanFalse : (priv || !ec || publicCopy) ? kCFBooleanTrue : kCFBooleanFalse);
 	CFDictionarySetValue(d, kSecAttrIsSensitive, kCFBooleanFalse);
 	CFDictionarySetValue(d, kSecAttrIsExtractable, kCFBooleanTrue);
-	CFDictionarySetValue(d, kSecAttrCanWrap, (!priv && (!ec || publicCopy)) ? kCFBooleanTrue : kCFBooleanFalse);
-	CFDictionarySetValue(d, kSecAttrCanUnwrap, priv ? kCFBooleanTrue : kCFBooleanFalse);
+	CFDictionarySetValue(d, kSecAttrCanWrap, symmetric || (!priv && (!ec || publicCopy)) ? kCFBooleanTrue : kCFBooleanFalse);
+	CFDictionarySetValue(d, kSecAttrCanUnwrap, symmetric || priv ? kCFBooleanTrue : kCFBooleanFalse);
 	CFDictionarySetValue(d, CFSTR("modi"), kCFBooleanTrue);
 	CFDictionarySetValue(d, CFSTR("asen"), kCFBooleanFalse);
 	CFDictionarySetValue(d, CFSTR("next"), kCFBooleanFalse);
@@ -870,7 +1286,7 @@ CFDictionaryRef SecKeyCopyAttributes(SecKeyRef ref)
 	CFDictionarySetValue(d, CFSTR("snrc"), kCFBooleanFalse);
 	CFDictionarySetValue(d, CFSTR("vyrc"), kCFBooleanFalse);
 	/* The application label is the SHA-1 of the public key bits, as Apple's. */
-	SecKeyRef pub = priv ? SecKeyCopyPublicKey(ref) : (SecKeyRef)CFRetain(ref);
+	SecKeyRef pub = symmetric ? (SecKeyRef)CFRetain(ref) : priv ? SecKeyCopyPublicKey(ref) : (SecKeyRef)CFRetain(ref);
 	CFDataRef bitsData = pub ? SecKeyCopyExternalRepresentation(pub, NULL) : NULL;
 	if (bitsData) {
 		unsigned char md[20];
@@ -909,6 +1325,83 @@ OSStatus SecKeyGeneratePair(CFDictionaryRef parameters, SecKeyRef *publicKey, Se
 		CFRelease(priv);
 	return 0;
 }
+void SecKeyGeneratePairAsync(CFDictionaryRef parameters, dispatch_queue_t deliveryQueue,
+	SecKeyGeneratePairBlock result)
+{
+	if (!result)
+		return;
+	CFDictionaryRef copied = valid(parameters, CFDictionaryGetTypeID())
+	    ? CFDictionaryCreateCopy(NULL, parameters) : NULL;
+	SecKeyGeneratePairBlock callback = Block_copy(result);
+	dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+		SecKeyRef publicKey = NULL, privateKey = NULL;
+		OSStatus status = copied ? SecKeyGeneratePair(copied, &publicKey, &privateKey) : errSecParam;
+		CFErrorRef error = NULL;
+		if (status)
+			error = CFErrorCreate(NULL, kCFErrorDomainOSStatus, status, NULL);
+		dispatch_queue_t queue = deliveryQueue ?: dispatch_get_main_queue();
+		dispatch_async(queue, ^{
+			callback(publicKey, privateKey, error);
+			if (error) CFRelease(error);
+			if (publicKey) CFRelease(publicKey);
+			if (privateKey) CFRelease(privateKey);
+			if (copied) CFRelease(copied);
+			Block_release(callback);
+		});
+	});
+}
+
+OSStatus SecKeyCreatePair(SecKeychainRef keychain, CSSM_ALGORITHMS algorithm,
+	uint32 keySizeInBits, CSSM_CC_HANDLE context, CSSM_KEYUSE publicUsage,
+	uint32 publicAttributes, CSSM_KEYUSE privateUsage, uint32 privateAttributes,
+	SecAccessRef initialAccess, SecKeyRef *publicKey, SecKeyRef *privateKey)
+{
+	if (keychain || context || initialAccess || algorithm != CSSM_ALGID_RSA ||
+	    (publicUsage && publicUsage != CSSM_KEYUSE_ANY) ||
+	    (privateUsage && privateUsage != CSSM_KEYUSE_ANY) || publicAttributes || privateAttributes)
+		return errSecNotAvailable;
+	int bits = (int)keySizeInBits;
+	CFNumberRef size = CFNumberCreate(NULL, kCFNumberIntType, &bits);
+	CFDictionaryRef parameters = CFDictionaryCreate(NULL,
+	    (const void *[]){kSecAttrKeyType, kSecAttrKeySizeInBits},
+	    (const void *[]){kSecAttrKeyTypeRSA, size}, 2,
+	    &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	SecKeyRef pub = NULL, priv = NULL;
+	OSStatus status = parameters ? SecKeyGeneratePair(parameters, &pub, &priv) : errSecAllocate;
+	if (size) CFRelease(size);
+	if (parameters) CFRelease(parameters);
+	if (status) return status;
+	if (publicKey) *publicKey = pub; else if (pub) CFRelease(pub);
+	if (privateKey) *privateKey = priv; else if (priv) CFRelease(priv);
+	return errSecSuccess;
+}
+
+OSStatus SecKeyGenerate(SecKeychainRef keychain, CSSM_ALGORITHMS algorithm,
+	uint32 keySizeInBits, CSSM_CC_HANDLE context, CSSM_KEYUSE usage,
+	uint32 attributes, SecAccessRef initialAccess, SecKeyRef *key)
+{
+	if (!key)
+		return errSecParam;
+	*key = NULL;
+	if (keychain || context || initialAccess || algorithm != CSSM_ALGID_AES ||
+	    (usage && usage != CSSM_KEYUSE_ANY) || attributes)
+		return errSecNotAvailable;
+	int bits = (int)keySizeInBits;
+	CFNumberRef size = CFNumberCreate(NULL, kCFNumberIntType, &bits);
+	CFDictionaryRef parameters = CFDictionaryCreate(NULL,
+	    (const void *[]){kSecAttrKeyType, kSecAttrKeySizeInBits},
+	    (const void *[]){kSecAttrKeyTypeAES, size}, 2,
+	    &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	if (size) CFRelease(size);
+	if (!parameters)
+		return errSecAllocate;
+	CFErrorRef error = NULL;
+	*key = SecKeyGenerateSymmetric(parameters, &error);
+	CFRelease(parameters);
+	OSStatus status = *key ? errSecSuccess : error ? (OSStatus)CFErrorGetCode(error) : errSecParam;
+	if (error) CFRelease(error);
+	return status;
+}
 SecPolicyRef SecPolicyCreateWithProperties(CFTypeRef oid, CFDictionaryRef properties)
 {
 	if (!valid(oid, CFStringGetTypeID()) ||
@@ -924,6 +1417,16 @@ SecPolicyRef SecPolicyCreateWithProperties(CFTypeRef oid, CFDictionaryRef proper
 	if (CFDictionaryGetValue(d, kSecPolicyClient) == kCFBooleanFalse)
 		CFDictionaryRemoveValue(d, kSecPolicyClient);
 	p->properties = d;
+	char text[160];
+	if (CFStringGetCString(oid, text, sizeof(text), kCFStringEncodingASCII)) {
+		ASN1_OBJECT *object = OBJ_txt2obj(text, 1);
+		if (object) {
+			int length = OBJ_length(object);
+			if (length > 0)
+				p->oidData = CFDataCreate(NULL, OBJ_get0_data(object), length);
+			ASN1_OBJECT_free(object);
+		}
+	}
 	return (SecPolicyRef)p;
 }
 SecPolicyRef SecPolicyCreateBasicX509(void)
@@ -962,6 +1465,128 @@ SecPolicyRef SecPolicyCreateRevocation(CFOptionFlags flags)
 CFDictionaryRef SecPolicyCopyProperties(SecPolicyRef p)
 {
 	return valid(p, SecPolicyGetTypeID()) ? CFRetain(((Policy *)p)->properties) : NULL;
+}
+OSStatus SecPolicyGetOID(SecPolicyRef ref, CSSM_OID *out)
+{
+	if (!valid(ref, SecPolicyGetTypeID()) || !out)
+		return errSecParam;
+	CFDataRef data = ((Policy *)ref)->oidData;
+	if (!data)
+		return errSecDecode;
+	out->Length = (size_t)CFDataGetLength(data);
+	out->Data = (uint8_t *)CFDataGetBytePtr(data);
+	return errSecSuccess;
+}
+OSStatus SecPolicyGetValue(SecPolicyRef ref, CSSM_DATA *out)
+{
+	if (!valid(ref, SecPolicyGetTypeID()) || !out)
+		return errSecParam;
+	CFTypeRef value = CFDictionaryGetValue(((Policy *)ref)->properties, CFSTR("value"));
+	if (value && CFGetTypeID(value) != CFDataGetTypeID())
+		return errSecDecode;
+	CFDataRef data = (CFDataRef)value;
+	out->Length = data ? (size_t)CFDataGetLength(data) : 0;
+	out->Data = data ? (uint8_t *)CFDataGetBytePtr(data) : NULL;
+	return errSecSuccess;
+}
+OSStatus SecPolicySetValue(SecPolicyRef ref, const CSSM_DATA *value)
+{
+	if (!valid(ref, SecPolicyGetTypeID()) || !value || (value->Length && !value->Data))
+		return errSecParam;
+	return errSecParam;
+}
+OSStatus SecPolicySetProperties(SecPolicyRef ref, CFDictionaryRef properties)
+{
+	if (!valid(ref, SecPolicyGetTypeID()) || !valid(properties, CFDictionaryGetTypeID()))
+		return errSecParam;
+	Policy *policy = (Policy *)ref;
+	CFMutableDictionaryRef replacement = CFDictionaryCreateMutableCopy(NULL, 0, properties);
+	if (!replacement)
+		return errSecAllocate;
+	CFDictionarySetValue(replacement, kSecPolicyOid,
+	    CFDictionaryGetValue(policy->properties, kSecPolicyOid));
+	if (CFDictionaryGetValue(replacement, kSecPolicyClient) == kCFBooleanFalse)
+		CFDictionaryRemoveValue(replacement, kSecPolicyClient);
+	CFRelease(policy->properties);
+	policy->properties = replacement;
+	return errSecSuccess;
+}
+OSStatus SecPolicyGetTPHandle(SecPolicyRef ref, CSSM_TP_HANDLE *handle)
+{
+	if (!valid(ref, SecPolicyGetTypeID()) || !handle)
+		return errSecParam;
+	return errSecServiceNotAvailable;
+}
+static SecPolicyRef policyForOID(const CSSM_OID *oid)
+{
+	if (!oid || !oid->Data || !oid->Length || oid->Length > 1024)
+		return NULL;
+	UInt8 *der = malloc(oid->Length + 6);
+	if (!der)
+		return NULL;
+	size_t header = 0;
+	der[header++] = V_ASN1_OBJECT;
+	if (oid->Length < 128) {
+		der[header++] = (UInt8)oid->Length;
+	} else {
+		UInt8 encoded[sizeof(size_t)];
+		size_t count = 0, n = oid->Length;
+		while (n) {
+			encoded[count++] = (UInt8)n;
+			n >>= 8;
+		}
+		der[header++] = (UInt8)(0x80 | count);
+		while (count)
+			der[header++] = encoded[--count];
+	}
+	memcpy(der + header, oid->Data, oid->Length);
+	const unsigned char *cursor = der;
+	ASN1_OBJECT *object = d2i_ASN1_OBJECT(NULL, &cursor, (long)(header + oid->Length));
+	free(der);
+	if (!object)
+		return NULL;
+	char text[160];
+	int length = OBJ_obj2txt(text, sizeof(text), object, 1);
+	ASN1_OBJECT_free(object);
+	if (length <= 0 || (size_t)length >= sizeof(text))
+		return NULL;
+	CFStringRef string = CFStringCreateWithCString(NULL, text, kCFStringEncodingASCII);
+	SecPolicyRef policy = string ? SecPolicyCreateWithOID(string) : NULL;
+	if (string)
+		CFRelease(string);
+	return policy;
+}
+OSStatus SecPolicySearchCreate(CSSM_CERT_TYPE certType, const CSSM_OID *policyOID,
+    const CSSM_DATA *value, SecPolicySearchRef *out)
+{
+	(void)value;
+	if (!out || !policyOID || (certType != CSSM_CERT_UNKNOWN &&
+	        certType != CSSM_CERT_X_509v1 && certType != CSSM_CERT_X_509v2 &&
+	        certType != CSSM_CERT_X_509v3))
+		return errSecParam;
+	*out = NULL;
+	SecPolicyRef policy = policyForOID(policyOID);
+	PolicySearch *search = (PolicySearch *)_SecCreateInstance(
+	    SecPolicySearchGetTypeID(), sizeof(*search));
+	if (!search) {
+		if (policy)
+			CFRelease(policy);
+		return errSecAllocate;
+	}
+	search->policy = policy;
+	*out = (SecPolicySearchRef)search;
+	return errSecSuccess;
+}
+OSStatus SecPolicySearchCopyNext(SecPolicySearchRef ref, SecPolicyRef *out)
+{
+	if (!valid(ref, SecPolicySearchGetTypeID()) || !out)
+		return errSecParam;
+	PolicySearch *search = (PolicySearch *)ref;
+	if (!search->policy || search->returned)
+		return errSecPolicyNotFound;
+	*out = (SecPolicyRef)CFRetain(search->policy);
+	search->returned = true;
+	return errSecSuccess;
 }
 static CFArrayRef asArray(CFTypeRef o, CFTypeID type)
 {
@@ -1050,6 +1675,56 @@ OSStatus SecTrustSetNetworkFetchAllowed(SecTrustRef ref, Boolean allowed)
 {
 	return valid(ref, SecTrustGetTypeID()) ? (allowed ? errSecUnimplemented : 0) : errSecParam;
 }
+OSStatus SecTrustGetNetworkFetchAllowed(SecTrustRef ref, Boolean *allowed)
+{
+	if (!valid(ref, SecTrustGetTypeID()) || !allowed)
+		return errSecParam;
+	/* Finch does not fetch missing certificates from the network. */
+	*allowed = false;
+	return errSecSuccess;
+}
+OSStatus SecTrustSetOptions(SecTrustRef ref, SecTrustOptionFlags options)
+{
+	if (!valid(ref, SecTrustGetTypeID()))
+		return errSecParam;
+	const SecTrustOptionFlags supported = kSecTrustOptionAllowExpired |
+	    kSecTrustOptionLeafIsCA | kSecTrustOptionAllowExpiredRoot |
+	    kSecTrustOptionImplicitAnchors;
+	if (options & ~supported)
+		return errSecUnimplemented;
+	Trust *trust = (Trust *)ref;
+	trust->options = options;
+	trust->result = kSecTrustResultInvalid;
+	return errSecSuccess;
+}
+OSStatus SecTrustSetKeychains(SecTrustRef ref, CFTypeRef keychains)
+{
+	/* macOS 10.12 and later ignore this deprecated setting. */
+	return valid(ref, SecTrustGetTypeID()) ? errSecSuccess : errSecParam;
+}
+OSStatus SecTrustGetCssmResultCode(SecTrustRef ref, OSStatus *resultCode)
+{
+	if (!valid(ref, SecTrustGetTypeID()) || !resultCode)
+		return errSecParam;
+	Trust *trust = (Trust *)ref;
+	if (trust->result == kSecTrustResultInvalid)
+		return errSecTrustNotAvailable;
+	*resultCode = trust->status;
+	return errSecSuccess;
+}
+OSStatus SecTrustGetCssmResult(SecTrustRef ref, CSSM_TP_VERIFY_CONTEXT_RESULT_PTR *result)
+{
+	if (!valid(ref, SecTrustGetTypeID()) || !result)
+		return errSecParam;
+	*result = NULL;
+	return errSecServiceNotAvailable;
+}
+OSStatus SecTrustGetTPHandle(SecTrustRef ref, CSSM_TP_HANDLE *handle)
+{
+	if (!valid(ref, SecTrustGetTypeID()) || !handle)
+		return errSecParam;
+	return errSecServiceNotAvailable;
+}
 OSStatus SecTrustSetVerifyDate(SecTrustRef ref, CFDateRef date)
 {
 	if (!valid(ref, SecTrustGetTypeID()) || !valid(date, CFDateGetTypeID()))
@@ -1087,6 +1762,26 @@ static OSStatus trustStatus(int err)
 	default:
 		return errSecNotTrusted;
 	}
+}
+static int trustVerifyCallback(int ok, X509_STORE_CTX *context)
+{
+	if (ok)
+		return 1;
+	Trust *trust = X509_STORE_CTX_get_app_data(context);
+	int error = X509_STORE_CTX_get_error(context);
+	int depth = X509_STORE_CTX_get_error_depth(context);
+	if (error == X509_V_ERR_CERT_HAS_EXPIRED && trust &&
+	    ((trust->options & kSecTrustOptionAllowExpired) ||
+	        (depth > 0 && (trust->options & kSecTrustOptionAllowExpiredRoot)))) {
+		X509_STORE_CTX_set_error(context, X509_V_OK);
+		return 1;
+	}
+	if (error == X509_V_ERR_INVALID_CA && depth == 0 && trust &&
+	    (trust->options & kSecTrustOptionLeafIsCA)) {
+		X509_STORE_CTX_set_error(context, X509_V_OK);
+		return 1;
+	}
+	return 0;
 }
 static void setChain(Trust *t, STACK_OF(X509) *chain)
 {
@@ -1126,6 +1821,7 @@ static bool evaluate(Trust *t)
 	STACK_OF(X509) *chain = sk_X509_new_null();
 	int ok = s && c && chain;
 	int err = X509_V_ERR_UNSPECIFIED;
+	bool implicitAnchorUsed = false;
 	/* Mozilla's bundle approves HTTPS server roots, not code-signing or mail
 	 * identities. Keep it out of those other policy checks. */
 	bool https = false, serverPolicies = true;
@@ -1148,10 +1844,25 @@ static bool evaluate(Trust *t)
 	}
 	for (CFIndex i = 0; ok && t->anchors && i < CFArrayGetCount(t->anchors); i++)
 		X509_STORE_add_cert(s, ((Certificate *)CFArrayGetValueAtIndex(t->anchors, i))->cert);
+	if (ok && (t->options & kSecTrustOptionImplicitAnchors))
+		for (CFIndex i = 0; ok && i < CFArrayGetCount(t->certs); i++) {
+			X509 *candidate = ((Certificate *)CFArrayGetValueAtIndex(t->certs, i))->cert;
+			if (X509_check_issued(candidate, candidate) == X509_V_OK) {
+				if (X509_STORE_add_cert(s, candidate) == 1)
+					implicitAnchorUsed = true;
+				else
+					ERR_clear_error();
+			}
+		}
 	for (CFIndex i = 1; ok && i < CFArrayGetCount(t->certs); i++)
 		sk_X509_push(chain, ((Certificate *)CFArrayGetValueAtIndex(t->certs, i))->cert);
-	if (ok)
+	if (ok) {
 		ok = X509_STORE_CTX_init(c, s, ((Certificate *)CFArrayGetValueAtIndex(t->certs, 0))->cert, chain);
+		if (ok) {
+			X509_STORE_CTX_set_app_data(c, t);
+			X509_STORE_CTX_set_verify_cb(c, trustVerifyCallback);
+		}
+	}
 	if (ok) {
 		X509_VERIFY_PARAM *p = X509_STORE_CTX_get0_param(c);
 		time_t when = (time_t)((t->date ? CFDateGetAbsoluteTime(t->date) : CFAbsoluteTimeGetCurrent()) +
@@ -1190,7 +1901,22 @@ static bool evaluate(Trust *t)
 		OSSL_STACK_OF_X509_free(built);
 	}
 	t->status = ok ? 0 : trustStatus(err == X509_V_OK ? X509_V_ERR_UNSPECIFIED : err);
-	t->result = ok ? kSecTrustResultUnspecified : kSecTrustResultRecoverableTrustFailure;
+	t->result = ok ? (implicitAnchorUsed ? kSecTrustResultProceed : kSecTrustResultUnspecified)
+	    : kSecTrustResultRecoverableTrustFailure;
+	if (!ok && t->hasException && t->exceptions &&
+	    CFDataGetLength(t->exceptions) == 40 &&
+	    t->exceptionStatus == t->status) {
+		UInt8 digest[EVP_MAX_MD_SIZE];
+		unsigned int length = 0;
+		X509 *leaf = ((Certificate *)CFArrayGetValueAtIndex(t->certs, 0))->cert;
+		if (X509_digest(leaf, EVP_sha256(), digest, &length) == 1 && length == 32 &&
+		    memcmp(CFDataGetBytePtr(t->exceptions), "FNEX", 4) == 0 &&
+		    memcmp(CFDataGetBytePtr(t->exceptions) + 4, digest, 32) == 0) {
+			ok = 1;
+			t->status = errSecSuccess;
+			t->result = kSecTrustResultProceed;
+		}
+	}
 	sk_X509_free(chain);
 	X509_STORE_CTX_free(c);
 	X509_STORE_free(s);
@@ -1233,12 +1959,89 @@ OSStatus SecTrustEvaluateAsyncWithError(SecTrustRef t, dispatch_queue_t queue, S
 	});
 	return 0;
 }
+OSStatus SecTrustEvaluateAsync(SecTrustRef ref, dispatch_queue_t queue, SecTrustCallback callback)
+{
+	if (!valid(ref, SecTrustGetTypeID()) || !callback)
+		return errSecParam;
+	SecTrustRef trust = (SecTrustRef)CFRetain(ref);
+	dispatch_queue_t target = queue ? queue : dispatch_get_main_queue();
+	dispatch_async(target, ^{
+		SecTrustResultType result = kSecTrustResultInvalid;
+		SecTrustEvaluate(trust, &result);
+		callback(trust, result);
+		CFRelease(trust);
+	});
+	return errSecSuccess;
+}
 OSStatus SecTrustGetTrustResult(SecTrustRef t, SecTrustResultType *out)
 {
 	if (!out || !valid(t, SecTrustGetTypeID()))
 		return errSecParam;
 	*out = ((Trust *)t)->result;
 	return 0;
+}
+OSStatus SecTrustGetResult(SecTrustRef ref, SecTrustResultType *result,
+	CFArrayRef *certificates, CSSM_TP_APPLE_EVIDENCE_INFO **statusChain)
+{
+	if (!valid(ref, SecTrustGetTypeID()))
+		return errSecParam;
+	Trust *trust = (Trust *)ref;
+	if (trust->result == kSecTrustResultInvalid)
+		return errSecTrustNotAvailable;
+	if (result)
+		*result = (SecTrustResultType)trust->result;
+	if (certificates)
+		*certificates = CFArrayCreateCopy(NULL, currentChain(trust));
+	/* The unified trust implementation has no CSSM evidence records. */
+	if (statusChain)
+		*statusChain = NULL;
+	return errSecSuccess;
+}
+CFDataRef SecTrustCopyExceptions(SecTrustRef ref)
+{
+	if (!valid(ref, SecTrustGetTypeID()))
+		return NULL;
+	Trust *trust = (Trust *)ref;
+	if (trust->result == kSecTrustResultInvalid || trust->status == errSecSuccess)
+		return NULL;
+	UInt8 bytes[40] = {'F', 'N', 'E', 'X'};
+	unsigned int length = 0;
+	X509 *leaf = ((Certificate *)CFArrayGetValueAtIndex(trust->certs, 0))->cert;
+	if (X509_digest(leaf, EVP_sha256(), bytes + 4, &length) != 1 || length != 32)
+		return NULL;
+	memcpy(bytes + 36, &trust->status, sizeof(trust->status));
+	return CFDataCreate(NULL, bytes, sizeof(bytes));
+}
+bool SecTrustSetExceptions(SecTrustRef ref, CFDataRef exceptions)
+{
+	if (!valid(ref, SecTrustGetTypeID()) ||
+	    (exceptions && !valid(exceptions, CFDataGetTypeID())))
+		return false;
+	Trust *trust = (Trust *)ref;
+	trust->result = kSecTrustResultInvalid;
+	if (trust->exceptions) {
+		CFRelease(trust->exceptions);
+		trust->exceptions = NULL;
+	}
+	trust->hasException = false;
+	if (!exceptions) {
+		return true;
+	}
+	if (CFDataGetLength(exceptions) != 40 ||
+	    memcmp(CFDataGetBytePtr(exceptions), "FNEX", 4) != 0)
+		return false;
+	UInt8 digest[EVP_MAX_MD_SIZE];
+	unsigned int length = 0;
+	X509 *leaf = ((Certificate *)CFArrayGetValueAtIndex(trust->certs, 0))->cert;
+	if (X509_digest(leaf, EVP_sha256(), digest, &length) != 1 || length != 32 ||
+	    memcmp(CFDataGetBytePtr(exceptions) + 4, digest, 32) != 0)
+		return false;
+	memcpy(&trust->exceptionStatus, CFDataGetBytePtr(exceptions) + 36,
+	    sizeof(trust->exceptionStatus));
+	trust->exceptions = CFDataCreateCopy(NULL, exceptions);
+	trust->hasException = trust->exceptions != NULL;
+	trust->result = kSecTrustResultInvalid;
+	return trust->hasException;
 }
 static CFArrayRef currentChain(Trust *t)
 {

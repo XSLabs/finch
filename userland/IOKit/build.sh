@@ -4,12 +4,9 @@
 # built by Finch (docs/design/COREFOUNDATION.md, "What's needed").
 #
 # IOKitUser's Xcode project expects Apple's internal SDK, whose IOKit and
-# SystemConfiguration private headers aren't public, and builds subprojects
-# for hardware Finch doesn't drive yet (HID event system, graphics, display
-# ports, USB). This builds the parts Finch's binaries need, from IOKitUser's
-# own sources: IOKitLib (registry, services, notifications, user clients),
-# the CF serializers, power management (pwr_mgt) and power sources (ps). The
-# rest is added as something imports it (tools/check-closed.py).
+# SystemConfiguration private headers aren't public. This builds IOKitLib
+# (registry, services, notifications, user clients), the CF serializers,
+# power management (pwr_mgt), power sources (ps), and open network client code.
 #
 # Headers come from open sources only:
 #   <IOKit/...>      the SDK's public IOKit headers, IOKitUser's own (mapped into
@@ -52,7 +49,7 @@ rm -rf "${H}" && mkdir -p "${H}/IOKit" "${H}/SystemConfiguration" "${OBJ}/gen"
 rsync -a "${SDKROOT}/System/Library/Frameworks/IOKit.framework/Headers/" "${H}/IOKit/"
 # IOKitUser's headers, into the framework layout (<IOKit/pwr_mgt/IOPMLib.h>, ...).
 cp "${SRC}"/*.h "${H}/IOKit/"
-for sub in pwr_mgt ps platform kext; do
+for sub in pwr_mgt ps platform kext network; do
     mkdir -p "${H}/IOKit/${sub}"
     cp "${SRC}/${sub}.subproj/"*.h "${H}/IOKit/${sub}/" 2>/dev/null || true
 done
@@ -93,11 +90,14 @@ srcs=(
     IOKitLib.c iokitmig.c IOCFSerialize.c IOCFUnserialize.tab.c IOCFPlugIn.c IOCFURLAccess.c
     IODataQueueClient.c IOCircularDataQueue.c IOMIGMachPort.c IOSystemConfiguration.c
 )
+srcs+=(network.subproj/IONetworkLib.c)
 srcs=("${srcs[@]/#/${SRC}/}")
+srcs+=("${HERE}/IOHIDData_Finch.c")
 srcs+=("${SRC}"/pwr_mgt.subproj/*.c "${SRC}"/ps.subproj/*.c "${SRC}"/platform.subproj/*.c "${OBJ}/gen/powermanagementUser.c" "${SRC}/IOTrap.s")
 
 CFLAGS=(-arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -Os -g -fblocks
     -I"${H}" -I"${OBJ}/gen" -I"${SRC}" -I"${SRC}/pwr_mgt.subproj" -I"${SRC}/ps.subproj"
+    -I"${SRC}/network.subproj"
     -F"${SDK}/Frameworks"
     # Private headers first, as in Apple's internal SDK: xnu's <mach/message.h>
     # declares mach_msg2(), which the generated kernel-interface stubs call.

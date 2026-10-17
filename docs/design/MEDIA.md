@@ -198,3 +198,28 @@ apps to five missing symbols across two apps. Most remaining imports need camera
 media composition, route or download services, content-key/DRM services, or data models
 Finch does not yet provide. The full symbol-to-app list and exact before/after counts are in
 [the AVFoundation import audit](AVFOUNDATION-IMPORT-AUDIT.md).
+
+## 2026-10-16: CoreVideo and AudioToolbox C API work
+
+CoreVideo now exports all 302 public C entries in the 26.4 SDK audit. Its host
+comparison matches Apple's in 347 lines. Metal buffer types and the legacy OpenGL
+texture cache are available. On this Apple Silicon host, Apple's `CVOpenGLBuffer`
+creation calls return `kCVReturnError`, so Finch returns the same error. The software
+OpenGL path uploads BGRA IOSurface pixels into a texture; it does not share the surface
+with the GPU as Apple's hardware path can.
+
+AudioToolbox now exports 302 of 365 public C entries. `MusicSequence` stores tracks,
+events, tempos and time markers, and reads and writes standard MIDI files. The graph
+APIs keep real node and connection state and can render between Finch's software audio
+units. CoreAudio clock conversion, audio-unit listeners and parameter helpers,
+AudioHardwareService wrappers, and the PCM WAV `AudioFileStream` path are also covered.
+The host comparisons pass for `audiotoolbox-test` (172 lines), `extaudiofile-test`
+(60), and its source-check mode (1).
+
+The MusicPlayer exposes time, play-rate and start/stop state, but it does not schedule
+sequence events during playback. `AudioFileStream` has only been checked with fixed-size
+PCM WAV packets; variable packet formats and partial-header callback timing remain open.
+Finch has no audio device, so the new AudioHardwareService calls report the same empty
+device view as the underlying HAL. AudioToolbox still lacks 63 public C entries,
+including codec plug-ins, many audio-file component calls, and hardware or daemon-backed
+services.

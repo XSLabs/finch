@@ -7,6 +7,8 @@
  * grows and when the file is closed.
  */
 #include <AudioToolbox/AudioToolbox.h>
+#include <AudioToolbox/AudioFileStream.h>
+#include <CoreServices/CoreServices.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <math.h>
@@ -16,7 +18,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define ALIGN 4096
+#define FINCH_AUDIO_FILE_ALIGN 4096
 
 struct OpaqueAudioFileID {
     AudioFileTypeID type;
@@ -349,7 +351,7 @@ wave_header(AudioFileID f, Buf *o)
         put(o, guid, 12);
     }
     /* (the filler, so the data starts at the next 4096) */
-    size_t data = (o->n + 16 + ALIGN - 1) / ALIGN * ALIGN;
+    size_t data = (o->n + 16 + FINCH_AUDIO_FILE_ALIGN - 1) / FINCH_AUDIO_FILE_ALIGN * FINCH_AUDIO_FILE_ALIGN;
     put(o, "FLLR", 4);
     put_le32(o, (uint32_t)(data - o->n - 12));
     put_zeros(o, data - o->n - 8);
@@ -561,7 +563,7 @@ aiff_header(AudioFileID f, Buf *o)
         if ((1 + nameLength) & 1)
             put_zeros(o, 1);
     }
-    size_t data = (o->n + 8 + 16 + ALIGN - 1) / ALIGN * ALIGN;
+    size_t data = (o->n + 8 + 16 + FINCH_AUDIO_FILE_ALIGN - 1) / FINCH_AUDIO_FILE_ALIGN * FINCH_AUDIO_FILE_ALIGN;
     put(o, "FLLR", 4);
     put_be32(o, (uint32_t)(data - o->n - 4 - 16));
     put_zeros(o, data - o->n - 16);
@@ -710,7 +712,7 @@ caf_header(AudioFileID f, Buf *o)
         put_be64(o, (uint64_t)CFDataGetLength(f->cookie));
         put(o, CFDataGetBytePtr(f->cookie), (size_t)CFDataGetLength(f->cookie));
     }
-    size_t data = (o->n + 12 + 16 + ALIGN - 1) / ALIGN * ALIGN;
+    size_t data = (o->n + 12 + 16 + FINCH_AUDIO_FILE_ALIGN - 1) / FINCH_AUDIO_FILE_ALIGN * FINCH_AUDIO_FILE_ALIGN;
     put(o, "free", 4);
     put_be64(o, (uint64_t)(data - o->n - 8 - 16));
     put_zeros(o, data - o->n - 16);
@@ -1084,6 +1086,31 @@ AudioFileCreateWithURL(CFURLRef inFileRef, AudioFileTypeID inFileType, const Aud
 }
 
 OSStatus
+AudioFileCreate(const FSRef *inParentRef, CFStringRef inFileName, AudioFileTypeID inFileType,
+    const AudioStreamBasicDescription *inFormat, AudioFileFlags inFlags, FSRef *outNewFileRef,
+    AudioFileID *outAudioFile)
+{
+    if (!inParentRef || !inFileName || !inFormat || !outNewFileRef || !outAudioFile)
+        return kAudio_ParamError;
+    *outAudioFile = NULL;
+    CFURLRef parent = CFURLCreateFromFSRef(NULL, inParentRef);
+    if (!parent)
+        return kAudioFileInvalidFileError;
+    CFURLRef file = CFURLCreateCopyAppendingPathComponent(NULL, parent, inFileName, false);
+    CFRelease(parent);
+    if (!file)
+        return kAudioFileInvalidFileError;
+    OSStatus status = AudioFileCreateWithURL(file, inFileType, inFormat, inFlags, outAudioFile);
+    if (!status && !CFURLGetFSRef(file, outNewFileRef)) {
+        AudioFileClose(*outAudioFile);
+        *outAudioFile = NULL;
+        status = kAudioFileInvalidFileError;
+    }
+    CFRelease(file);
+    return status;
+}
+
+OSStatus
 AudioFileOpenURL(CFURLRef inFileRef, AudioFilePermissions inPermissions, AudioFileTypeID inFileTypeHint, AudioFileID *outAudioFile)
 {
     if (!inFileRef || !outAudioFile)
@@ -1103,6 +1130,37 @@ AudioFileOpenURL(CFURLRef inFileRef, AudioFilePermissions inPermissions, AudioFi
     }
     *outAudioFile = f;
     return noErr;
+}
+
+OSStatus
+AudioFileInitialize(const FSRef *inFileRef, AudioFileTypeID inFileType,
+    const AudioStreamBasicDescription *inFormat, AudioFileFlags inFlags, AudioFileID *outAudioFile)
+{
+    if (!inFileRef || !inFormat || !outAudioFile)
+        return kAudio_ParamError;
+    *outAudioFile = NULL;
+    CFURLRef url = CFURLCreateFromFSRef(NULL, inFileRef);
+    if (!url)
+        return kAudioFileInvalidFileError;
+    OSStatus status = AudioFileCreateWithURL(url, inFileType, inFormat,
+        inFlags | kAudioFileFlags_EraseFile, outAudioFile);
+    CFRelease(url);
+    return status;
+}
+
+OSStatus
+AudioFileOpen(const FSRef *inFileRef, AudioFilePermissions inPermissions, AudioFileTypeID inFileTypeHint,
+    AudioFileID *outAudioFile)
+{
+    if (!inFileRef || !outAudioFile)
+        return kAudio_ParamError;
+    *outAudioFile = NULL;
+    CFURLRef url = CFURLCreateFromFSRef(NULL, inFileRef);
+    if (!url)
+        return kAudioFileInvalidFileError;
+    OSStatus status = AudioFileOpenURL(url, inPermissions, inFileTypeHint, outAudioFile);
+    CFRelease(url);
+    return status;
 }
 
 OSStatus
@@ -1140,6 +1198,272 @@ AudioFileOpenWithCallbacks(void *inClientData, AudioFile_ReadProc inReadFunc, Au
         return e;
     }
     *outAudioFile = f;
+    return noErr;
+}
+
+struct OpaqueAudioFileStreamID {
+    void *client;
+    AudioFileStream_PropertyListenerProc propertyListener;
+    AudioFileStream_PacketsProc packetsListener;
+    AudioFileTypeID typeHint;
+    CFMutableDataRef bytes;
+    AudioFileID file;
+    SInt64 deliveredBytes;
+    bool notified, finished;
+};
+
+static OSStatus
+stream_read(void *client, SInt64 position, UInt32 request, void *buffer, UInt32 *actual)
+{
+    struct OpaqueAudioFileStreamID *stream = client;
+    if (!stream || !actual || position < 0)
+        return kAudio_ParamError;
+    CFIndex length = CFDataGetLength(stream->bytes);
+    *actual = 0;
+    if (position >= length)
+        return noErr;
+    UInt32 count = (UInt32)fmin((double)request, (double)(length - position));
+    memcpy(buffer, CFDataGetBytePtr(stream->bytes) + position, count);
+    *actual = count;
+    return noErr;
+}
+
+static SInt64
+stream_size(void *client)
+{
+    struct OpaqueAudioFileStreamID *stream = client;
+    return stream ? CFDataGetLength(stream->bytes) : 0;
+}
+
+static OSStatus
+stream_parse_open(struct OpaqueAudioFileStreamID *stream, bool flush)
+{
+    if (stream->file)
+        return noErr;
+    AudioFileID file = NULL;
+    OSStatus status = AudioFileOpenWithCallbacks(stream, stream_read, NULL, stream_size, NULL,
+        stream->typeHint, &file);
+    if (!status) {
+        stream->file = file;
+        return noErr;
+    }
+    if (status == kAudioFileUnsupportedFileTypeError)
+        return kAudioFileStreamError_UnsupportedFileType;
+    if (status == kAudioFileUnsupportedDataFormatError)
+        return kAudioFileStreamError_UnsupportedDataFormat;
+    if (status == kAudioFileInvalidFileError || status == kAudioFileUnspecifiedError)
+        return flush ? kAudioFileStreamError_InvalidFile : kAudioFileStreamError_DataUnavailable;
+    return status;
+}
+
+static void
+stream_notify_property(struct OpaqueAudioFileStreamID *stream, AudioFileStreamPropertyID property)
+{
+    if (stream->propertyListener) {
+        AudioFileStreamPropertyFlags flags = kAudioFileStreamPropertyFlag_PropertyIsCached;
+        stream->propertyListener(stream->client, stream, property, &flags);
+    }
+}
+
+static OSStatus
+stream_deliver_packets(struct OpaqueAudioFileStreamID *stream)
+{
+    if (!stream->file || !stream->packetsListener)
+        return noErr;
+    SInt64 offset = 0;
+    UInt32 size = sizeof(offset);
+    OSStatus status = AudioFileGetProperty(stream->file, kAudioFilePropertyDataOffset, &size, &offset);
+    if (status)
+        return status;
+    AudioStreamBasicDescription format = {0};
+    size = sizeof(format);
+    status = AudioFileGetProperty(stream->file, kAudioFilePropertyDataFormat, &size, &format);
+    if (status)
+        return status;
+    if (format.mBytesPerPacket == 0 || offset < 0)
+        return noErr;
+    SInt64 available = (SInt64)CFDataGetLength(stream->bytes) - offset;
+    if (available <= stream->deliveredBytes)
+        return noErr;
+    UInt64 packetCount = (UInt64)(available / format.mBytesPerPacket);
+    UInt64 deliveredPackets = (UInt64)(stream->deliveredBytes / format.mBytesPerPacket);
+    if (packetCount <= deliveredPackets)
+        return noErr;
+    UInt64 packetStart = deliveredPackets * format.mBytesPerPacket;
+    UInt64 byteCount = (packetCount - deliveredPackets) * format.mBytesPerPacket;
+    if (byteCount > UINT32_MAX)
+        byteCount = UINT32_MAX - (UINT32_MAX % format.mBytesPerPacket);
+    if (!byteCount)
+        return noErr;
+    const UInt8 *data = CFDataGetBytePtr(stream->bytes) + offset + packetStart;
+    stream->packetsListener(stream->client, (UInt32)byteCount,
+        (UInt32)(byteCount / format.mBytesPerPacket), data, NULL);
+    stream->deliveredBytes = (SInt64)(packetStart + byteCount);
+    return noErr;
+}
+
+OSStatus
+AudioFileStreamOpen(void *client, AudioFileStream_PropertyListenerProc propertyListener,
+    AudioFileStream_PacketsProc packetsListener, AudioFileTypeID fileTypeHint,
+    AudioFileStreamID *out)
+{
+    if (!out)
+        return kAudio_ParamError;
+    *out = NULL;
+    struct OpaqueAudioFileStreamID *stream = calloc(1, sizeof(*stream));
+    if (!stream)
+        return kAudioFileStreamError_UnspecifiedError;
+    stream->bytes = CFDataCreateMutable(NULL, 0);
+    if (!stream->bytes) {
+        free(stream);
+        return kAudioFileStreamError_UnspecifiedError;
+    }
+    stream->client = client;
+    stream->propertyListener = propertyListener;
+    stream->packetsListener = packetsListener;
+    stream->typeHint = fileTypeHint;
+    *out = stream;
+    return noErr;
+}
+
+OSStatus
+AudioFileStreamParseBytes(AudioFileStreamID stream, UInt32 byteSize, const void *data,
+    AudioFileStreamParseFlags flags)
+{
+    if (!stream || (byteSize && !data) || (!byteSize && data) ||
+        (flags & ~kAudioFileStreamParseFlag_Discontinuity))
+        return kAudio_ParamError;
+    if (stream->finished)
+        return kAudioFileStreamError_IllegalOperation;
+    if (flags & kAudioFileStreamParseFlag_Discontinuity)
+        return kAudioFileStreamError_DiscontinuityCantRecover;
+    if (!byteSize)
+        stream->finished = true;
+    else
+        CFDataAppendBytes(stream->bytes, data, byteSize);
+    OSStatus status = stream_parse_open(stream, stream->finished);
+    if (status)
+        return status;
+    if (!stream->notified) {
+        static const AudioFileStreamPropertyID properties[] = {
+            kAudioFileStreamProperty_ReadyToProducePackets,
+            kAudioFileStreamProperty_FileFormat,
+            kAudioFileStreamProperty_DataFormat,
+            kAudioFileStreamProperty_AudioDataByteCount,
+            kAudioFileStreamProperty_MaximumPacketSize,
+            kAudioFileStreamProperty_DataOffset
+        };
+        for (size_t i = 0; i < sizeof(properties) / sizeof(properties[0]); i++)
+            stream_notify_property(stream, properties[i]);
+        stream->notified = true;
+    }
+    return stream_deliver_packets(stream);
+}
+
+static OSStatus
+stream_map_property(AudioFileStreamPropertyID property, AudioFilePropertyID *mapped)
+{
+    switch (property) {
+    case kAudioFileStreamProperty_FileFormat: *mapped = kAudioFilePropertyFileFormat; return noErr;
+    case kAudioFileStreamProperty_DataFormat: *mapped = kAudioFilePropertyDataFormat; return noErr;
+    case kAudioFileStreamProperty_MagicCookieData: *mapped = kAudioFilePropertyMagicCookieData; return noErr;
+    case kAudioFileStreamProperty_AudioDataByteCount: *mapped = kAudioFilePropertyAudioDataByteCount; return noErr;
+    case kAudioFileStreamProperty_AudioDataPacketCount: *mapped = kAudioFilePropertyAudioDataPacketCount; return noErr;
+    case kAudioFileStreamProperty_MaximumPacketSize: *mapped = kAudioFilePropertyMaximumPacketSize; return noErr;
+    case kAudioFileStreamProperty_DataOffset: *mapped = kAudioFilePropertyDataOffset; return noErr;
+    case kAudioFileStreamProperty_ChannelLayout: *mapped = kAudioFilePropertyChannelLayout; return noErr;
+    case kAudioFileStreamProperty_PacketTableInfo: *mapped = kAudioFilePropertyPacketTableInfo; return noErr;
+    default: return kAudioFileStreamError_UnsupportedProperty;
+    }
+}
+
+OSStatus
+AudioFileStreamGetPropertyInfo(AudioFileStreamID stream, AudioFileStreamPropertyID property,
+    UInt32 *outSize, Boolean *outWritable)
+{
+    if (!stream)
+        return kAudio_ParamError;
+    if (property == kAudioFileStreamProperty_ReadyToProducePackets) {
+        if (outSize) *outSize = sizeof(UInt32);
+        if (outWritable) *outWritable = false;
+        return noErr;
+    }
+    if (!stream->file)
+        return kAudioFileStreamError_DataUnavailable;
+    AudioFilePropertyID mapped = 0;
+    OSStatus status = stream_map_property(property, &mapped);
+    if (status)
+        return status;
+    UInt32 writable = 0;
+    status = AudioFileGetPropertyInfo(stream->file, mapped, outSize, outWritable ? &writable : NULL);
+    if (outWritable)
+        *outWritable = writable != 0;
+    return status;
+}
+
+OSStatus
+AudioFileStreamGetProperty(AudioFileStreamID stream, AudioFileStreamPropertyID property,
+    UInt32 *ioSize, void *outData)
+{
+    if (!stream || !ioSize)
+        return kAudio_ParamError;
+    if (property == kAudioFileStreamProperty_ReadyToProducePackets) {
+        if (!outData || *ioSize < sizeof(UInt32)) {
+            *ioSize = sizeof(UInt32);
+            return kAudioFileStreamError_BadPropertySize;
+        }
+        *(UInt32 *)outData = stream->file ? 1 : 0;
+        *ioSize = sizeof(UInt32);
+        return noErr;
+    }
+    if (!stream->file)
+        return kAudioFileStreamError_DataUnavailable;
+    AudioFilePropertyID mapped = 0;
+    OSStatus status = stream_map_property(property, &mapped);
+    return status ? status : AudioFileGetProperty(stream->file, mapped, ioSize, outData);
+}
+
+OSStatus
+AudioFileStreamSetProperty(AudioFileStreamID stream, AudioFileStreamPropertyID property,
+    UInt32 size, const void *data)
+{
+    if (!stream || (size && !data))
+        return kAudio_ParamError;
+    return kAudioFileStreamError_IllegalOperation;
+}
+
+OSStatus
+AudioFileStreamSeek(AudioFileStreamID stream, SInt64 packetOffset, SInt64 *outByteOffset,
+    AudioFileStreamSeekFlags *ioFlags)
+{
+    if (!stream || !outByteOffset || !ioFlags || packetOffset < 0)
+        return kAudio_ParamError;
+    if (!stream->file)
+        return kAudioFileStreamError_DataUnavailable;
+    AudioStreamBasicDescription format = {0};
+    UInt32 size = sizeof(format);
+    OSStatus status = AudioFileGetProperty(stream->file, kAudioFilePropertyDataFormat, &size, &format);
+    if (status)
+        return status;
+    if (!format.mBytesPerPacket)
+        return kAudioFileStreamError_InvalidPacketOffset;
+    UInt64 offset = (UInt64)packetOffset * format.mBytesPerPacket;
+    if (offset > INT64_MAX)
+        return kAudioFileStreamError_InvalidPacketOffset;
+    *outByteOffset = (SInt64)offset;
+    *ioFlags = 0;
+    return noErr;
+}
+
+OSStatus
+AudioFileStreamClose(AudioFileStreamID stream)
+{
+    if (!stream)
+        return kAudio_ParamError;
+    if (stream->file)
+        AudioFileClose(stream->file);
+    CFRelease(stream->bytes);
+    free(stream);
     return noErr;
 }
 

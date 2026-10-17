@@ -444,6 +444,19 @@ preferences(void)
            (long)(mediaOptions ? CFArrayGetCount(mediaOptions) : -1));
     if (mediaSubtypes) CFRelease(mediaSubtypes);
     if (mediaOptions) CFRelease(mediaOptions);
+
+    CFDictionaryRef currentMedia = NULL, activeMedia = NULL;
+    CFArrayRef availableMediaOptions = NULL;
+    Boolean copiedMedia = SCNetworkInterfaceCopyMediaOptions(base, &currentMedia, &activeMedia,
+        &availableMediaOptions, false);
+    printf("interface media options %d current %d active %d available %d count %ld\n", copiedMedia,
+           currentMedia != NULL, activeMedia != NULL, availableMediaOptions != NULL,
+           (long)(availableMediaOptions ? CFArrayGetCount(availableMediaOptions) : -1));
+    Boolean clearedMedia = SCNetworkInterfaceSetMediaOptions(base, NULL, NULL);
+    printf("clear interface media options %d\n", clearedMedia);
+    if (currentMedia) CFRelease(currentMedia);
+    if (activeMedia) CFRelease(activeMedia);
+    if (availableMediaOptions) CFRelease(availableMediaOptions);
     CFRelease(interfaceConfig);
 
     CFStringRef uniqueChild = SCPreferencesPathCreateUniqueChild(p, CFSTR("/FinchUnique"));
@@ -565,6 +578,89 @@ interfaces(void)
     printf("ipv4 interface %s\n", [(__bridge NSString *)SCNetworkInterfaceGetInterfaceType(kSCNetworkInterfaceIPv4) UTF8String]);
 }
 
+static void
+virtualInterfaces(void)
+{
+    printf("== virtual interfaces and connections\n");
+    NSString *path = [NSString stringWithFormat:@"%@/finch-sysconfig-virtual-%d.plist", NSTemporaryDirectory(), getpid()];
+    unlink(path.fileSystemRepresentation);
+    SCPreferencesRef prefs = SCPreferencesCreate(NULL, CFSTR("finch-sysconfig-virtual"), (__bridge CFStringRef)path);
+    SCBondInterfaceRef bond = prefs ? SCBondInterfaceCreate(prefs) : NULL;
+    printf("bond create %d type %d name %s\n", bond != NULL,
+           bond && CFGetTypeID(bond) == SCNetworkInterfaceGetTypeID(),
+           [(__bridge NSString *)SCNetworkInterfaceGetBSDName((SCNetworkInterfaceRef)bond) UTF8String]);
+    CFArrayRef members = CFArrayCreate(NULL, NULL, 0, &kCFTypeArrayCallBacks);
+    CFDictionaryRef bondOptions = (__bridge CFDictionaryRef)@{ @"mode" : @1 };
+    Boolean bondNameSet = bond && SCBondInterfaceSetLocalizedDisplayName(bond, CFSTR("Finch Bond"));
+    Boolean bondMembersSet = bond && SCBondInterfaceSetMemberInterfaces(bond, members);
+    Boolean bondOptionsSet = bond && SCBondInterfaceSetOptions(bond, bondOptions);
+    CFArrayRef bonds = prefs ? SCBondInterfaceCopyAll(prefs) : NULL;
+    CFArrayRef availableBondMembers = prefs ? SCBondInterfaceCopyAvailableMemberInterfaces(prefs) : NULL;
+    SCBondStatusRef bondStatus = bond ? SCBondInterfaceCopyStatus(bond) : NULL;
+    printf("bond readback %d %d %d name %d members %ld options %d status-type %d status %d\n",
+           bondNameSet, bondMembersSet, bondOptionsSet,
+           bond && CFEqual(SCNetworkInterfaceGetLocalizedDisplayName((SCNetworkInterfaceRef)bond), CFSTR("Finch Bond")),
+           (long)(bond ? CFArrayGetCount(SCBondInterfaceGetMemberInterfaces(bond)) : -1),
+           bond && CFEqual(SCBondInterfaceGetOptions(bond), bondOptions),
+           SCBondStatusGetTypeID() != 0,
+           bondStatus != NULL);
+    printf("bond list %ld available-list %d\n", (long)(bonds ? CFArrayGetCount(bonds) : -1), availableBondMembers != NULL);
+
+    CFArrayRef physicals = SCVLANInterfaceCopyAvailablePhysicalInterfaces();
+    SCNetworkInterfaceRef physical = physicals && CFArrayGetCount(physicals)
+        ? (SCNetworkInterfaceRef)CFArrayGetValueAtIndex(physicals, 0) : NULL;
+    int tagValue = 41;
+    CFNumberRef tag = CFNumberCreate(NULL, kCFNumberIntType, &tagValue);
+    SCVLANInterfaceRef vlan = prefs && physical ? SCVLANInterfaceCreate(prefs, physical, tag) : NULL;
+    CFDictionaryRef vlanOptions = (__bridge CFDictionaryRef)@{ @"mode" : @2 };
+    Boolean vlanNameSet = vlan && SCVLANInterfaceSetLocalizedDisplayName(vlan, CFSTR("Finch VLAN"));
+    Boolean vlanOptionsSet = vlan && SCVLANInterfaceSetOptions(vlan, vlanOptions);
+    Boolean vlanLinkSet = vlan && SCVLANInterfaceSetPhysicalInterfaceAndTag(vlan, physical, tag);
+    CFArrayRef vlans = prefs ? SCVLANInterfaceCopyAll(prefs) : NULL;
+    int readTag = 0;
+    CFNumberRef storedTag = vlan ? SCVLANInterfaceGetTag(vlan) : NULL;
+    Boolean tagMatches = storedTag && CFNumberGetValue(storedTag, kCFNumberIntType, &readTag) && readTag == tagValue;
+    printf("vlan create %d name %d options %d link %d tag %d physical %d list %ld\n",
+           vlan != NULL, vlanNameSet && CFEqual(SCNetworkInterfaceGetLocalizedDisplayName((SCNetworkInterfaceRef)vlan), CFSTR("Finch VLAN")),
+           vlanOptionsSet && CFEqual(SCVLANInterfaceGetOptions(vlan), vlanOptions), vlanLinkSet, tagMatches,
+           vlan && SCVLANInterfaceGetPhysicalInterface(vlan) && CFEqual(SCVLANInterfaceGetPhysicalInterface(vlan), physical),
+           (long)(vlans ? CFArrayGetCount(vlans) : -1));
+
+    SCNetworkInterfaceRef layered = physical ? SCNetworkInterfaceCreateWithInterface(physical, kSCNetworkInterfaceTypePPP) : NULL;
+    printf("layered interface %d type %d child %d\n", layered != NULL,
+           layered && CFEqual(SCNetworkInterfaceGetInterfaceType(layered), kSCNetworkInterfaceTypePPP),
+           layered && SCNetworkInterfaceGetInterface(layered) && CFEqual(SCNetworkInterfaceGetInterface(layered), physical));
+
+    CFStringRef selectedService = NULL;
+    CFDictionaryRef userOptions = NULL;
+    Boolean preferences = SCNetworkConnectionCopyUserPreferences(NULL, &selectedService, &userOptions);
+    SCNetworkConnectionRef missing = SCNetworkConnectionCreateWithServiceID(NULL, CFSTR("FinchMissingService"), NULL, NULL);
+    CFStringRef missingServiceID = missing ? SCNetworkConnectionCopyServiceID(missing) : NULL;
+    printf("connection type %d user preferences %d missing service %d status %d id %d\n",
+           SCNetworkConnectionGetTypeID() != 0, preferences, missing != NULL,
+           missing ? SCNetworkConnectionGetStatus(missing) : kSCNetworkConnectionInvalid, missingServiceID != NULL);
+    if (selectedService) CFRelease(selectedService);
+    if (userOptions) CFRelease(userOptions);
+    if (missingServiceID) CFRelease(missingServiceID);
+    if (missing) CFRelease(missing);
+
+    Boolean vlanRemoved = vlan && SCVLANInterfaceRemove(vlan);
+    Boolean bondRemoved = bond && SCBondInterfaceRemove(bond);
+    printf("remove virtual interfaces %d %d\n", vlanRemoved, bondRemoved);
+    if (layered) CFRelease(layered);
+    if (vlan) CFRelease(vlan);
+    if (bond) CFRelease(bond);
+    if (bondStatus) CFRelease(bondStatus);
+    if (vlans) CFRelease(vlans);
+    if (bonds) CFRelease(bonds);
+    if (availableBondMembers) CFRelease(availableBondMembers);
+    if (tag) CFRelease(tag);
+    if (physicals) CFRelease(physicals);
+    if (members) CFRelease(members);
+    if (prefs) CFRelease(prefs);
+    unlink(path.fileSystemRepresentation);
+}
+
 int
 main(void)
 {
@@ -580,6 +676,7 @@ main(void)
         reachability();
         preferences();
         interfaces();
+        virtualInterfaces();
     }
     printf("== done\n");
     return 0;

@@ -95,6 +95,10 @@ private func makeSecProtocolOptions() -> sec_protocol_options_t
 @_silgen_name("finch_network_sec_protocol_metadata_create")
 private func makeSecProtocolMetadata() -> sec_protocol_metadata_t
 
+@_silgen_name("_FinchSecProtocolOptionsCopy")
+private func copySecProtocolOptions(_ source: sec_protocol_options_t,
+                                    _ destination: sec_protocol_options_t) -> Int32
+
 @_objcRuntimeName(_TtC7Network14_NWProtocolTLS)
 public class NWProtocolTLS: NWProtocol, @unchecked Sendable {
     public static let definition = NWProtocolDefinition(name: "TLS")
@@ -104,13 +108,24 @@ public class NWProtocolTLS: NWProtocol, @unchecked Sendable {
         private let options = makeSecProtocolOptions()
         public var securityProtocolOptions: sec_protocol_options_t { options }
         public override init() { super.init() }
-        func copy() -> Options { Options() }
+        func copy() -> Options {
+            let value = Options()
+            _ = copySecProtocolOptions(options, value.options)
+            return value
+        }
     }
 
     @_objcRuntimeName(_TtCC7Network14_NWProtocolTLS8Metadata)
     public class Metadata: NWProtocolMetadata, @unchecked Sendable {
-        private let metadata = makeSecProtocolMetadata()
+        private let metadata: sec_protocol_metadata_t
         public var securityProtocolMetadata: sec_protocol_metadata_t { metadata }
+
+        public convenience init() { self.init(makeSecProtocolMetadata()) }
+
+        init(_ metadata: sec_protocol_metadata_t) {
+            self.metadata = metadata
+            super.init(definition: NWProtocolTLS.definition)
+        }
     }
 }
 

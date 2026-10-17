@@ -7,13 +7,21 @@
  * descriptions; color code points and color spaces.
  */
 #include <CoreVideo/CoreVideo.h>
+#include <CoreVideo/CVMetalBuffer.h>
+#include <CoreVideo/CVMetalBufferCache.h>
 #include <IOSurface/IOSurface.h>
+#include <OpenGL/OpenGL.h>
+#include <OpenGL/gl.h>
 #include <dlfcn.h>
 #include <libkern/OSByteOrder.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* The MTLDevice-taking entry point is only declared by the SDK in Objective-C. */
+extern CVReturn CVMetalBufferCacheCreate(CFAllocatorRef, CFDictionaryRef, void *, CVMetalBufferCacheRef *);
+extern CVReturn CVMetalBufferCacheCreateBufferFromImage(CFAllocatorRef, CVMetalBufferCacheRef, CVImageBufferRef, CVMetalBufferRef *);
 
 /* A description with its pointers masked and the fill callbacks (pointers) left out. */
 static void
@@ -392,6 +400,87 @@ colors(void)
     printf("no attachments: %s\n", CVImageBufferCreateColorSpaceFromAttachments(dict(0)) ? "made" : "NULL");
 }
 
+static void
+legacy_opengl(void)
+{
+    CGLPixelFormatAttribute attributes[] = { 0 };
+    CGLPixelFormatObj pixelFormat = NULL;
+    GLint pixelFormatCount = 0;
+    CGLContextObj context = NULL;
+    CGLError error = CGLChoosePixelFormat(attributes, &pixelFormat, &pixelFormatCount);
+    if (error == kCGLNoError && pixelFormat)
+        error = CGLCreateContext(pixelFormat, NULL, &context);
+    printf("OpenGL context: %d\n", error == kCGLNoError && context != NULL);
+    if (error != kCGLNoError || !context) {
+        if (pixelFormat) CGLReleasePixelFormat(pixelFormat);
+        return;
+    }
+
+    CVOpenGLBufferRef buffer = NULL;
+    CVReturn status = CVOpenGLBufferCreate(NULL, 32, 16, NULL, &buffer);
+    printf("OpenGL buffer: status:%d %d type:%d attrs:%d\n", status, status == kCVReturnSuccess,
+           buffer && CFGetTypeID(buffer) == CVOpenGLBufferGetTypeID(), CVOpenGLBufferGetAttributes(buffer) == NULL);
+    GLuint textureName = 0;
+    GLenum textureTarget = GL_TEXTURE_RECTANGLE_EXT;
+    glGenTextures(1, &textureName);
+    glBindTexture(textureTarget, textureName);
+    printf("OpenGL buffer attach: %d\n", CVOpenGLBufferAttach(buffer, context, 0, 0, 0) == kCVReturnSuccess);
+    glDeleteTextures(1, &textureName);
+
+    CVOpenGLBufferPoolRef pool = NULL;
+    CFDictionaryRef bufferAttributes = dict(2, kCVOpenGLBufferWidth, num(32), kCVOpenGLBufferHeight, num(16));
+    status = CVOpenGLBufferPoolCreate(NULL, NULL, bufferAttributes, &pool);
+    CVOpenGLBufferRef pooled = NULL;
+    CVReturn bufferStatus = pool ? CVOpenGLBufferPoolCreateOpenGLBuffer(NULL, pool, &pooled) : kCVReturnInvalidArgument;
+    printf("OpenGL pool: status:%d %d type:%d attrs:%d buffer-status:%d %d\n", status, status == kCVReturnSuccess,
+           pool && CFGetTypeID(pool) == CVOpenGLBufferPoolGetTypeID(),
+           pool && CVOpenGLBufferPoolGetOpenGLBufferAttributes(pool) != NULL,
+           bufferStatus, bufferStatus == kCVReturnSuccess && pooled != NULL);
+
+    CFDictionaryRef iosurface = dict(1, kCVPixelBufferIOSurfacePropertiesKey, dict(0));
+    CVPixelBufferRef pixelBuffer = NULL;
+    status = CVPixelBufferCreate(NULL, 32, 16, kCVPixelFormatType_32BGRA, iosurface, &pixelBuffer);
+    CVOpenGLTextureCacheRef cache = NULL;
+    CVReturn cacheStatus = CVOpenGLTextureCacheCreate(NULL, NULL, context, pixelFormat, NULL, &cache);
+    CVOpenGLTextureRef image = NULL;
+    CVReturn imageStatus = cache && pixelBuffer
+        ? CVOpenGLTextureCacheCreateTextureFromImage(NULL, cache, pixelBuffer, NULL, &image) : kCVReturnInvalidArgument;
+    printf("OpenGL texture: buffer:%d cache:%d image-status:%d image:%d type:%d target:%d name:%d flipped:%d\n",
+           status == kCVReturnSuccess, cacheStatus == kCVReturnSuccess, imageStatus,
+           imageStatus == kCVReturnSuccess,
+           image && CFGetTypeID(image) == CVOpenGLTextureGetTypeID(),
+           image ? CVOpenGLTextureGetTarget(image) == GL_TEXTURE_RECTANGLE_EXT : 0,
+           image && CVOpenGLTextureGetName(image) != 0, image ? CVOpenGLTextureIsFlipped(image) : 0);
+    if (image) {
+        GLfloat ll[2], lr[2], ur[2], ul[2];
+        CVOpenGLTextureGetCleanTexCoords(image, ll, lr, ur, ul);
+        printf("OpenGL coords: %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f\n",
+               ll[0], ll[1], lr[0], lr[1], ur[0], ur[1], ul[0], ul[1]);
+        CVOpenGLTextureRelease(image);
+    }
+    CVOpenGLTextureCacheFlush(cache, 0);
+    CVOpenGLTextureCacheRelease(cache);
+    if (pixelBuffer) CFRelease(pixelBuffer);
+    if (pooled) CVOpenGLBufferRelease(pooled);
+    CVOpenGLBufferPoolRelease(pool);
+    CFRelease(bufferAttributes);
+    CFRelease(iosurface);
+    CVOpenGLBufferRelease(buffer);
+    CGLReleaseContext(context);
+    CGLReleasePixelFormat(pixelFormat);
+
+    CVMetalBufferCacheRef metalCache = NULL;
+    CVMetalBufferRef metalBuffer = NULL;
+    CVMetalBufferCacheRef noMetalCache = NULL;
+    CVImageBufferRef noImage = NULL;
+    void *noMetalDevice = NULL;
+    printf("Metal buffer types: %d %d cache:%d image:%d\n",
+           CVMetalBufferGetTypeID() != 0, CVMetalBufferCacheGetTypeID() != 0,
+           CVMetalBufferCacheCreate(NULL, NULL, noMetalDevice, &metalCache) == kCVReturnInvalidArgument && metalCache == NULL,
+           CVMetalBufferCacheCreateBufferFromImage(NULL, noMetalCache, noImage, &metalBuffer) == kCVReturnInvalidArgument && metalBuffer == NULL);
+    CVMetalBufferCacheFlush(noMetalCache, 0);
+}
+
 int
 main(void)
 {
@@ -406,5 +495,6 @@ main(void)
     descriptions();
     four_char_codes();
     colors();
+    legacy_opengl();
     return 0;
 }

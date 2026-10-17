@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
 /* High-level audio-file reads and writes over Finch's AudioFile and AudioConverter. */
 #include <AudioToolbox/AudioToolbox.h>
+#include <CoreServices/CoreServices.h>
 #include <limits.h>
 #include <math.h>
 #include <stdbool.h>
@@ -151,6 +152,21 @@ ExtAudioFileOpenURL(CFURLRef inURL, ExtAudioFileRef *outExtAudioFile)
 }
 
 OSStatus
+ExtAudioFileOpen(const FSRef *inFSRef, ExtAudioFileRef *outExtAudioFile)
+{
+    if (!inFSRef || !outExtAudioFile)
+        return kAudio_ParamError;
+    CFURLRef url = CFURLCreateFromFSRef(NULL, inFSRef);
+    if (!url) {
+        *outExtAudioFile = NULL;
+        return kAudioFileInvalidFileError;
+    }
+    OSStatus status = ExtAudioFileOpenURL(url, outExtAudioFile);
+    CFRelease(url);
+    return status;
+}
+
+OSStatus
 ExtAudioFileWrapAudioFileID(AudioFileID inFileID, Boolean inForWriting, ExtAudioFileRef *outExtAudioFile)
 {
     if (!inFileID || !outExtAudioFile)
@@ -183,6 +199,30 @@ ExtAudioFileCreateWithURL(CFURLRef inURL, AudioFileTypeID inFileType, const Audi
     if (e)
         AudioFileClose(file);
     return e;
+}
+
+OSStatus
+ExtAudioFileCreateNew(const FSRef *inParentDir, CFStringRef inFileName, AudioFileTypeID inFileType,
+    const AudioStreamBasicDescription *inStreamDesc, const AudioChannelLayout *inChannelLayout,
+    ExtAudioFileRef *outExtAudioFile)
+{
+    if (!inParentDir || !inFileName || !inStreamDesc || !outExtAudioFile)
+        return kAudio_ParamError;
+    CFURLRef parent = CFURLCreateFromFSRef(NULL, inParentDir);
+    if (!parent) {
+        *outExtAudioFile = NULL;
+        return kAudioFileInvalidFileError;
+    }
+    CFURLRef url = CFURLCreateCopyAppendingPathComponent(NULL, parent, inFileName, false);
+    CFRelease(parent);
+    if (!url) {
+        *outExtAudioFile = NULL;
+        return kAudioFileInvalidFileError;
+    }
+    OSStatus status = ExtAudioFileCreateWithURL(url, inFileType, inStreamDesc, inChannelLayout,
+        0, outExtAudioFile);
+    CFRelease(url);
+    return status;
 }
 
 OSStatus

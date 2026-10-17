@@ -1237,9 +1237,13 @@ Boolean SCDynamicStoreSetNotificationKeys(SCDynamicStoreRef store, CFArrayRef ke
 		xpc_release(request);
 	if (staged) {
 		pthread_mutex_lock(&storeLock);
-		if (status == kSCStatusOK) {
+		if (status == kSCStatusOK || status == kSCStatusNoStoreServer) {
+			/* With no configd protocol endpoint, keep a process-local subscription.
+			 * startWatching() below still observes the kernel's network changes. */
 			if (s->subscriptionEpoch == requestEpoch)
 				s->needsResubscribe = false;
+			if (status == kSCStatusNoStoreServer)
+				status = kSCStatusOK;
 		} else {
 			if (s->watchedKeys)
 				CFRelease(s->watchedKeys);

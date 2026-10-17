@@ -217,6 +217,19 @@ still link. That's the work list for "nothing closed". On 2026-10-08 it found 14
   host comparisons match Apple's. The app sweep fell from 5 apps missing 12 symbol
   imports to 3 apps missing 3. The remaining app imports are user-notification UI
   calls and URL security-scope handling, which Finch does not yet provide.
+- 2026-10-16: CFXML parsing now covers the callback parser and URL parser, and XML
+  tree output matches Apple's tested bytes. Bundle checks now report whether an
+  executable can load for a CPU type or URL. The host comparisons pass for
+  `cf-test` (100 lines), `cfxml-test` (20), and `cf-bundle-arch-test` (3). The
+  C API audit finds 1,180 of 1,193 entries. The 13 still missing are three old
+  bundle resource-map calls and ten `CFUserNotification` calls; Finch has not
+  added those resource APIs or the notification UI service.
+- 2026-10-16: IOKit now exports 228 of 393 public C entries. Finch builds nine
+  network calls from the published IOKitUser source and adds HID element, value,
+  and manager state and callback handling. `iokit-test` matches Apple's in 13
+  lines. The manager has no devices to return on this host. Device, queue,
+  transaction, event-system, display, graphics, and kernel-extension APIs remain
+  open; `IOHIDManagerSaveToPropertyDomain` is also still missing.
 
 ## Run-time loads of closed frameworks
 

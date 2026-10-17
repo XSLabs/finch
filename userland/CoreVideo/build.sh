@@ -5,7 +5,8 @@
 # as Apple's are, in memory of their own, an IOSurface's or the caller's
 # (CVPixelBuffer.c), and their pools (CVPixelBufferPool.c); pixel format descriptions
 # (CVPixelFormatDescription.c over CVPixelFormats.c, Apple's values); color code points
-# and the Metal texture cache (CVMisc.m). CVConstants.m has Apple's constants.
+# and Metal texture caches (CVMisc.m and CVMetalBuffer.m); legacy OpenGL buffers,
+# pools and textures over CGL and IOSurface (CVOpenGL.c). CVConstants.m has Apple's constants.
 #
 # Linked as Apple ships it: Versions/A, current version 734.4, compatibility version 1.2.
 #
@@ -19,4 +20,5 @@ OBJC_ARC=1 CFLAGS="-Wno-deprecated-declarations -fblocks" \
     /System/Library/Frameworks/CoreVideo.framework/Versions/A/CoreVideo 734.4 1.2 com.apple.CoreVideo 1.8 \
     "${HERE}/CVConstants.m" "${HERE}/CVDisplayLink.c" "${HERE}/CVBuffer.c" "${HERE}/CVPixelBuffer.c" "${HERE}/CVPixelBufferPool.c" \
     "${HERE}/CVPixelFormatDescription.c" "${HERE}/CVPixelFormats.c" "${HERE}/CVMisc.m" \
-    -- -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework IOSurface
+    "${HERE}/CVOpenGL.c" "${HERE}/CVMetalBuffer.m" \
+    -- -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework IOSurface -framework OpenGL -framework Metal

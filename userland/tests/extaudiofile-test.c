@@ -2,6 +2,7 @@
 /* Compare ExtAudioFile PCM and G.711 reads, writes, seeking and properties with macOS. */
 #include <AudioToolbox/AudioToolbox.h>
 #include <AudioToolbox/ExtendedAudioFile.h>
+#include <CoreServices/CoreServices.h>
 #include <dlfcn.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -652,6 +653,36 @@ errors(void)
         printf("read-only close-underlying %d\n", (int)AudioFileClose(readOnlyFile));
 }
 
+static void
+legacy_fsref_apis(void)
+{
+    FSRef parent, fileRef;
+    if (FSPathMakeRef((const UInt8 *)directory, &parent, NULL) != noErr) {
+        puts("legacy FSRef APIs: parent unavailable");
+        return;
+    }
+    AudioStreamBasicDescription format = pcm(16, false, 2, false, 44100);
+    ExtAudioFileRef file = NULL;
+    OSStatus status = ExtAudioFileCreateNew(&parent, CFSTR("legacy.wav"), kAudioFileWAVEType,
+        &format, NULL, &file);
+    printf("legacy create %d file %d", (int)status, file != NULL);
+    if (file)
+        printf(" dispose %d", (int)ExtAudioFileDispose(file));
+    CFURLRef url = file_url("legacy.wav");
+    Boolean hasRef = url && CFURLGetFSRef(url, &fileRef);
+    if (url)
+        CFRelease(url);
+    file = NULL;
+    status = hasRef ? ExtAudioFileOpen(&fileRef, &file) : kAudioFileInvalidFileError;
+    AudioStreamBasicDescription actual = {0};
+    UInt32 size = sizeof(actual);
+    OSStatus propertyStatus = status ? status : ExtAudioFileGetProperty(file,
+        kExtAudioFileProperty_FileDataFormat, &size, &actual);
+    printf(" open %d format %08x/%d\n", (int)status, (unsigned)actual.mFormatID, (int)propertyStatus);
+    if (file)
+        ExtAudioFileDispose(file);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -680,6 +711,7 @@ main(int argc, char **argv)
     pcm_round_trip();
     g711_round_trip(kAudioFormatULaw, "ulaw");
     g711_round_trip(kAudioFormatALaw, "alaw");
+    legacy_fsref_apis();
     errors();
     return 0;
 }

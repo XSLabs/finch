@@ -13,8 +13,17 @@ private func finchSSLCreateContext(_ allocator: CFAllocator?, _ side: Int32, _ t
 private func finchSSLSetIOFuncs(_ context: UnsafeMutableRawPointer, _ read: TLSReadCallback, _ write: TLSWriteCallback) -> Int32
 @_silgen_name("SSLSetConnection")
 private func finchSSLSetConnection(_ context: UnsafeMutableRawPointer, _ connection: UnsafeRawPointer?) -> Int32
-@_silgen_name("SSLSetPeerDomainName")
-private func finchSSLSetPeerDomainName(_ context: UnsafeMutableRawPointer, _ name: UnsafePointer<CChar>, _ length: Int) -> Int32
+@_silgen_name("_FinchSecProtocolOptionsApply")
+private func finchApplyTLSOptions(_ options: sec_protocol_options_t, _ context: UnsafeMutableRawPointer,
+                                  _ defaultServerName: UnsafePointer<CChar>) -> Int32
+@_silgen_name("_FinchSecProtocolOptionsVerifyPeer")
+private func finchVerifyTLSOptions(_ options: sec_protocol_options_t,
+                                   _ metadata: sec_protocol_metadata_t,
+                                   _ context: UnsafeMutableRawPointer) -> Bool
+@_silgen_name("_FinchSecProtocolMetadataPopulate")
+private func finchPopulateTLSMetadata(_ metadata: sec_protocol_metadata_t,
+                                      _ context: UnsafeMutableRawPointer,
+                                      _ serverName: UnsafePointer<CChar>?) -> Int32
 @_silgen_name("SSLHandshake")
 private func finchSSLHandshake(_ context: UnsafeMutableRawPointer) -> Int32
 @_silgen_name("SSLWrite")
@@ -115,6 +124,7 @@ final public class NWConnection: CustomDebugStringConvertible, @unchecked Sendab
     private var workQueue: DispatchQueue?
     private var descriptor: Int32 = -1
     private var tlsContext: UnsafeMutableRawPointer?
+    private var tlsMetadata: NWProtocolTLS.Metadata?
     private var readSource: DispatchSourceRead?
     private var pendingReceive: PendingReceive?
     private var startedAt = ProcessInfo.processInfo.systemUptime
@@ -186,7 +196,7 @@ final public class NWConnection: CustomDebugStringConvertible, @unchecked Sendab
         }
         guard started else { return }
         transition(to: .preparing)
-        queue.async { [weak self] in self?.establish() }
+        DispatchQueue.global(qos: .default).async { [weak self] in self?.establish() }
     }
 
     final public func cancel() { close(with: .cancelled) }
@@ -204,6 +214,7 @@ final public class NWConnection: CustomDebugStringConvertible, @unchecked Sendab
             currentState = .setup
             workQueue = nil
             startedAt = ProcessInfo.processInfo.systemUptime
+            tlsMetadata = nil
             return (queue, fd, source)
         }
         source?.cancel()
@@ -352,7 +363,10 @@ final public class NWConnection: CustomDebugStringConvertible, @unchecked Sendab
         }
     }
 
-    final public func metadata(definition: NWProtocolDefinition) -> NWProtocolMetadata? { nil }
+    final public func metadata(definition: NWProtocolDefinition) -> NWProtocolMetadata? {
+        guard definition == NWProtocolTLS.definition else { return nil }
+        return lock.withLock { tlsMetadata }
+    }
 
     public func send(content: Data?, contentContext: ContentContext = .defaultMessage,
                      isComplete: Bool = true) async throws {
@@ -441,25 +455,29 @@ final public class NWConnection: CustomDebugStringConvertible, @unchecked Sendab
                 continue
             }
             var securedContext: UnsafeMutableRawPointer?
+            var securedMetadata: NWProtocolTLS.Metadata?
             if parameters.tlsOptions != nil {
                 guard let serverName = tlsServerName(for: endpoint) else {
                     transition(to: .failed(.tls(errSSLBadConfiguration)))
                     Darwin.close(fd)
                     return
                 }
-                let (context, status) = makeTLSContext(for: fd, serverName: serverName)
+                let (context, metadata, status) = makeTLSContext(for: fd, serverName: serverName,
+                                                                  options: parameters.tlsOptions!)
                 guard status == noErr, let context else {
                     transition(to: .failed(.tls(status)))
                     Darwin.close(fd)
                     return
                 }
                 securedContext = context
+                securedMetadata = metadata
             }
             setSocketNonblocking(fd)
             let accepted = lock.withLock { () -> Bool in
                 guard currentState != .cancelled else { return false }
                 descriptor = fd
                 tlsContext = securedContext
+                tlsMetadata = securedMetadata
                 return true
             }
             guard accepted else {
@@ -498,7 +516,18 @@ final public class NWConnection: CustomDebugStringConvertible, @unchecked Sendab
             tlsStatus = finchSSLRead(tlsContext, base, buffer.count, &processed)
             return processed
         }
-        if tlsContext != nil && tlsStatus == errSSLWouldBlock { return }
+        if tlsContext != nil && count > 0 {
+            pending.data.append(contentsOf: bytes.prefix(count))
+            lock.withLock { receivedBytes += UInt64(count) }
+        }
+        if tlsContext != nil && tlsStatus == errSSLWouldBlock {
+            if pending.data.count >= pending.minimum || pending.data.count >= pending.maximum {
+                finishReceive(data: pending.data, complete: false, error: nil)
+            } else {
+                pendingReceive = pending
+            }
+            return
+        }
         if tlsContext != nil && tlsStatus == errSSLClosedGraceful {
             finishReceive(data: pending.data, complete: true, error: nil)
             return
@@ -516,8 +545,10 @@ final public class NWConnection: CustomDebugStringConvertible, @unchecked Sendab
             finishReceive(data: pending.data, complete: true, error: nil)
             return
         }
-        pending.data.append(contentsOf: bytes.prefix(count))
-        lock.withLock { receivedBytes += UInt64(count) }
+        if tlsContext == nil {
+            pending.data.append(contentsOf: bytes.prefix(count))
+            lock.withLock { receivedBytes += UInt64(count) }
+        }
         if parameters.transport == .udp || pending.data.count >= pending.minimum || pending.data.count >= pending.maximum {
             finishReceive(data: pending.data, complete: parameters.transport == .udp, error: nil)
         } else {
@@ -531,7 +562,9 @@ final public class NWConnection: CustomDebugStringConvertible, @unchecked Sendab
         readSource?.cancel()
         readSource = nil
         let content = data.isEmpty && complete && parameters.transport == .tcp ? nil : data
-        pending.completion(content, ContentContext.defaultMessage, complete, error)
+        let metadata = lock.withLock { tlsMetadata.map { [$0 as NWProtocolMetadata] } ?? [] }
+        let context = ContentContext(identifier: "message", isFinal: complete, metadata: metadata)
+        pending.completion(content, context, complete, error)
     }
 
     private func notifyPath() {
@@ -599,21 +632,38 @@ private func tlsServerName(for endpoint: NWEndpoint) -> String? {
     }
 }
 
-private func makeTLSContext(for descriptor: Int32, serverName: String) -> (UnsafeMutableRawPointer?, OSStatus) {
-    guard let context = finchSSLCreateContext(nil, 1, 0) else { return (nil, errSecAllocate) }
+private func makeTLSContext(for descriptor: Int32, serverName: String,
+                            options: NWProtocolTLS.Options) -> (UnsafeMutableRawPointer?, NWProtocolTLS.Metadata?, OSStatus) {
+    guard let context = finchSSLCreateContext(nil, 1, 0) else { return (nil, nil, errSecAllocate) }
+    let metadata = NWProtocolTLS.Metadata()
     var status = finchSSLSetIOFuncs(context, networkTLSRead, networkTLSWrite)
     if status == noErr {
         status = finchSSLSetConnection(context, UnsafeRawPointer(bitPattern: Int(descriptor)))
     }
     if status == noErr {
-        status = serverName.withCString { finchSSLSetPeerDomainName(context, $0, serverName.utf8.count) }
+        status = serverName.withCString {
+            finchApplyTLSOptions(options.securityProtocolOptions, context, $0)
+        }
     }
-    if status == noErr { status = finchSSLHandshake(context) }
+    if status == noErr {
+        status = finchSSLHandshake(context)
+        if status == errSSLPeerAuthCompleted {
+            status = finchPopulateTLSMetadata(metadata.securityProtocolMetadata, context, nil)
+            if status == noErr {
+                let accepted = finchVerifyTLSOptions(options.securityProtocolOptions,
+                                                     metadata.securityProtocolMetadata, context)
+                status = accepted ? finchSSLHandshake(context) : errSSLXCertChainInvalid
+            }
+        }
+    }
+    if status == noErr {
+        status = finchPopulateTLSMetadata(metadata.securityProtocolMetadata, context, nil)
+    }
     guard status == noErr else {
         releaseTLSContext(context)
-        return (nil, status)
+        return (nil, nil, status)
     }
-    return (context, noErr)
+    return (context, metadata, noErr)
 }
 
 private func releaseTLSContext(_ context: UnsafeMutableRawPointer) {

@@ -16,6 +16,11 @@ exec "${FINCH_ROOT}/tools/build-small-framework.sh" \
     "${FINCH_ROOT}/userland/AudioToolbox/AudioConverter.c" \
     "${FINCH_ROOT}/userland/AudioToolbox/ExtendedAudioFile.c" "${FINCH_ROOT}/userland/AudioToolbox/AudioUnit.c" \
     "${FINCH_ROOT}/userland/AudioToolbox/AudioQueue.c" "${FINCH_ROOT}/userland/AudioToolbox/AudioUnitEffects.c" \
+    "${FINCH_ROOT}/userland/AudioToolbox/MusicSequence.c" \
+    "${FINCH_ROOT}/userland/AudioToolbox/AUGraph_Finch.c" \
+    "${FINCH_ROOT}/userland/AudioToolbox/CoreAudioClock.c" \
+    "${FINCH_ROOT}/userland/AudioToolbox/AudioHardwareService_Finch.c" \
+    "${FINCH_ROOT}/userland/AudioToolbox/AudioUnitUtilities_Finch.c" \
     "${FINCH_ROOT}/userland/AudioToolbox/AudioUnitEffectTables.c" \
     "${FINCH_ROOT}/userland/AudioToolbox/AudioFormatTables.c" "${FINCH_ROOT}/userland/AudioToolbox/AudioFile.c" \
-    -- -framework CoreFoundation -framework CoreAudio
+    -- -framework CoreFoundation -framework CoreAudio -framework CoreServices

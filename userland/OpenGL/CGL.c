@@ -13,6 +13,8 @@
 #include <OpenGL/OpenGL.h>
 #include <OpenGL/CGLRenderers.h>
 #include <OpenGL/gl.h>
+#include <IOSurface/IOSurface.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -690,5 +692,29 @@ FINCH_EXPORT CGLError
 CGLTexImageIOSurface2D(CGLContextObj ctx, GLenum target, GLenum internal_format, GLsizei width, GLsizei height, GLenum format,
                        GLenum type, IOSurfaceRef ioSurface, GLuint plane)
 {
-    return kCGLBadValue;
+    if (!ctx || CGLGetCurrentContext() != ctx)
+        return kCGLBadContext;
+    if (!ioSurface || plane != 0 || width <= 0 || height <= 0 ||
+        IOSurfaceGetWidth(ioSurface) != (size_t)width || IOSurfaceGetHeight(ioSurface) != (size_t)height ||
+        IOSurfaceGetPixelFormat(ioSurface) != 0x42475241 /* BGRA */ || format != GL_BGRA ||
+        type != GL_UNSIGNED_INT_8_8_8_8_REV)
+        return kCGLBadValue;
+    size_t bytesPerRow = IOSurfaceGetBytesPerRow(ioSurface);
+    if (bytesPerRow < (size_t)width * 4 || bytesPerRow % 4 || bytesPerRow / 4 > INT_MAX)
+        return kCGLBadValue;
+    if (IOSurfaceLock(ioSurface, kIOSurfaceLockReadOnly, NULL) != kIOReturnSuccess)
+        return kCGLBadAlloc;
+    void *pixels = IOSurfaceGetBaseAddress(ioSurface);
+    if (!pixels) {
+        IOSurfaceUnlock(ioSurface, kIOSurfaceLockReadOnly, NULL);
+        return kCGLBadValue;
+    }
+    GLint previousRowLength = 0;
+    glGetIntegerv(GL_UNPACK_ROW_LENGTH, &previousRowLength);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, (GLint)(bytesPerRow / 4));
+    glTexImage2D(target, 0, (GLint)internal_format, width, height, 0, format, type, pixels);
+    GLenum error = glGetError();
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, previousRowLength);
+    IOSurfaceUnlock(ioSurface, kIOSurfaceLockReadOnly, NULL);
+    return error == GL_NO_ERROR ? kCGLNoError : kCGLBadValue;
 }

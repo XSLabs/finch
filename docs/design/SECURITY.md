@@ -234,3 +234,35 @@ host comparison passes for all 193 lines in `sysconfig-test`; the API audit now
 finds 426 of 467 public C functions. The remaining 41 include bond and VLAN
 controls, link-media controls, PPP layering, daemon-backed connections, and
 legacy refresh calls that need hardware or services Finch does not provide.
+
+## 2026-10-16: Security and SystemConfiguration C API work
+
+Security now exports 1,555 of the 1,804 public C entries in the 26.4 SDK audit.
+The CMS encoder and decoder handle signed and enveloped messages through Finch's
+OpenSSL library; `security-test` checks a signed-message round trip against Apple.
+New covered paths include symmetric-key import and derivation, certificate data
+and names, legacy policy and access objects, trust options and exceptions,
+asynchronous trust evaluation, basic `SecTransform` actions, and the public TLS
+protocol-options object. Network's TLS client now applies its supported options
+to Finch's Secure Transport path: version limits, server name, ALPN, cipher list,
+session tickets, fallback and renegotiation flags, peer checks, client identity,
+and verify and challenge callbacks. It reports negotiated version, cipher, ALPN,
+server name, and peer certificates. The loopback comparison checks certificate
+rejection and acceptance, a version mismatch, ALPN, metadata, and an echo. The
+Security host comparison passes in 369 lines.
+
+The TLS handshake uses Finch's Secure Transport and OpenSSL, not Apple's private
+TLS implementation. This work does not add a timestamp service or the old CSSM
+service. A missing CMS timestamp returns Apple's item-not-found error.
+Custom transform registration and setup are tested, but action execution is not
+in the Apple comparison: the Apple test process crashes when that legacy callback
+path runs. The transform comparison covers digest and Base64 actions. The audit
+still reports 249 missing entries, including most CSSM calls, import/export
+helpers, old keychain handles, hardware services, remaining protocol-metadata
+calls, unsupported advanced TLS options, and shared-credential services.
+
+SystemConfiguration now exports all 467 public C entries found by the same SDK
+audit, including its bond/VLAN configuration and legacy connection interfaces.
+The 203-line `sysconfig-test` comparison passes against Apple. This count covers
+exports; it does not make Finch's configuration daemon provide Wi-Fi, DHCP,
+hardware link changes, or every network service.

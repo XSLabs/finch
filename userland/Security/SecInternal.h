@@ -37,9 +37,26 @@ SEC_HIDDEN CFStringRef _SecCopyErrorString(OSStatus status);   /* NULL if unknow
 
 SEC_HIDDEN CFDataRef _SecCertificateCopyNameDER(SecCertificateRef c, bool issuer);
 SEC_HIDDEN CFDataRef _SecCertificateCopyPublicKeySHA1(SecCertificateRef c);
+SEC_HIDDEN CFDataRef _SecKeyCopyPrivateKeyInfo(SecKeyRef key);
 
 /* Keychain (SecKeychain.c) */
 SEC_HIDDEN SecIdentityRef _SecIdentityCreate(SecCertificateRef cert, SecKeyRef key);
+
+/* Private bridge used by Finch's Network.framework TLS client. */
+typedef OSStatus (*FinchSSLClientIdentityCallback)(SSLContextRef context, CFArrayRef *certificates,
+	void *contextInfo);
+SEC_HIDDEN OSStatus _FinchSSLSetClientIdentityCallback(SSLContextRef context,
+	FinchSSLClientIdentityCallback callback, void *contextInfo);
+SEC_HIDDEN OSStatus _FinchSSLSetFallbackAttempt(SSLContextRef context, Boolean enabled);
+SEC_HIDDEN OSStatus _FinchSSLSetRenegotiationEnabled(SSLContextRef context, Boolean enabled);
+
+SEC_API OSStatus _FinchSecProtocolOptionsApply(sec_protocol_options_t options, SSLContextRef context,
+	const char *defaultServerName);
+SEC_API Boolean _FinchSecProtocolOptionsVerifyPeer(sec_protocol_options_t options,
+	sec_protocol_metadata_t metadata, SSLContextRef context);
+SEC_API sec_protocol_metadata_t _FinchSecProtocolMetadataCreate(void);
+SEC_API OSStatus _FinchSecProtocolMetadataPopulate(sec_protocol_metadata_t metadata,
+	SSLContextRef context, const char *serverName);
 
 /* Apple's SPI (SecKeychainPriv.h): a keychain's password changed, old to new. */
 OSStatus SecKeychainChangePassword(SecKeychainRef keychain, UInt32 oldPasswordLength, const void *oldPassword,

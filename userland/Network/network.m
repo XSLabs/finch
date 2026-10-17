@@ -145,17 +145,14 @@ bool nw_path_is_constrained(nw_path_t path) {
 @implementation FinchSecurityProtocolOptions
 @end
 
-@interface FinchSecurityProtocolMetadata : NSObject
-@end
-@implementation FinchSecurityProtocolMetadata
-@end
+extern sec_protocol_metadata_t _FinchSecProtocolMetadataCreate(void);
 
 sec_protocol_options_t finch_network_sec_protocol_options_create(void) {
     return (sec_protocol_options_t)[[[FinchSecurityProtocolOptions alloc] init] autorelease];
 }
 
 sec_protocol_metadata_t finch_network_sec_protocol_metadata_create(void) {
-    return (sec_protocol_metadata_t)[[[FinchSecurityProtocolMetadata alloc] init] autorelease];
+	return _FinchSecProtocolMetadataCreate();
 }
 
 typedef void (*FinchDNSBrowseCallback)(void *, uint32_t, uint32_t, int32_t,

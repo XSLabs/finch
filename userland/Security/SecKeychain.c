@@ -18,6 +18,7 @@
 #include "SecKeychainServiceWire.h"
 #endif
 #include <Security/SecKeychainSearch.h>
+#include <Security/SecIdentitySearch.h>
 #include <dispatch/dispatch.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -52,6 +53,13 @@ typedef struct {
 	int64_t id;
 } Item;
 
+typedef struct {
+	CFRuntimeBase base;
+	CFArrayRef identities;
+	CFIndex next;
+	OSStatus status;
+} IdentitySearch;
+
 static void keychainFree(CFTypeRef o)
 {
 	CFRelease(((Keychain *)o)->path);
@@ -80,6 +88,12 @@ static void itemFree(CFTypeRef o)
 	CFRelease(((Item *)o)->keychain);
 	CFRelease(((Item *)o)->itemClass);
 }
+static void identitySearchFree(CFTypeRef o)
+{
+	IdentitySearch *search = (IdentitySearch *)o;
+	if (search->identities)
+		CFRelease(search->identities);
+}
 static Boolean itemEqual(CFTypeRef a, CFTypeRef b)
 {
 	return ((Item *)a)->id == ((Item *)b)->id && CFEqual(((Item *)a)->keychain, ((Item *)b)->keychain);
@@ -89,6 +103,13 @@ static CFHashCode itemHash(CFTypeRef a)
 	return (CFHashCode)((Item *)a)->id;
 }
 SEC_DEFINE_TYPE(SecKeychainItemGetTypeID, "SecKeychainItem", itemFree, itemEqual, itemHash)
+
+CFTypeID SecIdentitySearchGetTypeID(void)
+{
+	static CFTypeID id;
+	static const CFRuntimeClass cls = {0, "SecIdentitySearch", NULL, NULL, identitySearchFree};
+	return _SecRegisterClass(&id, &cls);
+}
 
 static CFStringRef homeDirectory(void)
 {
@@ -2216,6 +2237,131 @@ OSStatus SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result)
 	}
 	CFRelease(out);
 	return err;
+}
+
+OSStatus SecIdentitySearchCreate(CFTypeRef keychainOrArray, CSSM_KEYUSE keyUsage,
+	SecIdentitySearchRef *searchRef)
+{
+	if (searchRef)
+		*searchRef = NULL;
+	if (!searchRef)
+		return errSecParam;
+	if (keychainOrArray && !isType(keychainOrArray, SecKeychainGetTypeID()) &&
+	    !isType(keychainOrArray, CFArrayGetTypeID()))
+		return errSecParam;
+	if (isType(keychainOrArray, CFArrayGetTypeID())) {
+		CFArrayRef list = (CFArrayRef)keychainOrArray;
+		for (CFIndex i = 0; i < CFArrayGetCount(list); i++)
+			if (!isType(CFArrayGetValueAtIndex(list, i), SecKeychainGetTypeID()))
+				return errSecParam;
+	}
+	CFMutableDictionaryRef query = CFDictionaryCreateMutable(NULL, 0,
+	    &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	if (!query)
+		return errSecAllocate;
+	CFDictionarySetValue(query, kSecClass, kSecClassIdentity);
+	CFDictionarySetValue(query, kSecMatchLimit, kSecMatchLimitAll);
+	CFDictionarySetValue(query, kSecReturnRef, kCFBooleanTrue);
+	if (keychainOrArray) {
+		if (isType(keychainOrArray, CFArrayGetTypeID())) {
+			CFDictionarySetValue(query, kSecMatchSearchList, keychainOrArray);
+		} else {
+			CFArrayRef list = CFArrayCreate(NULL, &keychainOrArray, 1, &kCFTypeArrayCallBacks);
+			if (!list) {
+				CFRelease(query);
+				return errSecAllocate;
+			}
+			CFDictionarySetValue(query, kSecMatchSearchList, list);
+			CFRelease(list);
+		}
+	}
+	CFTypeRef found = NULL;
+	OSStatus status = SecItemCopyMatching(query, &found);
+	CFRelease(query);
+	if (status == errSecItemNotFound)
+		status = errSecSuccess;
+	if (status != errSecSuccess) {
+		if (found)
+			CFRelease(found);
+		return status;
+	}
+	CFMutableArrayRef identities = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+	if (!identities) {
+		if (found)
+			CFRelease(found);
+		return errSecAllocate;
+	}
+	if (found) {
+		if (isType(found, SecIdentityGetTypeID())) {
+			CFArrayAppendValue(identities, found);
+		} else if (isType(found, CFArrayGetTypeID())) {
+			CFArrayRef results = (CFArrayRef)found;
+			for (CFIndex i = 0; i < CFArrayGetCount(results); i++) {
+				CFTypeRef identity = CFArrayGetValueAtIndex(results, i);
+				if (isType(identity, SecIdentityGetTypeID()))
+					CFArrayAppendValue(identities, identity);
+			}
+		} else {
+			CFRelease(found);
+			CFRelease(identities);
+			return errSecInternalComponent;
+		}
+		CFRelease(found);
+	}
+	if (keyUsage) {
+		for (CFIndex i = CFArrayGetCount(identities) - 1; i >= 0; i--) {
+			SecKeyRef key = NULL;
+			CFDictionaryRef attributes = NULL;
+			SecIdentityCopyPrivateKey((SecIdentityRef)CFArrayGetValueAtIndex(identities, i), &key);
+			attributes = key ? SecKeyCopyAttributes(key) : NULL;
+			bool matchesUsage = attributes != NULL;
+			struct { CSSM_KEYUSE flag; CFStringRef attribute; } checks[] = {
+				{CSSM_KEYUSE_SIGN, kSecAttrCanSign},
+				{CSSM_KEYUSE_VERIFY, kSecAttrCanVerify},
+				{CSSM_KEYUSE_ENCRYPT, kSecAttrCanEncrypt},
+				{CSSM_KEYUSE_DECRYPT, kSecAttrCanDecrypt},
+				{CSSM_KEYUSE_DERIVE, kSecAttrCanDerive},
+			};
+			for (size_t n = 0; n < sizeof checks / sizeof checks[0]; n++) {
+				if (!(keyUsage & checks[n].flag))
+					continue;
+				CFTypeRef value = attributes ? CFDictionaryGetValue(attributes, checks[n].attribute) : NULL;
+				if (!value || CFGetTypeID(value) != CFBooleanGetTypeID() || !CFBooleanGetValue(value))
+					matchesUsage = false;
+			}
+			if (key)
+				CFRelease(key);
+			if (attributes)
+				CFRelease(attributes);
+			if (!matchesUsage)
+				CFArrayRemoveValueAtIndex(identities, i);
+		}
+	}
+	IdentitySearch *search = (IdentitySearch *)_SecCreateInstance(SecIdentitySearchGetTypeID(), sizeof(*search));
+	if (!search) {
+		CFRelease(identities);
+		return errSecAllocate;
+	}
+	search->identities = identities;
+	search->next = 0;
+	search->status = errSecSuccess;
+	*searchRef = (SecIdentitySearchRef)search;
+	return errSecSuccess;
+}
+
+OSStatus SecIdentitySearchCopyNext(SecIdentitySearchRef searchRef, SecIdentityRef *identity)
+{
+	if (identity)
+		*identity = NULL;
+	if (!isType(searchRef, SecIdentitySearchGetTypeID()) || !identity)
+		return errSecParam;
+	IdentitySearch *search = (IdentitySearch *)searchRef;
+	if (search->status)
+		return search->status;
+	if (!search->identities || search->next >= CFArrayGetCount(search->identities))
+		return errSecItemNotFound;
+	*identity = (SecIdentityRef)CFRetain(CFArrayGetValueAtIndex(search->identities, search->next++));
+	return errSecSuccess;
 }
 
 static CFAbsoluteTime now(void)

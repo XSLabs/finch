@@ -39,6 +39,9 @@ struct SSLContext {
 	CFArrayRef alpn, anchors;
 	SSLCipherSuite *enabled;
 	size_t enabledCount;
+	FinchSSLClientIdentityCallback clientIdentityCallback;
+	void *clientIdentityContext;
+	bool fallbackAttempt, renegotiationEnabled;
 	void *peerID;
 	size_t peerIDLength;
 	OSStatus ioStatus;         /* the I/O functions' last status */
@@ -138,6 +141,7 @@ SSLCreateContext(CFAllocatorRef alloc, SSLProtocolSide protocolSide, SSLConnecti
 	c->minVersion = kTLSProtocol1;
 	c->maxVersion = kTLSProtocol13;
 	c->verify = true;
+	c->renegotiationEnabled = true;
 	c->state = kSSLIdle;
 	return (SSLContextRef)c;
 }
@@ -226,6 +230,38 @@ SSLSetPeerDomainName(SSLContextRef context, const char *peerName, size_t peerNam
 	CHECK(context);
 	free(CTX(context)->peerName);
 	CTX(context)->peerName = peerName ? strndup(peerName, peerNameLen) : NULL;
+	return noErr;
+}
+
+OSStatus
+_FinchSSLSetClientIdentityCallback(SSLContextRef context, FinchSSLClientIdentityCallback callback,
+	void *contextInfo)
+{
+	CHECK(context);
+	if (CTX(context)->state != kSSLIdle)
+		return errSecBadReq;
+	CTX(context)->clientIdentityCallback = callback;
+	CTX(context)->clientIdentityContext = contextInfo;
+	return noErr;
+}
+
+OSStatus
+_FinchSSLSetFallbackAttempt(SSLContextRef context, Boolean enabled)
+{
+	CHECK(context);
+	if (CTX(context)->state != kSSLIdle)
+		return errSecBadReq;
+	CTX(context)->fallbackAttempt = enabled;
+	return noErr;
+}
+
+OSStatus
+_FinchSSLSetRenegotiationEnabled(SSLContextRef context, Boolean enabled)
+{
+	CHECK(context);
+	if (CTX(context)->state != kSSLIdle)
+		return errSecBadReq;
+	CTX(context)->renegotiationEnabled = enabled;
 	return noErr;
 }
 
@@ -408,8 +444,10 @@ SSLGetNegotiatedProtocolVersion(SSLContextRef context, SSLProtocol *protocol)
 	CHECK(context);
 	if (!protocol)
 		return errSecParam;
-	*protocol = CTX(context)->ssl && CTX(context)->state == kSSLConnected ? st_version(SSL_version(CTX(context)->ssl))
-	                                                                      : kSSLProtocolUnknown;
+	struct SSLContext *c = CTX(context);
+	*protocol = c->ssl && SSL_is_init_finished(c->ssl) &&
+	    (c->state == kSSLHandshake || c->state == kSSLConnected) ? st_version(SSL_version(c->ssl))
+	                                                            : kSSLProtocolUnknown;
 	return noErr;
 }
 
@@ -755,6 +793,83 @@ apply_ciphers(struct SSLContext *c)
 		SSL_set_ciphersuites(c->ssl, list13);
 }
 
+static int
+client_certificate(SSL *ssl, X509 **certificate, EVP_PKEY **privateKey)
+{
+	struct SSLContext *c = SSL_get_app_data(ssl);
+	if (!c || !c->clientIdentityCallback)
+		return 0;
+	CFArrayRef certificates = NULL;
+	OSStatus status = c->clientIdentityCallback((SSLContextRef)c, &certificates, c->clientIdentityContext);
+	if (status != noErr || !certificates || CFArrayGetCount(certificates) == 0) {
+		if (certificates)
+			CFRelease(certificates);
+		return 0;
+	}
+	CFTypeRef first = CFArrayGetValueAtIndex(certificates, 0);
+	SecCertificateRef cert = NULL;
+	SecKeyRef key = NULL;
+	if (first && CFGetTypeID(first) == SecIdentityGetTypeID()) {
+		SecIdentityCopyCertificate((SecIdentityRef)first, &cert);
+		SecIdentityCopyPrivateKey((SecIdentityRef)first, &key);
+	}
+	X509 *x509 = cert ? _SecCertificateGetX509(cert) : NULL;
+	EVP_PKEY *pkey = key ? _SecKeyGetEVP(key) : NULL;
+	int result = 0;
+	if (x509 && pkey && X509_up_ref(x509) == 1) {
+		if (EVP_PKEY_up_ref(pkey) == 1) {
+			*certificate = x509;
+			*privateKey = pkey;
+			for (CFIndex i = 1; i < CFArrayGetCount(certificates); i++) {
+				CFTypeRef item = CFArrayGetValueAtIndex(certificates, i);
+				if (item && CFGetTypeID(item) == SecCertificateGetTypeID())
+					SSL_add1_chain_cert(ssl, _SecCertificateGetX509((SecCertificateRef)item));
+			}
+			result = 1;
+		} else {
+			X509_free(x509);
+		}
+	}
+	if (cert)
+		CFRelease(cert);
+	if (key)
+		CFRelease(key);
+	CFRelease(certificates);
+	return result;
+}
+
+static int
+select_alpn(SSL *ssl, const unsigned char **out, unsigned char *outLength,
+	const unsigned char *offered, unsigned int offeredLength, void *context)
+{
+	struct SSLContext *c = context;
+	if (!c || !c->alpn || CFArrayGetCount(c->alpn) == 0)
+		return SSL_TLSEXT_ERR_NOACK;
+	unsigned char supported[1024];
+	size_t at = 0;
+	for (CFIndex i = 0; i < CFArrayGetCount(c->alpn); i++) {
+		char protocol[256];
+		if (!CFStringGetCString(CFArrayGetValueAtIndex(c->alpn, i), protocol, sizeof(protocol),
+		    kCFStringEncodingUTF8))
+			continue;
+		size_t length = strlen(protocol);
+		if (!length || length > 255 || at + length + 1 > sizeof(supported))
+			continue;
+		supported[at++] = (unsigned char)length;
+		memcpy(supported + at, protocol, length);
+		at += length;
+	}
+	unsigned char *selected = NULL;
+	unsigned char selectedLength = 0;
+	int status = SSL_select_next_proto(&selected, &selectedLength, supported, (unsigned int)at,
+	    offered, offeredLength);
+	if (status != OPENSSL_NPN_NEGOTIATED)
+		return SSL_TLSEXT_ERR_NOACK;
+	*out = selected;
+	*outLength = selectedLength;
+	return SSL_TLSEXT_ERR_OK;
+}
+
 /* --- the connection --- */
 
 static OSStatus
@@ -775,10 +890,16 @@ setup(struct SSLContext *c)
 		return errSSLInternal;
 	SSL_CTX_set_min_proto_version(c->ctx, openssl_version(c->minVersion));
 	SSL_CTX_set_max_proto_version(c->ctx, openssl_version(c->maxVersion));
+	if (!c->renegotiationEnabled)
+		SSL_CTX_set_options(c->ctx, SSL_OP_NO_RENEGOTIATION);
 	/* (the peer is judged by SecTrust when the handshake is done) */
 	SSL_CTX_set_verify(c->ctx, SSL_VERIFY_NONE, NULL);
 	if (!c->options[kSSLSessionOptionEnableSessionTickets])
 		SSL_CTX_set_options(c->ctx, SSL_OP_NO_TICKET);
+	if (c->side == kSSLServerSide && c->alpn)
+		SSL_CTX_set_alpn_select_cb(c->ctx, select_alpn, c);
+	if (c->clientIdentityCallback)
+		SSL_CTX_set_client_cert_cb(c->ctx, client_certificate);
 	c->ssl = SSL_new(c->ctx);
 	if (!c->ssl)
 		return errSSLInternal;
@@ -787,10 +908,13 @@ setup(struct SSLContext *c)
 		               NULL);
 	if (c->side == kSSLServerSide && c->clientAuth != kNeverAuthenticate)
 		SSL_set_verify_result(c->ssl, X509_V_OK);
+	SSL_set_app_data(c->ssl, c);
+	if (c->fallbackAttempt)
+		SSL_set_mode(c->ssl, SSL_MODE_SEND_FALLBACK_SCSV);
 	apply_ciphers(c);
 	if (c->peerName && c->side == kSSLClientSide)
 		SSL_set_tlsext_host_name(c->ssl, c->peerName);
-	if (c->alpn && CFArrayGetCount(c->alpn)) {
+	if (c->side == kSSLClientSide && c->alpn && CFArrayGetCount(c->alpn)) {
 		unsigned char wire[1024];
 		size_t at = 0;
 		for (CFIndex i = 0; i < CFArrayGetCount(c->alpn); i++) {

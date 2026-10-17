@@ -10,6 +10,8 @@
  */
 #import <Foundation/Foundation.h>
 #import <Security/Security.h>
+#import <Security/SecCustomTransform.h>
+#import <Security/SecProtocolTypes.h>
 #import <Security/SecStaticCode.h>
 #include <CommonCrypto/CommonDigest.h>
 #include <dlfcn.h>
@@ -17,6 +19,12 @@
 #include <unistd.h>
 
 #include "security-test-certs.inc"
+
+/* Call the C OS-object helpers directly in this ARC test. */
+#undef sec_retain
+#undef sec_release
+void *sec_retain(void *object);
+void sec_release(void *object);
 
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
@@ -209,6 +217,33 @@ certificates(void)
     printf("junk %d\n", bad != NULL);
     SecCertificateRef again = SecCertificateCreateWithData(NULL, (__bridge CFDataRef)[NSData dataWithBytes:kRootCert length:sizeof kRootCert]);
     printf("equal %d hash-equal %d different %d\n", CFEqual(root, again), CFHash(root) == CFHash(again), CFEqual(root, leaf));
+    CSSM_DATA legacyData = {0};
+    CSSM_CERT_TYPE legacyType = 0;
+    const CSSM_X509_NAME *subject = NULL, *issuer = NULL;
+    const CSSM_X509_ALGORITHM_IDENTIFIER *algorithm = NULL;
+    OSStatus dataStatus = SecCertificateGetData(root, &legacyData);
+    OSStatus typeStatus = SecCertificateGetType(root, &legacyType);
+    OSStatus subjectStatus = SecCertificateGetSubject(root, &subject);
+    OSStatus issuerStatus = SecCertificateGetIssuer(root, &issuer);
+    OSStatus algorithmStatus = SecCertificateGetAlgorithmID(root, &algorithm);
+    SecCertificateRef legacy = NULL;
+    OSStatus createStatus = SecCertificateCreateFromData(&legacyData, legacyType, CSSM_CERT_ENCODING_DER, &legacy);
+    CFDataRef issuerContent = SecCertificateCopyNormalizedIssuerContent(root, NULL);
+    CFDataRef subjectContent = SecCertificateCopyNormalizedSubjectContent(root, NULL);
+    printf("legacy cert data %d %lu type %d %d name %d %u %d %u algorithm %d %lu %lu roundtrip %d\n",
+           dataStatus, (unsigned long)legacyData.Length, typeStatus, legacyType,
+           subjectStatus, subject ? subject->numberOfRDNs : 0,
+           issuerStatus, issuer ? issuer->numberOfRDNs : 0,
+           algorithmStatus,
+           (unsigned long)(algorithm ? algorithm->algorithm.Length : 0),
+           (unsigned long)(algorithm ? algorithm->parameters.Length : 0),
+           createStatus == errSecSuccess && legacy && CFEqual(root, legacy));
+    printf("normalized content %ld %ld\n",
+           (long)(issuerContent ? CFDataGetLength(issuerContent) : -1),
+           (long)(subjectContent ? CFDataGetLength(subjectContent) : -1));
+    if (legacy) CFRelease(legacy);
+    if (issuerContent) CFRelease(issuerContent);
+    if (subjectContent) CFRelease(subjectContent);
     CFRelease(again);
 }
 
@@ -238,6 +273,29 @@ policies(void)
     printf("x509 with properties %d type %d\n", x != NULL, CFGetTypeID(basic) == SecPolicyGetTypeID());
     SecPolicyRef rev = SecPolicyCreateRevocation(kSecRevocationUseAnyAvailableMethod);
     printf("revocation %d\n", rev != NULL);
+    CSSM_OID policyOID = {0};
+    CSSM_DATA policyValue = {0};
+    OSStatus oidStatus = SecPolicyGetOID(basic, &policyOID);
+    OSStatus valueStatus = SecPolicyGetValue(basic, &policyValue);
+    printf("legacy policy oid %d %lu value %d %lu\n", oidStatus,
+           (unsigned long)policyOID.Length, valueStatus, (unsigned long)policyValue.Length);
+    CSSM_OID searchOID = CSSMOID_APPLE_X509_BASIC;
+    SecPolicySearchRef search = NULL;
+    SecPolicyRef found = NULL;
+    OSStatus searchStatus = SecPolicySearchCreate(CSSM_CERT_X_509v3, &searchOID, NULL, &search);
+    OSStatus nextStatus = searchStatus == errSecSuccess ? SecPolicySearchCopyNext(search, &found) : searchStatus;
+    printf("policy search %d next %d found %d\n", searchStatus, nextStatus, found != NULL);
+    CSSM_TP_HANDLE policyHandle = 0;
+    printf("policy TP handle %d\n", (int)SecPolicyGetTPHandle(basic, &policyHandle));
+    if (found) CFRelease(found);
+    if (search) CFRelease(search);
+    CSSM_DATA replacementValue = {3, (uint8_t *)"xyz"};
+    OSStatus setValueStatus = SecPolicySetValue(basic, &replacementValue);
+    policyValue = (CSSM_DATA){0};
+    OSStatus readValueStatus = SecPolicyGetValue(basic, &policyValue);
+    printf("policy value roundtrip %d %d %lu %d\n", setValueStatus, readValueStatus,
+           (unsigned long)policyValue.Length,
+           policyValue.Length == 3 && memcmp(policyValue.Data, "xyz", 3) == 0);
     CFRelease(basic);
     CFRelease(ssl);
     CFRelease(wp);
@@ -297,6 +355,7 @@ trust(void)
     NSArray *certs = @[ (__bridge id)leaf, (__bridge id)root ];
     OSStatus st = SecTrustCreateWithCertificates((__bridge CFArrayRef)certs, ssl, &t);
     printf("create %d type %d\n", (int)st, CFGetTypeID(t) == SecTrustGetTypeID());
+    printf("set keychains %d\n", (int)SecTrustSetKeychains(t, NULL));
     print_trust_properties("not evaluated", t);
     CFDateRef when = date(2027, 1, 1);
     SecTrustSetVerifyDate(t, when);
@@ -304,6 +363,15 @@ trust(void)
     evaluate("no anchor", t);
     SecTrustSetAnchorCertificates(t, (__bridge CFArrayRef) @[ (__bridge id)root ]);
     evaluate("anchored", t);
+    OSStatus cssmCode = -1;
+    CSSM_TP_VERIFY_CONTEXT_RESULT_PTR cssmResult = (CSSM_TP_VERIFY_CONTEXT_RESULT_PTR)1;
+    CSSM_TP_HANDLE trustHandle = 0;
+    OSStatus cssmCodeStatus = SecTrustGetCssmResultCode(t, &cssmCode);
+    OSStatus cssmResultStatus = SecTrustGetCssmResult(t, &cssmResult);
+    OSStatus trustHandleStatus = SecTrustGetTPHandle(t, &trustHandle);
+    printf("legacy trust info code %d/%d result %d/%d handle %d\n",
+        (int)cssmCodeStatus, (int)cssmCode, (int)cssmResultStatus,
+        cssmResult == NULL, (int)trustHandleStatus);
     SecKeyRef k = SecTrustCopyKey(t);
     printf("trust key %d\n", k != NULL);
     if (k) CFRelease(k);
@@ -343,11 +411,42 @@ trust(void)
     SecTrustCreateWithCertificates(root, basic, &self);
     SecTrustSetVerifyDate(self, when);
     evaluate("self-signed", self);
+    Boolean fetchAllowed = true;
+    OSStatus fetchStatus = SecTrustGetNetworkFetchAllowed(self, &fetchAllowed);
+    printf("trust network fetch %d/%d\n", (int)fetchStatus, fetchAllowed);
+    SecTrustResultType legacyResult = kSecTrustResultInvalid;
+    CFArrayRef legacyChain = NULL;
+    OSStatus legacyStatus = SecTrustGetResult(self, &legacyResult, &legacyChain, NULL);
+    printf("legacy trust result %d/%d chain %ld\n", (int)legacyStatus, (int)legacyResult,
+        legacyChain ? (long)CFArrayGetCount(legacyChain) : -1);
+    if (legacyChain) CFRelease(legacyChain);
+    printf("trust options %d\n", (int)SecTrustSetOptions(self, 0));
+    OSStatus implicitAnchorStatus = SecTrustSetOptions(self, kSecTrustOptionImplicitAnchors);
+    printf("trust implicit anchors %d\n", (int)implicitAnchorStatus);
+    evaluate("implicit anchors", self);
+    dispatch_queue_t trustQueue = dispatch_queue_create("finch.security.trust-test", DISPATCH_QUEUE_SERIAL);
+    dispatch_semaphore_t trustDone = dispatch_semaphore_create(0);
+    __block SecTrustResultType asyncTrustResult = kSecTrustResultInvalid;
+    OSStatus asyncTrustStatus = SecTrustEvaluateAsync(self, trustQueue, ^(SecTrustRef evaluated, SecTrustResultType result) {
+        (void)evaluated;
+        asyncTrustResult = result;
+        dispatch_semaphore_signal(trustDone);
+    });
+    if (!asyncTrustStatus)
+        dispatch_semaphore_wait(trustDone, DISPATCH_TIME_FOREVER);
+    printf("async trust %d/%d\n", (int)asyncTrustStatus, (int)asyncTrustResult);
     CFRelease(self);
     SecTrustRef only = NULL;
     SecTrustCreateWithCertificates(leaf, basic, &only);
     SecTrustSetVerifyDate(only, when);
     evaluate("leaf only", only);
+    CFDataRef exceptions = SecTrustCopyExceptions(only);
+    bool exceptionsSet = SecTrustSetExceptions(only, exceptions);
+    SecTrustResultType exceptionResult = kSecTrustResultInvalid;
+    OSStatus exceptionEvaluate = SecTrustEvaluate(only, &exceptionResult);
+    printf("trust exceptions %d/%d/%d\n", exceptions != NULL, exceptionsSet,
+        (int)exceptionEvaluate);
+    if (exceptions) CFRelease(exceptions);
     CFRelease(only);
     CFRelease(other);
     CFRelease(basic);
@@ -530,6 +629,96 @@ keys_test(void)
     CFRelease(leafKey); CFRelease(g1); CFRelease(g2); CFRelease(g1p); CFRelease(g2p); CFRelease(r1);
     if (legacyPub) CFRelease(legacyPub);
     if (legacyPriv) CFRelease(legacyPriv);
+}
+
+static void
+legacy_symmetric_keys(void)
+{
+    printf("== symmetric keys\n");
+    CFErrorRef error = NULL;
+    UInt8 rawBytes[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+    CFDataRef raw = CFDataCreate(NULL, rawBytes, sizeof(rawBytes));
+    CFDictionaryRef parameters = (__bridge CFDictionaryRef)@{
+        (id)kSecAttrKeyType : (id)kSecAttrKeyTypeAES,
+        (id)kSecAttrKeyClass : (id)kSecAttrKeyClassSymmetric,
+        (id)kSecAttrKeySizeInBits : @128
+    };
+    SecKeyRef imported = SecKeyCreateFromData(parameters, raw, &error);
+    NSData *external = CFBridgingRelease(SecKeyCopyExternalRepresentation(imported, &error));
+    printf("import AES %d raw %d size %zu err %ld\n", imported != NULL,
+        [external isEqual:(__bridge NSData *)raw], imported ? SecKeyGetBlockSize(imported) : 0,
+        (long)(error ? CFErrorGetCode(error) : 0));
+    if (error) { CFRelease(error); error = NULL; }
+
+    SecKeyRef generated = SecKeyGenerateSymmetric(parameters, &error);
+    NSDictionary *attributes = generated ? CFBridgingRelease(SecKeyCopyAttributes(generated)) : nil;
+    NSData *generatedBytes = generated ? CFBridgingRelease(SecKeyCopyExternalRepresentation(generated, &error)) : nil;
+    printf("generate AES %d type %s class %s bits %s bytes %lu\n", generated != NULL,
+        [attributes[(id)kSecAttrKeyType] description].UTF8String,
+        [attributes[(id)kSecAttrKeyClass] description].UTF8String,
+        [attributes[(id)kSecAttrKeySizeInBits] description].UTF8String,
+        (unsigned long)generatedBytes.length);
+    if (error) { CFRelease(error); error = NULL; }
+
+    CFDataRef salt = CFDataCreate(NULL, (const UInt8 *)"finch-salt", 10);
+    CFDictionaryRef deriveParameters = (__bridge CFDictionaryRef)@{
+        (id)kSecAttrKeyType : (id)kSecAttrKeyTypeAES,
+        (id)kSecAttrKeyClass : (id)kSecAttrKeyClassSymmetric,
+        (id)kSecAttrKeySizeInBits : @128,
+        (id)kSecAttrSalt : (__bridge NSData *)salt,
+        (id)kSecAttrRounds : @1000,
+        (id)kSecAttrPRF : (id)kSecAttrPRFHmacAlgSHA256
+    };
+    SecKeyRef derived = SecKeyDeriveFromPassword(CFSTR("friend"), deriveParameters, &error);
+    NSData *derivedBytes = derived ? CFBridgingRelease(SecKeyCopyExternalRepresentation(derived, &error)) : nil;
+    printf("derive AES %d bytes %lu hash %s err %ld\n", derived != NULL,
+        (unsigned long)derivedBytes.length, sha(derivedBytes).UTF8String,
+        (long)(error ? CFErrorGetCode(error) : 0));
+    if (error) { CFRelease(error); error = NULL; }
+
+    CFDataRef wrapped = SecKeyWrapSymmetric(imported, generated, (__bridge CFDictionaryRef)@{}, &error);
+    printf("wrap AES %d err %ld\n", wrapped != NULL, (long)(error ? CFErrorGetCode(error) : 0));
+    if (wrapped) CFRelease(wrapped);
+    if (error) { CFRelease(error); error = NULL; }
+    CFDataRef wrappedInput = raw;
+    SecKeyRef unwrapped = SecKeyUnwrapSymmetric(&wrappedInput, generated, (__bridge CFDictionaryRef)@{}, &error);
+    printf("unwrap AES %d err %ld\n", unwrapped != NULL, (long)(error ? CFErrorGetCode(error) : 0));
+    if (unwrapped) CFRelease(unwrapped);
+    if (error) CFRelease(error);
+
+    int bits = 128;
+    CFNumberRef size = CFNumberCreate(NULL, kCFNumberIntType, &bits);
+    CFDictionaryRef oldParameters = CFDictionaryCreate(NULL,
+        (const void *[]){kSecAttrKeyType, kSecAttrKeySizeInBits},
+        (const void *[]){kSecAttrKeyTypeAES, size}, 2,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    SecKeyRef oldKey = NULL;
+    OSStatus oldStatus = SecKeyGenerate(NULL, CSSM_ALGID_AES, 128, 0, CSSM_KEYUSE_ANY,
+        CSSM_KEYATTR_RETURN_DEFAULT, NULL, &oldKey);
+    printf("legacy AES generate %d key %d\n", (int)oldStatus, oldKey != NULL);
+    if (oldKey) CFRelease(oldKey);
+    if (oldParameters) CFRelease(oldParameters);
+    if (size) CFRelease(size);
+
+    NSDictionary *pairParameters = @{ (id)kSecAttrKeyType : (id)kSecAttrKeyTypeRSA,
+        (id)kSecAttrKeySizeInBits : @1024 };
+    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+    __block int callbackResult = -1, callbackError = -1;
+    SecKeyGeneratePairAsync((__bridge CFDictionaryRef)pairParameters,
+        dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^(SecKeyRef publicKey, SecKeyRef privateKey, CFErrorRef pairError) {
+            callbackResult = publicKey && privateKey;
+            callbackError = pairError ? (int)CFErrorGetCode(pairError) : 0;
+            dispatch_semaphore_signal(semaphore);
+        });
+    dispatch_time_t deadline = dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC);
+    long wait = dispatch_semaphore_wait(semaphore, deadline);
+    printf("async pair wait %ld result %d err %d\n", wait, callbackResult, callbackError);
+
+    if (derived) CFRelease(derived);
+    if (salt) CFRelease(salt);
+    if (generated) CFRelease(generated);
+    if (imported) CFRelease(imported);
+    CFRelease(raw);
 }
 
 static void
@@ -988,6 +1177,46 @@ access_objects(void)
         st = SecAccessCopyACLList(access, &acls);
         printf("acl list %d %d\n", (int)st, acls != NULL);
     }
+    SecACLRef acl = NULL;
+    CSSM_ACL_KEYCHAIN_PROMPT_SELECTOR selector = { CSSM_ACL_KEYCHAIN_PROMPT_CURRENT_VERSION,
+        CSSM_ACL_KEYCHAIN_PROMPT_REQUIRE_PASSPHRASE | CSSM_ACL_KEYCHAIN_PROMPT_UNSIGNED };
+    st = access ? SecACLCreateFromSimpleContents(access, NULL, CFSTR("test ACL"), &selector, &acl) : errSecParam;
+    printf("legacy ACL create %d %d\n", (int)st, acl != NULL);
+    if (acl) {
+        CFArrayRef apps = NULL;
+        CFStringRef description = NULL;
+        CSSM_ACL_KEYCHAIN_PROMPT_SELECTOR copied = {0};
+        st = SecACLCopySimpleContents(acl, &apps, &description, &copied);
+        printf("legacy ACL contents %d %ld %s prompt %u %u\n", (int)st,
+            (long)(apps ? CFArrayGetCount(apps) : -1), description ? [(__bridge NSString *)description UTF8String] : "-",
+            copied.version, copied.flags);
+        if (apps) CFRelease(apps);
+        if (description) CFRelease(description);
+        CSSM_ACL_AUTHORIZATION_TAG auths[] = {CSSM_ACL_AUTHORIZATION_SIGN, CSSM_ACL_AUTHORIZATION_DB_READ};
+        st = SecACLSetAuthorizations(acl, auths, 2);
+        CSSM_ACL_AUTHORIZATION_TAG readback[2] = {0};
+        uint32_t count = 2;
+        OSStatus getStatus = SecACLGetAuthorizations(acl, readback, &count);
+        printf("legacy ACL auth %d %d %u %d %d\n", (int)st, (int)getStatus, count,
+            readback[0], readback[1]);
+        CFArrayRef selected = NULL;
+        st = SecAccessCopySelectedACLList(access, CSSM_ACL_AUTHORIZATION_SIGN, &selected);
+        printf("selected ACLs %d %ld\n", (int)st, (long)(selected ? CFArrayGetCount(selected) : -1));
+        if (selected) CFRelease(selected);
+        CFArrayRef ownerACLs = CFArrayCreate(NULL, (const void **)&acl, 1, &kCFTypeArrayCallBacks);
+        CFErrorRef ownerError = NULL;
+        SecAccessRef owned = SecAccessCreateWithOwnerAndACL(501, 20, kSecUseOnlyUID | kSecHonorRoot, ownerACLs, &ownerError);
+        uid_t uid = 0; gid_t gid = 0; SecAccessOwnerType ownerType = 0;
+        CFArrayRef copiedACLs = NULL;
+        OSStatus ownerStatus = owned ? SecAccessCopyOwnerAndACL(owned, &uid, &gid, &ownerType, &copiedACLs) : errSecParam;
+        printf("owner ACL %d %d %u %u %u %ld\n", owned != NULL, (int)ownerStatus,
+            (unsigned)uid, (unsigned)gid, (unsigned)ownerType, (long)(copiedACLs ? CFArrayGetCount(copiedACLs) : -1));
+        if (copiedACLs) CFRelease(copiedACLs);
+        if (owned) CFRelease(owned);
+        if (ownerError) CFRelease(ownerError);
+        CFRelease(ownerACLs);
+        CFRelease(acl);
+    }
     if (acls) CFRelease(acls);
     if (group) CFRelease(group);
     if (app) CFRelease(app);
@@ -1005,6 +1234,14 @@ identities(void)
     SecKeychainCreate(path.fileSystemRepresentation, 6, "finchy", false, NULL, &kc);
     OSStatus st = SecItemCopyMatching((__bridge CFDictionaryRef) @{ (id)kSecClass : (id)kSecClassIdentity, (id)kSecMatchSearchList : @[ (__bridge id)kc ], (id)kSecReturnRef : @YES }, &out);
     printf("find identity in empty keychain %d\n", (int)st);
+    SecIdentitySearchRef emptySearch = NULL;
+    OSStatus emptyCreate = SecIdentitySearchCreate(kc, 0, &emptySearch);
+    SecIdentityRef emptyIdentity = NULL;
+    OSStatus emptyNext = emptyCreate ? emptyCreate : SecIdentitySearchCopyNext(emptySearch, &emptyIdentity);
+    printf("identity search empty %d type %d next %d\n", (int)emptyCreate,
+        emptySearch && CFGetTypeID(emptySearch) == SecIdentitySearchGetTypeID(), (int)emptyNext);
+    if (emptyIdentity) CFRelease(emptyIdentity);
+    if (emptySearch) CFRelease(emptySearch);
     st = SecItemAdd((__bridge CFDictionaryRef) @{ (id)kSecClass : (id)kSecClassCertificate, (id)kSecValueRef : (__bridge id)root, (id)kSecUseKeychain : (__bridge id)kc }, NULL);
     printf("add certificate %d\n", (int)st);
     st = SecItemAdd((__bridge CFDictionaryRef) @{ (id)kSecClass : (id)kSecClassCertificate, (id)kSecValueRef : (__bridge id)root, (id)kSecUseKeychain : (__bridge id)kc }, NULL);
@@ -1018,8 +1255,230 @@ identities(void)
            [[ca[@"ctyp"] description] UTF8String], typeName(ca[@"subj"]).UTF8String, typeName(ca[@"issr"]).UTF8String,
            typeName(ca[@"slnr"]).UTF8String, typeName(ca[@"pkhh"]).UTF8String);
     if (out) { CFRelease(out); out = NULL; }
+    SecIdentitySearchRef search = NULL;
+    OSStatus searchStatus = SecIdentitySearchCreate(kc, CSSM_KEYUSE_SIGN, &search);
+    SecIdentityRef found = NULL;
+    OSStatus nextStatus = searchStatus ? searchStatus : SecIdentitySearchCopyNext(search, &found);
+    printf("identity search after certificate %d type %d next %d found %d\n", (int)searchStatus,
+        search && CFGetTypeID(search) == SecIdentitySearchGetTypeID(), (int)nextStatus, found != NULL);
+    if (found) CFRelease(found);
+    if (search) CFRelease(search);
+
+    NSDictionary *keyAttributes = @{
+        (id)kSecAttrKeyType : (id)kSecAttrKeyTypeRSA,
+        (id)kSecAttrKeyClass : (id)kSecAttrKeyClassPrivate,
+    };
+    SecKeyRef privateKey = SecKeyCreateWithData(
+        (__bridge CFDataRef)[NSData dataWithBytes:kRootKeyPKCS1 length:sizeof kRootKeyPKCS1],
+        (__bridge CFDictionaryRef)keyAttributes, NULL);
+    SecIdentityRef testIdentity = privateKey ? SecIdentityCreate(NULL, root, privateKey) : NULL;
+    CFArrayRef certificateList = CFArrayCreate(NULL, (const void *[]){root}, 1, &kCFTypeArrayCallBacks);
+    sec_certificate_t wrappedCertificate = sec_certificate_create(root);
+    SecCertificateRef copiedCertificate = wrappedCertificate ? sec_certificate_copy_ref(wrappedCertificate) : NULL;
+    sec_identity_t wrappedIdentity = testIdentity ? sec_identity_create(testIdentity) : NULL;
+    sec_identity_t wrappedIdentityWithCertificates = testIdentity
+        ? sec_identity_create_with_certificates(testIdentity, certificateList) : NULL;
+    SecIdentityRef copiedIdentity = wrappedIdentity ? sec_identity_copy_ref(wrappedIdentity) : NULL;
+    CFArrayRef copiedCertificates = wrappedIdentityWithCertificates
+        ? sec_identity_copy_certificates_ref(wrappedIdentityWithCertificates) : NULL;
+    void *retainedCertificate = wrappedCertificate ? sec_retain((__bridge void *)wrappedCertificate) : NULL;
+    __block int accessedCertificates = 0;
+    bool accessStatus = wrappedIdentityWithCertificates && sec_identity_access_certificates(
+        wrappedIdentityWithCertificates, ^(sec_certificate_t certificate) {
+            (void)certificate;
+            accessedCertificates++;
+        });
+    SecTrustRef testTrust = NULL;
+    SecPolicyRef wrapperPolicy = SecPolicyCreateBasicX509();
+    OSStatus trustStatus = SecTrustCreateWithCertificates((__bridge CFArrayRef)@[(__bridge id)root], wrapperPolicy, &testTrust);
+    sec_trust_t wrappedTrust = !trustStatus && testTrust ? sec_trust_create(testTrust) : NULL;
+    SecTrustRef copiedTrust = wrappedTrust ? sec_trust_copy_ref(wrappedTrust) : NULL;
+    printf("protocol wrappers %d %d %ld %d %d %d %d %d\n",
+        retainedCertificate == (__bridge void *)wrappedCertificate, copiedCertificate && CFEqual(copiedCertificate, root),
+        (long)(copiedCertificates ? CFArrayGetCount(copiedCertificates) : -1),
+        accessStatus, accessedCertificates,
+        copiedIdentity != NULL,
+        !trustStatus && copiedTrust != NULL,
+        wrappedCertificate && wrappedIdentity && wrappedIdentityWithCertificates && wrappedTrust);
+    if (copiedCertificate) CFRelease(copiedCertificate);
+    if (retainedCertificate) sec_release(retainedCertificate);
+    if (copiedCertificates) CFRelease(copiedCertificates);
+    if (copiedIdentity) CFRelease(copiedIdentity);
+    if (copiedTrust) CFRelease(copiedTrust);
+    if (testTrust) CFRelease(testTrust);
+    if (wrapperPolicy) CFRelease(wrapperPolicy);
+    if (testIdentity) CFRelease(testIdentity);
+    if (privateKey) CFRelease(privateKey);
+    CFRelease(certificateList);
     SecKeychainDelete(kc);
     CFRelease(kc);
+}
+
+static void
+cms(void)
+{
+    printf("== cms\n");
+    NSDictionary *attributes = @{
+        (id)kSecAttrKeyType : (id)kSecAttrKeyTypeRSA,
+        (id)kSecAttrKeyClass : (id)kSecAttrKeyClassPrivate,
+    };
+    SecKeyRef key = SecKeyCreateWithData(
+        (__bridge CFDataRef)[NSData dataWithBytes:kRootKeyPKCS1 length:sizeof kRootKeyPKCS1],
+        (__bridge CFDictionaryRef)attributes, NULL);
+    SecIdentityRef identity = key ? SecIdentityCreate(NULL, root, key) : NULL;
+    CMSEncoderRef encoder = NULL;
+    OSStatus status = CMSEncoderCreate(&encoder);
+    printf("encoder create %d type %d\n", (int)status,
+           encoder && CFGetTypeID(encoder) == CMSEncoderGetTypeID());
+    if (!status && identity)
+        status = CMSEncoderAddSigners(encoder, identity);
+    if (!status)
+        status = CMSEncoderSetSignerAlgorithm(encoder, kCMSEncoderDigestAlgorithmSHA256);
+    if (!status)
+        status = CMSEncoderSetCertificateChainMode(encoder, kCMSCertificateSignerOnly);
+    if (!status)
+        status = CMSEncoderSetEncapsulatedContentTypeOID(encoder, CFSTR("1.2.3.4"));
+    if (!status)
+        status = CMSEncoderAddSignedAttributes(encoder, kCMSAttrSigningTime);
+    if (!status)
+        status = CMSEncoderUpdateContent(encoder, "CMS ", 4);
+    if (!status)
+        status = CMSEncoderUpdateContent(encoder, "payload", 7);
+    CFArrayRef signers = NULL;
+    CFDataRef contentType = NULL, encoded = NULL;
+    if (!status)
+        status = CMSEncoderCopySigners(encoder, &signers);
+    if (!status)
+        status = CMSEncoderCopyEncapsulatedContentType(encoder, &contentType);
+    if (!status)
+        status = CMSEncoderCopyEncodedContent(encoder, &encoded);
+    printf("encode %d signers %ld oid %ld data %d\n", (int)status,
+           (long)(signers ? CFArrayGetCount(signers) : 0),
+           (long)(contentType ? CFDataGetLength(contentType) : 0), encoded != NULL);
+
+    CMSDecoderRef decoder = NULL;
+    OSStatus decodeStatus = CMSDecoderCreate(&decoder);
+    if (!decodeStatus && encoded)
+        decodeStatus = CMSDecoderUpdateMessage(decoder, CFDataGetBytePtr(encoded),
+            (size_t)CFDataGetLength(encoded) / 2);
+    if (!decodeStatus && encoded) {
+        CFIndex half = CFDataGetLength(encoded) / 2;
+        decodeStatus = CMSDecoderUpdateMessage(decoder, CFDataGetBytePtr(encoded) + half,
+            (size_t)(CFDataGetLength(encoded) - half));
+    }
+    if (!decodeStatus)
+        decodeStatus = CMSDecoderFinalizeMessage(decoder);
+    size_t signerCount = 0;
+    if (!decodeStatus)
+        decodeStatus = CMSDecoderGetNumSigners(decoder, &signerCount);
+    CFDataRef decoded = NULL, decodedType = NULL;
+    SecCertificateRef signerCertificate = NULL;
+    Boolean encrypted = true;
+    if (!decodeStatus)
+        decodeStatus = CMSDecoderCopyContent(decoder, &decoded);
+    if (!decodeStatus)
+        decodeStatus = CMSDecoderCopyEncapsulatedContentType(decoder, &decodedType);
+    if (!decodeStatus)
+        decodeStatus = CMSDecoderIsContentEncrypted(decoder, &encrypted);
+    OSStatus certStatus = decodeStatus ? decodeStatus : CMSDecoderCopySignerCert(decoder, 0, &signerCertificate);
+    CMSSignerStatus signerStatus = kCMSSignerUnsigned;
+    SecPolicyRef cmsPolicy = SecPolicyCreateBasicX509();
+    OSStatus signatureStatus = decodeStatus ? decodeStatus : CMSDecoderCopySignerStatus(
+        decoder, 0, cmsPolicy, false, &signerStatus, NULL, NULL);
+    CFArrayRef certificates = NULL;
+    OSStatus allCertsStatus = decodeStatus ? decodeStatus : CMSDecoderCopyAllCerts(decoder, &certificates);
+    BOOL contentMatches = decoded && [(__bridge NSData *)decoded
+        isEqualToData:[@"CMS payload" dataUsingEncoding:NSUTF8StringEncoding]];
+    printf("decode %d signers %zu content %d encrypted %d oid %d signature %d/%d cert %d equal %d all %d/%ld\n",
+           (int)decodeStatus, signerCount, contentMatches,
+           encrypted, decodedType && contentType && CFEqual(decodedType, contentType),
+           (int)signatureStatus, (int)signerStatus, (int)certStatus,
+           signerCertificate && CFEqual(signerCertificate, root), (int)allCertsStatus,
+           (long)(certificates ? CFArrayGetCount(certificates) : 0));
+    if (certificates) CFRelease(certificates);
+    if (cmsPolicy) CFRelease(cmsPolicy);
+    if (signerCertificate) CFRelease(signerCertificate);
+    if (decodedType) CFRelease(decodedType);
+    if (decoded) CFRelease(decoded);
+    if (decoder) CFRelease(decoder);
+    if (encoded) CFRelease(encoded);
+    if (contentType) CFRelease(contentType);
+    if (signers) CFRelease(signers);
+    if (encoder) CFRelease(encoder);
+    if (identity) CFRelease(identity);
+    if (key) CFRelease(key);
+}
+
+static void
+transforms(void)
+{
+    printf("== transforms\n");
+    CFErrorRef error = NULL;
+    CFDataRef input = CFBridgingRetain([@"Finch transform" dataUsingEncoding:NSUTF8StringEncoding]);
+    SecTransformRef digest = SecDigestTransformCreate(kSecDigestSHA2, 0, &error);
+    Boolean set = digest && SecTransformSetAttribute(digest, kSecTransformInputAttributeName, input, &error);
+    CFTypeRef digestResult = set ? SecTransformExecute(digest, &error) : NULL;
+    CFDataRef attributeResult = digest ? (CFDataRef)SecTransformGetAttribute(digest, kSecTransformOutputAttributeName) : NULL;
+    printf("digest %d type %d subclass %d set %u execute %d length %ld attribute %d error %ld\n",
+        digest != NULL, digest && CFGetTypeID(digest) == SecTransformGetTypeID(),
+        digest && CFGetTypeID(digest) == SecDigestTransformGetTypeID(), (unsigned)set,
+        digestResult != NULL, (long)(digestResult ? CFDataGetLength(digestResult) : -1),
+        attributeResult && digestResult && CFEqual(attributeResult, digestResult),
+        (long)(error ? CFErrorGetCode(error) : 0));
+    if (error) { CFRelease(error); error = NULL; }
+
+    SecTransformRef encoder = SecEncodeTransformCreate(kSecBase64Encoding, &error);
+    set = encoder && SecTransformSetAttribute(encoder, kSecTransformInputAttributeName, input, &error);
+    CFTypeRef encoded = set ? SecTransformExecute(encoder, &error) : NULL;
+    char encodedText[128] = "-";
+    if (encoded && CFGetTypeID(encoded) == CFDataGetTypeID()) {
+        CFDataRef bytes = (CFDataRef)encoded;
+        size_t length = (size_t)CFDataGetLength(bytes);
+        if (length >= sizeof(encodedText)) length = sizeof(encodedText) - 1;
+        memcpy(encodedText, CFDataGetBytePtr(bytes), length);
+        encodedText[length] = 0;
+    }
+    SecTransformRef decoder = SecDecodeTransformCreate(kSecBase64Encoding, &error);
+    set = decoder && encoded && SecTransformSetAttribute(decoder, kSecTransformInputAttributeName, encoded, &error);
+    CFTypeRef decoded = set ? SecTransformExecute(decoder, &error) : NULL;
+    printf("base64 %d %s roundtrip %d error %ld\n", encoded != NULL, encodedText,
+        decoded && CFEqual(decoded, input), (long)(error ? CFErrorGetCode(error) : 0));
+    if (error) CFRelease(error);
+
+    if (decoded) CFRelease(decoded);
+    if (decoder) CFRelease(decoder);
+    if (encoded) CFRelease(encoded);
+    if (encoder) CFRelease(encoder);
+    if (attributeResult) CFRetain(attributeResult);
+    if (digestResult) CFRelease(digestResult);
+    if (attributeResult) CFRelease(attributeResult);
+    if (digest) CFRelease(digest);
+    if (input) CFRelease(input);
+}
+
+static SecTransformInstanceBlock
+customShiftTransform(CFStringRef name, SecTransformRef transform,
+    SecTransformImplementationRef implementation)
+{
+    return ^{ return (CFErrorRef)NULL; };
+}
+
+static void
+custom_transforms(void)
+{
+    CFStringRef name = CFSTR("org.finch.test.shift");
+    CFErrorRef error = NULL;
+    Boolean registered = SecTransformRegister(name, customShiftTransform, &error);
+    SecTransformRef transform = registered ? SecTransformCreate(name, &error) : NULL;
+    CFDataRef input = CFDataCreate(NULL, (const UInt8 *)"pass", 4);
+    Boolean set = transform && input && SecTransformSetAttribute(transform,
+        kSecTransformInputAttributeName, input, &error);
+    printf("custom transform %u %u %u no-data %u error %ld\n",
+        (unsigned)registered, transform != NULL, (unsigned)set, SecTransformNoData() != NULL,
+        (long)(error ? CFErrorGetCode(error) : 0));
+    if (input) CFRelease(input);
+    if (transform) CFRelease(transform);
+    if (error) CFRelease(error);
 }
 
 int
@@ -1037,12 +1496,16 @@ main(int argc, const char **argv)
         policies();
         trust();
         keys_test();
+        legacy_symmetric_keys();
         keychain();
         identities();
         codesigning();
         task();
         authorization();
         access_objects();
+        cms();
+        transforms();
+        custom_transforms();
         if (argc > 1)
             code_resource(argv[1]);
     }

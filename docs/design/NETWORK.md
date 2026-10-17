@@ -38,9 +38,12 @@ count is zero.
 - Application-service discovery and its encrypted local-device connection require an
   Apple service that Finch does not provide. Those connections and browse requests fail
   with `EOPNOTSUPP`.
-- TLS client connections use Secure Transport's default certificate and host-name checks.
-  TLS listeners, DTLS, and custom `sec_protocol_options_t` settings are not connected to
-  the Secure Transport path.
+- TLS client connections use Finch's Secure Transport path. They honor configured version
+  limits, server name, ALPN, cipher suites, session tickets, fallback and renegotiation
+  settings, peer checks, client identities, and verify and challenge callbacks. TLS
+  metadata reports the negotiated version and cipher, ALPN, server name, and peer
+  certificates. TLS listeners, DTLS, and advanced options Finch cannot apply remain
+  unavailable.
 - Interface routing rules, expensive or constrained path rules, multipath, and explicit
   proxy configurations are not applied. A connection or listener that requests one of
   these unsupported rules fails with `EOPNOTSUPP`. Direct sockets do not apply system
@@ -64,5 +67,10 @@ TMPDIR="$PWD/build/tmp" tools/host-tests.sh network-test swift-overlay-test cfne
 ```
 
 The Network test checks endpoint and parameter values, callback and async path monitoring,
-a TCP listener and connection, a second TCP send after a complete message, and a UDP echo.
-All four comparison tests passed on 2026-10-15.
+a TCP listener and connection, a second TCP send after a complete message, a UDP echo,
+and a loopback TLS handshake. Rebuilds on 2026-10-16 and 2026-10-17 passed `network-test`
+and `security-test`. Repeated `urlsession-test` runs had mixed results. The failures showed
+a plain HTTP dropped-download resume difference: Apple requested byte 0 while Finch
+requested byte 32768. The latest combined run passed all three tests. That resume path is in
+Foundation, not Network's TLS client. The four comparisons in the command above passed on
+2026-10-15.

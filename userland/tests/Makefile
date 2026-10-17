@@ -196,9 +196,10 @@ $(OUT)/finch-swift-overlay-test: swift-overlay-test.swift
 	codesign -f -s - -i org.finch.test.swift-overlay $@
 
 # Network.framework's Swift API over loopback sockets, compared with Apple's.
-$(OUT)/finch-network-test: network-test.swift
+$(OUT)/finch-network-test: network-test.swift network-test-tls-server.c ../../build/obj/corecrypto-openssl/libssl.a ../../build/obj/corecrypto-openssl/libcrypto.a
 	@mkdir -p $(OUT)
-	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -O -o $@ $<
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -I../../build/obj/corecrypto-openssl/include -I../../build/src/openssl/include -c network-test-tls-server.c -o $(OUT)/network-test-tls-server.o
+	xcrun -sdk macosx swiftc -target arm64e-apple-macos26.0 -O -o $@ network-test.swift $(OUT)/network-test-tls-server.o ../../build/obj/corecrypto-openssl/libssl.a ../../build/obj/corecrypto-openssl/libcrypto.a -framework Network -framework Security
 	codesign -f -s - -i org.finch.test.network $@
 
 # Combine (Finch's from OpenCombine, docs/design/COMBINE.md): same output against Apple's and Finch's.
@@ -890,14 +891,20 @@ $(OUT)/finch-coremedia-test: coremedia-test.c
 	$(CC) $(CFLAGS) -Wno-unused-parameter -Wno-deprecated-declarations -o $@ $< -framework CoreMedia -framework CoreVideo -framework CoreFoundation
 
 # CoreVideo: pixel buffer layouts, attachments, pools, pixel formats (diff host and VM runs).
+all: $(OUT)/finch-iokit-test
+$(OUT)/finch-iokit-test: iokit-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework IOKit -framework CoreFoundation
+
+# CoreVideo: pixel buffer layouts, attachments, pools, pixel formats (diff host and VM runs).
 $(OUT)/finch-corevideo-test: corevideo-test.c
 	@mkdir -p $(OUT)
-	$(CC) $(CFLAGS) -Wno-unused-parameter -Wno-deprecated-declarations -Wno-four-char-constants -o $@ $< -framework CoreVideo -framework IOSurface -framework CoreGraphics -framework CoreFoundation
+	$(CC) $(CFLAGS) -Wno-unused-parameter -Wno-deprecated-declarations -Wno-four-char-constants -o $@ $< -framework CoreVideo -framework IOSurface -framework CoreGraphics -framework CoreFoundation -framework OpenGL
 
 # AudioToolbox: AudioFormat's properties (diff host and VM runs).
 $(OUT)/finch-audiotoolbox-test: audiotoolbox-test.c
 	@mkdir -p $(OUT)
-	$(CC) $(CFLAGS) -Wno-unused-parameter -Wno-deprecated-declarations -Wno-four-char-constants -o $@ $< -framework AudioToolbox -framework CoreFoundation
+	$(CC) $(CFLAGS) -Wno-unused-parameter -Wno-deprecated-declarations -Wno-four-char-constants -o $@ $< -framework AudioToolbox -framework CoreServices -framework CoreFoundation
 
 # AudioUnit: the compatibility framework must re-export AudioToolbox's unit calls.
 all: $(OUT)/finch-audiounit-framework-test
@@ -1145,7 +1152,7 @@ $(OUT)/finch-audioqueue-test: audioqueue-test.c
 	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework AudioToolbox -framework CoreFoundation
 $(OUT)/finch-extaudiofile-test: extaudiofile-test.c
 	@mkdir -p $(OUT)
-	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework AudioToolbox -framework CoreFoundation
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework AudioToolbox -framework CoreServices -framework CoreFoundation
 $(OUT)/finch-audiounit-effects-test: audiounit-effects-test.c
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fblocks -Wno-deprecated-declarations -o $@ $< -framework AudioToolbox -framework CoreFoundation

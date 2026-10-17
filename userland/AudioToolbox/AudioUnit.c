@@ -110,6 +110,7 @@ struct UnitInstance {
     Float64 inputSampleTime;
     Boolean inputSampleTimeValid;
     AURenderCallbackStruct inputCallbacks[FINCH_MAX_INPUTS];
+    AudioUnitConnection inputConnections[FINCH_MAX_INPUTS];
     Float32 inputVolumes[FINCH_MAX_INPUTS];
     Float32 inputPans[FINCH_MAX_INPUTS];
     Boolean inputEnabled[FINCH_MAX_INPUTS];
@@ -170,6 +171,16 @@ unit_instance(AudioUnit handle)
             return unit;
     }
     return NULL;
+}
+
+static OSStatus
+render_connected_input(void *refCon, AudioUnitRenderActionFlags *flags, const AudioTimeStamp *time,
+    UInt32 bus, UInt32 frames, AudioBufferList *buffers)
+{
+    AudioUnitConnection *connection = refCon;
+    if (!connection || !connection->sourceAudioUnit)
+        return kAudio_ParamError;
+    return AudioUnitRender(connection->sourceAudioUnit, flags, time, connection->sourceOutputNumber, frames, buffers);
 }
 
 static AudioStreamBasicDescription
@@ -558,6 +569,14 @@ property_info(struct UnitInstance *unit, AudioUnitPropertyID property, AudioUnit
         *size = sizeof(AURenderCallbackStruct);
         writeable = true;
         break;
+    case kAudioUnitProperty_MakeConnection:
+        if (scope != kAudioUnitScope_Input)
+            return kAudioUnitErr_InvalidScope;
+        if (!input_element_valid(unit, element))
+            return kAudioUnitErr_InvalidElement;
+        *size = sizeof(AudioUnitConnection);
+        writeable = true;
+        break;
     case kAudioUnitProperty_ElementCount:
         if (scope == kAudioUnitScope_Global)
             return kAudioUnitErr_InvalidScope;
@@ -652,6 +671,8 @@ AudioUnitGetProperty(AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope 
             &unit->outputFormat, size, ioDataSize, outData);
     case kAudioUnitProperty_SetRenderCallback:
         return copy_property(&unit->inputCallbacks[inElement], size, ioDataSize, outData);
+    case kAudioUnitProperty_MakeConnection:
+        return copy_property(&unit->inputConnections[inElement], size, ioDataSize, outData);
     case kAudioUnitProperty_ElementCount: {
         UInt32 count = inScope == kAudioUnitScope_Input ? unit->inputCount : 1;
         return copy_property(&count, size, ioDataSize, outData);
@@ -891,6 +912,29 @@ AudioUnitSetProperty(AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope 
         unit->inputCallbacks[inElement] = *(const AURenderCallbackStruct *)inData;
         notify_property(unit, inID, inScope, inElement);
         return noErr;
+    case kAudioUnitProperty_MakeConnection: {
+        const AudioUnitConnection *connection = inData;
+        if (!connection->sourceAudioUnit) {
+            memset(&unit->inputConnections[inElement], 0, sizeof(unit->inputConnections[inElement]));
+            memset(&unit->inputCallbacks[inElement], 0, sizeof(unit->inputCallbacks[inElement]));
+            notify_property(unit, inID, inScope, inElement);
+            return noErr;
+        }
+        if (!unit_instance(connection->sourceAudioUnit))
+            return kAudioUnitErr_InvalidPropertyValue;
+        unit->inputConnections[inElement] = *connection;
+        unit->inputConnections[inElement].destInputNumber = inElement;
+        AudioStreamBasicDescription format;
+        UInt32 formatSize = sizeof(format);
+        OSStatus status = AudioUnitGetProperty(connection->sourceAudioUnit, kAudioUnitProperty_StreamFormat,
+            kAudioUnitScope_Output, connection->sourceOutputNumber, &format, &formatSize);
+        if (status != noErr)
+            return status;
+        unit->inputFormats[inElement] = format;
+        unit->inputCallbacks[inElement] = (AURenderCallbackStruct){render_connected_input, &unit->inputConnections[inElement]};
+        notify_property(unit, inID, inScope, inElement);
+        return noErr;
+    }
     case kAudioUnitProperty_ElementCount: {
         UInt32 count = *(const UInt32 *)inData;
         if (!count || count > FINCH_MAX_INPUTS)
@@ -1519,6 +1563,66 @@ render_finished:
         status = notifyStatus;
     unit->lastRenderError = status;
     return status;
+}
+
+static OSStatus
+process_silence_input(void *refCon, AudioUnitRenderActionFlags *flags,
+    const AudioTimeStamp *time, UInt32 bus, UInt32 frames, AudioBufferList *buffers)
+{
+    (void)refCon;
+    (void)flags;
+    (void)time;
+    (void)bus;
+    (void)frames;
+    if (!buffers)
+        return kAudio_ParamError;
+    for (UInt32 i = 0; i < buffers->mNumberBuffers; i++) {
+        AudioBuffer *buffer = &buffers->mBuffers[i];
+        if (!buffer->mData && buffer->mDataByteSize)
+            return kAudioUnitErr_InvalidPropertyValue;
+        if (buffer->mData)
+            memset(buffer->mData, 0, buffer->mDataByteSize);
+    }
+    return noErr;
+}
+
+OSStatus
+AudioUnitProcess(AudioUnit inUnit, AudioUnitRenderActionFlags *ioActionFlags,
+    const AudioTimeStamp *inTimeStamp, UInt32 inNumberFrames, AudioBufferList *ioData)
+{
+	struct UnitInstance *unit = unit_instance(inUnit);
+	if (!unit)
+		return kAudio_ParamError;
+	AURenderCallbackStruct saved[FINCH_MAX_INPUTS];
+	for (UInt32 i = 0; i < unit->inputCount; i++) {
+		saved[i] = unit->inputCallbacks[i];
+		if (!saved[i].inputProc)
+			unit->inputCallbacks[i] = (AURenderCallbackStruct){process_silence_input, NULL};
+	}
+	OSStatus status = AudioUnitRender(inUnit, ioActionFlags, inTimeStamp, 0,
+	    inNumberFrames, ioData);
+	for (UInt32 i = 0; i < unit->inputCount; i++)
+		unit->inputCallbacks[i] = saved[i];
+	return status;
+}
+
+OSStatus
+AudioUnitProcessMultiple(AudioUnit inUnit, AudioUnitRenderActionFlags *ioActionFlags,
+    const AudioTimeStamp *inTimeStamp, UInt32 inNumberFrames,
+    UInt32 inNumberInputBufferLists, const AudioBufferList *inInputBufferLists[],
+    UInt32 inNumberOutputBufferLists, AudioBufferList *ioOutputBufferLists[])
+{
+    struct UnitInstance *unit = unit_instance(inUnit);
+    if (!unit || !inTimeStamp || !ioOutputBufferLists ||
+        (inNumberInputBufferLists && !inInputBufferLists)) {
+        return kAudio_ParamError;
+    }
+	(void)ioActionFlags;
+	(void)inNumberFrames;
+	(void)inNumberInputBufferLists;
+	(void)inInputBufferLists;
+	(void)inNumberOutputBufferLists;
+	return (OSStatus)-4; /* The unit has no ProcessMultiple selector. */
 }
 
 OSStatus

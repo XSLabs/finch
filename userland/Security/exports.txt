@@ -1,11 +1,19 @@
 _Sec*
+_CMS*
 _kSec*
 _Authorization*
 _kAuthorization*
 _Session*
 _kCMS*
+_kCMSEncoder*
 _SSL*
 _kSSL*
+_sec_*
+__FinchSecProtocolOptionsApply
+__FinchSecProtocolOptionsCopy
+__FinchSecProtocolOptionsVerifyPeer
+__FinchSecProtocolMetadataCreate
+__FinchSecProtocolMetadataPopulate
 
 _CSSMOID_ADC_CERT_POLICY
 _CSSMOID_AD_CA_ISSUERS
