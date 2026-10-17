@@ -193,6 +193,7 @@ struct _FinchPages: View {
     var root: AnyView
     var pages: [AnyView]
     var covered: Bool
+    var pageAlignment: Alignment = .center
 
     var body: some View {
         ZStack {
@@ -205,7 +206,7 @@ struct _FinchPages: View {
 
     private func page(_ view: AnyView, top: Bool) -> some View {
         view
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: pageAlignment)
             .opacity(top ? 1 : 0)
             .allowsHitTesting(top)
             .environment(\._finchNavigationCovered, covered || !top)
@@ -636,6 +637,129 @@ struct _FinchTitleInsetReader: NSViewRepresentable {
     }
 }
 
+/// A floating sidebar changes the detail's safe area, but a flexible detail can keep the
+/// same minimum size. Grow the window by the inset only when its own minimum did not make it
+/// grow already; undo that extra width when the sidebar closes.
+struct _FinchSplitWindowSizeReader: NSViewRepresentable {
+    var showsSidebar: Bool
+    var sidebarInset: CGFloat
+    @Binding var contentWidth: CGFloat?
+
+    final class ReaderView: NSView {
+        private var desiredVisibility = false
+        private var desiredInset: CGFloat = 0
+        private var appliedVisibility = false
+        private var lastInset: CGFloat = 0
+        private var pendingWidth: CGFloat?
+        private var requiredWidth: CGFloat?
+        private var resizeObserver: NSObjectProtocol?
+        var widthChanged: ((CGFloat) -> Void)?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let resizeObserver {
+                NotificationCenter.default.removeObserver(resizeObserver)
+                self.resizeObserver = nil
+            }
+            guard let window else { return }
+            resizeObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResizeNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                self?.reportWindowWidth()
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.adjustWindowSize()
+                self?.reportWindowWidth()
+            }
+        }
+
+        deinit {
+            if let resizeObserver { NotificationCenter.default.removeObserver(resizeObserver) }
+        }
+
+        func reportWindowWidth() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window = self.window,
+                      let width = window.contentView?.bounds.width, width > 0 else { return }
+                guard self.requiredWidth.map({ width + 0.5 >= $0 }) ?? true else { return }
+                if let pendingWidth = self.pendingWidth {
+                    let reached = self.desiredVisibility ? width + 0.5 >= pendingWidth : width <= pendingWidth + 0.5
+                    if reached {
+                        self.pendingWidth = nil
+                        if !self.desiredVisibility { self.requiredWidth = nil }
+                    }
+                }
+                self.widthChanged?(width)
+            }
+        }
+
+        func update(showsSidebar: Bool, inset: CGFloat) {
+            desiredVisibility = showsSidebar
+            desiredInset = inset
+            adjustWindowSize()
+        }
+
+        private func adjustWindowSize() {
+            let previous = appliedVisibility ? lastInset : 0
+            let next = desiredVisibility ? desiredInset : 0
+            let change = next - previous
+            guard let window else {
+                return
+            }
+            guard abs(change) > 0.5 else {
+                appliedVisibility = desiredVisibility
+                lastInset = desiredInset
+                reportWindowWidth()
+                return
+            }
+
+            let widthBeforeLayout = window.contentRect(forFrameRect: window.frame).width
+            window.contentView?.layoutSubtreeIfNeeded()
+            let widthAfterLayout = window.contentRect(forFrameRect: window.frame).width
+            // A content-size window may already have grown to the new minimum. Keep
+            // that size; only add the safe-area width if the window stayed unchanged.
+            if abs(widthAfterLayout - widthBeforeLayout) < 0.5 {
+                let size = window.contentRect(forFrameRect: window.frame).size
+                if size.width > 0, size.height > 0 {
+                    let targetWidth = max(1, size.width + change)
+                    pendingWidth = targetWidth
+                    requiredWidth = desiredVisibility ? targetWidth : nil
+                    DispatchQueue.main.async { [weak self] in self?.widthChanged?(targetWidth) }
+                    window.setContentSize(NSSize(width: targetWidth, height: size.height))
+                }
+            }
+            keepWindowOnScreen(window)
+            appliedVisibility = desiredVisibility
+            lastInset = desiredInset
+            reportWindowWidth()
+        }
+
+        private func keepWindowOnScreen(_ window: NSWindow) {
+            guard let screen = window.screen ?? NSScreen.main else { return }
+            let visible = screen.visibleFrame
+            guard !visible.isEmpty else { return }
+            let frame = window.frame
+            let x = frame.width <= visible.width
+                ? min(max(frame.minX, visible.minX), visible.maxX - frame.width)
+                : visible.minX
+            if abs(frame.minX - x) > 0.5 {
+                window.setFrameOrigin(NSPoint(x: x, y: frame.minY))
+            }
+        }
+    }
+
+    func makeNSView(context: Context) -> ReaderView { ReaderView() }
+
+    func updateNSView(_ view: ReaderView, context: Context) {
+        view.widthChanged = { width in
+            if abs((contentWidth ?? 0) - width) > 0.5 { contentWidth = width }
+        }
+        view.update(showsSidebar: showsSidebar, inset: sidebarInset)
+    }
+}
+
 struct _FinchColumnWidthKey: PreferenceKey {
     static var defaultValue: _FinchColumnWidth? { nil }
 
@@ -645,11 +769,10 @@ struct _FinchColumnWidthKey: PreferenceKey {
 }
 
 /// The split view. With two columns, as macOS 26's: the sidebar floats over the detail
-/// column, which runs the window's full width with the sidebar's width (and a gap of 8) as
-/// its leading safe area, so a detail that reads its geometry's safe area keeps clear of
-/// it, and the window is at least that inset wider than the detail needs. With a content
-/// column, the columns sit side by side, divided. Values pushed in the sidebar or content
-/// columns replace the detail column's pages; the detail column is a stack.
+/// column, which runs the full width with the sidebar's width (and a gap of 8) as its
+/// leading safe area. With a content column, the columns sit side by side with a divider.
+/// Values pushed in the sidebar or content columns replace the detail pages; the detail is
+/// a stack.
 struct _FinchSplitView: View {
     var sidebar: AnyView
     var content: AnyView?
@@ -661,6 +784,7 @@ struct _FinchSplitView: View {
     @State private var views: [AnyView] = []
     @State private var destinations = _FinchDestinations()
     @State private var titleInset: CGFloat = 0
+    @State private var windowContentWidth: CGFloat?
 
     var body: some View {
         let pagesBinding = $pages, viewsBinding = $views
@@ -688,18 +812,16 @@ struct _FinchSplitView: View {
         } + views
         if content == nil {
             let width = sidebarWidth ?? _FinchColumnWidth(min: 180, ideal: 220, max: 400)
-            if ProcessInfo.processInfo.environment["FINCH_TRACE_SPLIT"] != nil {
-                FileHandle.standardError.write(Data(("FINCH_TRACE_SPLIT sidebar shown \(showsSidebar) width " +
-                    "\(String(describing: sidebarWidth)) inset \(showsSidebar ? width.ideal + 8 : 0)\n").utf8))
-            }
-            return AnyView(ZStack(alignment: .topLeading) {
-                _FinchSplitDetailLayout {
-                    _FinchPages(root: detail, pages: detailPages, covered: false)
-                }
+            let sidebarInset = showsSidebar ? width.ideal + 8 : 0
+            let pages = _FinchPages(root: detail, pages: detailPages, covered: false,
+                                     pageAlignment: showsSidebar ? .leading : .center)
+            let detailColumn = _FinchSplitDetailLayout(keepsLeadingEdge: showsSidebar) { pages }
                 .padding(.bottom, titleInset)
-                ._safeAreaInsets(EdgeInsets(top: 0, leading: showsSidebar ? width.ideal + 8 : 0, bottom: 0, trailing: 0))
+                ._safeAreaInsets(EdgeInsets(top: 0, leading: sidebarInset, bottom: 0, trailing: 0))
                 // (a width the detail gives its own column isn't the sidebar's)
                 .transformPreference(_FinchColumnWidthKey.self) { $0 = nil }
+            let split = ZStack(alignment: .topLeading) {
+                detailColumn
                 if showsSidebar {
                     column(sidebar, width: sidebarWidth, default: width)
                         .onPreferenceChange(_FinchColumnWidthKey.self) { sidebarWidth = $0 }
@@ -708,7 +830,20 @@ struct _FinchSplitView: View {
                 }
             }
             .background(_FinchTitleInsetReader(inset: $titleInset))
-            .environment(\._finchNavigator, navigator))
+            if showsSidebar, let windowContentWidth {
+                return AnyView(split
+                    .frame(minWidth: windowContentWidth, maxWidth: .infinity, alignment: .leading)
+                    .background(_FinchSplitWindowSizeReader(showsSidebar: showsSidebar,
+                                                            sidebarInset: width.ideal + 8,
+                                                            contentWidth: $windowContentWidth))
+                    .environment(\._finchNavigator, navigator))
+            }
+            return AnyView(split
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(_FinchSplitWindowSizeReader(showsSidebar: showsSidebar,
+                                                        sidebarInset: width.ideal + 8,
+                                                        contentWidth: $windowContentWidth))
+                .environment(\._finchNavigator, navigator))
         }
         return AnyView(HStack(spacing: 0) {
             if showsSidebar {
@@ -735,9 +870,11 @@ struct _FinchSplitView: View {
         .environment(\._finchNavigator, navigator))
     }
 
-    /// The detail column: it fills what it's offered, never less than its content; with no
+    /// The detail column fills what it's offered, never less than its content; with no
     /// width offered it takes all there is, with no height its content's.
     struct _FinchSplitDetailLayout: Layout {
+        var keepsLeadingEdge = false
+
         func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
             let content = subviews.first?.sizeThatFits(proposal) ?? .zero
             return CGSize(width: proposal.width.map { max($0, content.width) } ?? .infinity,
@@ -745,8 +882,14 @@ struct _FinchSplitView: View {
         }
 
         func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-            subviews.first?.place(at: CGPoint(x: bounds.midX, y: bounds.midY), anchor: .center,
-                                  proposal: ProposedViewSize(bounds.size))
+            if keepsLeadingEdge {
+                // Keep an oversized detail's leading edge fixed beside a floating sidebar.
+                subviews.first?.place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: UnitPoint(x: 0, y: 0.5),
+                                      proposal: ProposedViewSize(bounds.size))
+            } else {
+                subviews.first?.place(at: CGPoint(x: bounds.midX, y: bounds.midY), anchor: .center,
+                                      proposal: ProposedViewSize(bounds.size))
+            }
         }
     }
 

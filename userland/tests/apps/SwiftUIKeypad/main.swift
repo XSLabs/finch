@@ -51,13 +51,17 @@ struct SwiftUIKeypadApp: App {
 
     var body: some Scene {
         Window("Keypad", id: "keypad") {
-            if ProcessInfo.processInfo.environment["KEYPAD_SPLIT"] != nil {
+            if ProcessInfo.processInfo.environment["KEYPAD_SAFE_AREA_PROBE"] != nil {
+                SafeAreaSplitProbe()
+            } else if ProcessInfo.processInfo.environment["KEYPAD_SPLIT"] != nil {
                 SplitKeypadView(model: model)
             } else {
                 KeypadView(model: model)
             }
         }
+        .defaultSize(width: 900, height: 356)
         .windowResizability(.contentSize)
+        .windowToolbarStyle(.unified)
         .commands {
             CommandMenu("Mode") {
                 ForEach(Array(Pad.allCases.enumerated()), id: \.1) { i, pad in
@@ -77,6 +81,172 @@ struct SwiftUIKeypadApp: App {
     }
 }
 
+/// A host comparison for the safe-area layout around a floating split-view sidebar.
+struct SafeAreaSplitProbe: View {
+    @State private var visibility: NavigationSplitViewVisibility = .detailOnly
+
+    var body: some View {
+        splitView
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Probe") {}
+                }
+            }
+            .coordinateSpace(name: "safe-area-probe")
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    reportProbeWindow("hidden")
+                    visibility = .all
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        reportProbeWindow("shown")
+                        if let view = SafeAreaProbeHost.ProbeView.buttonView {
+                            let frame = view.convert(view.bounds, to: nil)
+                            report("safe-area probe button-host actual: x \(Int(frame.minX)) width \(Int(frame.width))")
+                        }
+                        if ProcessInfo.processInfo.environment["KEYPAD_SAFE_AREA_PROBE_SHOW"] == nil {
+                            NSApp.terminate(nil)
+                        }
+                    }
+                }
+            }
+    }
+
+    private var splitView: some View {
+        NavigationSplitView(columnVisibility: Binding(get: { visibility }, set: { visibility = $0 })) {
+            List(0..<3, id: \.self) { Text("record \($0)") }
+                .navigationSplitViewColumnWidth(220)
+        } detail: {
+            SafeAreaProbeDetail().frame(width: 900)
+        }
+    }
+
+    private func reportProbeWindow(_ label: String) {
+        guard let window = NSApp.windows.first(where: \.isVisible) else { return }
+        let screen = window.screen?.visibleFrame ?? .zero
+        report("safe-area probe \(label): window \(Int(window.frame.width)) at \(Int(window.frame.minX))," +
+               " visible \(Int(screen.width)) from \(Int(screen.minX))")
+    }
+}
+
+struct SafeAreaProbeDetail: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {} label: {
+                Text("button in safe area")
+                    .frame(width: 876, height: 24, alignment: .leading)
+                    .background(Color.gray.opacity(0.45))
+                    .background(SafeAreaProbeHost(name: "button-host"))
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading) {
+                Text("plain VStack")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .padding(8)
+                    .background(Color.gray.opacity(0.45))
+            }
+            .frame(width: 876, height: 48)
+            .background(SafeAreaProbeFrame(name: "VStack"))
+
+            SafeAreaProbeLayout {
+                ForEach(0..<20, id: \.self) { index in
+                    Button {} label: {
+                        Text(index % 4 == 3 ? ["÷", "×", "−", "+", "="][index / 4] : "\(index)")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(index % 4 == 3 ? Color.orange : Color.gray.opacity(0.45), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .background(SafeAreaProbeFrame(name: "Layout"))
+
+            ZStack(alignment: .leading) {
+                Color.cyan.opacity(0.45).ignoresSafeArea()
+                Text("ZStack background ignoresSafeArea")
+                    .padding(8)
+            }
+            .frame(width: 876, height: 48)
+            .background(SafeAreaProbeFrame(name: "ZStack"))
+        }
+        .padding(12)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .background(SafeAreaProbeHost(name: "detail-host"))
+        .background(SafeAreaProbeFrame(name: "detail"))
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Detail") {}
+            }
+        }
+    }
+}
+
+struct SafeAreaProbeHost: NSViewRepresentable {
+    let name: String
+
+    final class ProbeView: NSView {
+        static weak var buttonView: ProbeView?
+        var name = ""
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            reportFrame()
+        }
+
+        override func layout() {
+            super.layout()
+            reportFrame()
+        }
+
+        private func reportFrame() {
+            guard window != nil else { return }
+            if name == "button-host" { Self.buttonView = self }
+            let frame = convert(bounds, to: nil)
+            report("safe-area probe host \(name): x \(Int(frame.minX)) width \(Int(frame.width))")
+        }
+    }
+
+    func makeNSView(context: Context) -> ProbeView { ProbeView() }
+
+    func updateNSView(_ view: ProbeView, context: Context) { view.name = name }
+}
+
+struct SafeAreaProbeFrame: View {
+    let name: String
+
+    var body: some View {
+        GeometryReader { geometry in
+            Color.clear
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("safe-area-probe")) } action: { frame in
+                    report("safe-area probe \(name): x \(Int(frame.minX)) width \(Int(frame.width)) " +
+                           "safe leading \(Int(geometry.safeAreaInsets.leading))")
+                }
+        }
+    }
+}
+
+struct SafeAreaProbeLayout: Layout {
+    private let minimumWidth: CGFloat = 876
+    private let height: CGFloat = 180
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let proposedWidth = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? minimumWidth
+        return CGSize(width: max(minimumWidth, proposedWidth), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let cellWidth = bounds.width / 4
+        let cellHeight = bounds.height / 5
+        for (index, subview) in subviews.enumerated() {
+            let column = index % 4
+            let row = index / 4
+            subview.place(at: CGPoint(x: bounds.minX + (CGFloat(column) + 0.5) * cellWidth,
+                                      y: bounds.minY + (CGFloat(row) + 0.5) * cellHeight),
+                          anchor: .center,
+                          proposal: ProposedViewSize(width: cellWidth, height: cellHeight))
+        }
+    }
+}
+
 /// KEYPAD_SPLIT=1: the keypad as the detail of a split view whose sidebar (a list, as
 /// Calculator's history) starts hidden; ⌘4 shows or hides it. KEYPAD_SPLIT=probe: the
 /// sidebar is shown after a second, and the window's, sidebar's and detail's widths are
@@ -90,6 +260,7 @@ struct SplitKeypadView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: Binding(get: { model.sidebar }, set: { model.sidebar = $0 })) {
             List(0..<3, id: \.self) { Text("record \($0)") }
+                .contentMargins(.horizontal, 12, for: .scrollContent)
                 .navigationSplitViewColumnWidth(220)
                 .background(GeometryReader { g in Color.clear.onAppear { sidebarWidth = g.size.width }
                     .onChange(of: g.size.width) { sidebarWidth = g.size.width } })
@@ -99,12 +270,42 @@ struct SplitKeypadView: View {
             // KEYPAD_SPLIT_IGNORE=1: as Calculator, the keypad ignores the safe area and reads
             // its insets through onGeometryChange)
             if ProcessInfo.processInfo.environment["KEYPAD_SPLIT_IGNORE"] != nil {
-                IgnoringKeypad(model: model)
+                let keypad = IgnoringKeypad(model: model)
+                Group {
+                    if ProcessInfo.processInfo.environment["KEYPAD_SPLIT_FLEX"] != nil {
+                        keypad.frame(minWidth: 900, maxWidth: .infinity)
+                    } else {
+                        keypad.frame(width: 900)
+                    }
+                }
+                    .background(GeometryReader { g in
+                        Color.clear.onGeometryChange(for: CGSize.self) { $0.size } action: { detailWidth = $0.width }
+                            .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: {
+                                detailInset = $0.leading
+                            }
+                    })
+            } else if ProcessInfo.processInfo.environment["KEYPAD_SPLIT_LAYOUT"] != nil {
+                let keypad = KeypadView(model: model)
+                    .frame(minWidth: ProcessInfo.processInfo.environment["KEYPAD_SPLIT_GRID"] != nil ? nil : 760)
+                Group {
+                    if ProcessInfo.processInfo.environment["KEYPAD_SPLIT_NAVIGATION"] != nil {
+                        NavigationStack { keypad }
+                    } else {
+                        keypad
+                    }
+                }
+                    .background {
+                        Color.clear
+                            .onGeometryChange(for: CGSize.self) { $0.size } action: { detailWidth = $0.width }
+                            .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: {
+                                detailInset = $0.leading
+                            }
+                    }
             } else {
-            KeypadView(model: model)
-                .frame(minWidth: ProcessInfo.processInfo.environment["KEYPAD_SPLIT_GRID"] != nil ? nil : 760)
-                .background(GeometryReader { g in Color.clear.onAppear { detailWidth = g.size.width; detailInset = g.safeAreaInsets.leading }
-                    .onChange(of: g.size.width) { detailWidth = g.size.width; detailInset = g.safeAreaInsets.leading } })
+                KeypadView(model: model)
+                    .frame(minWidth: ProcessInfo.processInfo.environment["KEYPAD_SPLIT_GRID"] != nil ? nil : 760)
+                    .background(GeometryReader { g in Color.clear.onAppear { detailWidth = g.size.width; detailInset = g.safeAreaInsets.leading }
+                        .onChange(of: g.size.width) { detailWidth = g.size.width; detailInset = g.safeAreaInsets.leading } })
             }
         }
         .onAppear {
@@ -150,7 +351,18 @@ struct KeypadView: View {
     @Environment(\.colorScheme) private var colorScheme
     private let dark = ProcessInfo.processInfo.environment["KEYPAD_DARK"] != nil
 
+    @ViewBuilder
     var body: some View {
+        if ProcessInfo.processInfo.environment["KEYPAD_SPLIT_SAFE_AREA_BAR"] != nil {
+            keypadBody.safeAreaBar(edge: .top, spacing: 0) {
+                Color.clear.frame(height: 1)
+            }
+        } else {
+            keypadBody
+        }
+    }
+
+    private var keypadBody: some View {
         VStack(alignment: .trailing, spacing: 8) {
             Text(model.display)
                 .font(.system(size: 36, weight: .light))
@@ -165,8 +377,46 @@ struct KeypadView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Keys(model: model, pad: model.pad)
-                .id(model.pad)
+            if ProcessInfo.processInfo.environment["KEYPAD_SPLIT_GRID_VIEW"] != nil {
+                CalculatorGridProbe()
+            } else if ProcessInfo.processInfo.environment["KEYPAD_SPLIT_LAYOUT"] != nil {
+                CalculatorLayoutProbe {
+                    ForEach(0..<20, id: \.self) { index in
+                        let label: AnyView = index % 4 == 3
+                            ? AnyView(Image(systemName: ["divide", "multiply", "minus", "plus", "equal"][index / 4])
+                                .font(.system(size: 22)))
+                            : AnyView(Text("\(index)").font(.system(size: 22)))
+                        if ProcessInfo.processInfo.environment["KEYPAD_SPLIT_BUTTONS"] != nil {
+                            Button {} label: {
+                                label
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .background(index % 4 == 3 ? Color.orange : Color.gray, in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            label
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .background(index % 4 == 3 ? Color.orange : Color.gray, in: Circle())
+                        }
+                    }
+                }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 264)
+                    .background {
+                        GeometryReader { _ in
+                            Color.clear
+                                .onGeometryChange(for: CGSize.self) { $0.size } action: {
+                                    report("custom layout geometry: size \(Int($0.width))x\(Int($0.height))")
+                                }
+                                .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: {
+                                    report("custom layout geometry: safe leading \(Int($0.leading))")
+                                }
+                        }
+                    }
+            } else {
+                Keys(model: model, pad: model.pad)
+                    .id(model.pad)
+            }
         }
         .padding(12)
         .preferredColorScheme(dark ? .dark : nil)
@@ -184,6 +434,62 @@ struct KeypadView: View {
                 ForEach(Pad.allCases) { Text($0.rawValue.capitalized).tag($0) }
             }
             .pickerStyle(.segmented)
+        }
+    }
+}
+
+/// A four-column Grid with the same button faces as the calculator's keypad.
+struct CalculatorGridProbe: View {
+    var body: some View {
+        Grid(horizontalSpacing: 8, verticalSpacing: 6) {
+            ForEach(0..<5, id: \.self) { row in
+                GridRow {
+                    ForEach(0..<4, id: \.self) { column in
+                        let index = row * 4 + column
+                        let label: AnyView = column == 3
+                            ? AnyView(Image(systemName: ["divide", "multiply", "minus", "plus", "equal"][row])
+                                .font(.system(size: 22)))
+                            : AnyView(Text("\(index)").font(.system(size: 22)))
+                        Button {} label: {
+                            label
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .background(column == 3 ? Color.orange : Color.gray, in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 264)
+    }
+}
+
+/// A small custom keypad whose width follows the size its parent offers, as Calculator's
+/// keypad layout does. Its log shows what happens when a sidebar narrows that offer.
+struct CalculatorLayoutProbe: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let proposedWidth = proposal.width ?? .infinity
+        let width = proposedWidth == 0 ? 98 : (proposedWidth.isFinite ? proposedWidth : 760)
+        let height: CGFloat = 264
+        let fittedWidth = width.isFinite ? String(Int(width)) : String(describing: width)
+        report("custom keypad layout: proposed \(String(describing: proposal.width)) -> \(fittedWidth)")
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let columns = 4
+        let rows = 5
+        let cellWidth = bounds.width / CGFloat(columns)
+        let cellHeight = bounds.height / CGFloat(rows)
+        for (index, subview) in subviews.enumerated() {
+            let column = index % columns
+            let row = index / columns
+            subview.place(
+                at: CGPoint(x: bounds.minX + (CGFloat(column) + 0.5) * cellWidth,
+                           y: bounds.minY + (CGFloat(row) + 0.5) * cellHeight),
+                anchor: .center,
+                proposal: ProposedViewSize(width: cellWidth, height: cellHeight))
         }
     }
 }

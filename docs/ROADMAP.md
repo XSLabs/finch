@@ -490,12 +490,19 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         sidebar as macOS 26's does (2026-10-15): the detail runs the full width with the
         sidebar's width + 8 as its leading safe area (`_safeAreaInsets`, which counts
         towards size), and SwiftUIKeypad's KEYPAD_SPLIT=probe prints Apple's numbers on
-        Finch (detail 760, inset 228). Calculator's keypad still runs under its history and
-        the window doesn't grow, so it doesn't take its width from that safe area. (The
-        sidebar's width comes from the sidebar alone now: Calculator's keypad gives its own
-        column a width, which had stood in for the history's.) Its keypad and toolbar start
-        59 points in whatever the inset; next is finding, in Calculator's code, what it
-        reads.
+        Finch (detail 760, inset 228). Calculator still overlapped History because the
+        split view centered an oversized detail page inside the narrower space beside the
+        sidebar. Its safe area was already padding regular content; the split page's center
+        alignment then moved that content back under the sidebar. Fixed (2026-10-17): with a
+        floating sidebar, both the page frame and detail layout now keep their leading edge
+        at the safe-area boundary. A window reader adds the inset only when the window's
+        own minimum size did not grow it, and clamps the resized window to its screen's
+        visible frame. In Finch, the probe reports a 228-point inset and puts the plain
+        VStack, custom Layout and ignored-background ZStack's foreground at x=240 (the
+        inset plus 12 points of padding). Apple's host run uses a side-by-side split, so
+        its detail has no floating inset. After the VM transition settles, Calculator's
+        1128-point window keeps all five keypad rows beside History, with each operator
+        symbol on its orange key.
         Typing works (2026-10-15): CalculateUI's editable expression view takes the keys
         that name calculator keys (7+2= shows 9), and SwiftUI buttons' keyboard shortcuts,
         with or without modifiers, work anywhere in their window. Edit > Copy copies the
