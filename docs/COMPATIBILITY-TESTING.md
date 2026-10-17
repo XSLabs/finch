@@ -1,9 +1,11 @@
 # Generated compatibility tests
 
 These tests compare Finch's CoreFoundation, Foundation, CoreGraphics,
-CoreText, ImageIO, AppKit, Security, CoreVideo, CoreMedia, and CoreServices
-frameworks with Apple's frameworks on the same Mac. They use the current macOS
-SDK as the API list and the source of C and Objective-C method signatures.
+CoreText, ImageIO, AppKit, Security, CoreVideo, CoreMedia, CoreServices,
+QuartzCore, CoreImage, UniformTypeIdentifiers, CFNetwork, ColorSync, Contacts,
+CoreData, CoreLocation, Network, Metal, CoreSpotlight, and AVFAudio frameworks
+with Apple's frameworks on the same Mac. They use the current macOS SDK as the
+API list and the source of C and Objective-C method signatures.
 
 ## Run the comparisons
 
@@ -20,6 +22,7 @@ python3 tools/difftest/run.py CoreText
 python3 tools/difftest/run.py ImageIO
 python3 tools/difftest/run.py AppKit --jobs 8
 python3 tools/difftest/run.py Security CoreVideo CoreMedia CoreServices
+python3 tools/difftest/run.py QuartzCore CoreImage UniformTypeIdentifiers CFNetwork ColorSync Contacts CoreData CoreLocation Network Metal CoreSpotlight AVFAudio --jobs 8
 ```
 
 The runner builds one generated program for each framework and starts a fresh
@@ -54,6 +57,26 @@ and uses private named pasteboards. Event inputs are values made by the test;
 the runner skips calls that need a real mouse, keyboard, touch, window, drawing
 context, printer, or shared pasteboard. Bitmap components may differ by one
 8-bit value (1/255); geometry may differ by up to 0.01 points.
+
+The added framework scopes use fixed, in-memory values. QuartzCore compares
+layer and animation values without depending on display time. CoreImage checks
+filter and kernel values but skips rendering, GPU work, installed-filter lists,
+and the expensive lazy Gaussian blur call. UniformTypeIdentifiers checks fixed
+type identifiers and conformance. CFNetwork checks in-memory HTTP messages and
+stable constants. ColorSync checks fixed profile and color-space values.
+Contacts checks detached contact and formatter values. CoreData checks model,
+fetch, merge, and store descriptions without opening a persistent store.
+Metal uses device-free descriptors and constants; it does not ask for a GPU or
+submit commands. CoreSpotlight checks detached attribute and item values without
+using the shared index. AVFAudio checks detached formats, layouts, times, and
+buffers without starting an engine or using audio hardware.
+
+CoreLocation calls are left unexercised. Loading Apple's and Finch's
+CoreLocation in the same comparison process defines duplicate private
+_LocationEssentials classes and aborts, so the runner excludes that framework
+instead of reporting an unsafe comparison. The Network C API currently has
+only four stable exported constant IDs to compare in the Finch image; calls
+that need endpoint objects, callbacks, or live network state are skipped.
 
 ## How inputs are chosen
 
@@ -114,7 +137,7 @@ Each item has one of four statuses:
 is the share of all inventoried SDK items that were exercised. A high verified
 percentage does not mean that most of the SDK has been exercised.
 
-## Results
+## Results (2026-10-16; final verification 2026-10-17)
 
 On macOS SDK 26.4, the generator reported these results. The SDK item
 counts come from parsed declarations; the exercised count is the sum of
@@ -123,27 +146,39 @@ verified, different, and crashed calls.
 | Framework | SDK items | Exercised | Verified | Different | Crashes | Not exercised |
 |---|---:|---:|---:|---:|---:|---:|
 | CoreFoundation | 1,227 | 796 | 794 | 2 | 0 | 431 |
-| Foundation | 8,128 | 2,010 | 1,914 | 96 | 0 | 6,118 |
+| Foundation | 8,128 | 2,398 | 2,247 | 151 | 0 | 5,730 |
 | CoreGraphics | 841 | 536 | 524 | 12 | 0 | 305 |
 | CoreText | 328 | 229 | 194 | 35 | 0 | 99 |
 | ImageIO | 808 | 785 | 781 | 4 | 0 | 23 |
-| AppKit | 9,955 | 769 | 605 | 164 | 0 | 9,186 |
+| AppKit | 9,955 | 2,138 | 1,771 | 367 | 0 | 7,817 |
 | Security | 1,804 | 140 | 140 | 0 | 0 | 1,664 |
 | CoreVideo | 302 | 205 | 205 | 0 | 0 | 97 |
 | CoreMedia | 752 | 134 | 132 | 2 | 0 | 618 |
 | CoreServices | 1,146 | 157 | 157 | 0 | 0 | 989 |
+| QuartzCore | 633 | 495 | 427 | 68 | 0 | 138 |
+| CoreImage | 1,045 | 522 | 412 | 110 | 0 | 523 |
+| UniformTypeIdentifiers | 179 | 25 | 24 | 1 | 0 | 154 |
+| CFNetwork | 231 | 35 | 31 | 4 | 0 | 196 |
+| ColorSync | 205 | 150 | 150 | 0 | 0 | 55 |
+| Contacts | 568 | 451 | 416 | 35 | 0 | 117 |
+| CoreData | 683 | 269 | 195 | 74 | 0 | 414 |
+| CoreLocation | 184 | 0 | 0 | 0 | 0 | 184 |
+| Network | 442 | 4 | 4 | 0 | 0 | 438 |
+| Metal | 1,217 | 952 | 754 | 198 | 0 | 265 |
+| CoreSpotlight | 469 | 393 | 389 | 4 | 0 | 76 |
+| AVFAudio | 740 | 79 | 79 | 0 | 0 | 661 |
 
-The constants run verified 10,645 values, and these generated runs verified
-4,812 calls. The compatibility report counts 13,810 verified framework/API
-rows across its 849 rows. Its six generated-test framework rows show 802 for
-CoreFoundation, 2,217 for Foundation, 538 for CoreGraphics, 194 for CoreText,
-781 for ImageIO, and 2,850 for AppKit. These report totals merge both sources
-by API ID; a shared ID is counted once in its framework, and a generated case
-without a matching public API ID does not add a report row.
+At the start of this extension, the compatibility report counted 13,810
+behavior-verified API rows. It now counts 15,890, an increase of 2,080. The
+constants run verified 10,645 values with no differences. The report merges
+constant and generated results by API ID, so shared IDs count once and the
+per-run totals in the table do not add directly to the report total. The final
+Foundation rebuild and report refresh completed on 2026-10-17.
 
 CoreFoundation's two differences are its hyphenation calls; Finch does not
 ship hyphenation dictionaries. Foundation's differences include XML, key-value
-coding, dates and calendars, URLs, number formatting, and string edge cases.
+coding, dates and calendars, URL parsing, number formatting, thread and process
+descriptions, pointer-function options, and NSFileWrapper's serialized format.
 The merged Foundation fixes bring decimal division, byte-based data creation,
 invalid substring indexes, nil number comparisons, and spacing around a DTD
 into agreement with Apple.
@@ -154,12 +189,25 @@ font names, traits, glyph metrics, and line layout. ImageIO's remaining
 differences are codec type lists, metadata copying, and
 `CGImageDestinationCopyImageSource`. These three frameworks had no crashes.
 
-AppKit's run exercised 7.72% of its SDK inventory, and 78.67% of those calls
-matched. Its differences include fonts and metrics, cursor images, event values,
-attributed strings, font manager queries, font descriptors, images, bitmap data,
-and layout spacing. It had no crashes. Most of the remaining inventory has no
-safe typed input or is outside the headless scope; the JSON file lists skip
-reasons and each API's first mismatch.
+AppKit's expanded run exercised 21.48% of its SDK inventory, and 82.83% of
+those calls matched. Its differences include fonts and metrics, cursor images,
+event values, attributed strings, font manager queries, font descriptors,
+images, bitmap data, cell and control defaults, and layout spacing. It had no
+crashes. Most of the remaining inventory has no safe typed input or is outside
+the headless scope; the JSON file lists skip reasons and each API's first
+mismatch.
+
+QuartzCore's differences are mainly layer property values and defaults,
+emitter-cell setters, and CAEDRMetadata values. CoreImage's differences include
+kernel factory results, blend-kernel names, and barcode descriptor values.
+UniformTypeIdentifiers differs on tag values. CFNetwork differs on a few
+CFHTTPMessage creation and authentication cases. ColorSync matched all tested
+calls. Contacts differs on contact field validation and defaults. CoreData
+differs on model, fetch, and store descriptor properties. Metal's remaining
+differences are mostly descriptor property defaults and setters; device-bound
+calls are outside the test scope. CoreSpotlight has four differences in item
+attribute values. AVFAudio matched all tested calls. The APIs that differed
+remain marked as such; none were counted as verified.
 
 Security, CoreVideo, and CoreServices matched every exercised case. CoreMedia
 matched 132 of 134 exercised API items. Its two remaining differences are in

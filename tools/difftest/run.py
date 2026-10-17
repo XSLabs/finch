@@ -54,6 +54,18 @@ def build_program(framework: str, source: Path) -> Path:
         "CoreVideo": ["CoreFoundation", "CoreGraphics", "IOSurface"],
         "CoreMedia": ["CoreFoundation", "CoreVideo"],
         "CoreServices": ["CoreFoundation"],
+        "QuartzCore": ["Foundation", "CoreFoundation", "CoreGraphics"],
+        "CoreImage": ["Foundation", "CoreFoundation", "CoreGraphics", "CoreVideo"],
+        "UniformTypeIdentifiers": ["Foundation", "CoreFoundation"],
+        "CFNetwork": ["Foundation", "CoreFoundation"],
+        "ColorSync": ["Foundation", "CoreFoundation", "CoreGraphics"],
+        "Contacts": ["Foundation", "CoreFoundation"],
+        "CoreData": ["Foundation", "CoreFoundation"],
+        "CoreLocation": ["Foundation", "CoreFoundation"],
+        "Network": ["Foundation", "CoreFoundation"],
+        "Metal": ["Foundation", "CoreFoundation"],
+        "CoreSpotlight": ["Foundation", "CoreFoundation", "UniformTypeIdentifiers"],
+        "AVFAudio": ["Foundation", "CoreFoundation", "AudioToolbox"],
     }.get(framework, [])
     extra_frameworks = [part for dependency in dependencies for part in ("-framework", dependency)]
     build_key = hashlib.sha256(
@@ -468,7 +480,9 @@ def main() -> int:
     parser.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 1), help="API processes to compare in parallel")
     args = parser.parse_args()
     supported = {"CoreFoundation", "Foundation", "CoreGraphics", "CoreText", "ImageIO", "AppKit",
-                 "Security", "CoreVideo", "CoreMedia", "CoreServices"}
+                 "Security", "CoreVideo", "CoreMedia", "CoreServices", "QuartzCore", "CoreImage",
+                 "UniformTypeIdentifiers", "CFNetwork", "ColorSync", "Contacts", "CoreData",
+                 "CoreLocation", "Network", "Metal", "CoreSpotlight", "AVFAudio"}
     invalid = sorted(set(args.framework) - supported)
     if invalid:
         parser.error(f"unknown framework: {', '.join(invalid)}")

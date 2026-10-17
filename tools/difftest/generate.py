@@ -1505,6 +1505,13 @@ def generate(framework: str, output_dir: Path) -> dict:
         tested = []
         source = APPKIT_SOURCE
         filename = "AppKit.m"
+    elif framework in _FRAMEWORKS.GENERIC_IMPORTS:
+        tested = []
+        source = _FRAMEWORKS.GENERIC_SOURCE.replace(
+            "/* FRAMEWORK_IMPORTS */", _FRAMEWORKS.GENERIC_IMPORTS[framework])
+        source = source.replace("/* STRING_TABLE */", string_table())
+        source = source.replace("/* MANUAL_C_ENTRIES */", "")
+        filename = f"{framework}.m"
     else:
         raise ValueError(f"unsupported framework: {framework}")
 
@@ -1515,6 +1522,18 @@ def generate(framework: str, output_dir: Path) -> dict:
         # with CarbonCore, so keep their fixtures with CoreServices.
         c_items.update({"CFURLCreateFromFSRef", "CFURLGetFSRef"})
     objc_items = objc_inventory(framework)
+    if framework == "CoreImage":
+        # CIFilterBuiltins.h declares these no-argument filter factories in
+        # a generated header that is not imported by the CoreImage umbrella.
+        # Their SDK declarations all return CIFilter subclasses.
+        for name in sorted(objc_items - details.get("methods", {}).keys()):
+            match = re.fullmatch(r"CIFilter \+([A-Za-z_]\w*)", name)
+            if match:
+                details.setdefault("methods", {})[name] = {
+                    "class": "CIFilter", "selector": match.group(1), "class_method": True,
+                    "return_type": "CIFilter * _Nullable", "parameters": [],
+                    "header": "CIFilterBuiltins.h", "variadic": False, "name": name,
+                }
     swift_items = swift_inventory(framework)
     declared = c_items | objc_items | swift_items
     missing = [name for name, _ in tested if name not in declared]
@@ -1527,7 +1546,8 @@ def generate(framework: str, output_dir: Path) -> dict:
                            finch_symbols, output_dir)
     source = source.replace("/* TYPED_C_SOURCE */", typed["c_source"])
     source = source.replace("/* TYPED_C_ENTRIES */", typed["c_entries"])
-    source = source.replace("/* TYPED_OBJC_RUNTIME */", typed["objc_runtime"] if framework in {"Foundation", "AppKit"} else "")
+    has_objc_runtime = framework in {"Foundation", "AppKit"} or framework in _FRAMEWORKS.GENERIC_IMPORTS
+    source = source.replace("/* TYPED_OBJC_RUNTIME */", typed["objc_runtime"] if has_objc_runtime else "")
 
     generated_items = typed["auto_c_items"] + typed["auto_objc_items"]
     tested = list(tested) + [(item["name"], item["category"]) for item in generated_items]
@@ -1558,7 +1578,8 @@ def generate(framework: str, output_dir: Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("framework", choices=("CoreFoundation", "Foundation", "CoreGraphics", "CoreText", "ImageIO", "AppKit",
-                                               "Security", "CoreVideo", "CoreMedia", "CoreServices"))
+                                               "Security", "CoreVideo", "CoreMedia", "CoreServices",
+                                               *sorted(_FRAMEWORKS.GENERIC_IMPORTS)))
     parser.add_argument("--output-dir", type=Path, default=BUILD)
     args = parser.parse_args()
     try:

@@ -19,7 +19,12 @@ for fw in sys.argv[1:]:
             for m in re.finditer(r'^[ \t]*([-+])\s*\(([^;]*?)\)\s*([^;]+?);',body,re.M):
                 sig=re.sub(r'\b(NS_|API_|__|FOUNDATION_|CF_|DEPRECATED|APPKIT_)\w*(\([^()]*(\([^()]*\))*[^()]*\))?','',m.group(3))
                 parts=re.findall(r'(\w+)\s*:',sig)
-                sel="".join(p+":" for p in parts) if parts else re.match(r'\s*(\w+)',sig).group(1)
+                if parts:
+                    sel="".join(p+":" for p in parts)
+                else:
+                    name=re.match(r'\s*(\w+)',sig) or re.search(r'(\w+)\s*$',sig)
+                    if not name: continue
+                    sel=name.group(1)
                 out.add(f"{cls} {m.group(1)}{sel}")
             for m in re.finditer(r'@property\s*(\(([^)]*)\))?([^;]*);',body):
                 attrs=m.group(2) or ""; decl=re.sub(r'\b(NS_|API_|__|FOUNDATION_|CF_|DEPRECATED|APPKIT_)\w*(\([^()]*(\([^()]*\))*[^()]*\))?','',m.group(3))

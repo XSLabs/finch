@@ -54,6 +54,51 @@ FRAMEWORK_SCOPES = {
         },
         "variables": ("kUTTagClass", "kUTType"),
     },
+    "QuartzCore": {
+        "prefixes": ("CATransform3D",),
+        "variables": ("kCA",),
+    },
+    "CoreImage": {
+        "variables": ("kCI",),
+    },
+    "UniformTypeIdentifiers": {
+        "prefixes": ("UTType",),
+        "variables": ("kUTType", "kUTTagClass"),
+    },
+    "CFNetwork": {
+        "prefixes": ("CFHTTPMessage",),
+        "variables": ("kCFStreamPropertyHTTP", "kCFStreamPropertySSL"),
+    },
+    "ColorSync": {
+        "variables": ("kColorSync", "kCM"),
+    },
+    "Contacts": {
+        "variables": ("CN",),
+    },
+    "CoreData": {
+        "variables": ("NS",),
+    },
+    "CoreLocation": {
+        "functions": {"CLLocationCoordinate2DIsValid"},
+        "variables": ("kCL",),
+    },
+    "Network": {
+        "functions": {
+            "nw_endpoint_create_host", "nw_endpoint_get_type", "nw_endpoint_get_hostname",
+            "nw_endpoint_get_port", "nw_endpoint_is_equal", "nw_protocol_copy_tcp_definition",
+            "nw_protocol_copy_tls_definition", "nw_protocol_copy_udp_definition",
+        },
+        "variables": ("kNW",),
+    },
+    "Metal": {
+        "variables": ("MTL", "kMTL"),
+    },
+    "CoreSpotlight": {
+        "variables": ("CS",),
+    },
+    "AVFAudio": {
+        "variables": ("AVAudio",),
+    },
 }
 
 
@@ -61,6 +106,8 @@ def _framework_scope_reason(framework: str, name: str, *, variable: bool = False
     scope = FRAMEWORK_SCOPES.get(framework)
     if not scope:
         return None
+    if framework == "CoreLocation":
+        return "loading Finch CoreLocation aborts because its Objective-C classes collide with Apple's private location framework"
     if framework == "CoreMedia":
         if name in {"CMClockGetTime", "CMClockGetAnchorTime"}:
             return "reads the live host clock, so its value changes between the two runs"
@@ -82,6 +129,99 @@ def _framework_scope_reason(framework: str, name: str, *, variable: bool = False
     if framework == "CoreServices" and name.startswith("LSCopy"):
         return "depends on the host's installed applications or default handlers"
     return f"outside the selected deterministic {framework} API scope"
+
+
+VALUE_CLASS_SCOPES = {
+    "CoreImage": {
+        "CIColor", "CIContext", "CIFilter", "CIFilterShape", "CIImage", "CIImageAccumulator", "CIVector",
+        "CIKernel", "CIColorKernel", "CIWarpKernel", "CIBlendKernel", "CIQRCodeDescriptor",
+        "CIAztecCodeDescriptor", "CIPDF417CodeDescriptor", "CIDataMatrixCodeDescriptor",
+    },
+    "Contacts": {
+        "CNContact", "CNMutableContact", "CNContactFormatter", "CNPhoneNumber", "CNLabeledValue",
+        "CNPostalAddress", "CNMutablePostalAddress", "CNPostalAddressFormatter", "CNSocialProfile",
+    },
+    "CoreData": {
+        "NSFetchRequest", "NSExpressionDescription", "NSEntityDescription", "NSPropertyDescription",
+        "NSAttributeDescription", "NSRelationshipDescription", "NSFetchedPropertyDescription",
+        "NSManagedObjectModel", "NSEntityMapping", "NSPropertyMapping", "NSMappingModel",
+        "NSFetchIndexDescription", "NSFetchIndexElementDescription", "NSPersistentStoreDescription",
+        "NSBatchUpdateRequest", "NSBatchDeleteRequest", "NSMergePolicy",
+    },
+    "CoreLocation": {"CLLocation", "CLCircularRegion", "CLRegion", "CLVisit", "CLHeading", "CLPlacemark"},
+    "Metal": {
+        "MTLTextureDescriptor", "MTLRenderPassDescriptor", "MTLRenderPipelineDescriptor",
+        "MTLComputePipelineDescriptor", "MTLDepthStencilDescriptor", "MTLStencilDescriptor",
+        "MTLSamplerDescriptor", "MTLVertexDescriptor", "MTLVertexAttributeDescriptor",
+        "MTLVertexBufferLayoutDescriptor", "MTLRenderPipelineColorAttachmentDescriptor",
+        "MTLArgumentDescriptor", "MTLIndirectCommandBufferDescriptor", "MTLFunctionConstantValues",
+    },
+    "CoreSpotlight": {
+        "CSSearchableItemAttributeSet", "CSSearchableItem", "CSLocalizedString",
+        "CSPerson", "CSCustomAttributeKey",
+    },
+    "AVFAudio": {
+        "AVAudioFormat", "AVAudioChannelLayout", "AVAudioTime", "AVAudioPCMBuffer",
+    },
+}
+
+
+def _objc_framework_scope_reason(framework: str, method: dict) -> str | None:
+    class_name = method.get("class", "")
+    selector = method.get("selector", "")
+    if framework == "CoreLocation":
+        return "loading Finch CoreLocation aborts because its Objective-C classes collide with Apple's private location framework"
+    if framework == "QuartzCore":
+        if not class_name.startswith("CA") or class_name in {
+            "CADisplayLink", "CAMetalDisplayLink", "CAMetalLayer", "CARemoteLayerServer", "CARenderer", "CATransaction",
+        }:
+            return "needs a display, renderer, GPU, or process-wide animation state"
+        if re.search(r"(?:current|presentationLayer|render|display|draw|convertTime|beginTime|timeOffset)", selector, re.I):
+            return "depends on animation time or a render target"
+        if selector in {"getControlPointAtIndex:values:", "initWithPerceptualDuration:bounce:"}:
+            return "needs an API-specific buffer or a bounded spring input"
+    elif framework in {"CoreImage", "Contacts", "CoreData", "CoreLocation", "Metal", "CoreSpotlight", "AVFAudio"}:
+        metal_value_object = framework == "Metal" and class_name.startswith("MTL") and (
+            class_name.endswith("Descriptor") or class_name == "MTLFunctionConstantValues")
+        if class_name not in VALUE_CLASS_SCOPES[framework] and not metal_value_object:
+            return f"outside the selected deterministic {framework} value API scope"
+        if framework == "CoreData" and re.search(
+                r"(?:PersistentStore|persistentStore|executeRequest|performBlock|obtainPermanent|deleteObject|insertNewObject|refreshObject)",
+                selector):
+            return "uses a persistent store or changes managed object state"
+        if framework == "CoreData" and class_name == "NSManagedObjectModel" and selector.startswith("mergedModelFromBundles:"):
+            return "loads model files from installed application bundles"
+        if framework == "CoreLocation" and re.search(r"(?:request|start|stop|monitor|authorization|locationManager)", selector, re.I):
+            return "depends on location permission or hardware state"
+        if framework == "Metal" and re.search(
+                r"(?:device|registry|capture|commandQueue|newBuffer|newTexture|newPipeline|newFunction|newLibrary|(?:vertex|fragment|compute)Function|function$)",
+                selector, re.I):
+            return "depends on a Metal device or GPU state"
+        if framework == "Metal" and selector == "setSamplePositions:count:":
+            return "the host asserts unless a sample count is already supported by a render target"
+        if framework == "Metal" and selector == "getSamplePositions:count:" and class_name != "MTLRenderPassDescriptor":
+            return "the getter needs a sample count configured by a render target"
+        if framework == "CoreImage" and re.search(r"(?:filterNames|filterCategories|render|startTask|device|gpu)", selector, re.I):
+            return "depends on installed filters, a render target, or GPU state"
+        if framework == "CoreImage" and (
+                selector.startswith("apply") or "MetalLibraryData" in selector or "MetalString" in selector):
+            return "needs a render target, GPU library, or API-specific kernel arguments"
+        if framework == "CoreImage" and selector == "imageByApplyingGaussianBlurWithSigma:":
+            return "builds an expensive lazy blur graph on the host implementation"
+        if framework == "CoreSpotlight" and re.search(r"(?:index|search|query|fetch|delete|update|begin|end)", selector, re.I):
+            return "uses the shared Spotlight index or starts a search"
+        if framework == "AVFAudio" and re.search(
+                r"(?:engine|device|render|play|record|input|output|hostTime|audioTimeStamp|audioBufferList|ChannelData|streamDescription|layout$|initWithSettings|initWithCMAudioFormatDescription)",
+                selector, re.I):
+            return "depends on an audio device, live clock, callback, or raw audio buffer"
+        if framework == "Contacts" and class_name == "CNContactFormatter" and selector == "style":
+            return None
+    elif framework == "UniformTypeIdentifiers":
+        if class_name != "UTType":
+            return "outside the selected UniformTypeIdentifiers value API scope"
+    elif framework in {"CFNetwork", "ColorSync", "Network"}:
+        return f"outside the selected deterministic {framework} C API scope"
+    return None
 POOL_DESCRIPTIONS = {
     "integer": [0, 1, -1, 2, -2, "minimum", "maximum"],
     "floating": [0.0, "negative-zero", "positive-infinity", "negative-infinity", "nan", "subnormal", 0.5],
@@ -123,6 +263,55 @@ SIDE_EFFECT_RULES = (
     ("window-system", re.compile(r"CGDisplay|CGSession|CGEvent|CGPreflightListenEventAccess|CGRequestListenEventAccess|CGWindow|CGS|CGScreen|CGWarpMouse|CGAssociateMouse|CGCursor|CGGetLastMouseDelta", re.I)),
 )
 
+FOUNDATION_CALLBACK_METHODS = {
+    "NSArray -differenceFromArray:withOptions:usingEquivalenceTest:",
+    "NSArray -enumerateObjectsAtIndexes:options:usingBlock:",
+    "NSArray -enumerateObjectsUsingBlock:",
+    "NSArray -enumerateObjectsWithOptions:usingBlock:",
+    "NSArray -indexOfObjectAtIndexes:options:passingTest:",
+    "NSArray -indexOfObjectPassingTest:",
+    "NSArray -indexOfObjectWithOptions:passingTest:",
+    "NSArray -indexesOfObjectsAtIndexes:options:passingTest:",
+    "NSArray -indexesOfObjectsPassingTest:",
+    "NSArray -indexesOfObjectsWithOptions:passingTest:",
+    "NSAttributedString -enumerateAttribute:inRange:options:usingBlock:",
+    "NSAttributedString -enumerateAttributesInRange:options:usingBlock:",
+    "NSData -enumerateByteRangesUsingBlock:",
+    "NSDictionary -enumerateKeysAndObjectsUsingBlock:",
+    "NSDictionary -enumerateKeysAndObjectsWithOptions:usingBlock:",
+    "NSDictionary -keysOfEntriesPassingTest:",
+    "NSDictionary -keysOfEntriesWithOptions:passingTest:",
+    "NSIndexSet -enumerateIndexesInRange:options:usingBlock:",
+    "NSIndexSet -enumerateIndexesUsingBlock:",
+    "NSIndexSet -enumerateIndexesWithOptions:usingBlock:",
+    "NSIndexSet -enumerateRangesInRange:options:usingBlock:",
+    "NSIndexSet -enumerateRangesUsingBlock:",
+    "NSIndexSet -enumerateRangesWithOptions:usingBlock:",
+    "NSIndexSet -indexInRange:options:passingTest:",
+    "NSIndexSet -indexPassingTest:",
+    "NSIndexSet -indexWithOptions:passingTest:",
+    "NSIndexSet -indexesInRange:options:passingTest:",
+    "NSIndexSet -indexesPassingTest:",
+    "NSIndexSet -indexesWithOptions:passingTest:",
+    "NSOrderedSet -differenceFromOrderedSet:withOptions:usingEquivalenceTest:",
+    "NSOrderedSet -enumerateObjectsAtIndexes:options:usingBlock:",
+    "NSOrderedSet -enumerateObjectsUsingBlock:",
+    "NSOrderedSet -enumerateObjectsWithOptions:usingBlock:",
+    "NSOrderedSet -indexOfObjectAtIndexes:options:passingTest:",
+    "NSOrderedSet -indexOfObjectPassingTest:",
+    "NSOrderedSet -indexOfObjectWithOptions:passingTest:",
+    "NSOrderedSet -indexesOfObjectsAtIndexes:options:passingTest:",
+    "NSOrderedSet -indexesOfObjectsPassingTest:",
+    "NSOrderedSet -indexesOfObjectsWithOptions:passingTest:",
+    "NSRegularExpression -enumerateMatchesInString:options:range:usingBlock:",
+    "NSSet -enumerateObjectsUsingBlock:",
+    "NSSet -enumerateObjectsWithOptions:usingBlock:",
+    "NSSet -objectsPassingTest:",
+    "NSSet -objectsWithOptions:passingTest:",
+    "NSString -enumerateLinesUsingBlock:",
+    "NSString -enumerateSubstringsInRange:options:usingBlock:",
+}
+
 
 APPKIT_HEADLESS_CLASSES = {
     "NSColor", "NSColorSpace", "NSColorList", "NSFont", "NSFontDescriptor", "NSFontManager",
@@ -131,16 +320,303 @@ APPKIT_HEADLESS_CLASSES = {
     "NSTextTab", "NSShadow", "NSGradient", "NSCursor", "NSAppearance", "NSEvent", "NSTouch",
     "NSLayoutConstraint", "NSLayoutAnchor", "NSLayoutXAxisAnchor", "NSLayoutYAxisAnchor",
     "NSLayoutDimension", "NSLayoutGuide", "NSView", "NSPasteboard", "NSValue", "NSPrintInfo",
+    "NSCell", "NSMenuItem", "NSMenu", "NSTableColumn", "NSControl", "NSButton", "NSTextField",
+    "NSComboBox", "NSSegmentedControl", "NSSlider", "NSLevelIndicator", "NSProgressIndicator", "NSBox",
+    "NSPopUpButton", "NSTabView", "NSTabViewItem", "NSMatrix", "NSTextStorage", "NSLayoutManager",
+    "NSTextContainer", "NSTextView", "NSScrollView", "NSGridView", "NSGridRow", "NSGridColumn", "NSGridCell",
+    "NSRulerView", "NSRulerMarker", "NSButtonCell", "NSSliderCell", "NSSegmentedCell",
+    "NSPopUpButtonCell", "NSComboBoxCell", "NSLevelIndicatorCell", "NSTextFieldCell", "NSImageCell",
+}
+
+APPKIT_VALUE_CELL_SELECTORS = {
+    "NSButtonCell": {
+        "initTextCell:", "initImageCell:",
+        "title", "setTitle:", "attributedTitle", "setAttributedTitle:", "alternateTitle", "setAlternateTitle:",
+        "attributedAlternateTitle", "setAttributedAlternateTitle:", "bezelStyle", "setBezelStyle:",
+        "highlightsBy", "setHighlightsBy:", "showsStateBy", "setShowsStateBy:", "alternateImage", "setAlternateImage:",
+        "imagePosition", "setImagePosition:", "imageScaling", "setImageScaling:", "keyEquivalent", "setKeyEquivalent:",
+        "keyEquivalentModifierMask", "setKeyEquivalentModifierMask:", "isTransparent", "setTransparent:",
+        "isOpaque", "setOpaque:", "imageDimsWhenDisabled", "setImageDimsWhenDisabled:",
+        "showsBorderOnlyWhileMouseInside", "setShowsBorderOnlyWhileMouseInside:", "backgroundColor", "setBackgroundColor:",
+        "gradientType", "setGradientType:", "keyEquivalentFont", "setKeyEquivalentFont:",
+    },
+    "NSSliderCell": {
+        "init",
+        "minValue", "setMinValue:", "maxValue", "setMaxValue:", "altIncrementValue", "setAltIncrementValue:",
+        "sliderType", "setSliderType:", "isVertical", "setVertical:", "trackRect", "knobThickness",
+        "numberOfTickMarks", "setNumberOfTickMarks:", "tickMarkPosition", "setTickMarkPosition:",
+        "allowsTickMarkValuesOnly", "setAllowsTickMarkValuesOnly:", "prefersTrackingUntilMouseUp", "setPrefersTrackingUntilMouseUp:",
+    },
+    "NSSegmentedCell": {
+        "init",
+        "segmentCount", "setSegmentCount:", "selectedSegment", "setSelectedSegment:", "trackingMode", "setTrackingMode:",
+        "segmentStyle", "setSegmentStyle:", "labelForSegment:", "setLabel:forSegment:", "imageForSegment:",
+        "setImage:forSegment:", "widthForSegment:", "setWidth:forSegment:", "isEnabledForSegment:",
+        "setEnabled:forSegment:", "toolTipForSegment:", "setToolTip:forSegment:",
+    },
+    "NSPopUpButtonCell": {
+        "initTextCell:pullsDown:",
+        "menu", "setMenu:", "pullsDown", "setPullsDown:", "autoenablesItems", "setAutoenablesItems:",
+        "preferredEdge", "setPreferredEdge:", "usesItemFromMenu", "setUsesItemFromMenu:",
+        "altersStateOfSelectedItem", "setAltersStateOfSelectedItem:", "itemArray", "numberOfItems", "lastItem",
+        "selectedItem", "indexOfSelectedItem", "itemTitles", "titleOfSelectedItem", "arrowPosition", "setArrowPosition:",
+    },
+    "NSComboBoxCell": {
+        "initTextCell:",
+        "hasVerticalScroller", "setHasVerticalScroller:", "intercellSpacing", "setIntercellSpacing:",
+        "itemHeight", "setItemHeight:", "numberOfVisibleItems", "setNumberOfVisibleItems:", "buttonBordered", "setButtonBordered:",
+        "usesDataSource", "setUsesDataSource:", "indexOfSelectedItem", "numberOfItems", "completes", "setCompletes:",
+        "objectValueOfSelectedItem", "objectValues", "addItemWithObjectValue:", "addItemsWithObjectValues:",
+        "removeAllItems", "selectItemAtIndex:", "selectItemWithObjectValue:",
+    },
+    "NSLevelIndicatorCell": {
+        "init",
+        "levelIndicatorStyle", "setLevelIndicatorStyle:", "minValue", "setMinValue:", "maxValue", "setMaxValue:",
+        "warningValue", "setWarningValue:", "criticalValue", "setCriticalValue:", "tickMarkPosition", "setTickMarkPosition:",
+        "numberOfTickMarks", "setNumberOfTickMarks:", "numberOfMajorTickMarks", "setNumberOfMajorTickMarks:",
+    },
+    "NSTextFieldCell": {
+        "initTextCell:",
+        "backgroundColor", "setBackgroundColor:", "drawsBackground", "setDrawsBackground:", "textColor", "setTextColor:",
+        "isBordered", "setBordered:", "isBezeled", "setBezeled:", "isEditable", "setEditable:", "isSelectable", "setSelectable:",
+        "acceptsFirstResponder", "setAcceptsFirstResponder:", "bezelStyle", "setBezelStyle:", "placeholderString", "setPlaceholderString:",
+        "placeholderAttributedString", "setPlaceholderAttributedString:", "allowedInputSourceLocales", "setAllowedInputSourceLocales:",
+    },
+    "NSImageCell": {
+        "initImageCell:",
+        "imageAlignment", "setImageAlignment:", "imageScaling", "setImageScaling:", "imageFrameStyle", "setImageFrameStyle:",
+    },
 }
 
 APPKIT_VIEW_VALUE_SELECTORS = {
     "init", "initWithFrame:", "leadingAnchor", "trailingAnchor", "leftAnchor", "rightAnchor",
     "topAnchor", "bottomAnchor", "widthAnchor", "heightAnchor", "centerXAnchor", "centerYAnchor",
     "firstBaselineAnchor", "lastBaselineAnchor", "safeAreaLayoutGuide", "layoutMarginsGuide",
+    "superview", "subviews", "window", "enclosingScrollView", "opaqueAncestor",
+    "removeFromSuperview", "removeFromSuperviewWithoutNeedingDisplay", "isDescendantOf:",
+    "ancestorSharedWithView:", "viewWithTag:", "hitTest:", "mouse:inRect:",
+    "frame", "setFrame:", "bounds", "setBounds:", "frameOrigin", "setFrameOrigin:",
+    "frameSize", "setFrameSize:", "boundsOrigin", "setBoundsOrigin:", "boundsSize", "setBoundsSize:",
+    "frameRotation", "setFrameRotation:", "frameCenterRotation", "setFrameCenterRotation:",
+    "boundsRotation", "setBoundsRotation:", "translateOriginToPoint:", "scaleUnitSquareToSize:",
+    "rotateByAngle:", "backingAlignedRect:options:", "centerScanRect:",
+    "convertPoint:fromView:", "convertPoint:toView:", "convertSize:fromView:", "convertSize:toView:",
+    "convertRect:fromView:", "convertRect:toView:", "convertPointToLayer:", "convertPointFromLayer:",
+    "convertSizeToLayer:", "convertSizeFromLayer:", "convertRectToLayer:", "convertRectFromLayer:",
+    "needsToDrawRect:", "wantsDefaultClipping", "visibleRect", "tag", "isFlipped", "isHidden",
+    "isHiddenOrHasHiddenAncestor", "setHidden:", "isOpaque", "autoresizingMask",
+    "setAutoresizingMask:", "autoresizesSubviews", "setAutoresizesSubviews:",
+    "postsFrameChangedNotifications", "setPostsFrameChangedNotifications:",
+    "isRotatedFromBase", "isRotatedOrScaledFromBase", "canDrawConcurrently", "setCanDrawConcurrently:",
+    "canDraw", "needsDisplay", "setNeedsDisplay:", "setNeedsDisplayInRect:",
+    "layerContentsRedrawPolicy", "setLayerContentsRedrawPolicy:", "layerContentsPlacement",
+    "setLayerContentsPlacement:", "wantsLayer", "setWantsLayer:", "wantsUpdateLayer", "layer", "setLayer:",
+    "canDrawSubviewsIntoLayer", "setCanDrawSubviewsIntoLayer:", "needsLayout", "setNeedsLayout:",
+    "alphaValue", "setAlphaValue:", "layerUsesCoreImageFilters", "setLayerUsesCoreImageFilters:",
+    "backgroundFilters", "setBackgroundFilters:", "compositingFilter", "setCompositingFilter:",
+    "contentFilters", "setContentFilters:", "shadow", "setShadow:", "clipsToBounds", "setClipsToBounds:",
+    "toolTip", "setToolTip:", "inLiveResize", "preservesContentDuringLiveResize", "rectPreservedDuringLiveResize",
+    "needsPanelToBecomeKey", "mouseDownCanMoveWindow", "wantsRestingTouches", "setWantsRestingTouches:",
+    "rectForSmartMagnificationAtPoint:inRect:", "userInterfaceLayoutDirection", "setUserInterfaceLayoutDirection:",
+    "preparedContentRect", "setPreparedContentRect:", "allowsVibrancy", "prepareForReuse",
+    "intrinsicContentSize", "fittingSize", "alignmentRectInsets", "hasAmbiguousLayout",
+    "alignmentRectForFrame:", "frameForAlignmentRect:", "contentCompressionResistancePriorityForOrientation:",
+    "setContentCompressionResistancePriority:forOrientation:", "contentHuggingPriorityForOrientation:",
+    "setContentHuggingPriority:forOrientation:", "constraints", "constraintsAffectingLayoutForOrientation:",
+    "needsUpdateConstraints", "setNeedsUpdateConstraints:", "updateConstraints", "updateConstraintsForSubtreeIfNeeded",
+    "invalidateIntrinsicContentSize", "layout", "layoutSubtreeIfNeeded", "postsBoundsChangedNotifications",
+    "setPostsBoundsChangedNotifications:", "firstBaselineOffsetFromTop", "lastBaselineOffsetFromBottom",
+    "baselineOffsetFromBottom", "safeAreaInsets", "safeAreaRect", "additionalSafeAreaInsets",
+    "setAdditionalSafeAreaInsets:", "canBecomeKeyView", "shouldDrawColor", "edgeInsetsForLayoutRegion:",
+    "rectForLayoutRegion:", "layoutGuideForLayoutRegion:", "layoutGuides", "adjustScroll:",
+    "scrollRectToVisible:", "scrollPoint:", "prepareContentInRect:", "viewDidHide", "viewDidUnhide",
+    "translatesAutoresizingMaskIntoConstraints", "setTranslatesAutoresizingMaskIntoConstraints:",
+    "defaultFocusRingType", "requiresConstraintBasedLayout",
+}
+
+APPKIT_TEXT_VIEW_SELECTORS = {
+    "initWithFrame:", "initWithFrame:textContainer:", "textStorage", "textContainer", "layoutManager",
+    "initUsingTextLayoutManager:", "textViewUsingTextLayoutManager:", "textLayoutManager", "textContentStorage",
+    "replaceTextContainer:", "textContainerOrigin", "invalidateTextContainerOrigin", "setConstrainedFrameSize:",
+    "string", "setString:", "selectedRange", "setSelectedRange:", "selectedRanges", "setSelectedRanges:",
+    "typingAttributes", "setTypingAttributes:", "isRichText", "setRichText:", "isEditable", "setEditable:",
+    "isSelectable", "setSelectable:", "isFieldEditor", "setFieldEditor:", "allowsUndo", "setAllowsUndo:",
+    "drawsBackground", "setDrawsBackground:", "backgroundColor", "setBackgroundColor:", "font", "setFont:",
+    "textColor", "setTextColor:", "alignment", "setAlignment:", "insertionPointColor", "setInsertionPointColor:",
+    "textContainerInset", "setTextContainerInset:", "isHorizontallyResizable", "setHorizontallyResizable:",
+    "isVerticallyResizable", "setVerticallyResizable:", "maxSize", "setMaxSize:", "minSize", "setMinSize:",
+    "setAlignment:range:", "setBaseWritingDirection:range:", "selectionRangeForProposedRange:granularity:",
+    "setNeedsDisplayInRect:avoidAdditionalLayout:", "characterIndexForInsertionAtPoint:",
+    "performValidatedReplacementInRange:withAttributedString:", "usesAdaptiveColorMappingForDarkAppearance",
+    "setUsesAdaptiveColorMappingForDarkAppearance:", "stronglyReferencesTextStorage",
+    "acceptsGlyphInfo", "setAcceptsGlyphInfo:", "allowsDocumentBackgroundColorChange",
+    "setAllowsDocumentBackgroundColorChange:", "allowsImageEditing", "setAllowsImageEditing:",
+    "automaticDashSubstitutionEnabled", "setAutomaticDashSubstitutionEnabled:",
+    "automaticDataDetectionEnabled", "setAutomaticDataDetectionEnabled:",
+    "automaticLinkDetectionEnabled", "setAutomaticLinkDetectionEnabled:",
+    "automaticQuoteSubstitutionEnabled", "setAutomaticQuoteSubstitutionEnabled:",
+    "automaticTextReplacementEnabled", "setAutomaticTextReplacementEnabled:",
+    "defaultParagraphStyle", "displaysLinkToolTips", "setDisplaysLinkToolTips:",
+    "importsGraphics", "setImportsGraphics:", "inlinePredictionType", "setInlinePredictionType:",
+    "linkTextAttributes", "setLinkTextAttributes:", "markedTextAttributes", "setMarkedTextAttributes:",
+    "selectedTextAttributes", "setSelectedTextAttributes:", "selectionAffinity", "setSelectionAffinity:",
+    "selectionGranularity", "setSelectionGranularity:", "textHighlightAttributes", "setTextHighlightAttributes:",
+    "usesFindPanel", "setUsesFindPanel:", "usesFontPanel", "setUsesFontPanel:",
+    "usesRuler", "setUsesRuler:", "writablePasteboardTypes", "readablePasteboardTypes",
+}
+
+APPKIT_SCROLL_VIEW_SELECTORS = {
+    "initWithFrame:", "contentSize", "contentSizeForFrameSize:hasHorizontalScroller:hasVerticalScroller:borderType:",
+    "frameSizeForContentSize:hasHorizontalScroller:hasVerticalScroller:borderType:", "hasHorizontalScroller",
+    "setHasHorizontalScroller:", "hasVerticalScroller", "setHasVerticalScroller:", "autohidesScrollers",
+    "setAutohidesScrollers:", "borderType", "setBorderType:", "scrollerStyle", "setScrollerStyle:",
+    "horizontalScrollElasticity", "setHorizontalScrollElasticity:", "verticalScrollElasticity",
+    "setVerticalScrollElasticity:", "contentInsets", "setContentInsets:", "documentView", "setDocumentView:",
+    "contentView", "scrollerKnobStyle", "setScrollerKnobStyle:", "lineScroll", "setLineScroll:",
+    "pageScroll", "setPageScroll:", "scrollsDynamically", "setScrollsDynamically:",
+}
+
+APPKIT_CONTROL_SELECTORS = {
+    "NSControl": {
+        "initWithFrame:", "alignment", "setAlignment:", "allowsExpansionToolTips", "setAllowsExpansionToolTips:",
+        "controlSize", "setControlSize:", "doubleValue", "setDoubleValue:", "floatValue", "setFloatValue:",
+        "font", "setFont:", "ignoresMultiClick", "setIgnoresMultiClick:", "intValue", "setIntValue:",
+        "integerValue", "setIntegerValue:", "isContinuous", "setContinuous:", "isEnabled", "setEnabled:",
+        "lineBreakMode", "setLineBreakMode:", "objectValue", "setObjectValue:", "refusesFirstResponder",
+        "setRefusesFirstResponder:", "stringValue", "tag", "setTag:", "usesSingleLineMode", "setUsesSingleLineMode:",
+        "sendActionOn:", "sizeThatFits:", "sizeToFit",
+    },
+    "NSButton": {
+        "initWithFrame:", "allowsMixedState", "setAllowsMixedState:", "alternateImage", "setAlternateImage:",
+        "alternateTitle", "setAlternateTitle:", "attributedAlternateTitle", "setAttributedAlternateTitle:",
+        "attributedTitle", "setAttributedTitle:", "bezelColor", "setBezelColor:", "bezelStyle", "setBezelStyle:",
+        "bordered", "setBordered:", "contentTintColor", "setContentTintColor:", "hasDestructiveAction",
+        "setHasDestructiveAction:", "image", "setImage:", "imageHugsTitle", "setImageHugsTitle:",
+        "imagePosition", "setImagePosition:", "imageScaling", "setImageScaling:", "isTransparent", "setTransparent:",
+        "keyEquivalent", "setKeyEquivalent:", "keyEquivalentModifierMask", "setKeyEquivalentModifierMask:",
+        "state", "setState:", "title", "setTitle:", "isSpringLoaded", "setSpringLoaded:", "isBordered", "isEnabled",
+    },
+    "NSTextField": {
+        "initWithFrame:", "allowsCharacterPickerTouchBarItem", "setAllowsCharacterPickerTouchBarItem:",
+        "allowsDefaultTighteningForTruncation", "setAllowsDefaultTighteningForTruncation:", "allowsEditingTextAttributes",
+        "setAllowsEditingTextAttributes:", "allowsWritingTools", "setAllowsWritingTools:", "allowsWritingToolsAffordance",
+        "setAllowsWritingToolsAffordance:", "backgroundColor", "setBackgroundColor:", "bezelStyle", "setBezelStyle:",
+        "drawsBackground", "setDrawsBackground:", "importsGraphics", "setImportsGraphics:", "automaticTextCompletionEnabled",
+        "setAutomaticTextCompletionEnabled:", "isBezeled", "setBezeled:", "isBordered", "setBordered:",
+        "isEditable", "setEditable:", "isSelectable", "setSelectable:", "lineBreakStrategy", "setLineBreakStrategy:",
+        "maximumNumberOfLines", "setMaximumNumberOfLines:", "placeholderAttributedString", "setPlaceholderAttributedString:",
+        "placeholderString", "setPlaceholderString:", "preferredMaxLayoutWidth", "setPreferredMaxLayoutWidth:",
+        "resolvesNaturalAlignmentWithBaseWritingDirection", "setResolvesNaturalAlignmentWithBaseWritingDirection:",
+        "textColor", "setTextColor:", "stringValue", "setStringValue:",
+    },
+    "NSComboBox": {
+        "initWithFrame:", "completes", "setCompletes:", "hasVerticalScroller", "setHasVerticalScroller:",
+        "intercellSpacing", "setIntercellSpacing:", "isButtonBordered", "setButtonBordered:", "itemHeight", "setItemHeight:",
+        "indexOfSelectedItem", "numberOfItems", "numberOfVisibleItems", "setNumberOfVisibleItems:",
+        "objectValueOfSelectedItem", "objectValues", "usesDataSource", "addItemWithObjectValue:",
+        "addItemsWithObjectValues:", "deselectItemAtIndex:", "indexOfItemWithObjectValue:",
+        "itemObjectValueAtIndex:", "removeAllItems", "removeItemAtIndex:", "removeItemWithObjectValue:",
+        "selectItemAtIndex:", "selectItemWithObjectValue:",
+    },
+    "NSSegmentedControl": {
+        "initWithFrame:", "doubleValueForSelectedSegment", "indexOfSelectedItem", "segmentCount", "setSegmentCount:",
+        "segmentDistribution", "setSegmentDistribution:", "segmentStyle", "setSegmentStyle:", "selectedSegment",
+        "setSelectedSegment:", "trackingMode", "setTrackingMode:", "alignmentForSegment:", "imageForSegment:",
+        "imageScalingForSegment:", "isEnabledForSegment:", "isSelectedForSegment:", "labelForSegment:",
+        "selectSegmentWithTag:", "setAlignment:forSegment:", "setEnabled:forSegment:", "setImage:forSegment:",
+        "setImageScaling:forSegment:", "setLabel:forSegment:", "setSelected:forSegment:", "setTag:forSegment:",
+        "setToolTip:forSegment:", "setWidth:forSegment:", "tagForSegment:", "toolTipForSegment:", "widthForSegment:",
+    },
+    "NSProgressIndicator": {
+        "initWithFrame:", "controlSize", "setControlSize:", "controlTint", "setControlTint:", "doubleValue", "setDoubleValue:",
+        "isBezeled", "setBezeled:", "isDisplayedWhenStopped", "setDisplayedWhenStopped:", "isIndeterminate", "setIndeterminate:",
+        "maxValue", "setMaxValue:", "minValue", "setMinValue:", "style", "usesThreadedAnimation",
+    },
+    "NSBox": {
+        "initWithFrame:", "borderType", "setBorderType:", "borderColor", "setBorderColor:", "borderWidth", "setBorderWidth:",
+        "boxType", "setBoxType:", "contentView", "contentViewMargins", "setContentViewMargins:", "fillColor", "setFillColor:",
+        "isTransparent", "setTransparent:", "title", "setTitle:", "titleFont", "setTitleFont:", "titlePosition", "setTitlePosition:",
+    },
+    "NSSlider": {
+        "initWithFrame:", "allowsTickMarkValuesOnly", "setAllowsTickMarkValuesOnly:", "altIncrementValue", "setAltIncrementValue:",
+        "isVertical", "knobThickness", "maxValue", "setMaxValue:", "minValue", "setMinValue:", "neutralValue", "setNeutralValue:",
+        "numberOfTickMarks", "setNumberOfTickMarks:", "sliderType", "tickMarkPosition", "tintProminence", "trackFillColor",
+        "setKnobThickness:", "setTitle:", "setTitleColor:", "setTitleFont:", "title", "titleColor", "titleFont",
+    },
+    "NSLevelIndicator": {
+        "initWithFrame:", "criticalFillColor", "setCriticalFillColor:", "criticalValue", "setCriticalValue:",
+        "drawsTieredCapacityLevels", "setDrawsTieredCapacityLevels:", "fillColor", "setFillColor:", "isEditable", "setEditable:",
+        "levelIndicatorStyle", "setLevelIndicatorStyle:", "maxValue", "setMaxValue:", "minValue", "setMinValue:",
+        "numberOfMajorTickMarks", "setNumberOfMajorTickMarks:", "numberOfTickMarks", "setNumberOfTickMarks:",
+        "placeholderVisibility", "setPlaceholderVisibility:", "ratingImage", "setRatingImage:",
+        "ratingPlaceholderImage", "setRatingPlaceholderImage:", "tickMarkPosition", "warningFillColor", "warningValue",
+    },
+    "NSPopUpButton": {
+        "initWithFrame:pullsDown:", "altersStateOfSelectedItem", "setAltersStateOfSelectedItem:",
+        "autoenablesItems", "setAutoenablesItems:", "indexOfSelectedItem", "itemArray", "itemTitles", "lastItem",
+        "numberOfItems", "preferredEdge", "setPreferredEdge:", "pullsDown", "setPullsDown:", "selectedItem", "selectedTag",
+        "usesItemFromMenu", "setUsesItemFromMenu:", "titleOfSelectedItem", "addItemWithTitle:", "addItemsWithTitles:",
+        "indexOfItemWithRepresentedObject:", "indexOfItemWithTag:", "indexOfItemWithTitle:", "insertItemWithTitle:atIndex:",
+        "itemAtIndex:", "itemTitleAtIndex:", "itemWithTitle:", "removeAllItems", "removeItemAtIndex:",
+        "removeItemWithTitle:", "selectItemAtIndex:", "selectItemWithTag:", "selectItemWithTitle:", "setTitle:",
+        "synchronizeTitleAndSelectedItem",
+    },
+    "NSTabView": {
+        "initWithFrame:", "allowsTruncatedLabels", "setAllowsTruncatedLabels:", "contentRect", "controlSize", "setControlSize:",
+        "controlTint", "setControlTint:", "drawsBackground", "setDrawsBackground:", "font", "setFont:", "minimumSize",
+        "numberOfTabViewItems", "selectedTabViewItem", "tabPosition", "setTabPosition:", "tabViewBorderType", "setTabViewBorderType:",
+        "tabViewItems", "tabViewType", "addTabViewItem:", "indexOfTabViewItem:", "indexOfTabViewItemWithIdentifier:",
+        "insertTabViewItem:atIndex:", "removeTabViewItem:", "selectFirstTabViewItem:", "selectLastTabViewItem:",
+        "selectNextTabViewItem:", "selectPreviousTabViewItem:", "selectTabViewItem:", "selectTabViewItemAtIndex:",
+        "selectTabViewItemWithIdentifier:", "tabViewItemAtIndex:",
+    },
+    "NSTabViewItem": {
+        "initWithIdentifier:", "color", "setColor:", "identifier", "setIdentifier:", "image", "setImage:",
+        "initialFirstResponder", "setInitialFirstResponder:", "label", "setLabel:", "toolTip", "setToolTip:", "view", "setView:",
+        "tabState", "tabView",
+    },
+    "NSMatrix": {
+        "initWithFrame:", "allowsEmptySelection", "setAllowsEmptySelection:", "autocalculatesCellSize", "setAutorecalculatesCellSize:",
+        "autosizesCells", "setAutosizesCells:", "backgroundColor", "setBackgroundColor:", "cellBackgroundColor", "setCellBackgroundColor:",
+        "cellSize", "setCellSize:", "cells", "drawsBackground", "setDrawsBackground:", "drawsCellBackground", "setDrawsCellBackground:",
+        "intercellSpacing", "setIntercellSpacing:", "isAutoscroll", "setAutoscroll:", "isSelectionByRect", "setSelectionByRect:",
+        "keyCell", "setKeyCell:", "mode", "setMode:", "numberOfColumns", "numberOfRows", "selectedCell", "selectedCells",
+        "selectedColumn", "selectedRow", "tabKeyTraversesCells", "setTabKeyTraversesCells:", "cellAtRow:column:",
+        "cellFrameAtRow:column:", "cellWithTag:", "deselectAllCells", "deselectSelectedCell", "getNumberOfRows:columns:",
+        "getRow:column:ofCell:", "makeCellAtRow:column:", "selectCellAtRow:column:", "selectCellWithTag:",
+        "setState:atRow:column:", "toolTipForCell:",
+    },
+    "NSGridView": {
+        "gridViewWithNumberOfColumns:rows:", "numberOfColumns", "numberOfRows", "rowAtIndex:", "columnAtIndex:",
+        "indexOfColumn:", "indexOfRow:", "cellAtColumnIndex:rowIndex:", "cellForView:", "xPlacement", "yPlacement",
+        "setColumnSpacing:", "setRowAlignment:", "setRowSpacing:",
+    },
+    "NSGridRow": {
+        "gridView", "numberOfCells", "topPadding", "yPlacement", "setBottomPadding:", "setHeight:", "setHidden:",
+        "setRowAlignment:", "mergeCellsInRange:",
+    },
+    "NSGridColumn": {
+        "gridView", "numberOfCells", "trailingPadding", "width", "xPlacement", "setHidden:",
+        "setLeadingPadding:", "cellAtIndex:", "mergeCellsInRange:",
+    },
+    "NSGridCell": {
+        "column", "row", "xPlacement", "yPlacement", "setRowAlignment:",
+    },
+    "NSRulerView": {
+        "initWithScrollView:orientation:", "orientation", "setOrientation:", "baselineLocation", "requiredThickness",
+        "measurementUnits", "setMeasurementUnits:", "originOffset", "setOriginOffset:", "reservedThicknessForMarkers",
+        "setReservedThicknessForMarkers:", "reservedThicknessForAccessoryView", "setReservedThicknessForAccessoryView:",
+        "ruleThickness", "setRuleThickness:", "markers", "setMarkers:", "addMarker:", "removeMarker:", "isFlipped",
+    },
+    "NSRulerMarker": {
+        "initWithRulerView:markerLocation:image:imageOrigin:", "ruler", "markerLocation", "setMarkerLocation:",
+        "image", "setImage:", "imageOrigin", "setImageOrigin:", "isMovable", "setMovable:", "isRemovable",
+        "setRemovable:", "representedObject", "setRepresentedObject:", "imageRectInRuler", "thicknessRequiredInRuler",
+    },
 }
 
 APPKIT_UNSAFE_SELECTORS = {
-    "NSBezierPath": re.compile(r"^(?:fill|stroke|clip|addClip|setClip|draw)"),
+    "NSBezierPath": re.compile(r"^(?:fill|stroke|clip|addClip|setClip|draw|setAssociatedPoints:atIndex:|elementAtIndex:associatedPoints:)"),
     "NSGradient": re.compile(r"^draw"),
     "NSImage": re.compile(r"^(?:draw|lockFocus|unlockFocus|dragFrom|hitTestRect|bestRepresentationForRect|CGImageForProposedRect)"),
     "NSCursor": re.compile(r"^(?:push|pop|set|hide|unhide|setOnMouseEntered)"),
@@ -151,6 +627,8 @@ APPKIT_UNSAFE_SELECTORS = {
     "NSEvent": re.compile(r"^(?:mouseLocation|pressedMouseButtons|startPeriodic|stopPeriodic|addGlobalMonitor|addLocalMonitor|removeMonitor|setMouseCoalescing|eventWithEventRef)"),
     "NSImageRep": re.compile(r"^(?:draw)"),
     "NSBitmapImageRep": re.compile(r"^(?:getBitmapDataPlanes:|initForIncrementalLoad)$"),
+    "NSCell": re.compile(r"^(?:draw|calcDrawInfo|highlight|track|startTracking|continueTracking|stopTracking|edit|select|endEditing|resetCursor|menuForEvent|setUpFieldEditor|fieldEditor|sendAction|performClick|getPeriodicDelay|focusRingMask|hitTestForEvent)"),
+    "NSMenu": re.compile(r"^(?:popUp|cancelTracking|update$|performActionForItemAtIndex|performKeyEquivalent|menuBarVisible$|setMenuBarVisible:)"),
 }
 
 
@@ -163,12 +641,35 @@ def _appkit_c_scope(name: str, variable: bool = False) -> bool:
 def _appkit_skip(method: dict) -> str | None:
     class_name = method.get("class", "")
     selector = method.get("selector", "")
+    if class_name == "NSWindow" and method.get("class_method") and selector in {
+        "frameRectForContentRect:styleMask:", "contentRectForFrameRect:styleMask:"
+    }:
+        return None
     if class_name not in APPKIT_HEADLESS_CLASSES:
         return "outside the selected AppKit headless API scope"
     if class_name == "NSTouch":
         return "touch values require a real input event"
+    if class_name in {"NSLayoutManager", "NSTextStorage", "NSTextContainer"} and re.match(
+            r"^(?:draw|show|display|print|writeTo|readFrom)", selector, re.I):
+        return "needs a drawing context, printer, or file"
+    if class_name == "NSLayoutManager" and selector == "getGlyphs:range:":
+        return "needs a glyph buffer sized for the layout manager's current glyph range"
+    if class_name == "NSLayoutManager" and selector == "setExtraLineFragmentRect:usedRect:textContainer:":
+        return "needs extra line-fragment values produced by a configured typesetter"
     if class_name == "NSView" and selector not in APPKIT_VIEW_VALUE_SELECTORS:
         return "outside the selected AppKit headless API scope"
+    if class_name == "NSTextView" and selector not in APPKIT_TEXT_VIEW_SELECTORS:
+        return "outside the selected AppKit headless API scope"
+    if class_name == "NSScrollView" and selector not in APPKIT_SCROLL_VIEW_SELECTORS:
+        return "outside the selected AppKit headless API scope"
+    if class_name in APPKIT_CONTROL_SELECTORS and selector not in APPKIT_CONTROL_SELECTORS[class_name]:
+        return "outside the selected AppKit detached-control scope"
+    if class_name in APPKIT_VALUE_CELL_SELECTORS and selector not in APPKIT_VALUE_CELL_SELECTORS[class_name]:
+        return "outside the selected AppKit headless cell-value scope"
+    if class_name in {"NSMenu", "NSCell"}:
+        pattern = APPKIT_UNSAFE_SELECTORS.get(class_name)
+        if pattern and pattern.search(selector):
+            return "needs a menu event, drawing context, or input state"
     if class_name == "NSPasteboard" and method.get("class_method") and selector != "pasteboardWithName:":
         return "pasteboard must use a private named board"
     if class_name == "NSPrintInfo" and selector in {
@@ -216,23 +717,41 @@ def _is_cf_string_alias(value: str) -> bool:
 
 def _is_objc_object(value: str) -> bool:
     base = _base_type(value)
-    named_string = base.startswith("NS") and base.endswith(("Key", "Name", "Identifier", "Domain"))
     if _is_function_pointer(value) or _scalar_kind(value) or _pointer_depth(value) > 1:
         return False
-    if base in {"id", "Class", "instancetype"} or re.fullmatch(r"id<[^>]+>", base):
+    if base in {"id", "Class", "instancetype", "ObjectType", "KeyType", "ValueType", "NSComparator"} or re.fullmatch(r"id<[^>]+>", base):
         if base == "id<NSPredicateValidating>":
             return False
         return True
+    base = base.split("<", 1)[0].strip()
+    named_string = base.startswith("NS") and base.endswith(("Key", "Name", "Identifier", "Domain"))
+    named_string = named_string or base in {
+        "NSStringTransform", "NSLinguisticTagScheme",
+        "CALayerContentsFilter", "CALayerContentsGravity", "CALayerCornerCurve",
+        "CAMediaTimingFunctionName", "CAEmitterLayerEmitterMode", "CAEmitterLayerEmitterShape",
+        "CAShapeLayerFillRule", "CAShapeLayerLineCap", "CAShapeLayerLineJoin",
+        "CATextLayerAlignmentMode", "CATextLayerTruncationMode", "CATransitionType",
+        "CATransitionSubtype", "CAValueFunctionName",
+    }
     if _is_cf_string_alias(value) or named_string:
         return True
     if base in {"NSZone", "NSDecimal", "NSHashEnumerator", "NSMapEnumerator", "NSPredicateValidating", "NSHashTableCallBacks",
                 "NSMapTableKeyCallBacks", "NSMapTableValueCallBacks", "NSUncaughtExceptionHandler"}:
         return False
-    return bool("*" in value and re.fullmatch(r"(?:NS|__NS)[A-Za-z0-9_]+", base))
+    return bool("*" in value and re.fullmatch(r"(?:NS|__NS|CA|CI|UT|CN|CL|MTL)[A-Za-z0-9_]+", base))
 
 
 def _pointer_depth(value: str) -> int:
-    return value.count("*")
+    depth = 0
+    generic_depth = 0
+    for character in _clean_type(value):
+        if character == "<":
+            generic_depth += 1
+        elif character == ">" and generic_depth:
+            generic_depth -= 1
+        elif character == "*" and generic_depth == 0:
+            depth += 1
+    return depth
 
 
 def _is_function_pointer(value: str) -> bool:
@@ -286,16 +805,55 @@ def _category(name: str) -> str:
     return "other"
 
 
-def _skip_reason(name: str) -> str | None:
+def _skip_reason(name: str, framework: str = "") -> str | None:
     for category, pattern in SIDE_EFFECT_RULES:
+        if framework == "CFNetwork" and category == "network" and name.startswith("CFHTTPMessage"):
+            continue
+        if framework == "CFNetwork" and category == "filesystem" and name == "CFHTTPMessageCopyRequestURL":
+            continue
+        if framework == "Foundation" and category == "filesystem" and name in {
+            "NSFileWrapper -setFileAttributes:", "NSFileWrapper -fileWrappers", "NSFileWrapper -setFilename:",
+            "NSFileWrapper -isDirectory", "NSFileWrapper -isRegularFile", "NSFileWrapper -isSymbolicLink",
+            "NSFileWrapper -setPreferredFilename:", "NSFileWrapper -regularFileContents",
+            "NSFileWrapper -serializedRepresentation", "NSFileWrapper -addFileWrapper:",
+            "NSFileWrapper -addRegularFileWithContents:preferredFilename:",
+            "NSFileWrapper -addSymbolicLinkWithDestination:preferredFilename:",
+            "NSFileWrapper -initDirectoryWithFileWrappers:", "NSFileWrapper -initRegularFileWithContents:",
+            "NSFileWrapper -initSymbolicLinkWithDestination:", "NSFileWrapper -keyForFileWrapper:",
+            "NSFileWrapper -removeFileWrapper", "NSFileWrapper -symbolicLinkDestination",
+        }:
+            continue
+        if framework == "CoreData" and category == "filesystem" and name in {
+            "NSPersistentStoreDescription -initWithURL:",
+            "NSPersistentStoreDescription +persistentStoreDescriptionWithURL:",
+        }:
+            continue
         if pattern.search(name):
             return f"side-effect category: {category}"
     if name == "CFGetRetainCount":
         return "runtime-specific value: retain counts are not stable across implementations"
+    if name == "NSOrderedCollectionDifference -initWithChanges:":
+        return "needs paired ordered-collection changes with valid indexes"
+    if name == "NSArray -addObserver:toObjectsAtIndexes:forKeyPath:options:context:":
+        return "registers a KVO observer without a safe cleanup context"
     if name in {"NSDeallocateObject", "NSDecrementExtraRefCountWasZero", "NSExtraRefCount"}:
         return "object lifetime helper needs a privately owned runtime object"
     if name.startswith("NSXMLDocument -objectByApplyingXSLT"):
         return "XSLT engine is not included in Finch"
+    if name.startswith("NSByteCountFormatter ") and "stringFrom" in name:
+        return "uses the current locale and this formatter has no locale setting"
+    if name.startswith("NSEnergyFormatter ") and re.search(r"(?:stringFrom|unitStringFrom)", name):
+        return "chooses localized energy names without a formatter locale setting"
+    if name in {
+        "NSProgress -becomeCurrentWithPendingUnitCount:",
+        "NSProgress -resignCurrent",
+        "NSProgress -performAsCurrentWithPendingUnitCount:usingBlock:",
+        "NSProgress -publish",
+        "NSProgress -unpublish",
+        "NSProgress +addSubscriberForFileURL:withPublishingHandler:",
+        "NSProgress +removeSubscriber:",
+    }:
+        return "changes thread-wide progress or publishes through the file system"
     if name in {
         "CTFontDrawImageFromAdaptiveImageProviderAtPoint",
         "CTFontGetTypographicBoundsForAdaptiveImageProvider",
@@ -384,21 +942,56 @@ def _is_time_type(value: str) -> bool:
 def _scalar_kind(value: str) -> str | None:
     clean = _clean_type(value)
     base = _base_type(clean)
+    if base.startswith("struct "):
+        base = base[7:].strip()
     if base in ("BOOL", "Boolean", "bool", "_Bool"):
         return "bool"
     if base in ("float", "double", "long double", "CGFloat", "CFAbsoluteTime", "CFTimeInterval", "NSTimeInterval"):
         return "float"
     if base in ("CFRange", "NSRange"):
         return "range"
+    if base in {"AVAudioFramePosition", "AudioChannelLayoutTag"}:
+        return "integer"
+    if base == "NSLayoutPriority":
+        return "float"
     if base in ("CGPoint", "CGSize", "CGRect", "NSPoint", "NSSize", "NSRect", "NSEdgeInsets",
-                "NSAffineTransformStruct", "CGAffineTransform", "CATransform3D", "CMTime", "CMTimeRange",
-                "CMTimeMapping", "CMSampleTimingInfo", "CMVideoDimensions"):
+        "NSAffineTransformStruct", "CGAffineTransform", "CATransform3D", "CMTime", "CMTimeRange",
+                "CMTimeMapping", "CMSampleTimingInfo", "CMVideoDimensions", "MTLSize", "MTLOrigin",
+        "MTLRegion", "MTLClearColor", "MTLSamplePosition", "MTL4BufferRange", "NSOperatingSystemVersion"):
         return "struct"
     if base in ("void", "id", "Class", "SEL", "instancetype"):
         return None
     if re.fullmatch(r"(?:unsigned|signed)?\s*(?:char|short|int|long|long long|size_t|ssize_t|NSUInteger|NSInteger|CFIndex|CFOptionFlags|CFTypeID|CFStringEncoding|CFNumberType|CFCalendarUnit|CFStringCompareFlags|unichar|UniChar|UTF32Char|UInt8|UInt16|UInt32|UInt64|SInt8|SInt16|SInt32|SInt64|uint8_t|uint16_t|uint32_t|uint64_t|int8_t|int16_t|int32_t|int64_t|CGGlyph|CGFontIndex|CTFontTableTag|NSComparisonResult|CFComparisonResult)", base):
         return "integer"
-    if re.fullmatch(r"(?:NS|CF|CG|CT|CV|CM|Sec)[A-Za-z0-9_]*(?:Options|Flags|Mask|Style|Type|Unit|Mode|Kind|Format|Encoding|Result|Return|State|Status|Policy|Level|Order|Direction|Phase|Quality|RoundingMode|Model|Intent|Info|Scale|Count|Index|Dimensions)", base):
+    if base in {
+        "NSGlyph", "NSTIFFCompression", "NSControlTint", "NSColorSystemEffect",
+        "NSHorizontalDirections", "NSVerticalDirections", "NSCursorFrameResizePosition",
+        "NSControlSize", "NSCompositingOperation", "NSWindingRule", "NSLayoutAttribute",
+        "NSLayoutConstraintOrientation", "NSTextAlignment", "NSPaperOrientation",
+        "NSFontDescriptorSymbolicTraits", "CNContactFormatterStyle", "CNPostalAddressFormatterStyle",
+        "CNContactSortOrder", "CNContactType", "NSCellAttribute", "NSControlStateValue",
+        "NSCursorFrameResizeDirections", "NSLayoutRelation", "NSRectEdge", "NSDeleteRule",
+        "NSComparisonPredicateModifier", "NSFormattingContext", "NSDateFormatterBehavior",
+        "NSNumberFormatterBehavior", "NSItemProviderRepresentationVisibility", "NSKeyValueChange",
+        "NSRelativePosition", "NSNotificationCoalescing", "NSByteCountFormatterUnits",
+        "NSDateComponentsFormatterZeroFormattingBehavior", "NSAttributedStringMarkdownInterpretedSyntax",
+        "NSSelectionGranularity", "NSSelectionAffinity", "NSTextLayoutOrientation",
+        "NSViewLayerContentsPlacement", "NSImageAlignment", "NSImageScaling", "NSSegmentSwitchTracking",
+        "NSGrammaticalGender", "NSGrammaticalNumber", "NSGrammaticalPartOfSpeech",
+        "NSOperationQueuePriority", "NSInsertionPosition", "NSSearchPathDirectory",
+        "NSDataCompressionAlgorithm", "NSTestComparisonOperation", "MTLBlendFactor", "MTLBlendOperation",
+        "MTLStencilOperation", "MTLCompareFunction", "MTLSamplerMinMagFilter", "MTLSamplerMipFilter",
+        "MTLPrimitiveTopologyClass", "MTLAccelerationStructureUsage", "MTLBindingAccess",
+        "MTLStepFunction", "MTLCaptureDestination", "MTLCommandBufferErrorOption", "MTLIOPriority",
+        "MTLMutability", "MTLLoadAction", "MTLStoreAction", "MTLTensorUsage", "MTLTextureUsage",
+        "MTLTextureSwizzleChannels", "MTLVertexStepFunction", "MTLCurveBasis", "MTLCurveEndCaps",
+        "MTLMatrixLayout", "CIDataMatrixCodeECCVersion",
+    }:
+        return "integer"
+    # The name pattern below would read these structs as integers.
+    if base in {"CFGregorianUnits", "CFGregorianDate"}:
+        return None
+    if re.fullmatch(r"(?:NS|CF|CG|CT|CV|CM|Sec|CA|CI|UT|CN|CL|MTL|AV)[A-Za-z0-9_]*(?:Options|Flags|Mask|Style|Type|Unit|Mode|Kind|Format|Encoding|Result|Return|State|Status|Policy|Level|Order|Direction|Phase|Quality|RoundingMode|Model|Intent|Info|Scale|Count|Index|Dimensions|Operation|Factor|Usage|Attribute|Rule|Relation|Value|Modifier|Visibility|Coalescing|Units|Priority|Compression|Behavior|Position|ResizeDirections|TopologyClass|EndCaps|Mutability|Access|StepFunction|Destination)", base):
         return "integer"
     if base in {"OSStatus", "OSErr", "OSType", "FourCharCode", "CMItemCount", "CMItemIndex", "CMTimeScale", "CMVideoCodecType", "CMMediaType", "CVReturn"}:
         return "integer"
@@ -491,6 +1084,8 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
             expr = f"({qtype})({case_index} == 7 ? NULL : {expr})"
         return expr, [], []
     if _is_cf_ref(qtype):
+        if framework == "CFNetwork" and base == "CFHTTPMessageRef":
+            return f"(CFHTTPMessageRef)auto_cfnetwork_message({json.dumps(function_name)}, {json.dumps(name)}, {case_index})", [], []
         if base == "CFReadStreamRef":
             return f"(CFReadStreamRef)auto_cf_input(\"CFReadStreamRef\", {case_index}, 0, {json.dumps(function_name)}, {json.dumps(name)})", [], []
         if base == "CFWriteStreamRef":
@@ -582,6 +1177,12 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
     if scalar_kind == "bool":
         return f"({qtype})({case_index} & 1)", [], []
     if scalar_kind == "float":
+        if function_name == "NSDivideRect" and "amount" in name.lower():
+            values = f"typed_ns_geometry_{index}"
+            return f"(CGFloat){values}[{case_index} % 4]", [f"static const CGFloat {values}[] = {{0, 1, 2, 5}};"], []
+        if function_name in {"NSInsetRect", "NSOffsetRect"}:
+            values = f"typed_ns_geometry_{index}"
+            return f"(CGFloat){values}[{case_index} % 4]", [f"static const CGFloat {values}[] = {{0, 1, -1, 2}};"], []
         if (base == "CGFloat" and function_name.startswith(("CTFont", "CTLine")) and
                 any(word in name.lower() for word in ("size", "pointsize"))):
             return f"({qtype})auto_font_size({case_index})", [], []
@@ -601,6 +1202,20 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
             return f"CFRangeMake(0, (CFIndex)({case_index} & 1))", [], []
         return None, "NSRange is unavailable in this CoreFoundation C input context", None
     if scalar_kind == "struct":
+        if base == "CATransform3D":
+            return f"({qtype})auto_transform3d({case_index})", [], []
+        if base == "MTLSize":
+            return f"({qtype})MTLSizeMake(8, 4, 1)", [], []
+        if base == "MTLOrigin":
+            return f"({qtype})MTLOriginMake(1, 2, 0)", [], []
+        if base == "MTLRegion":
+            return f"({qtype})MTLRegionMake2D(1, 2, 8, 4)", [], []
+        if base == "MTLClearColor":
+            return f"({qtype})MTLClearColorMake(0.25, 0.5, 0.75, 1.0)", [], []
+        if base == "MTLSamplePosition":
+            return f"({qtype}){{0.25f, 0.75f}}", [], []
+        if base == "NSOperatingSystemVersion":
+            return f"({qtype}){{15, 0, 1}}", [], []
         if base == "CMTime":
             return f"({qtype})auto_cm_time({case_index})", [], []
         if base == "CMTimeRange":
@@ -762,6 +1377,22 @@ def _c_input(parameter: dict, index: int, enum_values: list[dict], function_name
             if not decl:
                 return None, "unsupported range pointer in this framework", None
             return f"({qtype})&{local}", [decl], [f"printf(\"%ld,%ld\", (long){local}.location, (long){local}.length);"]
+        if depth == 1 and pointee in ("NSPoint", "NSSize", "NSRect"):
+            constructors = {
+                "NSPoint": "NSMakePoint(3, -2)",
+                "NSSize": "NSMakeSize(4, 6)",
+                "NSRect": "NSMakeRect(1, 2, 5, 7)",
+            }
+            decl = f"{pointee} {local} = {constructors[pointee]};"
+            if "const" in qtype:
+                return f"({qtype})&{local}", [decl], []
+            reader = _c_return(pointee, local)[0]
+            return f"({qtype})&{local}", [decl], [reader]
+        if depth == 1 and pointee == "CATransform3D":
+            if "const" in qtype:
+                return f"({qtype})&(CATransform3D){{1,0,0,0,0,1,0,0,0,0,1,0,1,2,0,1}}", [], []
+            decl = f"CATransform3D {local} = auto_transform3d({case_index});"
+            return f"({qtype})&{local}", [decl], [_c_return(pointee, local)[0]]
         if depth == 1 and _scalar_kind(pointee) in ("integer", "bool", "float", "struct"):
             if "const" in qtype:
                 if pointee == "CGAffineTransform":
@@ -814,6 +1445,8 @@ def _c_return(type_name: str, variable: str = "typed_result") -> tuple[str | Non
     if base in _NON_CF_GRAPHICS_REFS:
         return f'printf("pointer:%s", {variable} ? "nonnull" : "null");', None
     if _is_cf_ref(clean):
+        if base == "CFHTTPMessageRef":
+            return f"auto_cfnetwork_print_message({variable});", None
         return f"auto_print_cf((CFTypeRef){variable});", None
     if _is_cf_string_alias(clean):
         return f"auto_print_cf((CFTypeRef){variable});", None
@@ -839,6 +1472,12 @@ def _c_return(type_name: str, variable: str = "typed_result") -> tuple[str | Non
     if scalar == "range" and base == "CFRange":
         return f'printf("%ld,%ld", (long){variable}.location, (long){variable}.length);', None
     if scalar == "struct":
+        if base == "CATransform3D":
+            return (f'printf("transform3d:%a,%a,%a,%a,%a,%a,%a,%a,%a,%a,%a,%a,%a,%a,%a,%a", '
+                    f'(double){variable}.m11, (double){variable}.m12, (double){variable}.m13, (double){variable}.m14, '
+                    f'(double){variable}.m21, (double){variable}.m22, (double){variable}.m23, (double){variable}.m24, '
+                    f'(double){variable}.m31, (double){variable}.m32, (double){variable}.m33, (double){variable}.m34, '
+                    f'(double){variable}.m41, (double){variable}.m42, (double){variable}.m43, (double){variable}.m44);'), None
         if base == "NSPoint":
             return f'printf("point:%.5f,%.5f", (double){variable}.x, (double){variable}.y);', None
         if base == "NSSize":
@@ -873,7 +1512,7 @@ def _c_return(type_name: str, variable: str = "typed_result") -> tuple[str | Non
 def _make_c_function(function: dict, enum_values: list[dict], finch_symbols: set[str],
                      framework: str = "") -> tuple[str | None, str | None]:
     name = function["name"]
-    reason = _skip_reason(name)
+    reason = _skip_reason(name, framework)
     if reason:
         return None, reason
     if function.get("inline"):
@@ -1015,6 +1654,16 @@ static double auto_graphics_real(size_t index)
     static const double values[] = {0, 0.5, 1, 2, 4, 12.5, 64, 1.5};
     return values[index % (sizeof(values) / sizeof(values[0]))];
 }
+
+#ifdef FINCH_DIFFTEST_QUARTZCORE
+static CATransform3D auto_transform3d(size_t index)
+{
+    CATransform3D value = CATransform3DIdentity;
+    value.m41 = (CGFloat)(index % 3);
+    value.m42 = 2;
+    return value;
+}
+#endif
 
 static double auto_time(size_t index)
 {
@@ -1760,6 +2409,43 @@ static void auto_print_typeid(CFTypeID type)
     free(bytes);
     CFRelease(description);
 }
+
+#ifdef FINCH_DIFFTEST_CFNETWORK
+static CFHTTPMessageRef auto_cfnetwork_message(const char *function_name, const char *parameter_name, size_t index)
+{
+    Boolean response = strstr(parameter_name, "response") != NULL ||
+        strstr(function_name, "GetResponse") != NULL || strstr(function_name, "CopyResponse") != NULL;
+    if (response)
+        return CFHTTPMessageCreateResponse(kCFAllocatorDefault, 200, CFSTR("OK"), kCFHTTPVersion1_1);
+    CFURLRef url = CFURLCreateWithString(kCFAllocatorDefault, CFSTR("https://example.invalid/fixed/path"), NULL);
+    CFHTTPMessageRef message = CFHTTPMessageCreateRequest(kCFAllocatorDefault, CFSTR("GET"), url, kCFHTTPVersion1_1);
+    CFRelease(url);
+    if (message) {
+        CFHTTPMessageSetHeaderFieldValue(message, CFSTR("X-Finch-Test"), index & 1 ? CFSTR("two") : CFSTR("one"));
+        static const UInt8 body[] = {'f', 'i', 'n', 'c', 'h'};
+        CFDataRef data = CFDataCreate(kCFAllocatorDefault, body, sizeof(body));
+        CFHTTPMessageSetBody(message, data);
+        CFRelease(data);
+    }
+    return message;
+}
+
+static void auto_cfnetwork_print_message(CFHTTPMessageRef message)
+{
+    if (!message) { fputs("null", stdout); return; }
+    Boolean request = CFHTTPMessageIsRequest(message);
+    CFStringRef first = request ? CFHTTPMessageCopyRequestMethod(message) : CFHTTPMessageCopyResponseStatusLine(message);
+    CFStringRef version = CFHTTPMessageCopyVersion(message);
+    CFDictionaryRef headers = CFHTTPMessageCopyAllHeaderFields(message);
+    CFDataRef body = CFHTTPMessageCopyBody(message);
+    CFURLRef url = request ? CFHTTPMessageCopyRequestURL(message) : NULL;
+    printf("http-message:%d:", request);
+    auto_print_cf(first); putchar(':'); auto_print_cf(version); putchar(':');
+    auto_print_cf(headers); putchar(':'); auto_print_cf(body); putchar(':'); auto_print_cf(url);
+    if (first) CFRelease(first); if (version) CFRelease(version); if (headers) CFRelease(headers);
+    if (body) CFRelease(body); if (url) CFRelease(url);
+}
+#endif
 '''
 
 
@@ -1883,9 +2569,230 @@ static NSString *auto_appkit_private_name(NSString *name)
 static NSString *auto_canonical(id value)
 {
     if (!value || value == NSNull.null) return @"null";
+#ifdef FINCH_DIFFTEST_COREIMAGE
+    if ([value isKindOfClass:CIFilter.class]) {
+        CIFilter *filter = value;
+        return [NSString stringWithFormat:@"ci-filter:%@:%@:%@", auto_hex(filter.name ?: @""),
+            auto_canonical(filter.inputKeys ?: @[]), auto_canonical(filter.outputKeys ?: @[])];
+    }
+    if ([value isKindOfClass:CIKernel.class]) {
+        CIKernel *kernel = value;
+        return [NSString stringWithFormat:@"ci-kernel:%@:%@", NSStringFromClass([value class]), auto_hex(kernel.name ?: @"")];
+    }
+    if ([value isKindOfClass:CIQRCodeDescriptor.class]) {
+        CIQRCodeDescriptor *descriptor = value;
+        return [NSString stringWithFormat:@"ci-qr:%@:%ld:%u:%ld", auto_canonical(descriptor.errorCorrectedPayload),
+            (long)descriptor.symbolVersion, (unsigned int)descriptor.maskPattern, (long)descriptor.errorCorrectionLevel];
+    }
+    if ([value isKindOfClass:CIAztecCodeDescriptor.class]) {
+        CIAztecCodeDescriptor *descriptor = value;
+        return [NSString stringWithFormat:@"ci-aztec:%@:%d:%ld:%ld", auto_canonical(descriptor.errorCorrectedPayload),
+            descriptor.isCompact, (long)descriptor.layerCount, (long)descriptor.dataCodewordCount];
+    }
+    if ([value isKindOfClass:CIPDF417CodeDescriptor.class]) {
+        CIPDF417CodeDescriptor *descriptor = value;
+        return [NSString stringWithFormat:@"ci-pdf417:%@:%d:%ld:%ld", auto_canonical(descriptor.errorCorrectedPayload),
+            descriptor.isCompact, (long)descriptor.rowCount, (long)descriptor.columnCount];
+    }
+    if ([value isKindOfClass:CIDataMatrixCodeDescriptor.class]) {
+        CIDataMatrixCodeDescriptor *descriptor = value;
+        return [NSString stringWithFormat:@"ci-datamatrix:%@:%ld:%ld:%ld", auto_canonical(descriptor.errorCorrectedPayload),
+            (long)descriptor.rowCount, (long)descriptor.columnCount, (long)descriptor.eccVersion];
+    }
+#endif
+#ifdef FINCH_DIFFTEST_COREDATA
+    if ([value isKindOfClass:NSPersistentStoreDescription.class]) {
+        NSPersistentStoreDescription *description = value;
+        return [NSString stringWithFormat:@"coredata-store-description:%@:%@:%@:%@:%d:%a:%d:%d:%d:%@:%@",
+            auto_hex(description.type ?: @""), auto_hex(description.configuration ?: @""),
+            auto_canonical(description.URL), auto_canonical(description.options), description.isReadOnly,
+            description.timeout, description.shouldAddStoreAsynchronously,
+            description.shouldMigrateStoreAutomatically, description.shouldInferMappingModelAutomatically,
+            auto_canonical(description.sqlitePragmas), auto_canonical(description.cloudKitContainerOptions)];
+    }
+    if ([value isKindOfClass:NSFetchIndexElementDescription.class]) {
+        NSFetchIndexElementDescription *element = value;
+        return [NSString stringWithFormat:@"coredata-index-element:%@:%lu:%d",
+            auto_hex(element.propertyName ?: @""), (unsigned long)element.collationType, element.isAscending];
+    }
+    if ([value isKindOfClass:NSFetchIndexDescription.class]) {
+        NSFetchIndexDescription *index = value;
+        return [NSString stringWithFormat:@"coredata-index:%@:%@:%@",
+            auto_hex(index.name ?: @""), auto_canonical(index.elements ?: @[]),
+            auto_canonical(index.partialIndexPredicate)];
+    }
+    if ([value isKindOfClass:NSBatchUpdateRequest.class]) {
+        NSBatchUpdateRequest *request = value;
+        return [NSString stringWithFormat:@"coredata-batch-update:%@:%@:%d:%lu:%@",
+            auto_hex(request.entityName ?: @""), auto_canonical(request.predicate), request.includesSubentities,
+            (unsigned long)request.resultType, auto_canonical(request.propertiesToUpdate ?: @{})];
+    }
+    if ([value isKindOfClass:NSBatchDeleteRequest.class]) {
+        NSBatchDeleteRequest *request = value;
+        return [NSString stringWithFormat:@"coredata-batch-delete:%@:%lu",
+            auto_canonical(request.fetchRequest), (unsigned long)request.resultType];
+    }
+    if ([value isKindOfClass:NSMergePolicy.class])
+        return [NSString stringWithFormat:@"coredata-merge-policy:%lu", (unsigned long)[(NSMergePolicy *)value mergeType]];
+#endif
+#ifdef FINCH_DIFFTEST_CORESPOTLIGHT
+    if ([value isKindOfClass:CSSearchableItemAttributeSet.class]) {
+        CSSearchableItemAttributeSet *attributes = value;
+        return [NSString stringWithFormat:@"spotlight-attributes:%@:%@:%@:%@:%@:%@:%@",
+            auto_hex(attributes.contentType ?: @""), auto_hex(attributes.title ?: @""),
+            auto_hex(attributes.displayName ?: @""), auto_hex(attributes.contentDescription ?: @""),
+            auto_canonical(attributes.contentURL), auto_canonical(attributes.keywords ?: @[]),
+            auto_canonical(attributes.authors ?: @[])];
+    }
+    if ([value isKindOfClass:CSSearchableItem.class]) {
+        CSSearchableItem *item = value;
+        return [NSString stringWithFormat:@"spotlight-item:%@:%@:%@:%a:%d:%lu",
+            auto_hex(item.uniqueIdentifier ?: @""), auto_hex(item.domainIdentifier ?: @""),
+            auto_canonical(item.attributeSet), item.expirationDate.timeIntervalSinceReferenceDate,
+            item.isUpdate, (unsigned long)item.updateListenerOptions];
+    }
+    if ([value isKindOfClass:CSPerson.class]) {
+        CSPerson *person = value;
+        return [NSString stringWithFormat:@"spotlight-person:%@:%@:%@:%@",
+            auto_hex(person.displayName ?: @""), auto_canonical(person.handles),
+            auto_hex(person.handleIdentifier ?: @""), auto_hex(person.contactIdentifier ?: @"")];
+    }
+    if ([value isKindOfClass:CSCustomAttributeKey.class]) {
+        CSCustomAttributeKey *key = value;
+        return [NSString stringWithFormat:@"spotlight-key:%@:%d:%d:%d:%d", auto_hex(key.keyName ?: @""),
+            key.searchable, key.searchableByDefault, key.unique, key.multiValued];
+    }
+#endif
+#ifdef FINCH_DIFFTEST_AVFAUDIO
+    if ([value isKindOfClass:AVAudioFormat.class]) {
+        AVAudioFormat *format = value;
+        return [NSString stringWithFormat:@"audio-format:%ld:%lu:%a:%d:%d:%@", (long)format.commonFormat,
+            (unsigned long)format.channelCount, format.sampleRate, format.isInterleaved, format.isStandard,
+            auto_canonical(format.channelLayout)];
+    }
+    if ([value isKindOfClass:AVAudioChannelLayout.class]) {
+        AVAudioChannelLayout *layout = value;
+        return [NSString stringWithFormat:@"audio-layout:%u:%u", (unsigned int)layout.layoutTag,
+            (unsigned int)layout.channelCount];
+    }
+    if ([value isKindOfClass:AVAudioTime.class]) {
+        AVAudioTime *time = value;
+        return [NSString stringWithFormat:@"audio-time:%d:%lld:%a:%d", time.isSampleTimeValid,
+            (long long)time.sampleTime, time.sampleRate, time.isHostTimeValid];
+    }
+    if ([value isKindOfClass:AVAudioPCMBuffer.class]) {
+        AVAudioPCMBuffer *buffer = value;
+        return [NSString stringWithFormat:@"audio-buffer:%@:%u:%u:%lu", auto_canonical(buffer.format),
+            (unsigned int)buffer.frameCapacity, (unsigned int)buffer.frameLength, (unsigned long)buffer.stride];
+    }
+#endif
+    if ([value isKindOfClass:NSDateComponentsFormatter.class]) {
+        NSDateComponentsFormatter *formatter = value;
+        return [NSString stringWithFormat:@"date-components-formatter:%lu:%d:%d:%d:%d:%lu:%lu:%ld:%ld:%@",
+            (unsigned long)formatter.allowedUnits, formatter.allowsFractionalUnits, formatter.collapsesLargestUnit,
+            formatter.includesApproximationPhrase, formatter.includesTimeRemainingPhrase,
+            (unsigned long)formatter.maximumUnitCount, (unsigned long)formatter.zeroFormattingBehavior,
+            (long)formatter.unitsStyle, (long)formatter.formattingContext,
+            auto_hex(formatter.calendar.locale.localeIdentifier ?: @"")];
+    }
+    if ([value isKindOfClass:NSPersonNameComponentsFormatter.class]) {
+        NSPersonNameComponentsFormatter *formatter = value;
+        return [NSString stringWithFormat:@"person-name-formatter:%ld:%d:%@", (long)formatter.style,
+            formatter.isPhonetic, auto_hex(formatter.locale.localeIdentifier ?: @"")];
+    }
+    if ([value isKindOfClass:NSByteCountFormatter.class]) {
+        NSByteCountFormatter *formatter = value;
+        return [NSString stringWithFormat:@"byte-count-formatter:%lu:%ld:%d:%d:%d:%d:%d:%ld",
+            (unsigned long)formatter.allowedUnits, (long)formatter.countStyle, formatter.allowsNonnumericFormatting,
+            formatter.includesUnit, formatter.includesCount, formatter.includesActualByteCount,
+            formatter.isAdaptive, (long)formatter.formattingContext];
+    }
+    if ([value isKindOfClass:NSEnergyFormatter.class]) {
+        NSEnergyFormatter *formatter = value;
+        return [NSString stringWithFormat:@"energy-formatter:%ld:%d:%ld:%@", (long)formatter.unitStyle,
+            formatter.isForFoodEnergyUse, (long)formatter.numberFormatter.numberStyle,
+            auto_hex(formatter.numberFormatter.locale.localeIdentifier ?: @"")];
+    }
+    if ([value isKindOfClass:NSMeasurementFormatter.class]) {
+        NSMeasurementFormatter *formatter = value;
+        return [NSString stringWithFormat:@"measurement-formatter:%ld:%lu:%ld:%@:%@", (long)formatter.unitStyle,
+            (unsigned long)formatter.unitOptions, (long)formatter.numberFormatter.numberStyle,
+            auto_hex(formatter.locale.localeIdentifier ?: @""),
+            auto_hex(formatter.numberFormatter.locale.localeIdentifier ?: @"")];
+    }
+    if ([value isKindOfClass:NSMeasurement.class]) {
+        NSMeasurement *measurement = value;
+        return [NSString stringWithFormat:@"measurement:%a:%@", measurement.doubleValue, auto_canonical(measurement.unit)];
+    }
+    if ([value isKindOfClass:NSUnit.class]) {
+        NSUnit *unit = value;
+        return [NSString stringWithFormat:@"unit:%@", auto_hex(unit.symbol ?: @"")];
+    }
+    if ([value isKindOfClass:NSPersonNameComponents.class]) {
+        NSPersonNameComponents *components = value;
+        return [NSString stringWithFormat:@"person-name:%@:%@:%@:%@:%@:%@:%@", auto_hex(components.namePrefix ?: @""),
+            auto_hex(components.givenName ?: @""), auto_hex(components.middleName ?: @""),
+            auto_hex(components.familyName ?: @""), auto_hex(components.nameSuffix ?: @""),
+            auto_hex(components.nickname ?: @""), auto_canonical(components.phoneticRepresentation)];
+    }
+    if ([value isKindOfClass:NSScanner.class]) {
+        NSScanner *scanner = value;
+        return [NSString stringWithFormat:@"scanner:%@:%lu:%d:%d:%@", auto_hex(scanner.string ?: @""),
+            (unsigned long)scanner.scanLocation, scanner.caseSensitive, scanner.isAtEnd,
+            auto_canonical(scanner.charactersToBeSkipped)];
+    }
+    if ([value isKindOfClass:NSFileWrapper.class]) {
+        NSFileWrapper *wrapper = value;
+        BOOL isDirectory = wrapper.isDirectory;
+        BOOL isRegularFile = wrapper.isRegularFile;
+        BOOL isSymbolicLink = wrapper.isSymbolicLink;
+        NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
+        for (NSString *key in @[NSFileType, NSFilePosixPermissions, NSFileSize])
+            if (wrapper.fileAttributes[key]) attributes[key] = wrapper.fileAttributes[key];
+        NSData *contents = isRegularFile ? wrapper.regularFileContents : nil;
+        NSDictionary *children = isDirectory ? wrapper.fileWrappers : nil;
+        NSURL *destination = isSymbolicLink ? wrapper.symbolicLinkDestinationURL : nil;
+        return [NSString stringWithFormat:@"file-wrapper:%d:%d:%d:%@:%@:%@:%@:%@:%@", isDirectory,
+            isRegularFile, isSymbolicLink, auto_hex(wrapper.filename ?: @""),
+            auto_hex(wrapper.preferredFilename ?: @""), auto_canonical(attributes),
+            auto_canonical(contents), auto_canonical(children ?: @{}), auto_canonical(destination)];
+    }
+    if ([value isKindOfClass:NSProgress.class]) {
+        NSProgress *progress = value;
+        return [NSString stringWithFormat:@"progress:%lld:%lld:%a:%d:%d:%d:%d:%d:%d:%d:%@:%@:%@:%@", progress.totalUnitCount,
+            progress.completedUnitCount, progress.fractionCompleted, progress.isCancellable, progress.isPausable,
+            progress.isCancelled, progress.isFinished, progress.isIndeterminate, progress.isPaused, progress.isOld,
+            auto_hex(progress.kind ?: @""), auto_hex(progress.localizedDescription ?: @""),
+            auto_hex(progress.localizedAdditionalDescription ?: @""),
+            auto_canonical(progress.userInfo ?: @{})];
+    }
 #ifdef FINCH_DIFFTEST_APPKIT
     if ([value isKindOfClass:NSColor.class]) {
         return auto_appkit_color_description(value);
+    }
+    if ([value isKindOfClass:NSCell.class]) {
+        NSCell *cell = value;
+        return [NSString stringWithFormat:@"cell:%@:%@:%@:%ld:%d:%d:%ld:%ld:%@:%@",
+            auto_hex(cell.title ?: @""), auto_canonical(cell.objectValue), auto_hex(cell.stringValue ?: @""),
+            (long)cell.state, cell.isEnabled, cell.isEditable, (long)cell.alignment, (long)cell.controlSize,
+            auto_canonical(cell.font), auto_canonical(cell.image)];
+    }
+    if ([value isKindOfClass:NSMenuItem.class]) {
+        NSMenuItem *item = value;
+        return [NSString stringWithFormat:@"menu-item:%@:%@:%ld:%d:%d:%ld:%d:%@",
+            auto_hex(item.title ?: @""), auto_hex(item.keyEquivalent ?: @""), (long)item.state,
+            item.isEnabled, item.isHidden, (long)item.indentationLevel, item.isSeparatorItem,
+            auto_canonical(item.submenu)];
+    }
+    if ([value isKindOfClass:NSMenu.class]) {
+        NSMenu *menu = value;
+        return [NSString stringWithFormat:@"menu:%@:%@", auto_hex(menu.title ?: @""), auto_canonical(menu.itemArray ?: @[])];
+    }
+    if ([value isKindOfClass:NSTableColumn.class]) {
+        NSTableColumn *column = value;
+        return [NSString stringWithFormat:@"table-column:%@:%ld:%ld:%ld:%d", auto_canonical(column.identifier),
+            (long)auto_appkit_geometry(column.width), (long)auto_appkit_geometry(column.minWidth),
+            (long)auto_appkit_geometry(column.maxWidth), column.isHidden];
     }
     if ([value isKindOfClass:NSColorSpace.class]) {
         NSColorSpace *space = value;
@@ -1987,6 +2894,176 @@ static NSString *auto_canonical(id value)
             (unsigned long)event.modifierFlags, (long)auto_appkit_geometry(event.timestamp),
             (long)event.windowNumber, (long)event.clickCount, (long)auto_appkit_component(event.pressure)];
     }
+    if ([value isKindOfClass:NSLayoutManager.class]) {
+        NSLayoutManager *manager = value;
+        return [NSString stringWithFormat:@"layout-manager:%@:%lu:%lu:%d:%d", auto_canonical(manager.textStorage.string ?: @""),
+            (unsigned long)manager.textContainers.count, (unsigned long)manager.numberOfGlyphs,
+            manager.usesFontLeading, manager.allowsNonContiguousLayout];
+    }
+    if ([value isKindOfClass:NSTextContainer.class]) {
+        NSTextContainer *container = value;
+        NSSize size = container.containerSize;
+        return [NSString stringWithFormat:@"text-container:%ld,%ld:%ld:%lu:%lu:%lu:%d:%d",
+            (long)auto_appkit_geometry(size.width), (long)auto_appkit_geometry(size.height),
+            (long)auto_appkit_geometry(container.lineFragmentPadding), (unsigned long)container.maximumNumberOfLines,
+            (unsigned long)container.lineBreakMode, (unsigned long)container.layoutOrientation,
+            container.widthTracksTextView, container.heightTracksTextView];
+    }
+    if ([value isKindOfClass:NSTextView.class]) {
+        NSTextView *textView = value;
+        NSRange selection = textView.selectedRange;
+        return [NSString stringWithFormat:@"text-view:%@:%lu,%lu:%d:%d:%d:%d",
+            auto_canonical(textView.string ?: @""), (unsigned long)selection.location,
+            (unsigned long)selection.length, textView.isRichText, textView.isEditable,
+            textView.isSelectable, textView.allowsUndo];
+    }
+    if ([value isKindOfClass:NSScrollView.class]) {
+        NSScrollView *scrollView = value;
+        NSSize size = scrollView.contentSize;
+        NSRect frame = scrollView.frame;
+        return [NSString stringWithFormat:@"scroll-view:%ld,%ld:%ld,%ld:%lu:%d:%d:%d:%d:%d",
+            (long)auto_appkit_geometry(frame.size.width), (long)auto_appkit_geometry(frame.size.height),
+            (long)auto_appkit_geometry(size.width), (long)auto_appkit_geometry(size.height),
+            (unsigned long)scrollView.borderType, scrollView.hasHorizontalScroller,
+            scrollView.hasVerticalScroller, scrollView.autohidesScrollers,
+            (int)scrollView.scrollerStyle, (int)scrollView.horizontalScrollElasticity];
+    }
+    if ([value isKindOfClass:NSButton.class]) {
+        NSButton *button = value;
+        return [NSString stringWithFormat:@"button:%@:%@:%@:%@:%ld:%d:%d:%@:%@", auto_canonical(button.cell),
+            auto_hex(button.title ?: @""), auto_hex(button.alternateTitle ?: @""), auto_canonical(button.image),
+            (long)button.state, button.allowsMixedState, button.isBordered, auto_canonical(button.alternateImage),
+            auto_canonical(button.contentTintColor)];
+    }
+    if ([value isKindOfClass:NSTextField.class]) {
+        NSTextField *field = value;
+        return [NSString stringWithFormat:@"text-field:%@:%@:%d:%d:%d:%d:%ld", auto_canonical(field.cell),
+            auto_hex(field.placeholderString ?: @""), field.isEditable, field.isSelectable, field.isBordered,
+            field.drawsBackground, (long)auto_appkit_geometry(field.preferredMaxLayoutWidth)];
+    }
+    if ([value isKindOfClass:NSComboBox.class]) {
+        NSComboBox *combo = value;
+        return [NSString stringWithFormat:@"combo:%@:%@:%ld:%ld:%ld:%d:%d:%@", auto_canonical(combo.cell),
+            auto_canonical(combo.objectValues), (long)combo.numberOfItems, (long)combo.indexOfSelectedItem,
+            (long)combo.numberOfVisibleItems, combo.completes, combo.usesDataSource,
+            auto_hex(combo.stringValue ?: @"")];
+    }
+    if ([value isKindOfClass:NSSegmentedControl.class]) {
+        NSSegmentedControl *control = value;
+        NSMutableArray *labels = [NSMutableArray array];
+        for (NSInteger i = 0; i < control.segmentCount; i++) {
+            id label = [control labelForSegment:i];
+            [labels addObject:label ?: [NSNull null]];
+        }
+        return [NSString stringWithFormat:@"segmented:%@:%ld:%ld:%ld:%@", auto_canonical(control.cell),
+            (long)control.segmentCount, (long)control.selectedSegment, (long)control.trackingMode,
+            auto_canonical(labels)];
+    }
+    if ([value isKindOfClass:NSProgressIndicator.class]) {
+        NSProgressIndicator *indicator = value;
+        return [NSString stringWithFormat:@"progress:%ld:%ld:%a:%a:%a:%d:%d:%d", (long)indicator.style,
+            (long)indicator.controlSize, indicator.doubleValue, indicator.minValue, indicator.maxValue,
+            indicator.isIndeterminate, indicator.isBezeled, indicator.isDisplayedWhenStopped];
+    }
+    if ([value isKindOfClass:NSSlider.class]) {
+        NSSlider *slider = value;
+        return [NSString stringWithFormat:@"slider:%@:%a:%a:%a:%a:%ld:%ld:%ld:%d:%d", auto_canonical(slider.cell),
+            slider.doubleValue, slider.minValue, slider.maxValue, slider.altIncrementValue,
+            (long)slider.sliderType, (long)slider.tickMarkPosition, (long)slider.numberOfTickMarks,
+            slider.isVertical, slider.allowsTickMarkValuesOnly];
+    }
+    if ([value isKindOfClass:NSLevelIndicator.class]) {
+        NSLevelIndicator *indicator = value;
+        return [NSString stringWithFormat:@"level-indicator:%@:%a:%a:%a:%a:%a:%ld:%ld:%ld:%d", auto_canonical(indicator.cell),
+            indicator.doubleValue, indicator.minValue, indicator.maxValue, indicator.warningValue, indicator.criticalValue,
+            (long)indicator.levelIndicatorStyle, (long)indicator.tickMarkPosition, (long)indicator.numberOfTickMarks,
+            indicator.drawsTieredCapacityLevels];
+    }
+    if ([value isKindOfClass:NSPopUpButton.class]) {
+        NSPopUpButton *button = value;
+        return [NSString stringWithFormat:@"pop-up:%@:%@:%ld:%ld:%d:%d:%d", auto_canonical(button.cell),
+            auto_canonical(button.itemTitles), (long)button.numberOfItems, (long)button.indexOfSelectedItem,
+            button.pullsDown, button.autoenablesItems, button.altersStateOfSelectedItem];
+    }
+    if ([value isKindOfClass:NSTabView.class]) {
+        NSTabView *tabView = value;
+        NSMutableArray *items = [NSMutableArray array];
+        for (NSTabViewItem *item in tabView.tabViewItems)
+            [items addObject:[NSString stringWithFormat:@"%@:%@", auto_hex([item.identifier description] ?: @""), auto_hex(item.label ?: @"")]];
+        return [NSString stringWithFormat:@"tab-view:%@:%ld:%ld:%ld:%ld:%@", auto_canonical(items),
+            (long)tabView.numberOfTabViewItems, (long)tabView.tabViewType, (long)tabView.tabPosition,
+            (long)tabView.tabViewBorderType, auto_hex(tabView.selectedTabViewItem.label ?: @"")];
+    }
+    if ([value isKindOfClass:NSTabViewItem.class]) {
+        NSTabViewItem *item = value;
+        return [NSString stringWithFormat:@"tab-view-item:%@:%@:%@:%ld:%@:%@", auto_hex([item.identifier description] ?: @""),
+            auto_hex(item.label ?: @""), auto_canonical(item.color), (long)item.tabState,
+            auto_canonical(item.image), auto_canonical(item.view)];
+    }
+    if ([value isKindOfClass:NSMatrix.class]) {
+        NSMatrix *matrix = value;
+        return [NSString stringWithFormat:@"matrix:%@:%ld:%ld:%ld:%ld:%ld:%d:%d", auto_canonical(matrix.cells),
+            (long)matrix.numberOfRows, (long)matrix.numberOfColumns, (long)matrix.selectedRow, (long)matrix.selectedColumn,
+            (long)matrix.mode, matrix.allowsEmptySelection, matrix.autorecalculatesCellSize];
+    }
+    if ([value isKindOfClass:NSGridView.class]) {
+        NSGridView *grid = value;
+        return [NSString stringWithFormat:@"grid:%ld:%ld:%a:%a:%ld:%ld", (long)grid.numberOfRows,
+            (long)grid.numberOfColumns, grid.rowSpacing, grid.columnSpacing, (long)grid.xPlacement, (long)grid.yPlacement];
+    }
+    if ([value isKindOfClass:NSGridRow.class]) {
+        NSGridRow *row = value;
+        return [NSString stringWithFormat:@"grid-row:%ld:%a:%a:%ld:%ld:%d", (long)row.numberOfCells,
+            row.topPadding, row.bottomPadding, (long)row.height, (long)row.rowAlignment, row.isHidden];
+    }
+    if ([value isKindOfClass:NSGridColumn.class]) {
+        NSGridColumn *column = value;
+        return [NSString stringWithFormat:@"grid-column:%ld:%a:%a:%a:%ld:%d", (long)column.numberOfCells,
+            column.width, column.leadingPadding, column.trailingPadding, (long)column.xPlacement, column.isHidden];
+    }
+    if ([value isKindOfClass:NSGridCell.class]) {
+        NSGridCell *cell = value;
+        return [NSString stringWithFormat:@"grid-cell:%ld:%ld:%ld:%ld:%@", (long)[cell.row.gridView indexOfRow:cell.row],
+            (long)[cell.column.gridView indexOfColumn:cell.column], (long)cell.xPlacement, (long)cell.yPlacement,
+            auto_canonical(cell.contentView)];
+    }
+    if ([value isKindOfClass:NSRulerMarker.class]) {
+        NSRulerMarker *marker = value;
+        return [NSString stringWithFormat:@"ruler-marker:%ld:%@:%ld,%ld:%d:%d:%@", (long)auto_appkit_geometry(marker.markerLocation),
+            auto_canonical(marker.image), (long)auto_appkit_geometry(marker.imageOrigin.x),
+            (long)auto_appkit_geometry(marker.imageOrigin.y), marker.isMovable, marker.isRemovable,
+            auto_canonical(marker.representedObject)];
+    }
+    if ([value isKindOfClass:NSRulerView.class]) {
+        NSRulerView *ruler = value;
+        return [NSString stringWithFormat:@"ruler:%ld:%@:%ld:%ld:%ld:%ld:%lu:%d", (long)ruler.orientation,
+            auto_hex(ruler.measurementUnits ?: @""), (long)auto_appkit_geometry(ruler.ruleThickness),
+            (long)auto_appkit_geometry(ruler.reservedThicknessForMarkers),
+            (long)auto_appkit_geometry(ruler.reservedThicknessForAccessoryView),
+            (long)auto_appkit_geometry(ruler.originOffset), (unsigned long)ruler.markers.count, ruler.isFlipped];
+    }
+    if ([value isKindOfClass:NSBox.class]) {
+        NSBox *box = value;
+        return [NSString stringWithFormat:@"box:%@:%ld:%ld:%a:%@:%@:%@:%ld:%d", auto_hex(box.title ?: @""),
+            (long)box.boxType, (long)box.borderType, box.borderWidth, auto_canonical(box.borderColor),
+            auto_canonical(box.fillColor), auto_canonical(box.contentView), (long)box.titlePosition, box.isTransparent];
+    }
+    if ([value isKindOfClass:NSControl.class]) {
+        NSControl *control = value;
+        return [NSString stringWithFormat:@"control:%@:%@:%@:%@:%d:%d:%ld:%ld", NSStringFromClass([control class]),
+            auto_canonical(control.cell), auto_canonical(control.objectValue), auto_hex(control.stringValue ?: @""),
+            control.isEnabled, control.isContinuous, (long)control.controlSize, (long)control.alignment];
+    }
+    if ([value isKindOfClass:NSView.class]) {
+        NSView *view = value;
+        NSRect frame = view.frame, bounds = view.bounds;
+        return [NSString stringWithFormat:@"view:%ld,%ld,%ld,%ld:%ld,%ld,%ld,%ld:%d:%d:%lu",
+            (long)auto_appkit_geometry(frame.origin.x), (long)auto_appkit_geometry(frame.origin.y),
+            (long)auto_appkit_geometry(frame.size.width), (long)auto_appkit_geometry(frame.size.height),
+            (long)auto_appkit_geometry(bounds.origin.x), (long)auto_appkit_geometry(bounds.origin.y),
+            (long)auto_appkit_geometry(bounds.size.width), (long)auto_appkit_geometry(bounds.size.height),
+            view.isHidden, view.isOpaque, (unsigned long)view.autoresizingMask];
+    }
     if ([value isKindOfClass:NSLayoutConstraint.class]) {
         NSLayoutConstraint *constraint = value;
         return [NSString stringWithFormat:@"constraint:%ld:%ld:%ld:%ld,%ld:%ld:%ld:%@:%d", (long)constraint.firstAttribute,
@@ -2044,6 +3121,16 @@ static NSString *auto_canonical(id value)
     if ([value isKindOfClass:NSTimeZone.class]) return [NSString stringWithFormat:@"timezone:%@:%ld", auto_hex([value name]), (long)[value secondsFromGMTForDate:[NSDate dateWithTimeIntervalSinceReferenceDate:700000000]]];
     if ([value isKindOfClass:NSThread.class]) return [NSString stringWithFormat:@"thread:%@", auto_hex([value name] ?: @"")];
     if ([value isKindOfClass:NSPointerFunctions.class]) return [NSString stringWithFormat:@"pointer-functions:%lu", (unsigned long)[(NSPointerFunctions *)value options]];
+    if ([value isKindOfClass:NSIndexSet.class]) {
+        NSIndexSet *indexes = value;
+        NSMutableArray *parts = [NSMutableArray array];
+        NSUInteger index = indexes.firstIndex;
+        while (index != NSNotFound && parts.count < 256) {
+            [parts addObject:@(index)];
+            index = [indexes indexGreaterThanIndex:index];
+        }
+        return [NSString stringWithFormat:@"index-set:%@", auto_canonical(parts)];
+    }
     if ([value isKindOfClass:NSCalendar.class]) {
         NSCalendar *calendar = value; NSTimeZone *zone = calendar.timeZone;
         return [NSString stringWithFormat:@"calendar:%@:%@:%lu", auto_hex([calendar calendarIdentifier]), auto_hex([zone name]), (unsigned long)calendar.firstWeekday];
@@ -2202,12 +3289,63 @@ static NSView *auto_layout_view(void)
     return view;
 }
 
+static NSGridView *auto_grid_view(void)
+{
+    static NSGridView *view;
+    if (!view) view = [[NSGridView gridViewWithNumberOfColumns:2 rows:2] retain];
+    return view;
+}
+
+static NSScrollView *auto_ruler_scroll_view(void)
+{
+    static NSScrollView *view;
+    if (!view) view = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 160, 96)];
+    return view;
+}
+
+static NSRulerView *auto_ruler_view(void)
+{
+    static NSRulerView *view;
+    if (!view) view = [[NSRulerView alloc] initWithScrollView:auto_ruler_scroll_view()
+        orientation:NSHorizontalRuler];
+    return view;
+}
+
 static NSLayoutConstraint *auto_constraint(void)
 {
     NSView *view = auto_layout_view();
     return [NSLayoutConstraint constraintWithItem:view attribute:NSLayoutAttributeWidth
         relatedBy:NSLayoutRelationEqual toItem:nil attribute:NSLayoutAttributeNotAnAttribute
         multiplier:1 constant:42];
+}
+
+static NSTextStorage *auto_text_storage(void)
+{
+    return [[[NSTextStorage alloc] initWithString:@"Finch café🙂" attributes:@{
+        NSFontAttributeName:[NSFont systemFontOfSize:12]
+    }] autorelease];
+}
+
+static NSLayoutManager *auto_text_layout_manager(void)
+{
+    NSTextStorage *storage = auto_text_storage();
+    NSLayoutManager *manager = [[[NSLayoutManager alloc] init] autorelease];
+    [storage addLayoutManager:manager];
+    NSTextContainer *container = [[[NSTextContainer alloc] initWithContainerSize:NSMakeSize(160, 96)] autorelease];
+    container.lineFragmentPadding = 4;
+    [manager addTextContainer:container];
+    return manager;
+}
+
+static NSTextContainer *auto_text_container(void)
+{
+    return auto_text_layout_manager().textContainers.firstObject;
+}
+
+static NSTextView *auto_text_view(void)
+{
+    return [[[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 160, 96)
+        textContainer:auto_text_container()] autorelease];
 }
 #endif
 
@@ -2216,12 +3354,303 @@ static NSData *auto_data(const void *bytes, NSUInteger length)
     return [(NSData *)CFDataCreate(kCFAllocatorDefault, bytes, (CFIndex)length) autorelease];
 }
 
+static id auto_object(NSString *type, NSUInteger index);
+
+static NSArray *auto_generic_arguments(NSString *type)
+{
+    NSRange opening = [type rangeOfString:@"<"];
+    if (opening.location == NSNotFound) return @[];
+    NSMutableArray *arguments = [NSMutableArray array];
+    NSUInteger depth = 0, start = NSMaxRange(opening);
+    for (NSUInteger index = start; index < type.length; index++) {
+        unichar character = [type characterAtIndex:index];
+        if (character == '<') depth++;
+        else if (character == '>') {
+            if (!depth) {
+                NSString *argument = [[type substringWithRange:NSMakeRange(start, index - start)]
+                    stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+                if (argument.length) [arguments addObject:argument];
+                break;
+            }
+            depth--;
+        } else if (character == ',' && !depth) {
+            NSString *argument = [[type substringWithRange:NSMakeRange(start, index - start)]
+                stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+            if (argument.length) [arguments addObject:argument];
+            start = index + 1;
+        }
+    }
+    return arguments;
+}
+
+static id auto_generic_object(NSString *type, NSUInteger index)
+{
+    NSString *clean = [type stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (![clean containsString:@"*"] && ![clean hasPrefix:@"id<"])
+        clean = [clean stringByAppendingString:@" *"];
+#ifdef FINCH_DIFFTEST_QUARTZCORE
+    if ([clean isEqualToString:@"id<CAAction>"]) return [CAAnimation animation];
+#endif
+    return auto_object(clean, index);
+}
+
 static id auto_object(NSString *type, NSUInteger index)
 {
     NSString *clean = auto_clean_type(type);
+    NSArray *genericArguments = auto_generic_arguments(clean);
     NSString *base = [[clean componentsSeparatedByString:@"<"] firstObject];
     base = [[base componentsSeparatedByString:@"*"] firstObject];
     base = [base stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if ([base isEqualToString:@"NSUnitLength"]) return NSUnitLength.meters;
+    if ([base isEqualToString:@"NSUnitTemperature"]) return NSUnitTemperature.celsius;
+    if ([base isEqualToString:@"NSUnitDuration"]) return NSUnitDuration.seconds;
+    if ([base isEqualToString:@"NSUnitInformationStorage"]) return NSUnitInformationStorage.bytes;
+    if ([base isEqualToString:@"NSUnit"]) return [[[NSUnit alloc] initWithSymbol:@"m"] autorelease];
+    if ([base isEqualToString:@"NSMeasurement"]) {
+        NSUnit *unit = NSUnitLength.meters;
+        if ([clean containsString:@"NSUnitInformationStorage"]) unit = NSUnitInformationStorage.bytes;
+        else if ([clean containsString:@"NSUnitTemperature"]) unit = NSUnitTemperature.celsius;
+        else if ([clean containsString:@"NSUnitDuration"]) unit = NSUnitDuration.seconds;
+        return [[[NSMeasurement alloc] initWithDoubleValue:42.5 unit:unit] autorelease];
+    }
+    if ([base isEqualToString:@"NSPersonNameComponents"]) {
+        NSPersonNameComponents *components = [[[NSPersonNameComponents alloc] init] autorelease];
+        components.namePrefix = @"Dr."; components.givenName = @"Ada"; components.middleName = @"Byron";
+        components.familyName = @"Lovelace"; components.nameSuffix = @"Jr."; components.nickname = @"Finch";
+        return components;
+    }
+    if ([base isEqualToString:@"NSScanner"]) {
+        NSScanner *scanner = [NSScanner scannerWithString:@"42 -17 3.5 0x2a"];
+        scanner.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+        return scanner;
+    }
+    if ([base isEqualToString:@"NSFileWrapper"]) {
+        NSFileWrapper *wrapper = [[[NSFileWrapper alloc] initRegularFileWithContents:auto_data("finch", 5)] autorelease];
+        wrapper.filename = @"finch.txt"; wrapper.preferredFilename = @"finch.txt";
+        wrapper.fileAttributes = @{NSFileType:NSFileTypeRegular, NSFilePosixPermissions:@0644};
+        return wrapper;
+    }
+    if ([base isEqualToString:@"NSProgress"]) {
+        NSProgress *progress = [NSProgress progressWithTotalUnitCount:100];
+        progress.completedUnitCount = 42; progress.cancellable = YES; progress.pausable = YES;
+        progress.localizedDescription = @"Finch";
+        return progress;
+    }
+#ifdef FINCH_DIFFTEST_QUARTZCORE
+    if ([base isEqualToString:@"CALayerContentsFilter"])
+        return @[kCAFilterNearest, kCAFilterLinear, kCAFilterTrilinear][index % 3];
+    if ([base isEqualToString:@"CALayerContentsGravity"])
+        return @[kCAGravityCenter, kCAGravityTop, kCAGravityBottom, kCAGravityLeft, kCAGravityRight][index % 5];
+    if ([base isEqualToString:@"CALayerCornerCurve"])
+        return @[kCACornerCurveCircular, kCACornerCurveContinuous][index % 2];
+    if ([base isEqualToString:@"CAMediaTimingFunctionName"])
+        return @[kCAMediaTimingFunctionLinear, kCAMediaTimingFunctionEaseIn,
+            kCAMediaTimingFunctionEaseOut, kCAMediaTimingFunctionEaseInEaseOut][index % 4];
+    if ([base isEqualToString:@"CAEmitterLayerEmitterMode"])
+        return @[kCAEmitterLayerPoints, kCAEmitterLayerOutline, kCAEmitterLayerSurface, kCAEmitterLayerVolume][index % 4];
+    if ([base isEqualToString:@"CAEmitterLayerEmitterShape"])
+        return @[kCAEmitterLayerPoint, kCAEmitterLayerLine, kCAEmitterLayerRectangle,
+            kCAEmitterLayerCircle, kCAEmitterLayerSphere][index % 5];
+    if ([base isEqualToString:@"CAShapeLayerFillRule"])
+        return @[kCAFillRuleNonZero, kCAFillRuleEvenOdd][index % 2];
+    if ([base isEqualToString:@"CAShapeLayerLineCap"])
+        return @[kCALineCapButt, kCALineCapRound, kCALineCapSquare][index % 3];
+    if ([base isEqualToString:@"CAShapeLayerLineJoin"])
+        return @[kCALineJoinMiter, kCALineJoinRound, kCALineJoinBevel][index % 3];
+    if ([base isEqualToString:@"CATransitionType"])
+        return @[kCATransitionFade, kCATransitionMoveIn][index % 2];
+    if ([base isEqualToString:@"CATransitionSubtype"])
+        return @[kCATransitionFromRight, kCATransitionFromLeft,
+            kCATransitionFromTop, kCATransitionFromBottom][index % 4];
+    if ([base isEqualToString:@"CAValueFunctionName"])
+        return @[kCAValueFunctionRotateX, kCAValueFunctionRotateY, kCAValueFunctionRotateZ,
+            kCAValueFunctionScale, kCAValueFunctionTranslate][index % 5];
+#endif
+#ifdef FINCH_DIFFTEST_QUARTZCORE
+    if ([base isEqualToString:@"CALayer"]) return [CALayer layer];
+    if ([base isEqualToString:@"CAAnimation"]) return [CAAnimation animation];
+    if ([base isEqualToString:@"CAPropertyAnimation"]) return [CAPropertyAnimation animationWithKeyPath:@"opacity"];
+    if ([base isEqualToString:@"CABasicAnimation"]) return [CABasicAnimation animationWithKeyPath:@"opacity"];
+    if ([base isEqualToString:@"CAKeyframeAnimation"]) return [CAKeyframeAnimation animationWithKeyPath:@"position"];
+    if ([base isEqualToString:@"CASpringAnimation"]) return [CASpringAnimation animationWithKeyPath:@"position"];
+    if ([base isEqualToString:@"CAEmitterCell"]) return [CAEmitterCell emitterCell];
+    if ([base isEqualToString:@"CAMediaTimingFunction"])
+        return [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+    if ([base isEqualToString:@"CAValueFunction"]) return [CAValueFunction functionWithName:kCAValueFunctionRotateZ];
+#endif
+#ifdef FINCH_DIFFTEST_COREIMAGE
+    if ([base isEqualToString:@"CIColor"]) {
+        static const CGFloat components[][4] = {{0, 0, 0, 1}, {0.25, 0.5, 0.75, 1}, {1, 0.5, 0.1, 0.5}};
+        const CGFloat *c = components[index % 3];
+        return [CIColor colorWithRed:c[0] green:c[1] blue:c[2] alpha:c[3]];
+    }
+    if ([base isEqualToString:@"CIImage"]) return [CIImage imageWithColor:auto_object(@"CIColor *", index)];
+    if ([base isEqualToString:@"CIContext"])
+        return [CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer:@YES}];
+    if ([base isEqualToString:@"CIFilter"]) {
+        CIFilter *filter = [CIFilter filterWithName:@"CIColorControls"];
+        [filter setDefaults];
+        [filter setValue:auto_object(@"CIImage *", index) forKey:kCIInputImageKey];
+        return filter;
+    }
+    if ([base isEqualToString:@"CIFilterShape"]) return [CIFilterShape shapeWithRect:CGRectMake(0, 0, 8, 8)];
+    if ([base isEqualToString:@"CIImageAccumulator"])
+        return [CIImageAccumulator imageAccumulatorWithExtent:CGRectMake(0, 0, 8, 8) format:kCIFormatRGBA8];
+    if ([base isEqualToString:@"CIVector"]) return [CIVector vectorWithX:1.25 Y:-2.5 Z:3.75 W:1];
+    if ([base isEqualToString:@"CIKernel"])
+        return [CIKernel kernelWithString:@"kernel vec4 finchDifftestKernel (sampler image) { return sample(image, samplerCoord(image)); }"];
+    if ([base isEqualToString:@"CIColorKernel"])
+        return [CIColorKernel kernelWithString:@"kernel vec4 finchDifftestColorKernel (vec4 color) { return color; }"];
+    if ([base isEqualToString:@"CIWarpKernel"])
+        return [CIWarpKernel kernelWithString:@"kernel vec2 finchDifftestWarpKernel (vec2 point) { return point; }"];
+    if ([base isEqualToString:@"CIBlendKernel"]) return CIBlendKernel.sourceOver;
+    NSData *barcodePayload = [NSData dataWithBytes:"finch" length:5];
+    if ([base isEqualToString:@"CIQRCodeDescriptor"])
+        return [CIQRCodeDescriptor descriptorWithPayload:barcodePayload symbolVersion:1 maskPattern:0
+            errorCorrectionLevel:CIQRCodeErrorCorrectionLevelL];
+    if ([base isEqualToString:@"CIAztecCodeDescriptor"])
+        return [CIAztecCodeDescriptor descriptorWithPayload:barcodePayload isCompact:YES layerCount:1 dataCodewordCount:1];
+    if ([base isEqualToString:@"CIPDF417CodeDescriptor"])
+        return [CIPDF417CodeDescriptor descriptorWithPayload:barcodePayload isCompact:YES rowCount:3 columnCount:3];
+    if ([base isEqualToString:@"CIDataMatrixCodeDescriptor"])
+        return [CIDataMatrixCodeDescriptor descriptorWithPayload:barcodePayload rowCount:10 columnCount:10
+            eccVersion:CIDataMatrixCodeECCVersion200];
+#endif
+#ifdef FINCH_DIFFTEST_UTI
+    if ([base isEqualToString:@"UTType"])
+        return [UTType typeWithIdentifier:@[@"public.plain-text", @"public.jpeg", @"com.adobe.pdf"][index % 3]];
+#endif
+#ifdef FINCH_DIFFTEST_CONTACTS
+    if ([base isEqualToString:@"CNContact"] || [base isEqualToString:@"CNMutableContact"]) {
+        CNMutableContact *contact = [[[CNMutableContact alloc] init] autorelease];
+        contact.givenName = @[@"Ada", @"Sam", @"Zoë"][index % 3];
+        contact.familyName = @[@"Lovelace", @"Finch", @"Ng"][index % 3];
+        contact.organizationName = @"Finch Difftest";
+        return contact;
+    }
+    if ([base isEqualToString:@"CNPhoneNumber"])
+        return [CNPhoneNumber phoneNumberWithStringValue:@[@"+1 416 555 0100", @"+44 20 5555 0100"][index % 2]];
+    if ([base isEqualToString:@"CNPostalAddress"] || [base isEqualToString:@"CNMutablePostalAddress"]) {
+        CNMutablePostalAddress *address = [[[CNMutablePostalAddress alloc] init] autorelease];
+        address.street = @"1 Test Street"; address.city = @"Toronto"; address.state = @"ON";
+        address.postalCode = @"M5V 2T6"; address.country = @"Canada"; address.ISOCountryCode = @"CA";
+        return address;
+    }
+    if ([base isEqualToString:@"CNContactFormatter"]) {
+        CNContactFormatter *formatter = [[[CNContactFormatter alloc] init] autorelease];
+        formatter.style = CNContactFormatterStyleFullName;
+        return formatter;
+    }
+    if ([base isEqualToString:@"CNPostalAddressFormatter"]) return [[[CNPostalAddressFormatter alloc] init] autorelease];
+    if ([base isEqualToString:@"CNSocialProfile"])
+        return [[[CNSocialProfile alloc] initWithUrlString:@"https://example.invalid/profile"
+            username:@"finch" userIdentifier:@"fixed-id" service:@"example"] autorelease];
+#endif
+#ifdef FINCH_DIFFTEST_COREDATA
+    if ([base isEqualToString:@"NSFetchRequest"])
+        return [[[NSFetchRequest alloc] initWithEntityName:@"FinchDifftestEntity"] autorelease];
+    if ([base isEqualToString:@"NSEntityDescription"]) {
+        NSEntityDescription *entity = [[[NSEntityDescription alloc] init] autorelease];
+        entity.name = @"FinchDifftestEntity"; entity.managedObjectClassName = @"NSManagedObject";
+        return entity;
+    }
+    if ([base isEqualToString:@"NSAttributeDescription"]) {
+        NSAttributeDescription *attribute = [[[NSAttributeDescription alloc] init] autorelease];
+        attribute.name = @"title"; attribute.attributeType = NSStringAttributeType; attribute.optional = YES;
+        return attribute;
+    }
+    if ([base isEqualToString:@"NSRelationshipDescription"]) {
+        NSRelationshipDescription *relationship = [[[NSRelationshipDescription alloc] init] autorelease];
+        relationship.name = @"related"; relationship.minCount = 0; relationship.maxCount = 1; relationship.optional = YES;
+        return relationship;
+    }
+    if ([base isEqualToString:@"NSManagedObjectModel"]) {
+        NSEntityDescription *entity = auto_object(@"NSEntityDescription *", index);
+        entity.properties = @[auto_object(@"NSAttributeDescription *", index)];
+        return [[[NSManagedObjectModel alloc] initWithEntities:@[entity]] autorelease];
+    }
+    if ([base isEqualToString:@"NSFetchIndexElementDescription"])
+        return [[[NSFetchIndexElementDescription alloc] initWithProperty:auto_object(@"NSAttributeDescription *", index)
+            collationType:NSFetchIndexElementTypeBinary] autorelease];
+    if ([base isEqualToString:@"NSFetchIndexDescription"])
+        return [[[NSFetchIndexDescription alloc] initWithName:@"FinchIndex"
+            elements:@[auto_object(@"NSFetchIndexElementDescription *", index)]] autorelease];
+    if ([base isEqualToString:@"NSPersistentStoreDescription"])
+        return [[[NSPersistentStoreDescription alloc] initWithURL:[NSURL fileURLWithPath:@"/tmp/finch-difftest.sqlite"]] autorelease];
+    if ([base isEqualToString:@"NSBatchUpdateRequest"])
+        return [[[NSBatchUpdateRequest alloc] initWithEntityName:@"FinchDifftestEntity"] autorelease];
+    if ([base isEqualToString:@"NSBatchDeleteRequest"])
+        return [[[NSBatchDeleteRequest alloc] initWithFetchRequest:auto_object(@"NSFetchRequest *", index)] autorelease];
+    if ([base isEqualToString:@"NSMergePolicy"])
+        return [NSMergePolicy mergeByPropertyObjectTrumpMergePolicy];
+#endif
+#ifdef FINCH_DIFFTEST_CORELOCATION
+    if ([base isEqualToString:@"CLLocation"])
+        return [[[CLLocation alloc] initWithCoordinate:CLLocationCoordinate2DMake(43.6532, -79.3832)
+            altitude:76 horizontalAccuracy:5 verticalAccuracy:8 course:90 speed:1.5
+            timestamp:[NSDate dateWithTimeIntervalSinceReferenceDate:700000000]] autorelease];
+    if ([base isEqualToString:@"CLCircularRegion"])
+        return [[[CLCircularRegion alloc] initWithCenter:CLLocationCoordinate2DMake(43.6532, -79.3832)
+            radius:250 identifier:@"FinchDifftest"] autorelease];
+#endif
+#ifdef FINCH_DIFFTEST_METAL
+    if ([base isEqualToString:@"MTLTextureDescriptor"])
+        return [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+            width:8 height:4 mipmapped:NO];
+    if ([base isEqualToString:@"MTLRenderPassDescriptor"]) return [MTLRenderPassDescriptor renderPassDescriptor];
+    if ([base isEqualToString:@"MTLVertexDescriptor"]) return [MTLVertexDescriptor vertexDescriptor];
+    if ([base isEqualToString:@"MTLArgumentDescriptor"]) return [MTLArgumentDescriptor argumentDescriptor];
+    if ([base hasSuffix:@"Descriptor"]) {
+        Class descriptorClass = NSClassFromString(base);
+        if ([descriptorClass respondsToSelector:@selector(descriptor)])
+            return ((id (*)(id, SEL))objc_msgSend)(descriptorClass, @selector(descriptor));
+        if (descriptorClass) return [[[descriptorClass alloc] init] autorelease];
+    }
+    if ([base isEqualToString:@"MTLFunctionConstantValues"])
+        return [[[MTLFunctionConstantValues alloc] init] autorelease];
+#endif
+#ifdef FINCH_DIFFTEST_CORESPOTLIGHT
+    if ([base isEqualToString:@"CSSearchableItemAttributeSet"]) {
+        CSSearchableItemAttributeSet *attributes = [[[CSSearchableItemAttributeSet alloc]
+            initWithItemContentType:@"public.item"] autorelease];
+        attributes.title = @"Finch"; attributes.displayName = @"Finch";
+        attributes.contentDescription = @"A fixed Spotlight value";
+        attributes.keywords = @[@"finch", @"test"];
+        attributes.contentURL = [NSURL URLWithString:@"https://example.invalid/item"];
+        return attributes;
+    }
+    if ([base isEqualToString:@"CSSearchableItem"] || [base isEqualToString:@"CSLocalizedString"] ||
+        [base isEqualToString:@"CSPerson"] || [base isEqualToString:@"CSCustomAttributeKey"]) {
+        if ([base isEqualToString:@"CSSearchableItem"]) {
+            CSSearchableItem *item = [[[CSSearchableItem alloc] initWithUniqueIdentifier:@"finch-difftest-item"
+                domainIdentifier:@"org.finch.difftest"
+                attributeSet:auto_object(@"CSSearchableItemAttributeSet *", index)] autorelease];
+            item.expirationDate = [NSDate dateWithTimeIntervalSinceReferenceDate:800000000];
+            return item;
+        }
+        if ([base isEqualToString:@"CSLocalizedString"])
+            return [[[CSLocalizedString alloc] initWithLocalizedStrings:@{@"en":@"Finch", @"fr":@"Finch"}] autorelease];
+        if ([base isEqualToString:@"CSPerson"])
+            return [[[CSPerson alloc] initWithDisplayName:@"Finch Tester" handles:@[@"+1 416 555 0100"]
+                handleIdentifier:@"phone"] autorelease];
+        return [[[CSCustomAttributeKey alloc] initWithKeyName:@"org_finch_difftest_value"
+            searchable:YES searchableByDefault:NO unique:NO multiValued:NO] autorelease];
+    }
+#endif
+#ifdef FINCH_DIFFTEST_AVFAUDIO
+    if ([base isEqualToString:@"AVAudioFormat"])
+        return [[[AVAudioFormat alloc] initStandardFormatWithSampleRate:44100 channels:2] autorelease];
+    if ([base isEqualToString:@"AVAudioChannelLayout"])
+        return [[[AVAudioChannelLayout alloc] initWithLayoutTag:kAudioChannelLayoutTag_Stereo] autorelease];
+    if ([base isEqualToString:@"AVAudioTime"])
+        return [[[AVAudioTime alloc] initWithSampleTime:128 atRate:44100] autorelease];
+    if ([base isEqualToString:@"AVAudioPCMBuffer"]) {
+        AVAudioPCMBuffer *buffer = [[[AVAudioPCMBuffer alloc]
+            initWithPCMFormat:auto_object(@"AVAudioFormat *", index) frameCapacity:128] autorelease];
+        buffer.frameLength = 32;
+        return buffer;
+    }
+#endif
 #ifdef FINCH_DIFFTEST_APPKIT
     if ([base isEqualToString:@"NSColor"]) return auto_color(index);
     if ([base isEqualToString:@"NSColorSpace"]) return @[[NSColorSpace sRGBColorSpace],
@@ -2232,6 +3661,11 @@ static id auto_object(NSString *type, NSUInteger index)
         [list setColor:auto_color(4) forKey:@"gray"];
         return list;
     }
+    if ([base isEqualToString:@"NSCell"]) return [[[NSCell alloc] initTextCell:@"Finch"] autorelease];
+    if ([base isEqualToString:@"NSMenuItem"])
+        return [[[NSMenuItem alloc] initWithTitle:@"Finch" action:NULL keyEquivalent:@"f"] autorelease];
+    if ([base isEqualToString:@"NSMenu"]) return [[[NSMenu alloc] initWithTitle:@"Finch"] autorelease];
+    if ([base isEqualToString:@"NSTableColumn"]) return [[[NSTableColumn alloc] initWithIdentifier:@"Finch"] autorelease];
     if ([base isEqualToString:@"NSFont"]) {
         static const CGFloat sizes[] = {12, 13, 18, 24};
         return [NSFont systemFontOfSize:sizes[index % 4]];
@@ -2251,6 +3685,20 @@ static id auto_object(NSString *type, NSUInteger index)
     if ([base isEqualToString:@"NSCursor"]) return [NSCursor arrowCursor];
     if ([base isEqualToString:@"NSAppearance"]) return [NSAppearance appearanceNamed:NSAppearanceNameAqua];
     if ([base isEqualToString:@"NSEvent"]) return auto_event();
+    if ([base isEqualToString:@"NSTextStorage"]) return auto_text_storage();
+    if ([base isEqualToString:@"NSLayoutManager"]) return auto_text_layout_manager();
+    if ([base isEqualToString:@"NSTextContainer"]) return auto_text_container();
+    if ([base isEqualToString:@"NSTextView"]) return auto_text_view();
+    if ([base isEqualToString:@"NSScrollView"])
+        return [[[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 160, 96)] autorelease];
+    if ([base isEqualToString:@"NSGridView"]) return auto_grid_view();
+    if ([base isEqualToString:@"NSGridRow"]) return [auto_grid_view() rowAtIndex:0];
+    if ([base isEqualToString:@"NSGridColumn"]) return [auto_grid_view() columnAtIndex:0];
+    if ([base isEqualToString:@"NSGridCell"]) return [auto_grid_view() cellAtColumnIndex:0 rowIndex:0];
+    if ([base isEqualToString:@"NSRulerView"]) return auto_ruler_view();
+    if ([base isEqualToString:@"NSRulerMarker"])
+        return [[[NSRulerMarker alloc] initWithRulerView:auto_ruler_view() markerLocation:42
+            image:auto_image() imageOrigin:NSMakePoint(1, 2)] autorelease];
     if ([base isEqualToString:@"NSView"]) return auto_layout_view();
     if ([base isEqualToString:@"NSLayoutConstraint"]) return auto_constraint();
     if ([base isEqualToString:@"NSLayoutAnchor"] || [base isEqualToString:@"NSLayoutXAxisAnchor"])
@@ -2266,6 +3714,15 @@ static id auto_object(NSString *type, NSUInteger index)
     if ([base isEqualToString:@"NSMutableAttributedString"]) return [[[NSMutableAttributedString alloc] initWithString:@"café🙂" attributes:@{
         NSFontAttributeName:[NSFont systemFontOfSize:12]}] autorelease];
 #endif
+    if ([base isEqualToString:@"ObjectType"] || [base isEqualToString:@"KeyType"] ||
+        [base isEqualToString:@"ValueType"]) return auto_object(@"id", index);
+    if ([base isEqualToString:@"NSLinguisticTagScheme"])
+        return @[NSLinguisticTagSchemeTokenType, NSLinguisticTagSchemeLexicalClass,
+            NSLinguisticTagSchemeNameType, NSLinguisticTagSchemeLemma,
+            NSLinguisticTagSchemeLanguage, NSLinguisticTagSchemeScript][index % 6];
+    if ([base isEqualToString:@"NSStringTransform"])
+        return @[NSStringTransformToLatin, NSStringTransformStripCombiningMarks,
+            NSStringTransformLatinToKatakana, NSStringTransformHiraganaToKatakana][index % 4];
     if ([base isEqualToString:@"id"] || [base isEqualToString:@"NSObject"]) {
         NSArray *any = @[@"", @"Finch", @1, @-1, @[@"a", @2], @{ @"key": @"value" }, auto_data("\0\1\xff", 3), [NSDate dateWithTimeIntervalSinceReferenceDate:700000000]];
         return any[index % any.count];
@@ -2284,17 +3741,37 @@ static id auto_object(NSString *type, NSUInteger index)
         return [base isEqualToString:@"NSMutableData"] ? [value mutableCopy] : value;
     }
     if ([base isEqualToString:@"NSArray"] || [base isEqualToString:@"NSMutableArray"] || [base isEqualToString:@"NSOrderedSet"] || [base isEqualToString:@"NSMutableOrderedSet"]) {
-        NSArray *values = @[@[], @[@"a", @1], @[@"cafe\u0301", @"🙂", @-1]][index % 3];
+        NSArray *values;
+        if (genericArguments.count) {
+            id first = auto_generic_object(genericArguments[0], index);
+            id second = auto_generic_object(genericArguments[0], index + 1);
+            if (!first || !second) return nil;
+            values = @[ @[], @[first], @[first, second] ][index % 3];
+        } else values = @[@[], @[@"a", @1], @[@"cafe\u0301", @"🙂", @-1]][index % 3];
         if ([base isEqualToString:@"NSOrderedSet"]) return [NSOrderedSet orderedSetWithArray:values];
         if ([base isEqualToString:@"NSMutableOrderedSet"]) return [NSMutableOrderedSet orderedSetWithArray:values];
         return [base isEqualToString:@"NSMutableArray"] ? [values mutableCopy] : values;
     }
     if ([base isEqualToString:@"NSDictionary"] || [base isEqualToString:@"NSMutableDictionary"]) {
-        NSDictionary *value = @[@{}, @{ @"a": @1, @"é": @"e\u0301" }, @{ @"z": @2, @"a": @1 }][index % 3];
+        NSDictionary *value;
+        if (genericArguments.count > 1) {
+            id firstKey = auto_generic_object(genericArguments[0], index);
+            id secondKey = auto_generic_object(genericArguments[0], index + 1);
+            id firstValue = auto_generic_object(genericArguments[1], index);
+            id secondValue = auto_generic_object(genericArguments[1], index + 1);
+            if (!firstKey || !secondKey || !firstValue || !secondValue) return nil;
+            value = @[ @{}, @{firstKey:firstValue}, @{firstKey:firstValue, secondKey:secondValue} ][index % 3];
+        } else value = @[@{}, @{ @"a": @1, @"é": @"e\u0301" }, @{ @"z": @2, @"a": @1 }][index % 3];
         return [base isEqualToString:@"NSMutableDictionary"] ? [value mutableCopy] : value;
     }
     if ([base isEqualToString:@"NSSet"] || [base isEqualToString:@"NSMutableSet"] || [base isEqualToString:@"NSCountedSet"]) {
-        NSSet *value = @[[NSSet set], [NSSet setWithArray:@[@"a", @"a", @1]], [NSSet setWithArray:@[@"🙂", @"é", @-1]]][index % 3];
+        NSSet *value;
+        if (genericArguments.count) {
+            id first = auto_generic_object(genericArguments[0], index);
+            id second = auto_generic_object(genericArguments[0], index + 1);
+            if (!first || !second) return nil;
+            value = @[[NSSet set], [NSSet setWithObject:first], [NSSet setWithObjects:first, second, nil]][index % 3];
+        } else value = @[[NSSet set], [NSSet setWithArray:@[@"a", @"a", @1]], [NSSet setWithArray:@[@"🙂", @"é", @-1]]][index % 3];
         if ([base isEqualToString:@"NSMutableSet"]) return [value mutableCopy];
         if ([base isEqualToString:@"NSCountedSet"]) return [NSCountedSet setWithArray:value.allObjects];
         return value;
@@ -2322,6 +3799,11 @@ static id auto_object(NSString *type, NSUInteger index)
     if ([base isEqualToString:@"NSError"]) return [NSError errorWithDomain:@"org.finch.difftest" code:(NSInteger)index userInfo:nil];
     if ([base isEqualToString:@"NSUUID"]) return [[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"];
     if ([base isEqualToString:@"NSNull"]) return NSNull.null;
+    if ([base isEqualToString:@"NSIndexSet"] || [base isEqualToString:@"NSMutableIndexSet"]) {
+        NSMutableIndexSet *indexes = [NSMutableIndexSet indexSet];
+        [indexes addIndex:1]; [indexes addIndex:3]; [indexes addIndex:5];
+        return [base isEqualToString:@"NSMutableIndexSet"] ? indexes : [indexes copy];
+    }
     if ([base isEqualToString:@"NSRange"]) return [NSValue valueWithRange:NSMakeRange(0, 0)];
     if ([base isEqualToString:@"NSValue"]) return [NSValue valueWithRange:NSMakeRange(0, 1)];
     if ([base isEqualToString:@"NSPredicate"]) return [NSPredicate predicateWithValue:YES];
@@ -2361,15 +3843,325 @@ static BOOL auto_type_is_mutable(NSString *type)
     return [type containsString:@"NSMutable"] || [type containsString:@"CFMutable"] ||
         [@[@"NSCountedSet", @"NSMapTable", @"NSHashTable", @"NSCache", @"NSCalendar",
            @"NSDateFormatter", @"NSNumberFormatter", @"NSBezierPath", @"NSAffineTransform", @"NSImage",
-           @"NSBitmapImageRep", @"NSColorList", @"NSShadow", @"NSPasteboard", @"NSPrintInfo"] containsObject:type];
+           @"NSBitmapImageRep", @"NSColorList", @"NSShadow", @"NSPasteboard", @"NSPrintInfo",
+           @"NSView", @"NSCell", @"NSMenu", @"NSMenuItem", @"NSTableColumn", @"NSMutableIndexSet"] containsObject:type];
+}
+
+static NSMutableArray *auto_callback_output;
+static BOOL auto_callback_was_used;
+
+static void auto_callback_record(id value)
+{
+    if (auto_callback_output && auto_callback_output.count < 256)
+        [auto_callback_output addObject:value ?: NSNull.null];
+}
+
+static NSArray *auto_callback_result(NSString *className)
+{
+    NSArray *values = auto_callback_output ?: @[];
+    if (![className isEqualToString:@"NSSet"] && ![className isEqualToString:@"NSDictionary"])
+        return values;
+    return [values sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
+        return [auto_canonical(a) compare:auto_canonical(b)];
+    }];
 }
 
 static id auto_method_object(NSString *type, NSString *parameterName, NSString *className,
     NSString *selectorName, NSUInteger index)
 {
-    NSString *base = [[auto_clean_type(type) componentsSeparatedByString:@"*"] firstObject];
+    NSString *clean = auto_clean_type(type);
+    NSString *base = [[clean componentsSeparatedByString:@"<"] firstObject];
+    base = [[base componentsSeparatedByString:@"*"] firstObject];
     base = [base stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     NSString *name = [parameterName lowercaseString] ?: @"";
+    if ([type containsString:@"(^"]) {
+        if (([className isEqualToString:@"NSArray"] || [className isEqualToString:@"NSOrderedSet"]) &&
+            [type containsString:@"ObjectType"] && [type containsString:@"NSUInteger"] &&
+            [type containsString:@"BOOL *"]) {
+            auto_callback_was_used = YES;
+            if ([type hasPrefix:@"BOOL"]) {
+                BOOL (^callback)(id, NSUInteger, BOOL *) = ^BOOL(id object, NSUInteger index, BOOL *stop) {
+                    BOOL matches = [object isEqual:@1];
+                    auto_callback_record(@[auto_canonical(object) ?: @"null", @(index), @(matches)]);
+                    return matches;
+                };
+                return [callback copy];
+            }
+            void (^callback)(id, NSUInteger, BOOL *) = ^(id object, NSUInteger index, BOOL *stop) {
+                auto_callback_record(@[auto_canonical(object) ?: @"null", @(index)]);
+                if (stop) *stop = NO;
+            };
+            return [callback copy];
+        }
+        if (([className isEqualToString:@"NSArray"] || [className isEqualToString:@"NSOrderedSet"]) &&
+            [type hasPrefix:@"BOOL"] && [type containsString:@"ObjectType"] &&
+            ![type containsString:@"NSUInteger"]) {
+            auto_callback_was_used = YES;
+            BOOL (^callback)(id, id) = ^BOOL(id first, id second) {
+                BOOL matches = [first isEqual:second];
+                auto_callback_record(@[auto_canonical(first) ?: @"null", auto_canonical(second) ?: @"null", @(matches)]);
+                return matches;
+            };
+            return [callback copy];
+        }
+        if ([className isEqualToString:@"NSSet"] && [type containsString:@"ObjectType"] &&
+            [type containsString:@"BOOL *"]) {
+            auto_callback_was_used = YES;
+            if ([type hasPrefix:@"BOOL"]) {
+                BOOL (^callback)(id, BOOL *) = ^BOOL(id object, BOOL *stop) {
+                    BOOL matches = [object isEqual:@1];
+                    auto_callback_record(@[auto_canonical(object) ?: @"null", @(matches)]);
+                    return matches;
+                };
+                return [callback copy];
+            }
+            void (^callback)(id, BOOL *) = ^(id object, BOOL *stop) {
+                auto_callback_record(@[auto_canonical(object) ?: @"null"]);
+                if (stop) *stop = NO;
+            };
+            return [callback copy];
+        }
+        if ([className isEqualToString:@"NSDictionary"] && [type containsString:@"KeyType"] &&
+            [type containsString:@"ObjectType"] && [type containsString:@"BOOL *"]) {
+            auto_callback_was_used = YES;
+            if ([type hasPrefix:@"BOOL"]) {
+                BOOL (^callback)(id, id, BOOL *) = ^BOOL(id key, id object, BOOL *stop) {
+                    BOOL matches = [object isEqual:@1];
+                    auto_callback_record(@[auto_canonical(key) ?: @"null", auto_canonical(object) ?: @"null", @(matches)]);
+                    return matches;
+                };
+                return [callback copy];
+            }
+            void (^callback)(id, id, BOOL *) = ^(id key, id object, BOOL *stop) {
+                auto_callback_record(@[auto_canonical(key) ?: @"null", auto_canonical(object) ?: @"null"]);
+                if (stop) *stop = NO;
+            };
+            return [callback copy];
+        }
+        if ([className isEqualToString:@"NSIndexSet"] && [type containsString:@"BOOL *"] &&
+            ([type containsString:@"NSUInteger"] || [type containsString:@"NSRange"])) {
+            auto_callback_was_used = YES;
+            if ([type hasPrefix:@"BOOL"]) {
+                BOOL (^indexCallback)(NSUInteger, BOOL *) = ^BOOL(NSUInteger index, BOOL *stop) {
+                    BOOL matches = index == 3;
+                    auto_callback_record(@[@(index), @(matches)]);
+                    return matches;
+                };
+                void (^rangeCallback)(NSRange, BOOL *) = ^(NSRange range, BOOL *stop) {
+                    auto_callback_record(@[@(range.location), @(range.length)]);
+                    if (stop) *stop = NO;
+                };
+                return [type containsString:@"NSRange"] ? [rangeCallback copy] : [indexCallback copy];
+            }
+            void (^indexCallback)(NSUInteger, BOOL *) = ^(NSUInteger index, BOOL *stop) {
+                auto_callback_record(@[@(index)]);
+                if (stop) *stop = NO;
+            };
+            void (^rangeCallback)(NSRange, BOOL *) = ^(NSRange range, BOOL *stop) {
+                auto_callback_record(@[@(range.location), @(range.length)]);
+                if (stop) *stop = NO;
+            };
+            return [type containsString:@"NSRange"] ? [rangeCallback copy] : [indexCallback copy];
+        }
+        if ([className isEqualToString:@"NSData"] && [type containsString:@"const void *"] &&
+            [type containsString:@"NSRange"] && [type containsString:@"BOOL *"]) {
+            auto_callback_was_used = YES;
+            void (^callback)(const void *, NSRange, BOOL *) = ^(const void *bytes, NSRange range, BOOL *stop) {
+                NSUInteger length = MIN(range.length, (NSUInteger)32);
+                NSMutableString *hex = [NSMutableString string];
+                const unsigned char *input = bytes;
+                for (NSUInteger i = 0; input && i < length; i++) [hex appendFormat:@"%02x", input[i]];
+                auto_callback_record(@[@(range.location), @(range.length), hex]);
+                if (stop) *stop = NO;
+            };
+            return [callback copy];
+        }
+        if ([className isEqualToString:@"NSAttributedString"] && [type containsString:@"NSRange"] &&
+            [type containsString:@"BOOL *"]) {
+            auto_callback_was_used = YES;
+            if ([type containsString:@"NSDictionary<NSAttributedStringKey,id>"]) {
+                void (^callback)(NSDictionary *, NSRange, BOOL *) = ^(NSDictionary *attributes, NSRange range, BOOL *stop) {
+                    auto_callback_record(@[auto_canonical(attributes ?: @{}) ?: @"null", @(range.location), @(range.length)]);
+                    if (stop) *stop = NO;
+                };
+                return [callback copy];
+            }
+            void (^callback)(id, NSRange, BOOL *) = ^(id attribute, NSRange range, BOOL *stop) {
+                auto_callback_record(@[auto_canonical(attribute) ?: @"null", @(range.location), @(range.length)]);
+                if (stop) *stop = NO;
+            };
+            return [callback copy];
+        }
+        if ([className isEqualToString:@"NSString"] && [type containsString:@"NSRange"] &&
+            [type containsString:@"BOOL *"]) {
+            auto_callback_was_used = YES;
+            if ([type containsString:@"NSString *"] && [[type componentsSeparatedByString:@"NSRange"] count] >= 3) {
+                void (^callback)(NSString *, NSRange, NSRange, BOOL *) = ^(NSString *substring, NSRange substringRange,
+                    NSRange enclosingRange, BOOL *stop) {
+                    auto_callback_record(@[auto_canonical(substring) ?: @"null", @(substringRange.location),
+                        @(substringRange.length), @(enclosingRange.location), @(enclosingRange.length)]);
+                    if (stop) *stop = NO;
+                };
+                return [callback copy];
+            }
+            void (^callback)(NSString *, BOOL *) = ^(NSString *line, BOOL *stop) {
+                auto_callback_record(@[auto_canonical(line) ?: @"null"]);
+                if (stop) *stop = NO;
+            };
+            return [callback copy];
+        }
+        if ([className isEqualToString:@"NSString"] && [selectorName containsString:@"enumerateLines"] &&
+            [type containsString:@"NSString *"] && [type containsString:@"BOOL *"]) {
+            auto_callback_was_used = YES;
+            void (^callback)(NSString *, BOOL *) = ^(NSString *line, BOOL *stop) {
+                auto_callback_record(@[auto_canonical(line) ?: @"null"]);
+                if (stop) *stop = NO;
+            };
+            return [callback copy];
+        }
+        if ([className isEqualToString:@"NSRegularExpression"] &&
+            [type containsString:@"NSTextCheckingResult"] && [type containsString:@"NSMatchingFlags"] &&
+            [type containsString:@"BOOL *"]) {
+            auto_callback_was_used = YES;
+            void (^callback)(NSTextCheckingResult *, NSMatchingFlags, BOOL *) = ^(NSTextCheckingResult *result,
+                NSMatchingFlags flags, BOOL *stop) {
+                auto_callback_record(@[auto_canonical(result) ?: @"null", @(flags)]);
+                if (stop) *stop = NO;
+            };
+            return [callback copy];
+        }
+    }
+    if ([className isEqualToString:@"NSDateComponentsFormatter"] && [base isEqualToString:@"NSLocale"])
+        return [[[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"] autorelease];
+    if ([className isEqualToString:@"NSPersonNameComponentsFormatter"]) {
+        if ([base isEqualToString:@"NSLocale"])
+            return [[[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"] autorelease];
+        if ([base isEqualToString:@"NSPersonNameComponents"])
+            return auto_object(@"NSPersonNameComponents *", index);
+    }
+    if ([className isEqualToString:@"NSMeasurement"] && [base isEqualToString:@"NSUnit"])
+        return auto_object(type, index);
+    if (([className isEqualToString:@"NSMeasurementFormatter"] || [className isEqualToString:@"NSByteCountFormatter"]) &&
+        [base isEqualToString:@"NSMeasurement"])
+        return auto_object(type, index);
+    if ([className isEqualToString:@"NSMeasurementFormatter"] && [base isEqualToString:@"NSLocale"])
+        return [[[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"] autorelease];
+    if ([className isEqualToString:@"NSEnergyFormatter"] && [base isEqualToString:@"NSNumberFormatter"]) {
+        NSNumberFormatter *formatter = [[[NSNumberFormatter alloc] init] autorelease];
+        formatter.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+        formatter.numberStyle = NSNumberFormatterDecimalStyle;
+        return formatter;
+    }
+    if ([className isEqualToString:@"NSScanner"] && [base isEqualToString:@"NSString"])
+        return @"42 -17 3.5 0x2a";
+    if ([className isEqualToString:@"NSFileWrapper"]) {
+        if ([base isEqualToString:@"NSData"])
+            return auto_data("finch", 5);
+        if ([base isEqualToString:@"NSFileWrapper"])
+            return auto_object(@"NSFileWrapper *", index);
+        if ([base isEqualToString:@"NSString"] && [name containsString:@"filename"])
+            return @"finch.txt";
+        if ([base isEqualToString:@"NSString"] &&
+            ([selectorName isEqualToString:@"initSymbolicLinkWithDestination:"] ||
+             [selectorName isEqualToString:@"addSymbolicLinkWithDestination:preferredFilename:"]))
+            return @"/System";
+        if ([base isEqualToString:@"NSDictionary"] && [selectorName isEqualToString:@"initDirectoryWithFileWrappers:"]) {
+            NSFileWrapper *child = auto_object(@"NSFileWrapper *", index + 1);
+            child.preferredFilename = @"finch.txt";
+            return @{@"finch.txt":child};
+        }
+        if ([base isEqualToString:@"NSDictionary"] &&
+            ([name containsString:@"attribute"] || [selectorName isEqualToString:@"setFileAttributes:"]))
+            return @{NSFileType:NSFileTypeRegular, NSFilePosixPermissions:@0644};
+        if ([base isEqualToString:@"NSString"] && [name containsString:@"destination"])
+            return @"/System";
+    }
+    if ([className isEqualToString:@"NSProgress"] && [base isEqualToString:@"NSProgress"])
+        return auto_object(@"NSProgress *", index);
+#ifdef FINCH_DIFFTEST_COREIMAGE
+    if ([base isEqualToString:@"NSString"] && [selectorName containsString:@"kernelWithString"]) {
+        if ([className isEqualToString:@"CIColorKernel"])
+            return @"kernel vec4 finchDifftestColorKernel (vec4 color) { return color; }";
+        if ([className isEqualToString:@"CIWarpKernel"])
+            return @"kernel vec2 finchDifftestWarpKernel (vec2 point) { return point; }";
+        if ([className isEqualToString:@"CIBlendKernel"])
+            return @"kernel vec4 finchDifftestBlendKernel (__sample foreground, __sample background) { return foreground + background; }";
+        return @"kernel vec4 finchDifftestKernel (sampler image) { return sample(image, samplerCoord(image)); }";
+    }
+    if ([base isEqualToString:@"NSData"] &&
+        ([className hasSuffix:@"CodeDescriptor"] || [className isEqualToString:@"CIQRCodeDescriptor"]))
+        return [NSData dataWithBytes:"finch" length:5];
+#endif
+#ifdef FINCH_DIFFTEST_CORESPOTLIGHT
+    if ([className isEqualToString:@"CSSearchableItemAttributeSet"] && [base isEqualToString:@"UTType"])
+        return [UTType typeWithIdentifier:@"public.item"];
+    if ([className isEqualToString:@"CSSearchableItemAttributeSet"] && [base isEqualToString:@"NSArray"]) {
+        if ([type containsString:@"CSPerson"])
+            return @[auto_object(@"CSPerson *", index)];
+        if ([type containsString:@"NSString"])
+            return @[@"Finch", @"difftest"];
+        if ([type containsString:@"NSNumber"])
+            return @[@1, @2];
+    }
+    if ([className isEqualToString:@"CSPerson"] && [base isEqualToString:@"NSArray"])
+        return @[@"+1 416 555 0100", @"+1 416 555 0101"];
+    if ([className isEqualToString:@"CSLocalizedString"] && [base isEqualToString:@"NSDictionary"])
+        return @{@"en":@"Finch", @"fr":@"Finch"};
+    if ([className isEqualToString:@"CSCustomAttributeKey"] && [base isEqualToString:@"NSString"] &&
+        [name containsString:@"key"])
+        return @[@"org_finch_value", @"org_finch_name", @"org_finch_tag"][index % 3];
+#endif
+#ifdef FINCH_DIFFTEST_QUARTZCORE
+    if ([className hasPrefix:@"CA"] && [base isEqualToString:@"NSString"] &&
+        ([name containsString:@"keypath"] || [name containsString:@"key"] || [name containsString:@"property"]))
+        return @[@"opacity", @"position", @"bounds"][index % 3];
+#endif
+#ifdef FINCH_DIFFTEST_APPKIT
+    if ([base isEqualToString:@"NSArray"] && [className isEqualToString:@"NSMenu"] &&
+        [selectorName isEqualToString:@"setItemArray:"])
+        return @[auto_object(@"NSMenuItem *", index)];
+    if ([base isEqualToString:@"NSArray"] && [className isEqualToString:@"NSMenuItem"] &&
+        [selectorName isEqualToString:@"setWritingToolsItems:"])
+        return @[auto_object(@"NSMenuItem *", index)];
+#endif
+#ifdef FINCH_DIFFTEST_COREIMAGE
+    if ([className isEqualToString:@"CIFilter"] && [base isEqualToString:@"NSString"] &&
+        ([name containsString:@"name"] || [selectorName containsString:@"WithName"]))
+        return @"CIColorControls";
+    if ([className isEqualToString:@"CIFilter"] && [base isEqualToString:@"NSString"] &&
+        [name containsString:@"key"])
+        return kCIInputImageKey;
+#endif
+#ifdef FINCH_DIFFTEST_UTI
+    if ([className isEqualToString:@"UTType"] && [base isEqualToString:@"NSString"]) {
+        if ([name containsString:@"tag"] || [name containsString:@"extension"])
+            return @[@"txt", @"jpg", @"pdf"][index % 3];
+        if ([name containsString:@"mime"])
+            return @[@"text/plain", @"image/jpeg", @"application/pdf"][index % 3];
+        return @[@"public.plain-text", @"public.jpeg", @"com.adobe.pdf"][index % 3];
+    }
+#endif
+#ifdef FINCH_DIFFTEST_CONTACTS
+    if ([className isEqualToString:@"CNContactFormatter"] && [base isEqualToString:@"NSLocale"])
+        return [[[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"] autorelease];
+    if ([className isEqualToString:@"CNContactFormatter"] && [base isEqualToString:@"CNContact"])
+        return auto_object(@"CNContact *", index);
+    if ([className isEqualToString:@"CNPostalAddressFormatter"] && [base isEqualToString:@"CNPostalAddress"])
+        return auto_object(@"CNPostalAddress *", index);
+    if ([className isEqualToString:@"CNContact"] && [base isEqualToString:@"NSString"])
+        return @[@"givenName", @"familyName", @"organizationName"][index % 3];
+#endif
+#ifdef FINCH_DIFFTEST_COREDATA
+    if ([className hasPrefix:@"NS"] && [base isEqualToString:@"NSString"] &&
+        ([name containsString:@"entity"] || [name containsString:@"name"]))
+        return @"FinchDifftestEntity";
+    if ([className hasPrefix:@"NS"] && [base isEqualToString:@"NSString"] && [name containsString:@"property"])
+        return @"title";
+#endif
+#ifdef FINCH_DIFFTEST_CORELOCATION
+    if ([className hasPrefix:@"CL"] && [base isEqualToString:@"NSString"] && [name containsString:@"identifier"])
+        return @"FinchDifftest";
+#endif
 #ifdef FINCH_DIFFTEST_APPKIT
     if ([className isEqualToString:@"NSColor"] &&
         ([base isEqualToString:@"NSString"] || [base isEqualToString:@"NSColorName"])) {
@@ -2456,6 +4248,12 @@ static id auto_method_object(NSString *type, NSString *parameterName, NSString *
         [name containsString:@"paper"])
         return @[@"na-letter", @"iso-a4"][index % 2];
 #endif
+#if defined(FINCH_DIFFTEST_COREIMAGE) || defined(FINCH_DIFFTEST_QUARTZCORE)
+    if ([base isEqualToString:@"CGColorSpaceRef"] || [base isEqualToString:@"CGColorSpace"]) {
+        CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+        return (id)colorSpace;
+    }
+#endif
     if ([className isEqualToString:@"NSObject"]) {
         if ([selectorName hasPrefix:@"isGreaterThan"] || [selectorName hasPrefix:@"isLessThan"])
             return @[@1, @2, @3][index % 3];
@@ -2526,6 +4324,11 @@ static id auto_method_object(NSString *type, NSString *parameterName, NSString *
         return @"v@:";
     if ([className isEqualToString:@"NSCalendar"] && [type containsString:@"NSCalendarIdentifier"])
         return @[NSCalendarIdentifierGregorian, NSCalendarIdentifierISO8601][index % 2];
+    if ([className isEqualToString:@"NSRegularExpression"] && [base isEqualToString:@"NSString"])
+        return @"Finch";
+    if (([className isEqualToString:@"NSAttributedString"] || [className isEqualToString:@"NSMutableAttributedString"]) &&
+        ([base isEqualToString:@"NSString"] || [base isEqualToString:@"NSAttributedStringKey"]))
+        return @"FinchTest";
     if ([base isEqualToString:@"NSString"] || [base isEqualToString:@"NSMutableString"]) {
         if ([className isEqualToString:@"NSLocale"]) {
             if ([selectorName containsString:@"DirectionForLanguage"])
@@ -2608,7 +4411,133 @@ static id auto_receiver(NSString *className, NSString *selectorName)
     Class cls = NSClassFromString(className);
     if (!cls) return nil;
     if ([selectorName hasPrefix:@"init"]) return [cls alloc];
+    if ([className isEqualToString:@"NSIndexSet"]) return auto_object(@"NSIndexSet *", 2);
+    if ([className isEqualToString:@"NSMutableIndexSet"]) return auto_object(@"NSMutableIndexSet *", 2);
+    if ([className isEqualToString:@"NSMeasurement"] || [className isEqualToString:@"NSPersonNameComponents"] ||
+        [className isEqualToString:@"NSUnit"] || [className hasPrefix:@"NSUnit"] ||
+        [className isEqualToString:@"NSScanner"])
+        return auto_object([NSString stringWithFormat:@"%@ *", className], 2);
+    if ([className isEqualToString:@"NSDateComponentsFormatter"]) {
+        NSDateComponentsFormatter *formatter = [[[NSDateComponentsFormatter alloc] init] autorelease];
+        formatter.calendar = [[[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian] autorelease];
+        formatter.calendar.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+        formatter.calendar.timeZone = [NSTimeZone timeZoneWithName:@"UTC"];
+        formatter.allowedUnits = NSCalendarUnitHour | NSCalendarUnitMinute | NSCalendarUnitSecond;
+        formatter.unitsStyle = NSDateComponentsFormatterUnitsStyleFull;
+        return formatter;
+    }
+    if ([className isEqualToString:@"NSPersonNameComponentsFormatter"]) {
+        NSPersonNameComponentsFormatter *formatter = [[[NSPersonNameComponentsFormatter alloc] init] autorelease];
+        formatter.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+        return formatter;
+    }
+    if ([className isEqualToString:@"NSByteCountFormatter"]) {
+        NSByteCountFormatter *formatter = [[[NSByteCountFormatter alloc] init] autorelease];
+        formatter.countStyle = NSByteCountFormatterCountStyleFile;
+        formatter.allowedUnits = NSByteCountFormatterUseAll;
+        return formatter;
+    }
+    if ([className isEqualToString:@"NSEnergyFormatter"]) {
+        NSEnergyFormatter *formatter = [[[NSEnergyFormatter alloc] init] autorelease];
+        NSNumberFormatter *numberFormatter = [[[NSNumberFormatter alloc] init] autorelease];
+        numberFormatter.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+        numberFormatter.numberStyle = NSNumberFormatterDecimalStyle;
+        formatter.numberFormatter = numberFormatter;
+        return formatter;
+    }
+    if ([className isEqualToString:@"NSMeasurementFormatter"]) {
+        NSMeasurementFormatter *formatter = [[[NSMeasurementFormatter alloc] init] autorelease];
+        formatter.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+        formatter.unitOptions = NSMeasurementFormatterUnitOptionsProvidedUnit;
+        NSNumberFormatter *numberFormatter = [[[NSNumberFormatter alloc] init] autorelease];
+        numberFormatter.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+        numberFormatter.numberStyle = NSNumberFormatterDecimalStyle;
+        formatter.numberFormatter = numberFormatter;
+        return formatter;
+    }
+    if ([className isEqualToString:@"NSFileWrapper"]) {
+        if ([selectorName isEqualToString:@"isSymbolicLink"] ||
+            [selectorName isEqualToString:@"symbolicLinkDestination"])
+            return [[[NSFileWrapper alloc] initSymbolicLinkWithDestination:@"/System"] autorelease];
+        if ([selectorName isEqualToString:@"fileWrappers"] || [selectorName isEqualToString:@"addFileWrapper:"] ||
+            [selectorName isEqualToString:@"addRegularFileWithContents:preferredFilename:"] ||
+            [selectorName isEqualToString:@"addSymbolicLinkWithDestination:preferredFilename:"] ||
+            [selectorName isEqualToString:@"removeFileWrapper"] || [selectorName isEqualToString:@"keyForFileWrapper:"] ||
+            [selectorName isEqualToString:@"isDirectory"]) {
+            NSFileWrapper *child = auto_object(@"NSFileWrapper *", 2);
+            child.preferredFilename = @"finch.txt";
+            return [[[NSFileWrapper alloc] initDirectoryWithFileWrappers:@{@"finch.txt":child}] autorelease];
+        }
+        return auto_object(@"NSFileWrapper *", 2);
+    }
+    if ([className isEqualToString:@"NSProgress"]) {
+        NSProgress *progress = [NSProgress progressWithTotalUnitCount:100];
+        progress.completedUnitCount = 42; progress.cancellable = YES; progress.pausable = YES;
+        progress.localizedDescription = @"Finch";
+        return progress;
+    }
 #ifdef FINCH_DIFFTEST_APPKIT
+    if ([className isEqualToString:@"NSGridView"]) return auto_grid_view();
+    if ([className isEqualToString:@"NSGridRow"]) return [auto_grid_view() rowAtIndex:0];
+    if ([className isEqualToString:@"NSGridColumn"]) return [auto_grid_view() columnAtIndex:0];
+    if ([className isEqualToString:@"NSGridCell"]) return [auto_grid_view() cellAtColumnIndex:0 rowIndex:0];
+    if ([className isEqualToString:@"NSRulerView"]) return auto_ruler_view();
+    if ([className isEqualToString:@"NSRulerMarker"])
+        return auto_object(@"NSRulerMarker *", 2);
+    if ([className isEqualToString:@"NSSlider"]) {
+        NSSlider *slider = [[[NSSlider alloc] initWithFrame:NSMakeRect(0, 0, 140, 24)] autorelease];
+        slider.minValue = 0; slider.maxValue = 100; slider.doubleValue = 42;
+        return slider;
+    }
+    if ([className isEqualToString:@"NSLevelIndicator"]) {
+        NSLevelIndicator *indicator = [[[NSLevelIndicator alloc] initWithFrame:NSMakeRect(0, 0, 120, 16)] autorelease];
+        indicator.minValue = 0; indicator.maxValue = 100; indicator.doubleValue = 42;
+        return indicator;
+    }
+    if ([className isEqualToString:@"NSPopUpButton"]) {
+        NSPopUpButton *button = [[[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 140, 24) pullsDown:NO] autorelease];
+        [button addItemsWithTitles:@[@"One", @"Two", @"Three"]];
+        return button;
+    }
+    if ([className isEqualToString:@"NSTabView"]) {
+        NSTabView *tabView = [[[NSTabView alloc] initWithFrame:NSMakeRect(0, 0, 160, 100)] autorelease];
+        for (NSString *identifier in @[@"one", @"two", @"three"]) {
+            NSTabViewItem *item = [[[NSTabViewItem alloc] initWithIdentifier:identifier] autorelease];
+            [item setLabel:[identifier capitalizedString]];
+            [tabView addTabViewItem:item];
+        }
+        return tabView;
+    }
+    if ([className isEqualToString:@"NSTabViewItem"]) {
+        NSTabViewItem *item = [[[NSTabViewItem alloc] initWithIdentifier:@"one"] autorelease];
+        [item setLabel:@"One"];
+        return item;
+    }
+    if ([className isEqualToString:@"NSMatrix"]) {
+        return [[[NSMatrix alloc] initWithFrame:NSMakeRect(0, 0, 120, 48) mode:NSRadioModeMatrix
+            cellClass:NSButtonCell.class numberOfRows:2 numberOfColumns:2] autorelease];
+    }
+    if ([className isEqualToString:@"NSControl"])
+        return [[[NSControl alloc] initWithFrame:NSMakeRect(0, 0, 120, 24)] autorelease];
+    if ([className isEqualToString:@"NSButton"])
+        return [[[NSButton alloc] initWithFrame:NSMakeRect(0, 0, 120, 24)] autorelease];
+    if ([className isEqualToString:@"NSTextField"])
+        return [[[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 160, 24)] autorelease];
+    if ([className isEqualToString:@"NSComboBox"]) {
+        NSComboBox *combo = [[[NSComboBox alloc] initWithFrame:NSMakeRect(0, 0, 160, 24)] autorelease];
+        [combo addItemsWithObjectValues:@[@"One", @"Two", @"Three"]];
+        return combo;
+    }
+    if ([className isEqualToString:@"NSSegmentedControl"]) {
+        NSSegmentedControl *control = [[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(0, 0, 180, 24)] autorelease];
+        control.segmentCount = 3;
+        [control setLabel:@"One" forSegment:0]; [control setLabel:@"Two" forSegment:1]; [control setLabel:@"Three" forSegment:2];
+        return control;
+    }
+    if ([className isEqualToString:@"NSProgressIndicator"])
+        return [[[NSProgressIndicator alloc] initWithFrame:NSMakeRect(0, 0, 120, 16)] autorelease];
+    if ([className isEqualToString:@"NSBox"])
+        return [[[NSBox alloc] initWithFrame:NSMakeRect(0, 0, 140, 80)] autorelease];
     if ([className isEqualToString:@"NSColor"]) return auto_color(2);
     if ([className isEqualToString:@"NSColorSpace"]) return [NSColorSpace sRGBColorSpace];
     if ([className isEqualToString:@"NSColorList"]) {
@@ -2617,6 +4546,41 @@ static id auto_receiver(NSString *className, NSString *selectorName)
         [list setColor:auto_color(4) forKey:@"gray"];
         return list;
     }
+    if ([className isEqualToString:@"NSCell"]) {
+        NSString *title = [selectorName isEqualToString:@"setFloatingPointFormat:left:right:"] ? @"42.5" : @"Finch";
+        NSCell *cell = [[[NSCell alloc] initTextCell:title] autorelease];
+        if ([selectorName isEqualToString:@"setFloatingPointFormat:left:right:"]) cell.doubleValue = 42.5;
+        return cell;
+    }
+    if ([className isEqualToString:@"NSButtonCell"])
+        return [[[NSButtonCell alloc] initTextCell:@"Finch"] autorelease];
+    if ([className isEqualToString:@"NSSliderCell"])
+        return [[[NSSliderCell alloc] init] autorelease];
+    if ([className isEqualToString:@"NSSegmentedCell"]) {
+        NSSegmentedCell *cell = [[[NSSegmentedCell alloc] init] autorelease];
+        cell.segmentCount = 3;
+        [cell setLabel:@"One" forSegment:0]; [cell setLabel:@"Two" forSegment:1]; [cell setLabel:@"Three" forSegment:2];
+        return cell;
+    }
+    if ([className isEqualToString:@"NSPopUpButtonCell"])
+        return [[[NSPopUpButtonCell alloc] initTextCell:@"Finch" pullsDown:NO] autorelease];
+    if ([className isEqualToString:@"NSComboBoxCell"]) {
+        NSComboBoxCell *cell = [[[NSComboBoxCell alloc] initTextCell:@"Finch"] autorelease];
+        [cell addItemsWithObjectValues:@[@"One", @"Two", @"Three"]];
+        return cell;
+    }
+    if ([className isEqualToString:@"NSLevelIndicatorCell"])
+        return [[[NSLevelIndicatorCell alloc] init] autorelease];
+    if ([className isEqualToString:@"NSTextFieldCell"])
+        return [[[NSTextFieldCell alloc] initTextCell:@"Finch"] autorelease];
+    if ([className isEqualToString:@"NSImageCell"])
+        return [[[NSImageCell alloc] initImageCell:auto_image()] autorelease];
+    if ([className isEqualToString:@"NSMenuItem"])
+        return [[[NSMenuItem alloc] initWithTitle:@"Finch" action:NULL keyEquivalent:@"f"] autorelease];
+    if ([className isEqualToString:@"NSMenu"])
+        return [[[NSMenu alloc] initWithTitle:@"Finch"] autorelease];
+    if ([className isEqualToString:@"NSTableColumn"])
+        return [[[NSTableColumn alloc] initWithIdentifier:@"Finch"] autorelease];
     if ([className isEqualToString:@"NSFont"]) return [NSFont systemFontOfSize:13];
     if ([className isEqualToString:@"NSFontDescriptor"]) return [[NSFont systemFontOfSize:13] fontDescriptor];
     if ([className isEqualToString:@"NSFontManager"]) return [NSFontManager sharedFontManager];
@@ -2635,6 +4599,12 @@ static id auto_receiver(NSString *className, NSString *selectorName)
     if ([className isEqualToString:@"NSCursor"]) return [NSCursor arrowCursor];
     if ([className isEqualToString:@"NSAppearance"]) return [NSAppearance appearanceNamed:NSAppearanceNameAqua];
     if ([className isEqualToString:@"NSEvent"]) return auto_event();
+    if ([className isEqualToString:@"NSTextStorage"]) return auto_text_storage();
+    if ([className isEqualToString:@"NSLayoutManager"]) return auto_text_layout_manager();
+    if ([className isEqualToString:@"NSTextContainer"]) return auto_text_container();
+    if ([className isEqualToString:@"NSTextView"]) return auto_text_view();
+    if ([className isEqualToString:@"NSScrollView"])
+        return [[[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 160, 96)] autorelease];
     if ([className isEqualToString:@"NSView"]) return auto_layout_view();
     if ([className isEqualToString:@"NSLayoutConstraint"]) return auto_constraint();
     if ([className isEqualToString:@"NSLayoutAnchor"] || [className isEqualToString:@"NSLayoutXAxisAnchor"])
@@ -2651,6 +4621,60 @@ static id auto_receiver(NSString *className, NSString *selectorName)
         return [[[NSAttributedString alloc] initWithString:@"Finch café🙂" attributes:@{NSFontAttributeName:[NSFont systemFontOfSize:12]}] autorelease];
     if ([className isEqualToString:@"NSMutableAttributedString"])
         return [[[NSMutableAttributedString alloc] initWithString:@"Finch café🙂" attributes:@{NSFontAttributeName:[NSFont systemFontOfSize:12]}] autorelease];
+#endif
+#ifdef FINCH_DIFFTEST_CORESPOTLIGHT
+    if ([className isEqualToString:@"CSSearchableItemAttributeSet"])
+        return auto_object(@"CSSearchableItemAttributeSet *", 2);
+    if ([className isEqualToString:@"CSSearchableItem"])
+        return auto_object(@"CSSearchableItem *", 2);
+    if ([className isEqualToString:@"CSLocalizedString"])
+        return auto_object(@"CSLocalizedString *", 2);
+    if ([className isEqualToString:@"CSPerson"])
+        return auto_object(@"CSPerson *", 2);
+    if ([className isEqualToString:@"CSCustomAttributeKey"])
+        return auto_object(@"CSCustomAttributeKey *", 2);
+#endif
+#ifdef FINCH_DIFFTEST_AVFAUDIO
+    if ([className isEqualToString:@"AVAudioFormat"])
+        return auto_object(@"AVAudioFormat *", 2);
+    if ([className isEqualToString:@"AVAudioChannelLayout"])
+        return auto_object(@"AVAudioChannelLayout *", 2);
+    if ([className isEqualToString:@"AVAudioTime"])
+        return auto_object(@"AVAudioTime *", 2);
+    if ([className isEqualToString:@"AVAudioPCMBuffer"])
+        return auto_object(@"AVAudioPCMBuffer *", 2);
+#endif
+#ifdef FINCH_DIFFTEST_QUARTZCORE
+    if ([className hasPrefix:@"CA"]) return auto_object([className stringByAppendingString:@" *"], 2);
+#endif
+#ifdef FINCH_DIFFTEST_COREIMAGE
+    if ([className hasPrefix:@"CI"]) return auto_object([className stringByAppendingString:@" *"], 2);
+#endif
+#ifdef FINCH_DIFFTEST_UTI
+    if ([className isEqualToString:@"UTType"]) return auto_object(@"UTType *", 2);
+#endif
+#ifdef FINCH_DIFFTEST_CONTACTS
+    if ([className hasPrefix:@"CN"]) return auto_object([className stringByAppendingString:@" *"], 2);
+#endif
+#ifdef FINCH_DIFFTEST_COREDATA
+    if ([className hasPrefix:@"NSFetchRequest"] || [className hasPrefix:@"NSEntityDescription"] ||
+        [className hasPrefix:@"NSPropertyDescription"] || [className hasPrefix:@"NSAttributeDescription"] ||
+        [className hasPrefix:@"NSRelationshipDescription"] || [className hasPrefix:@"NSFetchedPropertyDescription"] ||
+        [className hasPrefix:@"NSManagedObjectModel"] || [className hasPrefix:@"NSEntityMapping"] ||
+        [className hasPrefix:@"NSPropertyMapping"] || [className hasPrefix:@"NSMappingModel"])
+        return auto_object([className stringByAppendingString:@" *"], 2);
+    if ([className isEqualToString:@"NSFetchIndexDescription"] ||
+        [className isEqualToString:@"NSFetchIndexElementDescription"] ||
+        [className isEqualToString:@"NSPersistentStoreDescription"] ||
+        [className isEqualToString:@"NSBatchUpdateRequest"] ||
+        [className isEqualToString:@"NSBatchDeleteRequest"] || [className isEqualToString:@"NSMergePolicy"])
+        return auto_object([className stringByAppendingString:@" *"], 2);
+#endif
+#ifdef FINCH_DIFFTEST_CORELOCATION
+    if ([className hasPrefix:@"CL"]) return auto_object([className stringByAppendingString:@" *"], 2);
+#endif
+#ifdef FINCH_DIFFTEST_METAL
+    if ([className hasPrefix:@"MTL"]) return auto_object([className stringByAppendingString:@" *"], 2);
 #endif
     if ([className isEqualToString:@"NSObject"]) {
         if ([selectorName hasPrefix:@"isGreaterThan"] || [selectorName hasPrefix:@"isLessThan"])
@@ -2713,8 +4737,10 @@ static id auto_receiver(NSString *className, NSString *selectorName)
         formatter.numberStyle = NSNumberFormatterDecimalStyle; return formatter;
     }
     if ([className isEqualToString:@"NSCharacterSet"]) return [NSCharacterSet characterSetWithCharactersInString:@"aé中🙂"];
-    if ([className isEqualToString:@"NSAttributedString"]) return [[NSAttributedString alloc] initWithString:@"Finch" attributes:nil];
-    if ([className isEqualToString:@"NSMutableAttributedString"]) return [[NSMutableAttributedString alloc] initWithString:@"Finch" attributes:nil];
+    if ([className isEqualToString:@"NSAttributedString"])
+        return [[NSAttributedString alloc] initWithString:@"Finch" attributes:@{@"FinchTest":@"value"}];
+    if ([className isEqualToString:@"NSMutableAttributedString"])
+        return [[NSMutableAttributedString alloc] initWithString:@"Finch" attributes:@{@"FinchTest":@"value"}];
     if ([className isEqualToString:@"NSPredicate"]) return [NSPredicate predicateWithValue:YES];
     if ([className isEqualToString:@"NSNotificationCenter"]) return [NSNotificationCenter defaultCenter];
     if ([className isEqualToString:@"NSMapTable"]) return [[NSMapTable alloc] initWithKeyOptions:NSPointerFunctionsStrongMemory valueOptions:NSPointerFunctionsStrongMemory capacity:0];
@@ -2726,7 +4752,7 @@ static id auto_receiver(NSString *className, NSString *selectorName)
         return [[NSXMLDocument alloc] initWithXMLString:@"<root><item>value</item></root>" options:0 error:NULL];
     }
     if ([className isEqualToString:@"NSXMLElement"]) return [NSXMLElement elementWithName:@"root"];
-    if ([className isEqualToString:@"NSRegularExpression"]) return [NSRegularExpression regularExpressionWithPattern:@"a+" options:0 error:NULL];
+    if ([className isEqualToString:@"NSRegularExpression"]) return [NSRegularExpression regularExpressionWithPattern:@"Finch" options:0 error:NULL];
     if ([className isEqualToString:@"NSUUID"]) return [[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"];
     return nil;
 }
@@ -2775,14 +4801,194 @@ static void auto_store_scalar(void *destination, const char *encoding, NSString 
     NSString *clean = auto_clean_type(type);
     NSString *name = [parameter[@"name"] lowercaseString] ?: @"";
     NSArray *enumValues = auto_enum_values(parameter);
+    if (([className isEqualToString:@"NSMeasurement"] || [className isEqualToString:@"NSDateComponentsFormatter"] ||
+         [className isEqualToString:@"NSEnergyFormatter"]) && (encoding[0] == 'f' || encoding[0] == 'd')) {
+        static const double values[] = {0.0, 0.5, 2.0, 42.5};
+        double number = values[index % (sizeof(values) / sizeof(values[0]))];
+        if (encoding[0] == 'f') { float v = (float)number; memcpy(destination, &v, sizeof(v)); }
+        else memcpy(destination, &number, sizeof(number));
+        return;
+    }
+#ifdef FINCH_DIFFTEST_APPKIT
+    if (([className isEqualToString:@"NSControl"] || [className isEqualToString:@"NSButton"] ||
+         [className isEqualToString:@"NSTextField"] || [className isEqualToString:@"NSComboBox"] ||
+         [className isEqualToString:@"NSSegmentedControl"] || [className isEqualToString:@"NSProgressIndicator"] ||
+         [className isEqualToString:@"NSBox"] || [className isEqualToString:@"NSSlider"] ||
+         [className isEqualToString:@"NSLevelIndicator"] || [className isEqualToString:@"NSGridView"] ||
+         [className isEqualToString:@"NSGridRow"] || [className isEqualToString:@"NSGridColumn"] ||
+         [className isEqualToString:@"NSRulerView"] || [className isEqualToString:@"NSRulerMarker"]) &&
+        (encoding[0] == 'f' || encoding[0] == 'd') &&
+        ([name containsString:@"value"] || [name containsString:@"width"] || [name containsString:@"height"] ||
+         [name containsString:@"margin"] || [name containsString:@"spacing"] || [name containsString:@"border"] ||
+         [name containsString:@"thickness"] || [name containsString:@"increment"] || [name containsString:@"padding"] ||
+         [name containsString:@"location"] || [name containsString:@"offset"])) {
+        static const double values[] = {0.0, 0.5, 1.0, 4.0, 18.0, 42.5};
+        double number = values[index % (sizeof(values) / sizeof(values[0]))];
+        if (encoding[0] == 'f') { float v = (float)number; memcpy(destination, &v, sizeof(v)); }
+        else memcpy(destination, &number, sizeof(number));
+        return;
+    }
+    if ([className isEqualToString:@"NSView"] && [name isEqualToString:@"priority"] &&
+        ([selectorName hasPrefix:@"setContentCompressionResistancePriority:"] ||
+         [selectorName hasPrefix:@"setContentHuggingPriority:"])) {
+        static const float priorities[] = {250.0f, 500.0f, 750.0f, 1000.0f};
+        float value = priorities[index % (sizeof(priorities) / sizeof(priorities[0]))];
+        if (encoding[0] == 'd') { double wide = value; memcpy(destination, &wide, sizeof(wide)); }
+        else memcpy(destination, &value, sizeof(value));
+        return;
+    }
+    if ([className isEqualToString:@"NSView"] &&
+        ([selectorName isEqualToString:@"rotateByAngle:"] || [selectorName isEqualToString:@"setBoundsRotation:"] ||
+         [selectorName isEqualToString:@"setFrameRotation:"] || [selectorName isEqualToString:@"setFrameCenterRotation:"])) {
+        static const double angles[] = {0, 15, 45, -30};
+        double value = angles[index % 4];
+        if (encoding[0] == 'f') { float v = (float)value; memcpy(destination, &v, sizeof(v)); }
+        else memcpy(destination, &value, sizeof(value));
+        return;
+    }
+    NSSet *valueCells = [NSSet setWithObjects:@"NSButtonCell", @"NSSliderCell", @"NSSegmentedCell",
+        @"NSPopUpButtonCell", @"NSComboBoxCell", @"NSLevelIndicatorCell", @"NSTextFieldCell", @"NSImageCell", nil];
+    if ([valueCells containsObject:className] && (encoding[0] == 'f' || encoding[0] == 'd')) {
+        static const double values[] = {0, 0.25, 0.5, 1, 2, 8};
+        double value = values[index % (sizeof(values) / sizeof(values[0]))];
+        if (encoding[0] == 'f') { float v = (float)value; memcpy(destination, &v, sizeof(v)); }
+        else memcpy(destination, &value, sizeof(value));
+        return;
+    }
+    if ([valueCells containsObject:className] &&
+        ([name containsString:@"index"] || [name containsString:@"segment"] ||
+         [name containsString:@"numberoftick"] || [name containsString:@"numberofvisible"])) {
+        long long values[] = {0, 1, 2};
+        memset(destination, 0, storageSize);
+        memcpy(destination, &values[index % 3], MIN(storageSize, sizeof(values[0])));
+        return;
+    }
+#endif
+    if ([name isEqualToString:@"options"] &&
+        ([selectorName containsString:@"enumerate"] || [selectorName containsString:@"passingTest"])) {
+        NSUInteger value = 0;
+        memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+#ifdef FINCH_DIFFTEST_AVFAUDIO
+    if ([className isEqualToString:@"AVAudioFormat"] && [name containsString:@"samplerate"]) {
+        double value = 44100; memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([className isEqualToString:@"AVAudioFormat"] && [name containsString:@"channels"]) {
+        unsigned int value = 2; memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([className isEqualToString:@"AVAudioFormat"] && [name isEqualToString:@"format"]) {
+        AVAudioCommonFormat value = AVAudioPCMFormatFloat32;
+        memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([className isEqualToString:@"AVAudioChannelLayout"] && [name containsString:@"layouttag"]) {
+        AudioChannelLayoutTag value = kAudioChannelLayoutTag_Stereo;
+        memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([className isEqualToString:@"AVAudioTime"] && [name containsString:@"rate"]) {
+        double value = 44100; memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([className isEqualToString:@"AVAudioTime"] && [name containsString:@"sampletime"]) {
+        AVAudioFramePosition value = 128; memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([className isEqualToString:@"AVAudioPCMBuffer"] && [name containsString:@"framecapacity"]) {
+        AVAudioFrameCount value = 128; memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([className isEqualToString:@"AVAudioPCMBuffer"] && [name containsString:@"framelength"]) {
+        AVAudioFrameCount value = 32; memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+#endif
+#ifdef FINCH_DIFFTEST_METAL
+    if ([className isEqualToString:@"MTLRenderPassDescriptor"] &&
+        ([selectorName isEqualToString:@"getSamplePositions:count:"] ||
+         [selectorName isEqualToString:@"setSamplePositions:count:"]) && [name isEqualToString:@"count"]) {
+        NSUInteger value = index == 7 ? 0 : 4;
+        if ([selectorName isEqualToString:@"getSamplePositions:count:"]) value = 0;
+        memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+#endif
     if ([clean containsString:@"NSRange"]) {
-        NSRange range = [className isEqualToString:@"NSOrderedSet"] && [selectorName isEqualToString:@"getObjects:range:"] ?
-            NSMakeRange(0, 2) : NSMakeRange(0, index % 2);
+        NSRange range = NSMakeRange(0, index % 2);
+        if ([className isEqualToString:@"NSOrderedSet"] && [selectorName isEqualToString:@"getObjects:range:"])
+            range = NSMakeRange(0, 2);
+        else if ([className isEqualToString:@"NSIndexSet"] &&
+                 ([selectorName containsString:@"enumerate"] || [selectorName containsString:@"PassingTest"] ||
+                  [selectorName containsString:@"passingTest"]))
+            range = NSMakeRange(0, 6);
+        else if (([className isEqualToString:@"NSString"] || [className isEqualToString:@"NSAttributedString"] ||
+                  [className isEqualToString:@"NSRegularExpression"]) &&
+                 [selectorName containsString:@"enumerate"])
+            range = NSMakeRange(0, 5);
         memcpy(destination, &range, sizeof(range)); return;
     }
     if ([clean containsString:@"CFRange"]) {
         CFRange range = CFRangeMake(0, (CFIndex)(index % 2));
         memcpy(destination, &range, sizeof(range)); return;
+    }
+#ifdef FINCH_DIFFTEST_CORELOCATION
+    if ([clean containsString:@"CLLocationCoordinate2D"]) {
+        CLLocationCoordinate2D value = {43.6532 + (double)(index % 2), -79.3832};
+        memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+#endif
+#ifdef FINCH_DIFFTEST_COREIMAGE
+    if ([className isEqualToString:@"CIQRCodeDescriptor"] || [className isEqualToString:@"CIAztecCodeDescriptor"] ||
+        [className isEqualToString:@"CIPDF417CodeDescriptor"] || [className isEqualToString:@"CIDataMatrixCodeDescriptor"]) {
+        long long value = 1;
+        if ([className isEqualToString:@"CIQRCodeDescriptor"]) {
+            if ([name containsString:@"maskpattern"]) value = (long long)(index % 8);
+            else if ([name containsString:@"errorcorrectionlevel"]) value = CIQRCodeErrorCorrectionLevelL;
+            else if ([name containsString:@"symbolversion"]) value = 1 + (long long)(index % 40);
+        } else if ([className isEqualToString:@"CIAztecCodeDescriptor"]) {
+            if ([name containsString:@"iscompact"]) value = (long long)(index & 1);
+            else if ([name containsString:@"layercount"]) value = 1 + (long long)(index % 4);
+            else if ([name containsString:@"datacodewordcount"]) value = 1 + (long long)(index % 16);
+        } else if ([className isEqualToString:@"CIPDF417CodeDescriptor"]) {
+            if ([name containsString:@"iscompact"]) value = (long long)(index & 1);
+            else if ([name containsString:@"rowcount"]) value = 3 + (long long)(index % 20);
+            else if ([name containsString:@"columncount"]) value = 1 + (long long)(index % 10);
+        } else {
+            if ([name containsString:@"rowcount"] || [name containsString:@"columncount"]) value = 10;
+            else if ([name containsString:@"eccversion"]) value = CIDataMatrixCodeECCVersion200;
+        }
+        memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+#endif
+#ifdef FINCH_DIFFTEST_QUARTZCORE
+    if ([clean containsString:@"CATransform3D"]) {
+        CATransform3D value = CATransform3DIdentity;
+        value.m41 = (CGFloat)(index % 3); value.m42 = 2;
+        memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+#endif
+#ifdef FINCH_DIFFTEST_METAL
+    if ([clean containsString:@"MTL4BufferRange"]) {
+        MTL4BufferRange value = MTL4BufferRangeMake(0, 0);
+        memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([clean containsString:@"MTLSize"]) {
+        MTLSize value = MTLSizeMake(8, 4, 1);
+        memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([clean containsString:@"MTLOrigin"]) {
+        MTLOrigin value = MTLOriginMake(1, 2, 0);
+        memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([clean containsString:@"MTLRegion"]) {
+        MTLRegion value = MTLRegionMake2D(1, 2, 8, 4);
+        memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([clean containsString:@"MTLClearColor"]) {
+        MTLClearColor value = MTLClearColorMake(0.25, 0.5, 0.75, 1.0);
+        memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+    if ([clean containsString:@"MTLSamplePosition"]) {
+        MTLSamplePosition value = {0.25f, 0.75f};
+        memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
+    }
+#endif
+    if ([clean containsString:@"NSOperatingSystemVersion"]) {
+        NSOperatingSystemVersion value = {15, 0, 1};
+        memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
     }
 #ifdef FINCH_DIFFTEST_APPKIT
     if ([className isEqualToString:@"NSBezierPath"] && [clean containsString:@"Point"]) {
@@ -2925,6 +5131,11 @@ static void auto_store_scalar(void *destination, const char *encoding, NSString 
         if (encoding[0] == 'f') { float v = (float)value; memcpy(destination, &v, sizeof(v)); }
         else memcpy(destination, &value, sizeof(value));
         return;
+    }
+    if ([className isEqualToString:@"NSCell"] &&
+        [selectorName isEqualToString:@"setFloatingPointFormat:left:right:"] &&
+        ([name isEqualToString:@"leftdigits"] || [name isEqualToString:@"rightdigits"])) {
+        NSUInteger value = 2; memcpy(destination, &value, MIN(storageSize, sizeof(value))); return;
     }
 #endif
     if ([className isEqualToString:@"NSDateInterval"] && [name containsString:@"duration"]) {
@@ -3082,6 +5293,8 @@ static void auto_test_method(NSDictionary *item)
     NSUInteger cases = argumentCount ? 8 : 1;
     for (NSUInteger caseIndex = 0; caseIndex < cases; caseIndex++) {
         @autoreleasepool {
+            auto_callback_output = [NSMutableArray array];
+            auto_callback_was_used = NO;
             id receiver = classMethod ? (id)cls : auto_receiver(className, selectorName);
             if (!receiver) { printf("%lu\tnot-exercised:no-safe-receiver\n", (unsigned long)caseIndex); continue; }
             NSMethodSignature *sig = [receiver methodSignatureForSelector:selector];
@@ -3173,6 +5386,41 @@ static void auto_test_method(NSDictionary *item)
                 if (encoding[0] == '^' || encoding[0] == '*') {
                     NSString *parameterName = parameter[@"name"] ?: @"";
                     NSString *direction = parameter[@"direction"] ?: @"unspecified";
+#ifdef FINCH_DIFFTEST_METAL
+                    if ([className isEqualToString:@"MTLRenderPassDescriptor"] &&
+                        [selectorName isEqualToString:@"getSamplePositions:count:"] &&
+                        [parameterName isEqualToString:@"positions"]) {
+                        if (caseIndex == 7) {
+                            void *value = NULL; [argumentObjects addObject:NSNull.null];
+                            [invocation setArgument:&value atIndex:argIndex + 2];
+                        } else {
+                            MTLSamplePosition *storage = calloc(1, sizeof(MTLSamplePosition));
+                            if (!storage) { hasSafeInputs = NO; void *value = NULL; [invocation setArgument:&value atIndex:argIndex + 2]; continue; }
+                            void *value = storage; [argumentObjects addObject:NSNull.null];
+                            [invocation setArgument:&value atIndex:argIndex + 2];
+                            [outputPointers addObject:@{@"type":type, @"storage":[NSValue valueWithPointer:storage], @"size":@(sizeof(MTLSamplePosition)), @"kind":@"sample-position-array", @"count":@0}];
+                        }
+                        continue;
+                    }
+                    if ([className isEqualToString:@"MTLRenderPassDescriptor"] &&
+                        [selectorName isEqualToString:@"setSamplePositions:count:"] &&
+                        [parameterName isEqualToString:@"positions"]) {
+                        if (caseIndex == 7) {
+                            void *value = NULL; [argumentObjects addObject:NSNull.null];
+                            [invocation setArgument:&value atIndex:argIndex + 2];
+                        } else {
+                            NSMutableData *backing = [NSMutableData dataWithLength:4 * sizeof(MTLSamplePosition)];
+                            MTLSamplePosition *positions = backing.mutableBytes;
+                            for (NSUInteger i = 0; i < 4; i++) {
+                                positions[i].x = (float)(i + 1) / 5.0f;
+                                positions[i].y = (float)(4 - i) / 5.0f;
+                            }
+                            void *value = positions; [argumentObjects addObject:backing];
+                            [invocation setArgument:&value atIndex:argIndex + 2];
+                        }
+                        continue;
+                    }
+#endif
                     BOOL outputName = [parameterName rangeOfString:@"(?:error|out|result|start|end|length|location|range|count|offset|used|remaining|destination|response|buffer|characters)" options:NSRegularExpressionSearch | NSCaseInsensitiveSearch].location != NSNotFound;
                     BOOL noCopyCharacters = [className isEqualToString:@"NSString"] &&
                         [selectorName isEqualToString:@"initWithCharactersNoCopy:length:freeWhenDone:"] &&
@@ -3408,6 +5656,14 @@ static void auto_test_method(NSDictionary *item)
                         NSMutableArray *values = [NSMutableArray array]; id *objects = storage;
                         for (NSUInteger i = 0; i < 2; i++) [values addObject:auto_canonical(objects[i]) ?: @"null"];
                         auto_print(auto_canonical(values));
+#ifdef FINCH_DIFFTEST_METAL
+                    } else if ([slot[@"kind"] isEqualToString:@"sample-position-array"]) {
+                        MTLSamplePosition *positions = storage;
+                        NSMutableString *result = [NSMutableString stringWithFormat:@"sample-positions:%@", slot[@"count"]];
+                        for (NSUInteger i = 0; i < [slot[@"count"] unsignedIntegerValue]; i++)
+                            [result appendFormat:@"|%a,%a", (double)positions[i].x, (double)positions[i].y];
+                        auto_print(auto_canonical(result));
+#endif
                     } else if ([type containsString:@"NSRange"] && [type componentsSeparatedByString:@"*"].count == 2) {
                         NSRange range; memcpy(&range, storage, sizeof(range)); printf("range:%lu,%lu", (unsigned long)range.location, (unsigned long)range.length);
                     } else if ([type containsString:@"CFRange"] && [type componentsSeparatedByString:@"*"].count == 2) {
@@ -3426,7 +5682,42 @@ static void auto_test_method(NSDictionary *item)
                     free(storage);
                 }
                 if (!classMethod && (returnType[0] == 'v' || auto_type_is_mutable(className))) {
-                    putchar('\t'); auto_print(auto_canonical(receiver));
+                    putchar('\t');
+#ifdef FINCH_DIFFTEST_QUARTZCORE
+                    if ([className hasPrefix:@"CA"] && [selectorName hasPrefix:@"set"] &&
+                        [selectorName hasSuffix:@":"] && selectorName.length > 4) {
+                        NSString *key = [selectorName substringWithRange:NSMakeRange(3, selectorName.length - 4)];
+                        NSString *first = [[key substringToIndex:1] lowercaseString];
+                        key = [first stringByAppendingString:[key substringFromIndex:1]];
+                        auto_print(auto_canonical([receiver valueForKey:key]));
+                    } else
+#endif
+#ifdef FINCH_DIFFTEST_METAL
+                    if ([className isEqualToString:@"MTLRenderPassDescriptor"] &&
+                        [selectorName isEqualToString:@"setSamplePositions:count:"]) {
+                        MTLSamplePosition positions[8] = {};
+                        NSUInteger requestedCount = caseIndex == 7 ? 0 : 4;
+                        NSUInteger count = [(MTLRenderPassDescriptor *)receiver getSamplePositions:positions count:requestedCount];
+                        NSMutableString *state = [NSMutableString stringWithFormat:@"sample-positions:%lu", (unsigned long)count];
+                        for (NSUInteger i = 0; i < MIN(count, (NSUInteger)8); i++)
+                            [state appendFormat:@"|%a,%a", (double)positions[i].x, (double)positions[i].y];
+                        auto_print(auto_canonical(state));
+                    } else
+#endif
+#ifdef FINCH_DIFFTEST_CORESPOTLIGHT
+                    if ([className isEqualToString:@"CSSearchableItemAttributeSet"] &&
+                        [selectorName isEqualToString:@"setValue:forCustomKey:"]) {
+                        id key = argumentObjects.count > 1 && argumentObjects[1] != NSNull.null ? argumentObjects[1] : nil;
+                        auto_print(auto_canonical(key ? [receiver valueForCustomKey:key] : nil));
+                    } else if ([className isEqualToString:@"CSSearchableItemAttributeSet"] &&
+                        [selectorName hasPrefix:@"set"] && [selectorName hasSuffix:@":"] && selectorName.length > 4) {
+                        NSString *key = [selectorName substringWithRange:NSMakeRange(3, selectorName.length - 4)];
+                        NSString *first = [[key substringToIndex:1] lowercaseString];
+                        key = [first stringByAppendingString:[key substringFromIndex:1]];
+                        auto_print(auto_canonical([receiver valueForKey:key]));
+                    } else
+#endif
+                    auto_print(auto_canonical(receiver));
                 }
                 for (NSUInteger argIndex = 0; argIndex < argumentObjects.count; argIndex++) {
                     id value = argumentObjects[argIndex];
@@ -3434,6 +5725,10 @@ static void auto_test_method(NSDictionary *item)
                     if (value != NSNull.null && auto_type_is_mutable(parameter[@"type"] ?: @"")) {
                         printf("\targ%lu=", (unsigned long)argIndex); auto_print(auto_canonical(value));
                     }
+                }
+                if (auto_callback_was_used) {
+                    putchar('\t');
+                    auto_print(auto_canonical(auto_callback_result(className)));
                 }
                 putchar('\n');
             } @catch (NSException *exception) {
@@ -3511,7 +5806,11 @@ def prepare(framework: str, c_items: set[str], objc_items: set[str], swift_items
             if reason:
                 skipped[name] = reason
                 continue
-        reason = _skip_reason(name)
+        reason = _objc_framework_scope_reason(framework, method)
+        if reason:
+            skipped[name] = reason
+            continue
+        reason = _skip_reason(name, framework)
         if reason:
             skipped[name] = reason
             continue
@@ -3532,13 +5831,14 @@ def prepare(framework: str, c_items: set[str], objc_items: set[str], swift_items
             qtype = parameter.get("type", "")
             base = _base_type(qtype)
             if _is_function_pointer(qtype):
-                # Comparator blocks are safe and the invocation harness supplies one.
-                if not ("(^" in qtype and re.search(r"comparator", name, re.I)):
+                # These callbacks run synchronously over fixed in-memory values.
+                if name not in FOUNDATION_CALLBACK_METHODS and not (
+                        "(^" in qtype and re.search(r"comparator", name, re.I)):
                     unsupported = f"callback parameter has no safe builder: {qtype}"
                     break
-            elif _scalar_kind(qtype) or _is_cf_ref(qtype) or _is_objc_object(qtype) or _base_type(qtype) == "SEL":
+            elif _scalar_kind(qtype) or parameter.get("enum_values") or _is_cf_ref(qtype) or _is_objc_object(qtype) or _base_type(qtype) == "SEL":
                 pass
-            elif "char *" in qtype or base in ("void", "NSRange", "CFRange", "CGPoint", "CGSize", "CGRect", "NSPoint", "NSSize", "NSRect", "CGAffineTransform", "CATransform3D"):
+            elif "char *" in qtype or base in ("void", "NSRange", "CFRange", "CGPoint", "CGSize", "CGRect", "NSPoint", "NSSize", "NSRect", "CGAffineTransform", "CATransform3D", "NSRangePointer", "NSPointArray", "NSSizeArray", "NSRectArray"):
                 pass
             elif "*" in qtype and parameter.get("nullable"):
                 pass

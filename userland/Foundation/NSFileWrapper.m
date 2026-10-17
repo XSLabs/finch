@@ -38,7 +38,7 @@ typedef enum { KIND_FILE, KIND_DIRECTORY, KIND_LINK } Kind;
     if ((self = [super init])) {
         _kind = KIND_FILE;
         _contents = [contents copy];
-        _attributes = [[NSDictionary alloc] init];
+        _attributes = [@{NSFileType:NSFileTypeRegular, NSFilePosixPermissions:@0666} copy];
     }
     return self;
 }
@@ -48,7 +48,7 @@ typedef enum { KIND_FILE, KIND_DIRECTORY, KIND_LINK } Kind;
     if ((self = [super init])) {
         _kind = KIND_DIRECTORY;
         _children = [NSMutableDictionary new];
-        _attributes = [[NSDictionary alloc] init];
+        _attributes = [@{NSFileType:NSFileTypeDirectory, NSFilePosixPermissions:@0777} copy];
         for (NSString *name in childrenByPreferredName) {
             NSFileWrapper *w = [childrenByPreferredName objectForKey:name];
             if (![w preferredFilename]) [w setPreferredFilename:name];
@@ -64,7 +64,7 @@ typedef enum { KIND_FILE, KIND_DIRECTORY, KIND_LINK } Kind;
     if ((self = [super init])) {
         _kind = KIND_LINK;
         _destination = [url copy];
-        _attributes = [[NSDictionary alloc] init];
+        _attributes = [@{NSFileType:NSFileTypeSymbolicLink, NSFilePosixPermissions:@0666} copy];
     }
     return self;
 }
@@ -311,9 +311,13 @@ typedef enum { KIND_FILE, KIND_DIRECTORY, KIND_LINK } Kind;
 
 - (instancetype)initSymbolicLinkWithDestination:(NSString *)path
 {
-    NSString *escaped = [path stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]];
-    NSURL *destination = [NSURL URLWithString:escaped ?: path];
-    return [self initSymbolicLinkWithDestinationURL:destination];
+    if (![path length])
+        return nil;
+    NSURL *destination = [NSURL fileURLWithPath:path];
+    self = [self initSymbolicLinkWithDestinationURL:destination];
+    if (self)
+        self.preferredFilename = [path lastPathComponent];
+    return self;
 }
 
 - (NSString *)addFileWithPath:(NSString *)path
@@ -351,7 +355,7 @@ typedef enum { KIND_FILE, KIND_DIRECTORY, KIND_LINK } Kind;
 {
     [self requireKind:KIND_LINK cmd:_cmd];
     if ([_destination isFileURL])
-        return [_destination path];
+        return [_destination relativePath];
     return [[_destination relativeString] stringByRemovingPercentEncoding] ?: [_destination relativeString];
 }
 
