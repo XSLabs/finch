@@ -13,6 +13,7 @@ public struct Toggle<Label>: View where Label: View {
     @Binding var toggleState: ToggleState
     var label: Label
     @Environment(\._finchInToolbar) private var inToolbar
+    @Environment(\._finchToggleStyles) private var toggleStyles
 
     public init(isOn: Binding<Bool>, @ViewBuilder label: () -> Label) {
         self.init(toggledOn: [isOn], label: label)
@@ -38,6 +39,13 @@ public struct Toggle<Label>: View where Label: View {
     @MainActor
     @preconcurrency
     public var body: some View {
+        let configuration = ToggleStyleConfiguration(
+            label: .init(),
+            isOn: $toggleState.projecting(ToggleStateBool()),
+            toggleState: $toggleState,
+            isMixed: false,
+            effect: .binding
+        )
         if inToolbar {
             // in a toolbar, as Apple's: a button showing the label's icon, shaded when on
             Button {
@@ -48,6 +56,9 @@ public struct Toggle<Label>: View where Label: View {
             .padding(.horizontal, 5)
             .padding(.vertical, 3)
             .background(RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(toggleState == .on ? 0.12 : 0)))
+        } else if let style = toggleStyles.last {
+            style.body(configuration)
+                .viewAlias(ToggleStyleConfiguration.Label.self) { label }
         } else {
             HStack(spacing: 6) {
                 _FinchCheckbox(state: $toggleState).fixedSize()
@@ -59,6 +70,30 @@ public struct Toggle<Label>: View where Label: View {
 
 @available(*, unavailable)
 extension Toggle: Sendable {}
+
+private struct _FinchToggleStylesKey: EnvironmentKey {
+    static var defaultValue: [_FinchAnyToggleStyle] { [] }
+}
+
+extension EnvironmentValues {
+    var _finchToggleStyles: [_FinchAnyToggleStyle] {
+        get { self[_FinchToggleStylesKey.self] }
+        set { self[_FinchToggleStylesKey.self] = newValue }
+    }
+}
+
+struct _FinchAnyToggleStyle: @unchecked Sendable {
+    let body: (ToggleStyleConfiguration) -> AnyView
+
+    @MainActor
+    init<S: ToggleStyle>(_ style: S) {
+        body = { configuration in
+            AnyView(_FinchStyleView(style: style, configuration: configuration) { style, configuration in
+                MainActor.assumeIsolated { AnyView(style.makeBody(configuration: configuration)) }
+            })
+        }
+    }
+}
 
 @available(OpenSwiftUI_v1_0, *)
 extension Toggle where Label == Text {

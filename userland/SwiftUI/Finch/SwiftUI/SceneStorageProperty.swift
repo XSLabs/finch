@@ -231,3 +231,19 @@ extension SceneStorage where Value: Decodable, Value: Encodable {
                   write: { store, key, value in store.set(try? JSONEncoder().encode(value), forKey: key) })
     }
 }
+
+@available(OpenSwiftUI_v3_0, *)
+extension SceneStorage {
+    public init<RowValue>(wrappedValue: Value = TableColumnCustomization<RowValue>(), _ key: String)
+        where Value == TableColumnCustomization<RowValue>, RowValue: Identifiable {
+        self.init(key: key, defaultValue: wrappedValue,
+                  read: { store, key in
+                      store.data(forKey: key).flatMap {
+                          try? JSONDecoder().decode(TableColumnCustomization<RowValue>.self, from: $0)
+                      }
+                  },
+                  write: { store, key, value in
+                      store.set(try? JSONEncoder().encode(value), forKey: key)
+                  })
+    }
+}

@@ -186,7 +186,6 @@ extension View {
                                          pressing: pressing, action: action))
     }
 
-    @_alwaysEmitIntoClient
     nonisolated public func onLongPressGesture(minimumDuration: Double = 0.5, maximumDistance: CGFloat = 10,
                                                perform action: @escaping () -> Void,
                                                onPressingChanged: ((Bool) -> Void)? = nil) -> some View {

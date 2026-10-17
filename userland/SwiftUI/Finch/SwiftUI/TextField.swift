@@ -139,19 +139,19 @@ public struct SquareBorderTextFieldStyle: TextFieldStyle, _FinchTextFieldStyle {
 @available(*, unavailable) extension SquareBorderTextFieldStyle: Sendable {}
 
 extension TextFieldStyle where Self == DefaultTextFieldStyle {
-    @_alwaysEmitIntoClient public static var automatic: DefaultTextFieldStyle { .init() }
+    public static var automatic: DefaultTextFieldStyle { .init() }
 }
 
 extension TextFieldStyle where Self == RoundedBorderTextFieldStyle {
-    @_alwaysEmitIntoClient public static var roundedBorder: RoundedBorderTextFieldStyle { .init() }
+    public static var roundedBorder: RoundedBorderTextFieldStyle { .init() }
 }
 
 extension TextFieldStyle where Self == PlainTextFieldStyle {
-    @_alwaysEmitIntoClient public static var plain: PlainTextFieldStyle { .init() }
+    public static var plain: PlainTextFieldStyle { .init() }
 }
 
 extension TextFieldStyle where Self == SquareBorderTextFieldStyle {
-    @_alwaysEmitIntoClient public static var squareBorder: SquareBorderTextFieldStyle { .init() }
+    public static var squareBorder: SquareBorderTextFieldStyle { .init() }
 }
 
 @available(*, unavailable)
@@ -159,7 +159,7 @@ extension TextField: Sendable {}
 
 // MARK: - Text
 
-private func textModel(_ text: Binding<String>, placeholder: Text?, multiline: Bool = false,
+func textModel(_ text: Binding<String>, placeholder: Text?, multiline: Bool = false,
                        onEditingChanged: @escaping (Bool) -> Void = { _ in },
                        onCommit: @escaping () -> Void = {}) -> _FinchTextFieldModel {
     _FinchTextFieldModel(get: { text.wrappedValue }, set: { text.wrappedValue = $0 }, placeholder: placeholder,
@@ -228,21 +228,21 @@ extension TextField {
 
 // MARK: - Formatted values
 
-private func formatModel<F>(_ value: Binding<F.FormatInput>, format: F, placeholder: Text?) -> _FinchTextFieldModel
+func formatModel<F>(_ value: Binding<F.FormatInput>, format: F, placeholder: Text?) -> _FinchTextFieldModel
     where F: ParseableFormatStyle, F.FormatOutput == String {
     _FinchTextFieldModel(get: { format.format(value.wrappedValue) }, set: { s in
         if let v = try? format.parseStrategy.parse(s) { value.wrappedValue = v }
     }, placeholder: placeholder)
 }
 
-private func optionalFormatModel<F>(_ value: Binding<F.FormatInput?>, format: F, placeholder: Text?) -> _FinchTextFieldModel
+func optionalFormatModel<F>(_ value: Binding<F.FormatInput?>, format: F, placeholder: Text?) -> _FinchTextFieldModel
     where F: ParseableFormatStyle, F.FormatOutput == String {
     _FinchTextFieldModel(get: { value.wrappedValue.map { format.format($0) } ?? "" }, set: { s in
         value.wrappedValue = s.isEmpty ? nil : try? format.parseStrategy.parse(s)
     }, placeholder: placeholder)
 }
 
-private func formatterModel<V>(_ value: Binding<V>, formatter: Formatter, placeholder: Text?,
+func formatterModel<V>(_ value: Binding<V>, formatter: Formatter, placeholder: Text?,
                                onEditingChanged: @escaping (Bool) -> Void = { _ in },
                                onCommit: @escaping () -> Void = {}) -> _FinchTextFieldModel {
     _FinchTextFieldModel(get: { formatter.string(for: value.wrappedValue) ?? "" }, set: { s in

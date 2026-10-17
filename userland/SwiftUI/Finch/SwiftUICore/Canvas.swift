@@ -74,7 +74,6 @@ public struct _TextRendererViewModifier<Renderer> where Renderer: TextRenderer {
     @usableFromInline
     var renderer: Renderer
 
-    @_alwaysEmitIntoClient
     init(renderer: Renderer) {
         self.renderer = renderer
     }
@@ -98,7 +97,6 @@ extension _TextRendererViewModifier: ViewModifier, PrimitiveViewModifier {
 
 @available(OpenSwiftUI_v5_0, *)
 extension View {
-    @_alwaysEmitIntoClient
     nonisolated public func textRenderer<T>(_ renderer: T) -> some View where T: TextRenderer {
         modifier(_TextRendererViewModifier(renderer: renderer))
     }

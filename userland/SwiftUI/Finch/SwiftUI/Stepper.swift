@@ -18,6 +18,20 @@ public struct Stepper<Label>: View where Label: View {
     private var onEditingChanged: (Bool) -> Void
     @Environment(\.isEnabled) private var isEnabled
 
+    nonisolated public init(onIncrement: (() -> Void)?, onDecrement: (() -> Void)?,
+                            onEditingChanged: @escaping (Bool) -> Void = { _ in },
+                            @ViewBuilder label: () -> Label) {
+        self.label = label()
+        value = 0
+        step = 1
+        minimum = nil
+        maximum = nil
+        self.onEditingChanged = onEditingChanged
+        change = { direction in
+            if direction > 0 { onIncrement?() } else if direction < 0 { onDecrement?() }
+        }
+    }
+
     private init<V>(value: Binding<V>, step: V.Stride, bounds: ClosedRange<V>?,
                     onEditingChanged: @escaping (Bool) -> Void,
                     @ViewBuilder label: () -> Label) where V: Strideable {

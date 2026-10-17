@@ -368,7 +368,6 @@ extension View {
         }
     }
 
-    @_alwaysEmitIntoClient
     nonisolated public func popover<Item, Content>(item: Binding<Item?>, attachmentAnchor: PopoverAttachmentAnchor = .rect(.bounds),
                                                    arrowEdge: Edge? = nil,
                                                    @ViewBuilder content: @escaping (Item) -> Content) -> some View
@@ -376,7 +375,6 @@ extension View {
         popoverCore(item: item, attachmentAnchor: attachmentAnchor, arrowEdges: arrowEdge.map { .init($0) }, content: content)
     }
 
-    @_alwaysEmitIntoClient
     nonisolated public func popover<Content>(isPresented: Binding<Bool>, attachmentAnchor: PopoverAttachmentAnchor = .rect(.bounds),
                                              arrowEdge: Edge? = nil, @ViewBuilder content: @escaping () -> Content) -> some View
         where Content: View {

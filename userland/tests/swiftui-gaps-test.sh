@@ -14,12 +14,16 @@ trap 'rm -rf "${TMP}"' EXIT
 run() {
     local stage="$1"
     shift
-    FINCH_THEME=Classic SWIFTUI_GAPS_TEST=1 SWIFTUI_GAPS_STAGE="${stage}" \
+    if ! FINCH_THEME=Classic SWIFTUI_GAPS_TEST=1 SWIFTUI_GAPS_STAGE="${stage}" \
         DYLD_FRAMEWORK_PATH="${LIBRARY}/Frameworks:${LIBRARY}/PrivateFrameworks" \
         DYLD_LIBRARY_PATH="${ROOT}/build/root/usr/lib/swift" \
         FINCH_FONT_DIRS="${LIBRARY}/Fonts" \
         "${RUNNER}" "${SERVER}" "${APP}" "window:SwiftUI More" wait:300 "$@" \
-        > "${TMP}/${stage}.out" 2>&1
+        > "${TMP}/${stage}.out" 2>&1; then
+        cat "${TMP}/${stage}.out"
+        echo "${stage}: app runner failed" >&2
+        exit 1
+    fi
 }
 
 has() {
@@ -45,6 +49,71 @@ has stepper "editing: true"
 
 run checkbox click:118,182 output
 has checkbox "checkbox: true"
+
+run button-toggle click:120,182 output
+has button-toggle "button-toggle: false"
+has button-toggle "button-toggle: true"
+
+run button-repeat hold:120,182,750 output
+awk '/^button-repeat:/ { if ($2 >= 2) found = 1 } END { exit !found }' \
+    "${TMP}/button-repeat.out" || {
+        cat "${TMP}/button-repeat.out"
+        echo "button-repeat: holding the button did not repeat its action" >&2
+        exit 1
+    }
+
+run date-picker click:125,150 type:12/20/2023 key:36,13 wait:200 output
+grep -Fq 'date-picker:' "${TMP}/date-picker.out" || {
+    cat "${TMP}/date-picker.out"
+    echo "date-picker: expected the picker to report its selected date" >&2
+    exit 1
+}
+
+run file-importer click:120,182 wait:200 key:53,27 wait:200 output
+has file-importer "file-importer: cancelled"
+
+run exit-command key:53,27 output
+has exit-command "exit-command: handled"
+
+run table-style sample:31,150,table sample:150,150,table-row output
+has table-style "table-style: bordered"
+awk '/^table:/ { if ($2 > 0 || $3 > 0 || $4 > 0) found = 1 } END { exit !found }' \
+    "${TMP}/table-style.out" || {
+        cat "${TMP}/table-style.out"
+        echo "table-style: the bordered table did not draw at its sample point" >&2
+        exit 1
+    }
+
+run table-column-sort output
+has table-column-sort "table-column-sort: Alpha,Zebra"
+
+run image-renderer output
+has image-renderer "image-renderer: 20x40"
+
+run shape-style-gradients output
+has shape-style-gradients "shape-style-gradients: 80x20"
+
+run shape-style-types output
+has shape-style-types "shape-style-types: 180x24"
+
+run font-size output
+grep -Fq 'font-size:' "${TMP}/font-size.out" || {
+    cat "${TMP}/font-size.out"
+    echo "font-size: the font modifiers did not render" >&2
+    exit 1
+}
+
+run gauge output
+has gauge "gauge: 100x70"
+
+run control-group-style output
+has control-group-style "control-group-style: 100x36"
+
+run text-accessibility output
+has text-accessibility "text-accessibility: ready"
+
+run localized-accessibility output
+has localized-accessibility "localized-accessibility: ready"
 
 run editor click:60,150 type:Finch output
 has editor "editor: FinchEdit me"
@@ -83,4 +152,4 @@ active_count="$(grep -Fc 'hover: active' "${TMP}/hover.out" || true)"
     exit 1
 }
 
-echo "SwiftUI gaps: Canvas fill, Stepper, TextEditor, scroll geometry and bounce, checkbox style, collection move, and continuous hover passed"
+echo "SwiftUI gaps: Canvas fill, Stepper, TextEditor, file importer, exit command, date picker, image rendering, button repeat and toggle styles, table and control group styles, Gauge, scroll geometry and bounce, collection move, and continuous hover passed"

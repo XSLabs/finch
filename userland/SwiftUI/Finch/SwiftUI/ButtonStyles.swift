@@ -90,6 +90,7 @@ struct _FinchButtonStyleHost<Style: ButtonStyle>: View {
     var configuration: PrimitiveButtonStyleConfiguration
     @State private var isPressed = false
     @Environment(\.self) private var environment
+    @Environment(\.buttonRepeatBehavior) private var repeatBehavior
 
     var body: some View {
         // the style's own environment properties read the button's environment
@@ -99,7 +100,8 @@ struct _FinchButtonStyleHost<Style: ButtonStyle>: View {
         }
         }
             .viewAlias(ButtonStyleConfiguration.Label.self) { configuration.label }
-            .overlay(_FinchPressTracker(isPressed: $isPressed, action: configuration.trigger))
+            .overlay(_FinchPressTracker(isPressed: $isPressed, action: configuration.trigger,
+                                        repeats: repeatBehavior == .enabled))
     }
 }
 
@@ -107,29 +109,53 @@ struct _FinchButtonStyleHost<Style: ButtonStyle>: View {
 struct _FinchPressTracker: NSViewRepresentable {
     @Binding var isPressed: Bool
     var action: () -> Void
+    var repeats = false
 
     final class TrackingView: NSView {
         var pressed: (Bool) -> Void = { _ in }
         var action: () -> Void = {}
+        var repeats = false
+        private var pointerInside = false
+        private var repeatTimer: Timer?
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             frame.contains(point) ? self : nil
         }
 
         override func mouseDown(with event: NSEvent) {
+            pointerInside = true
             pressed(true)
+            guard repeats else { return }
+            repeatTimer?.invalidate()
+            let timer = Timer(fire: Date().addingTimeInterval(0.5), interval: 0.1, repeats: true) { [weak self] _ in
+                guard let self, self.pointerInside, self.window != nil else { return }
+                self.action()
+            }
+            repeatTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
         }
 
         override func mouseDragged(with event: NSEvent) {
-            pressed(bounds.contains(convert(event.locationInWindow, from: nil)))
+            pointerInside = bounds.contains(convert(event.locationInWindow, from: nil))
+            pressed(pointerInside)
         }
 
         override func mouseUp(with event: NSEvent) {
+            repeatTimer?.invalidate()
+            repeatTimer = nil
             pressed(false)
             let inside = bounds.contains(convert(event.locationInWindow, from: nil))
             if getenv("FINCH_TRACE_HIT") != nil { fputs("button \(inside ? "action" : "released outside")\n", stderr) }
             if inside {
                 action()
+            }
+        }
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            if newWindow == nil {
+                repeatTimer?.invalidate()
+                repeatTimer = nil
+                pointerInside = false
             }
         }
     }
@@ -140,6 +166,7 @@ struct _FinchPressTracker: NSViewRepresentable {
         let binding = $isPressed
         view.pressed = { if binding.wrappedValue != $0 { binding.wrappedValue = $0 } }
         view.action = action
+        view.repeats = repeats
     }
 }
 
@@ -311,31 +338,25 @@ public struct LinkButtonStyle: PrimitiveButtonStyle {
 @available(*, unavailable) extension LinkButtonStyle: Sendable {}
 
 extension PrimitiveButtonStyle where Self == DefaultButtonStyle {
-    @_alwaysEmitIntoClient
     public static var automatic: DefaultButtonStyle { .init() }
 }
 
 extension PrimitiveButtonStyle where Self == BorderedButtonStyle {
-    @_alwaysEmitIntoClient
     public static var bordered: BorderedButtonStyle { .init() }
 }
 
 extension PrimitiveButtonStyle where Self == BorderedProminentButtonStyle {
-    @_alwaysEmitIntoClient
     public static var borderedProminent: BorderedProminentButtonStyle { .init() }
 }
 
 extension PrimitiveButtonStyle where Self == BorderlessButtonStyle {
-    @_alwaysEmitIntoClient
     public static var borderless: BorderlessButtonStyle { .init() }
 }
 
 extension PrimitiveButtonStyle where Self == PlainButtonStyle {
-    @_alwaysEmitIntoClient
     public static var plain: PlainButtonStyle { .init() }
 }
 
 extension PrimitiveButtonStyle where Self == LinkButtonStyle {
-    @_alwaysEmitIntoClient
     public static var link: LinkButtonStyle { .init() }
 }

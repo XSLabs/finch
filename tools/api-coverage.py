@@ -8,6 +8,7 @@ The SDK is read at run time. Per-framework API manifests are cached under build/
 the generated Markdown contains counts only, while the JSON report stays in build/.
 """
 import argparse
+import bisect
 import contextlib
 import datetime
 import hashlib
@@ -802,24 +803,48 @@ def nm_exports(binary):
     return {line.split()[-1] for line in result.stdout.splitlines() if line.split()}
 
 
+def macho_reexports(binary):
+    result = command(["otool", "-l", str(binary)])
+    if result.returncode:
+        raise RuntimeError((result.stderr or result.stdout).strip())
+    lines = result.stdout.splitlines()
+    libraries = set()
+    for index, line in enumerate(lines):
+        if line.strip() != "cmd LC_REEXPORT_DYLIB":
+            continue
+        for candidate in lines[index + 1:index + 5]:
+            match = re.match(r"\s*name\s+(.+?)\s+\(offset \d+\)", candidate)
+            if match:
+                libraries.add(match.group(1))
+                break
+    return libraries
+
+
 def normalized_swift_symbol(symbol):
     return symbol[1:] if symbol.startswith("_$") else symbol
 
 
-def swift_symbol_present(check, exports):
+def swift_symbol_present(check, exports, normalized_exports=None, sorted_exports=None):
     candidates = [check.get("mangled", ""), *check.get("accessors", [])]
     if check.get("kind") == "Constructor":
         candidates += [symbol[:-1] + "C" for symbol in candidates if symbol.endswith("c")]
     candidates = [normalized_swift_symbol(symbol) for symbol in candidates if symbol]
-    normalized = {normalized_swift_symbol(symbol) for symbol in exports}
+    normalized = normalized_exports
+    if normalized is None:
+        normalized = {normalized_swift_symbol(symbol) for symbol in exports}
     if any(symbol in normalized for symbol in candidates):
         return True
     if check.get("kind") in ("Class", "Struct", "Enum", "Protocol", "EnumElement") or check.get("protocol_req"):
-        return any(any(export.startswith(symbol) for export in normalized) for symbol in candidates)
+        if sorted_exports is None:
+            return any(any(export.startswith(symbol) for export in normalized) for symbol in candidates)
+        return any(
+            (index := bisect.bisect_left(sorted_exports, symbol)) < len(sorted_exports)
+            and sorted_exports[index].startswith(symbol)
+            for symbol in candidates)
     return False
 
 
-def swift_module_item_present(check, own_usrs, exports):
+def swift_module_item_present(check, own_usrs, exports, normalized_exports=None, sorted_exports=None):
     """Compare a Swift declaration from Finch's module with its emitted ABI symbols."""
     if check["usr"] not in own_usrs:
         return False
@@ -828,7 +853,7 @@ def swift_module_item_present(check, own_usrs, exports):
         return True
     if not check.get("mangled") and not check.get("accessors"):
         return True
-    return swift_symbol_present(check, exports)
+    return swift_symbol_present(check, exports, normalized_exports, sorted_exports)
 
 
 def prepare_finch_modules(specs, build_root):
@@ -919,7 +944,18 @@ def objc_responses(spec, items, binary, build_root):
             lines.append(line)
             item_queries[item["id"]] = [line]
         elif check["type"] == "swift":
-            symbols = [check.get("mangled", ""), *check.get("accessors", [])]
+            if check.get("kind") in ("TypeAlias", "AssociatedType"):
+                # Re-exported Swift type aliases have no runtime symbol of their own.
+                item_queries[item["id"]] = []
+                continue
+            if check.get("kind") == "Var" and check.get("accessors"):
+                # A property's descriptor is metadata, not a callable accessor. Check its
+                # getter and setter symbols instead; requiring the descriptor hid real APIs.
+                symbols = list(check["accessors"])
+            else:
+                symbols = [check.get("mangled", ""), *check.get("accessors", [])]
+            if check.get("kind") == "Constructor":
+                symbols += [symbol[:-1] + "C" for symbol in symbols if symbol.endswith("c")]
             queries = [f"@symbol {symbol[1:] if symbol.startswith('_') else symbol}"
                        for symbol in symbols if symbol]
             lines.extend(queries)
@@ -944,7 +980,16 @@ def objc_responses(spec, items, binary, build_root):
     answers = {}
     for item in runtime_items:
         queries = item_queries.get(item["id"], [])
-        answers[item["id"]] = bool(queries) and not any(query in missing for query in queries)
+        check = item["check"]
+        if check["type"] == "swift" and check.get("kind") in ("TypeAlias", "AssociatedType"):
+            answers[item["id"]] = True
+        elif check["type"] == "swift" and check.get("kind") == "Var" and check.get("accessors"):
+            # All public accessors matter for a writable property.
+            answers[item["id"]] = bool(queries) and all(query not in missing for query in queries)
+        else:
+            # For functions, constructors and type metadata, the mangled forms are
+            # alternatives. One exported form is enough to make the API usable.
+            answers[item["id"]] = bool(queries) and any(query not in missing for query in queries)
     return answers, None
 
 
@@ -1256,6 +1301,24 @@ def main(argv=None):
                     errors.append(f"Finch symbols: {error}")
                     binary = None
                     spec["binary"] = None
+            reexported_swift_exports = set()
+            reexported_swift_symbols = set()
+            reexported_swift_sorted = []
+            swift_core = next((specs_by_id[child_id] for child_id in spec.get("reexport_ids", [])
+                               if child_id in specs_by_id
+                               and specs_by_id[child_id].get("name") == "SwiftUICore"), None)
+            if binary and swift_core:
+                try:
+                    core_install_name = swift_core.get("tbd_data", {}).get("install_name")
+                    if core_install_name in macho_reexports(binary):
+                        core_binary = target_binary(swift_core, args.build_root)
+                        if core_binary:
+                            reexported_swift_exports = nm_exports(core_binary)
+                            reexported_swift_symbols = {
+                                normalized_swift_symbol(symbol) for symbol in reexported_swift_exports}
+                            reexported_swift_sorted = sorted(reexported_swift_symbols)
+                except RuntimeError as error:
+                    errors.append(f"Finch SwiftUICore re-export: {error}")
             objc_answers, objc_error = objc_responses(spec, items, binary, args.build_root)
             if objc_error:
                 errors.append(f"Finch runtime and re-export checks: {objc_error}")
@@ -1287,14 +1350,25 @@ def main(argv=None):
                         dump_path.unlink(missing_ok=True)
                     own_items = swift_nodes(own_root, spec["module"])
                     own_usrs = {item["check"]["usr"] for item in own_items}
+                    own_normalized_exports = {normalized_swift_symbol(symbol) for symbol in exports}
+                    own_sorted_exports = sorted(own_normalized_exports)
                     for item in items:
                         if item["check"]["type"] == "swift" and not item.get("reexported"):
-                            item["present"] = swift_module_item_present(item["check"], own_usrs, exports)
+                            item["present"] = swift_module_item_present(
+                                item["check"], own_usrs, exports,
+                                own_normalized_exports, own_sorted_exports)
                 except (OSError, RuntimeError, subprocess.SubprocessError) as error:
                     errors.append(f"Finch Swift module: {error}")
                     for item in items:
                         if item["check"]["type"] == "swift" and not item.get("reexported"):
                             item["present"] = False
+            if reexported_swift_exports:
+                # Finch's SwiftUI framework re-exports SwiftUICore. That target uses the
+                # SwiftUI ABI name, so its public symbols are part of SwiftUI's own surface.
+                for item in items:
+                    if item["check"]["type"] == "swift" and not item["present"]:
+                        item["present"] = swift_symbol_present(
+                            item["check"], (), reexported_swift_symbols, reexported_swift_sorted)
             missing = sum(not item["present"] for item in items)
             status = "complete" if not errors and items else ("empty" if not errors else "incomplete")
             total = len(items)

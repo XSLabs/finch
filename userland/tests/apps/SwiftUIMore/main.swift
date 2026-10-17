@@ -11,6 +11,24 @@ struct Node: Identifiable {
     var children: [Node]?
 }
 
+private struct GapTableRow: Identifiable {
+    let id: Int
+    let name: String
+}
+
+@objcMembers
+private final class GapObjectRow: NSObject, Identifiable {
+    let id: Int
+    let name: String
+    let count: Int
+
+    init(id: Int, name: String, count: Int) {
+        self.id = id
+        self.name = name
+        self.count = count
+    }
+}
+
 @main
 struct SwiftUIMoreApp: App {
     @StateObject private var library = Library()
@@ -36,6 +54,7 @@ struct SwiftUIMoreApp: App {
                     .onAppear { library.reset() }
             }
         }
+        .windowToolbarLabelStyle(fixed: .titleAndIcon)
         .commands {
             SidebarCommands()
             MoreCommands()
@@ -176,6 +195,11 @@ struct SwiftUIGapsView: View {
     @State private var count = 0
     @State private var text = "Edit me"
     @State private var checked = false
+    @State private var buttonToggle = false
+    @State private var importerPresented = false
+    @State private var date = Date(timeIntervalSince1970: 1_700_000_000)
+    @State private var objectSortOrder = [SortDescriptor<GapObjectRow>(\.name)]
+    @FocusState private var exitCommandFocused: Bool
 
     var body: some View {
         let stage = ProcessInfo.processInfo.environment["SWIFTUI_GAPS_STAGE"] ?? "all"
@@ -191,6 +215,195 @@ struct SwiftUIGapsView: View {
                 Toggle("Checkbox", isOn: $checked)
                     .toggleStyle(.checkbox)
                     .onChange(of: checked) { _, value in gapLog("checkbox: \(value)") }
+            }
+
+            if stage == "button-toggle" {
+                Toggle("Button toggle", isOn: $buttonToggle)
+                    .toggleStyle(.button)
+                    .onAppear { gapLog("button-toggle: \(buttonToggle)") }
+                    .onChange(of: buttonToggle) { _, value in gapLog("button-toggle: \(value)") }
+            }
+
+            if stage == "button-repeat" {
+                Button("Repeat") {
+                    count += 1
+                    gapLog("button-repeat: \(count)")
+                }
+                .buttonRepeatBehavior(.enabled)
+            }
+
+            if stage == "date-picker" {
+                DatePicker("Date", selection: $date, in: Date(timeIntervalSince1970: 0)...Date(timeIntervalSince1970: 2_000_000_000),
+                           displayedComponents: .date)
+                    .datePickerStyle(.field)
+                    .onAppear { gapLog("date-picker: \(Int(date.timeIntervalSince1970))") }
+                    .onChange(of: date) { _, value in gapLog("date-picker: \(Int(value.timeIntervalSince1970))") }
+            }
+
+            if stage == "file-importer" {
+                Button("Choose file") { importerPresented = true }
+                    .fileImporter(isPresented: $importerPresented, allowedContentTypes: [.plainText],
+                                  allowsMultipleSelection: true, onCompletion: { result in
+                                      if case .success(let urls) = result {
+                                          gapLog("file-importer: selected \(urls.count)")
+                                      }
+                                  }, onCancellation: {
+                                      gapLog("file-importer: cancelled")
+                                  })
+            }
+
+            if stage == "exit-command" {
+                Text("Press Escape")
+                    .frame(width: 130, height: 52)
+                    .focusable()
+                    .focused($exitCommandFocused)
+                    .onAppear { exitCommandFocused = true }
+                    .onExitCommand { gapLog("exit-command: handled") }
+            }
+
+            if stage == "table-style" {
+                Table([GapTableRow(id: 1, name: "Alpha"), GapTableRow(id: 2, name: "Beta")]) {
+                    TableColumn(LocalizedStringKey("Name"), value: \.name)
+                }
+                .tableStyle(.bordered(alternatesRowBackgrounds: false))
+                .frame(width: 240, height: 100)
+                .onAppear { gapLog("table-style: bordered") }
+            }
+
+            if stage == "gauge" {
+                Gauge(value: 0.73) {
+                    Text("Capacity")
+                } currentValueLabel: {
+                    Text("73%")
+                }
+                .gaugeStyle(.accessoryCircularCapacity)
+                .frame(width: 100, height: 70)
+                .onAppear {
+                    let rendered = Gauge(value: 0.73) {
+                        Text("Capacity")
+                    } currentValueLabel: {
+                        Text("73%")
+                    }.gaugeStyle(.accessoryCircularCapacity).frame(width: 100, height: 70)
+                    let size = ImageRenderer(content: rendered).cgImage.map { "\($0.width)x\($0.height)" } ?? "nil"
+                    gapLog("gauge: \(size)")
+                }
+            }
+
+            if stage == "control-group-style" {
+                ControlGroup("Actions") {
+                    Button("Add") {}
+                    Button("Remove") {}
+                }
+                .controlGroupStyle(.menu)
+                .frame(width: 100, height: 36)
+                .onAppear {
+                    let rendered = ControlGroup("Actions") {
+                        Button("Add") {}
+                        Button("Remove") {}
+                    }.controlGroupStyle(.menu).frame(width: 100, height: 36)
+                    let size = ImageRenderer(content: rendered).cgImage.map { "\($0.width)x\($0.height)" } ?? "nil"
+                    gapLog("control-group-style: \(size)")
+                }
+            }
+
+            if stage == "table-column-sort" {
+                let rows = [
+                    GapObjectRow(id: 1, name: "Zebra", count: 2),
+                    GapObjectRow(id: 2, name: "Alpha", count: 1),
+                ]
+                Table(rows, sortOrder: $objectSortOrder) {
+                    TableColumn(LocalizedStringKey("Name"), value: \.name)
+                    TableColumnForEach(0..<1) { index in
+                        TableColumn(LocalizedStringKey("Count \(index)"), value: \.count) { Text(String($0.count)) }
+                    }
+                }
+                .frame(width: 280, height: 110)
+                .onAppear {
+                    guard let comparator = objectSortOrder.first else { return }
+                    let names = rows.sorted { comparator.compare($0, $1) == .orderedAscending }.map(\.name)
+                    gapLog("table-column-sort: " + names.joined(separator: ","))
+                }
+                .onChange(of: objectSortOrder) { _, order in
+                    guard let comparator = order.first else { return }
+                    let names = rows.sorted { comparator.compare($0, $1) == .orderedAscending }.map(\.name)
+                    gapLog("table-column-sort: " + names.joined(separator: ","))
+                }
+            }
+
+            if stage == "image-renderer" {
+                Text("Image renderer")
+                    .onAppear {
+                        let renderer = ImageRenderer(content: Color.red.frame(width: 10, height: 20))
+                        renderer.scale = 2
+                        let size = renderer.cgImage.map { "\($0.width)x\($0.height)" } ?? "nil"
+                        gapLog("image-renderer: \(size)")
+                    }
+            }
+
+            if stage == "shape-style-gradients" {
+                let gradient = AnyGradient(Gradient(colors: [.red, .blue]))
+                Rectangle()
+                    .fill(.linearGradient(gradient, startPoint: .leading, endPoint: .trailing))
+                    .frame(width: 80, height: 20)
+                    .onAppear {
+                        _ = gradient == Color.red.gradient
+                        let renderer = ImageRenderer(content: Rectangle()
+                            .fill(.linearGradient(gradient, startPoint: .leading, endPoint: .trailing))
+                            .frame(width: 80, height: 20))
+                        let size = renderer.cgImage.map { "\($0.width)x\($0.height)" } ?? "nil"
+                        gapLog("shape-style-gradients: \(size)")
+                    }
+            }
+
+            if stage == "shape-style-types" {
+                HStack(spacing: 4) {
+                    Rectangle().fill(.fill)
+                    Text("Link").foregroundStyle(.link)
+                    Text("Hint").foregroundStyle(.placeholder)
+                    Rectangle().fill(.selection)
+                    Rectangle().fill(.windowBackground)
+                }
+                .frame(width: 180, height: 24)
+                .onAppear {
+                    let renderer = ImageRenderer(content: HStack(spacing: 4) {
+                        Rectangle().fill(.fill)
+                        Text("Link").foregroundStyle(.link)
+                        Text("Hint").foregroundStyle(.placeholder)
+                        Rectangle().fill(.selection)
+                        Rectangle().fill(.windowBackground)
+                    }.frame(width: 180, height: 24))
+                    let size = renderer.cgImage.map { "\($0.width)x\($0.height)" } ?? "nil"
+                    gapLog("shape-style-types: \(size)")
+                }
+            }
+
+            if stage == "font-size" {
+                Text("Font size")
+                    .font(Font.system(size: 12).bold(true).scaled(by: 2).pointSize(18).italic(false))
+                    .onAppear {
+                        let renderer = ImageRenderer(content: Text("Font size")
+                            .font(Font.system(size: 12).bold(true).scaled(by: 2).pointSize(18).italic(false)))
+                        let size = renderer.cgImage.map { "\($0.width)x\($0.height)" } ?? "nil"
+                        gapLog("font-size: \(size)")
+                    }
+            }
+
+            if stage == "text-accessibility" {
+                Text("Visible text")
+                    .accessibilityLabel(LocalizedStringResource("Spoken label"))
+                    .accessibilityTextContentType(.plain)
+                    .accessibilityHeading(.h1)
+                    .speechAlwaysIncludesPunctuation()
+                    .speechSpellsOutCharacters()
+                    .speechAdjustedPitch(0.2)
+                    .speechAlwaysIncludesPunctuation(false)
+                    .onAppear { gapLog("text-accessibility: ready") }
+            }
+
+            if stage == "localized-accessibility" {
+                Text("Visible text")
+                    .accessibilityLabel(LocalizedStringResource("Tab label"), isEnabled: true)
+                    .onAppear { gapLog("localized-accessibility: ready") }
             }
 
             if stage == "all" || stage == "editor" {

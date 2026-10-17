@@ -119,6 +119,19 @@ extension Scene {
 public struct PresentedWindowContent<Data, Content>: View where Data: Decodable, Data: Encodable, Data: Hashable, Content: View {
     var content: (Binding<Data?>) -> Content
 
+    nonisolated init(content: @escaping (Binding<Data?>) -> Content) {
+        self.content = content
+    }
+
+    nonisolated init(defaultValue: @escaping () -> Data, content: @escaping (Binding<Data>) -> Content) {
+        self.content = { optionalValue in
+            let initialValue = defaultValue()
+            let value = Binding<Data>(get: { optionalValue.wrappedValue ?? initialValue },
+                                      set: { optionalValue.wrappedValue = $0 })
+            return content(value)
+        }
+    }
+
     nonisolated public static func _makeView(view: _GraphValue<Self>, inputs: _ViewInputs) -> _ViewOutputs {
         AnyView._makeView(view: _GraphValue(Child(view: view.value)), inputs: inputs)
     }

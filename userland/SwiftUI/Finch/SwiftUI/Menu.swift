@@ -466,15 +466,15 @@ public struct BorderlessButtonMenuStyle: MenuStyle {
 @available(*, unavailable) extension BorderlessButtonMenuStyle: Sendable {}
 
 extension MenuStyle where Self == DefaultMenuStyle {
-    @_alwaysEmitIntoClient public static var automatic: DefaultMenuStyle { .init() }
+    public static var automatic: DefaultMenuStyle { .init() }
 }
 
 extension MenuStyle where Self == ButtonMenuStyle {
-    @_alwaysEmitIntoClient public static var button: ButtonMenuStyle { .init() }
+    public static var button: ButtonMenuStyle { .init() }
 }
 
 extension MenuStyle where Self == BorderlessButtonMenuStyle {
-    @_alwaysEmitIntoClient public static var borderlessButton: BorderlessButtonMenuStyle { .init() }
+    public static var borderlessButton: BorderlessButtonMenuStyle { .init() }
 }
 
 // MARK: - Context menus

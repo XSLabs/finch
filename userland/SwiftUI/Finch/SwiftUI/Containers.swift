@@ -101,7 +101,6 @@ public struct GroupBox<Label, Content>: View where Label: View, Content: View {
     @Environment(\._finchGroupBoxStyle) private var style
 
     @available(OpenSwiftUI_v1_0, *)
-    @_alwaysEmitIntoClient
     public init(@ViewBuilder content: () -> Content, @ViewBuilder label: () -> Label) {
         self.init(label: label(), content: content)
     }
@@ -161,7 +160,6 @@ public struct DefaultGroupBoxStyle: GroupBoxStyle {
 
 @available(OpenSwiftUI_v2_0, *)
 extension GroupBoxStyle where Self == DefaultGroupBoxStyle {
-    @_alwaysEmitIntoClient
     public static var automatic: DefaultGroupBoxStyle { .init() }
 }
 

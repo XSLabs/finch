@@ -212,6 +212,23 @@ extension AppStorage {
     }
 }
 
+@available(OpenSwiftUI_v3_0, *)
+extension AppStorage {
+    public init<RowValue>(wrappedValue: Value = TableColumnCustomization<RowValue>(), _ key: String,
+                          store: UserDefaults? = nil)
+        where Value == TableColumnCustomization<RowValue>, RowValue: Identifiable {
+        self.init(location: UserDefaultLocation(key: key, store: store, defaultValue: wrappedValue,
+                                                read: { store, key in
+                                                    store.data(forKey: key).flatMap {
+                                                        try? JSONDecoder().decode(TableColumnCustomization<RowValue>.self, from: $0)
+                                                    }
+                                                },
+                                                write: { store, key, value in
+                                                    store.set(try? JSONEncoder().encode(value), forKey: key)
+                                                }))
+    }
+}
+
 @available(OpenSwiftUI_v2_0, *)
 extension AppStorage where Value: ExpressibleByNilLiteral {
     public init(_ key: String, store: UserDefaults? = nil) where Value == Bool? {

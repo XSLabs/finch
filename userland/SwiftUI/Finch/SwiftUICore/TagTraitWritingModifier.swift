@@ -12,7 +12,6 @@ public struct _TagTraitWritingModifier<TagValue>: PrimitiveViewModifier where Ta
     public let tag: TagValue
     public let includeOptional: Bool
 
-    @_alwaysEmitIntoClient
     public init(tag: TagValue, includeOptional: Bool) {
         self.tag = tag
         self.includeOptional = includeOptional

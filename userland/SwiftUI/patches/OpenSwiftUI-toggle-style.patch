@@ -1,0 +1,12 @@
+--- a/Sources/SwiftUI/View/Toggle/ToggleStyle.swift
++++ b/Sources/SwiftUI/View/Toggle/ToggleStyle.swift
+@@ -479,7 +479,8 @@
+     /// - Returns: A view that uses the specified toggle style for itself
+     ///   and its child views.
+     nonisolated public func toggleStyle<S>(_ style: S) -> some View where S: ToggleStyle {
+-        modifier(ToggleStyleModifier(style: style))
++        let box = MainActor.assumeIsolated { _FinchAnyToggleStyle(style) }
++        return transformEnvironment(\._finchToggleStyles) { $0.append(box) }
+     }
+ }
+ 

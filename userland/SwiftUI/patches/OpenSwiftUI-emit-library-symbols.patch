@@ -1,0 +1,2028 @@
+--- a/Sources/SwiftUI/Accessibility/AccessibilityQuickAction.swift
++++ b/Sources/SwiftUI/Accessibility/AccessibilityQuickAction.swift
+@@ -85,7 +85,7 @@
+ @available(tvOS, unavailable)
+ @available(visionOS, unavailable)
+ extension AccessibilityQuickActionStyle where Self == AccessibilityQuickActionPromptStyle {
+-    @_alwaysEmitIntoClient
++
+     public static var prompt: AccessibilityQuickActionPromptStyle {
+         AccessibilityQuickActionPromptStyle()
+     }
+@@ -117,7 +117,7 @@
+ @available(tvOS, unavailable)
+ @available(visionOS, unavailable)
+ extension AccessibilityQuickActionStyle where Self == AccessibilityQuickActionOutlineStyle {
+-    @_alwaysEmitIntoClient
++
+     public static var outline: AccessibilityQuickActionOutlineStyle {
+         AccessibilityQuickActionOutlineStyle()
+     }
+--- a/Sources/SwiftUI/Animation/Timeline/AnimationTimelineSchedule.swift
++++ b/Sources/SwiftUI/Animation/Timeline/AnimationTimelineSchedule.swift
+@@ -12,7 +12,7 @@
+ 
+     /// A pausable schedule of dates updating at a frequency no more quickly
+     /// than the provided interval.
+-    @_alwaysEmitIntoClient
++
+     public static var animation: AnimationTimelineSchedule {
+         .init()
+     }
+@@ -24,7 +24,7 @@
+     ///     - minimumInterval: The minimum interval to update the schedule at.
+     ///     Pass nil to let the system pick an appropriate update interval.
+     ///     - paused: If the schedule should stop generating updates.
+-    @_alwaysEmitIntoClient
++
+     public static func animation(
+         minimumInterval: Double? = nil,
+         paused: Bool = false
+--- a/Sources/SwiftUI/Animation/Timeline/TimelineView.swift
++++ b/Sources/SwiftUI/Animation/Timeline/TimelineView.swift
+@@ -181,7 +181,7 @@
+     ///     ``TimelineViewDefaultContext`` that includes the date from the schedule that
+     ///     prompted the update, as well as a ``Context/Cadence-swift.enum``
+     ///     value that the view can use to customize its appearance.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public init(
+         _ schedule: Schedule,
+         @ViewBuilder content: @escaping (TimelineViewDefaultContext) -> Content
+--- a/Sources/SwiftUI/App/Commands/Commands.swift
++++ b/Sources/SwiftUI/App/Commands/Commands.swift
+@@ -212,24 +212,24 @@
+ @available(watchOS, unavailable)
+ @resultBuilder
+ public struct CommandsBuilder {
+-    @_alwaysEmitIntoClient
++
+     public static func buildExpression<Content>(_ content: Content) -> Content where Content: Commands {
+         content
+     }
+ 
+     @available(*, unavailable, message: "this expression does not conform to 'Commands'")
+     @_disfavoredOverload
+-    @_alwaysEmitIntoClient
++
+     public static func buildExpression(_ invalid: Any) -> some Commands {
+         buildBlock()
+     }
+ 
+-    @_alwaysEmitIntoClient
++
+     public static func buildBlock() -> EmptyCommands {
+         EmptyCommands()
+     }
+ 
+-    @_alwaysEmitIntoClient
++
+     public static func buildBlock<C>(_ content: C) -> C where C: Commands {
+         content
+     }
+--- a/Sources/SwiftUI/App/Commands/ConditionalCommands.swift
++++ b/Sources/SwiftUI/App/Commands/ConditionalCommands.swift
+@@ -16,23 +16,23 @@
+ @available(tvOS, unavailable)
+ @available(watchOS, unavailable)
+ extension CommandsBuilder {
+-    @_alwaysEmitIntoClient
++
+     public static func buildIf<C>(_ content: C?) -> C? where C: Commands {
+         content
+     }
+ 
+-    @_alwaysEmitIntoClient
++
+     public static func buildEither<T, F>(first: T) -> _ConditionalContent<T, F> where T: Commands, F: Commands {
+         _ConditionalContent<T, F>(storage: .trueContent(first))
+     }
+ 
+-    @_alwaysEmitIntoClient
++
+     public static func buildEither<T, F>(second: F) -> _ConditionalContent<T, F> where T: Commands, F: Commands {
+         _ConditionalContent<T, F>(storage: .falseContent(second))
+     }
+ 
+     @available(OpenSwiftUI_v5_5, *)
+-    @_alwaysEmitIntoClient
++
+     public static func buildLimitedAvailability(_ content: any Commands) -> some Commands {
+         if #unavailable(iOS 17.5, macOS 14.5) {
+             return EmptyCommands()
+@@ -43,7 +43,7 @@
+ 
+     @available(iOS, deprecated: 16.0, obsoleted: 17.5, message: "this code may crash on earlier versions of the OS; specify '#available(iOS 17.5, *)' or newer instead")
+     @available(macOS, deprecated: 13.0, obsoleted: 14.5, message: "this code may crash on earlier versions of the OS; specify '#available(macOS 14.5, *)' or newer instead")
+-    @_alwaysEmitIntoClient
++
+     public static func buildLimitedAvailability<C>(_ content: C) -> some Commands where C : Commands {
+         content
+     }
+--- a/Sources/SwiftUI/App/Commands/TupleCommandContent.swift
++++ b/Sources/SwiftUI/App/Commands/TupleCommandContent.swift
+@@ -150,47 +150,47 @@
+ @available(tvOS, unavailable)
+ @available(watchOS, unavailable)
+ extension CommandsBuilder {
+-    @_alwaysEmitIntoClient
++
+     public static func buildBlock<C0, C1>(_ c0: C0, _ c1: C1) -> some Commands where C0: Commands, C1: Commands {
+         TupleCommandContent((c0, c1))
+     }
+ 
+-    @_alwaysEmitIntoClient
++
+     public static func buildBlock<C0, C1, C2>(_ c0: C0, _ c1: C1, _ c2: C2) -> some Commands where C0: Commands, C1: Commands, C2: Commands {
+         TupleCommandContent((c0, c1, c2))
+     }
+ 
+-    @_alwaysEmitIntoClient
++
+     public static func buildBlock<C0, C1, C2, C3>(_ c0: C0, _ c1: C1, _ c2: C2, _ c3: C3) -> some Commands where C0: Commands, C1: Commands, C2: Commands, C3: Commands {
+         TupleCommandContent((c0, c1, c2, c3))
+     }
+ 
+-    @_alwaysEmitIntoClient
++
+     public static func buildBlock<C0, C1, C2, C3, C4>(_ c0: C0, _ c1: C1, _ c2: C2, _ c3: C3, _ c4: C4) -> some Commands where C0: Commands, C1: Commands, C2: Commands, C3: Commands, C4: Commands {
+         TupleCommandContent((c0, c1, c2, c3, c4))
+     }
+ 
+-    @_alwaysEmitIntoClient
++
+     public static func buildBlock<C0, C1, C2, C3, C4, C5>(_ c0: C0, _ c1: C1, _ c2: C2, _ c3: C3, _ c4: C4, _ c5: C5) -> some Commands where C0: Commands, C1: Commands, C2: Commands, C3: Commands, C4: Commands, C5: Commands {
+         TupleCommandContent((c0, c1, c2, c3, c4, c5))
+     }
+ 
+-    @_alwaysEmitIntoClient
++
+     public static func buildBlock<C0, C1, C2, C3, C4, C5, C6>(_ c0: C0, _ c1: C1, _ c2: C2, _ c3: C3, _ c4: C4, _ c5: C5, _ c6: C6) -> some Commands where C0: Commands, C1: Commands, C2: Commands, C3: Commands, C4: Commands, C5: Commands, C6: Commands {
+         TupleCommandContent((c0, c1, c2, c3, c4, c5, c6))
+     }
+ 
+-    @_alwaysEmitIntoClient
++
+     public static func buildBlock<C0, C1, C2, C3, C4, C5, C6, C7>(_ c0: C0, _ c1: C1, _ c2: C2, _ c3: C3, _ c4: C4, _ c5: C5, _ c6: C6, _ c7: C7) -> some Commands where C0: Commands, C1: Commands, C2: Commands, C3: Commands, C4: Commands, C5: Commands, C6: Commands, C7: Commands {
+         TupleCommandContent((c0, c1, c2, c3, c4, c5, c6, c7))
+     }
+ 
+-    @_alwaysEmitIntoClient
++
+     public static func buildBlock<C0, C1, C2, C3, C4, C5, C6, C7, C8>(_ c0: C0, _ c1: C1, _ c2: C2, _ c3: C3, _ c4: C4, _ c5: C5, _ c6: C6, _ c7: C7, _ c8: C8) -> some Commands where C0: Commands, C1: Commands, C2: Commands, C3: Commands, C4: Commands, C5: Commands, C6: Commands, C7: Commands, C8: Commands {
+         TupleCommandContent((c0, c1, c2, c3, c4, c5, c6, c7, c8))
+     }
+ 
+-    @_alwaysEmitIntoClient
++
+     public static func buildBlock<C0, C1, C2, C3, C4, C5, C6, C7, C8, C9>(_ c0: C0, _ c1: C1, _ c2: C2, _ c3: C3, _ c4: C4, _ c5: C5, _ c6: C6, _ c7: C7, _ c8: C8, _ c9: C9) -> some Commands where C0: Commands, C1: Commands, C2: Commands, C3: Commands, C4: Commands, C5: Commands, C6: Commands, C7: Commands, C8: Commands, C9: Commands {
+         TupleCommandContent((c0, c1, c2, c3, c4, c5, c6, c7, c8, c9))
+     }
+--- a/Sources/SwiftUI/App/Scene/SceneBuilder.swift
++++ b/Sources/SwiftUI/App/Scene/SceneBuilder.swift
+@@ -12,7 +12,7 @@
+ public struct SceneBuilder {
+ 
+     /// Builds an expression within the builder.
+-    @_alwaysEmitIntoClient
++
+     public static func buildExpression<Content>(_ content: Content) -> Content where Content: Scene {
+         content
+     }
+@@ -28,7 +28,7 @@
+     }
+ 
+     @_disfavoredOverload
+-    @_alwaysEmitIntoClient
++
+     public static func buildBlock<each Content>(_ content: repeat each Content) -> some Scene where repeat each Content: Scene {
+         _TupleScene((repeat each content))
+     }
+@@ -54,7 +54,7 @@
+     ///             }
+     ///         }
+     ///     }
+-    @_alwaysEmitIntoClient
++
+     public static func buildOptional(_ scene: (any Scene & _LimitedAvailabilitySceneMarker)?) -> some Scene {
+         if #available(iOS 16.1, macOS 13.0, watchOS 9.1, tvOS 16.1, *) {
+             guard let scene else {
+@@ -76,7 +76,7 @@
+     /// Processes scene content for a conditional compiler-control statement
+     /// that performs an availability check.
+     @available(OpenSwiftUI_v4_1, *)
+-    @_alwaysEmitIntoClient
++
+     public static func buildLimitedAvailability(_ scene: some Scene) -> any Scene & _LimitedAvailabilitySceneMarker {
+         return LimitedAvailabilityScene(scene)
+     }
+@@ -86,7 +86,7 @@
+     @available(watchOS, deprecated: 7.0, obsoleted: 9.1, message: "this code may crash on earlier versions of the OS; specify '#available(watchOS 9.1, *)' or newer instead")
+     @available(tvOS, deprecated: 14.0, obsoleted: 16.1, message: "this code may crash on earlier versions of the OS; specify '#available(tvOS 16.1, *)' or newer instead")
+     @_disfavoredOverload
+-    @_alwaysEmitIntoClient
++
+     public static func buildLimitedAvailability(_ scene: any Scene) -> any Scene & _LimitedAvailabilitySceneMarker {
+         fatalError("Unavailable")
+     }
+--- a/Sources/SwiftUI/Event/Gesture/GestureState.swift
++++ b/Sources/SwiftUI/Event/Gesture/GestureState.swift
+@@ -62,7 +62,7 @@
+     ///
+     /// - Parameter initialValue: An initial value for the gesture state
+     ///   property.
+-    @_alwaysEmitIntoClient
++
+     public init(initialValue: Value) {
+         self.init(wrappedValue: initialValue, resetTransaction: Transaction())
+     }
+@@ -89,7 +89,7 @@
+     ///   - initialValue: An initial state value.
+     ///   - resetTransaction: A transaction that provides metadata for view
+     ///     updates.
+-    @_alwaysEmitIntoClient
++
+     public init(initialValue: Value, resetTransaction: Transaction) {
+         self.init(wrappedValue: initialValue, resetTransaction: resetTransaction)
+     }
+@@ -118,7 +118,7 @@
+     /// - Parameters:
+     ///   - initialValue: An initial state value.
+     ///   - reset: A closure that provides a ``Transaction``.
+-    @_alwaysEmitIntoClient
++
+     public init(
+         initialValue: Value,
+         reset: @escaping (Value, inout Transaction) -> Void
+--- a/Sources/SwiftUI/Modifier/SceneModifier/AppearanceActionSceneModifier.swift
++++ b/Sources/SwiftUI/Modifier/SceneModifier/AppearanceActionSceneModifier.swift
+@@ -30,12 +30,12 @@
+ @_spi(Private)
+ @available(OpenSwiftUI_v4_0, *)
+ extension Scene {
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func onAppear(perform action: (() -> Void)? = nil) -> some Scene {
+         modifier(_AppearanceActionModifier(appear: action, disappear: nil))
+     }
+ 
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func onDisappear(perform action: (() -> Void)? = nil) -> some Scene {
+         modifier(_AppearanceActionModifier(appear: nil, disappear: action))
+     }
+--- a/Sources/SwiftUI/Modifier/SceneModifier/EnvironmentSceneModifier.swift
++++ b/Sources/SwiftUI/Modifier/SceneModifier/EnvironmentSceneModifier.swift
+@@ -43,7 +43,7 @@
+     ///
+     /// - Returns: A view that has the given value set in its environment.
+     @available(OpenSwiftUI_v2_0, *)
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func environment<V>(_ keyPath: WritableKeyPath<EnvironmentValues, V>, _ value: V) -> some Scene {
+         modifier(_EnvironmentKeyWritingModifier(keyPath: keyPath, value: value))
+     }
+--- a/Sources/SwiftUI/Modifier/ViewModifier/GeometryActionModifier.swift
++++ b/Sources/SwiftUI/Modifier/ViewModifier/GeometryActionModifier.swift
+@@ -311,7 +311,7 @@
+     ///   - action: A closure to run when the transformed data changes.
+     ///   - newValue: The new value that failed the comparison check.
+     @available(OpenSwiftUI_v4_0, *)
+-    @_alwaysEmitIntoClient
++
+     @preconcurrency
+     nonisolated public func onGeometryChange<T>(
+         for type: T.Type,
+--- a/Sources/SwiftUI/View/ArchivedView/ArchivedViewState.swift
++++ b/Sources/SwiftUI/View/ArchivedView/ArchivedViewState.swift
+@@ -31,7 +31,7 @@
+ 
+         public static let v6: DeploymentVersion = .init(base: .v6)
+ 
+-        @_alwaysEmitIntoClient
++
+         public static var current: DeploymentVersion { .v6 }
+ 
+         public static func < (
+--- a/Sources/SwiftUI/View/Container/TraitValues.swift
++++ b/Sources/SwiftUI/View/Container/TraitValues.swift
+@@ -35,7 +35,7 @@
+ @_spi(DoNotImportVariadicView)
+ @available(*, deprecated, renamed: "containerValue")
+ extension View {
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func trait<V>(
+         _ keyPath: WritableKeyPath<TraitValues, V>,
+         _ value: V
+@@ -48,7 +48,7 @@
+ @available(OpenSwiftUI_v6_0, *)
+ extension View {
+     @available(*, deprecated, message: "Use overload which takes a keypath with no argument labels instead.")
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func trait<K>(
+         key: K.Type,
+         value: K.Value
+@@ -67,7 +67,7 @@
+ 
+     public var value: Value
+ 
+-    @_alwaysEmitIntoClient
++
+     public init(
+         keyPath: WritableKeyPath<TraitValues, Value>,
+         value: Value
+--- a/Sources/SwiftUI/View/Control/ProgressView/CircularProgressViewStyle.swift
++++ b/Sources/SwiftUI/View/Control/ProgressView/CircularProgressViewStyle.swift
+@@ -14,7 +14,7 @@
+ extension ProgressViewStyle where Self == CircularProgressViewStyle {
+     /// A progress view that uses a circular gauge to indicate the partial
+     /// completion of an activity.
+-    @_alwaysEmitIntoClient
++
+     @MainActor
+     @preconcurrency
+     public static var circular: CircularProgressViewStyle {
+--- a/Sources/SwiftUI/View/Control/ProgressView/DefaultProgressViewStyle.swift
++++ b/Sources/SwiftUI/View/Control/ProgressView/DefaultProgressViewStyle.swift
+@@ -18,7 +18,7 @@
+     /// The default style represents the recommended style based on the original
+     /// initialization parameters of the progress view, and the progress view's
+     /// context within the view hierarchy.
+-    @_alwaysEmitIntoClient
++
+     @MainActor
+     @preconcurrency
+     public static var automatic: DefaultProgressViewStyle {
+--- a/Sources/SwiftUI/View/Control/ProgressView/LinearProgressViewStyle.swift
++++ b/Sources/SwiftUI/View/Control/ProgressView/LinearProgressViewStyle.swift
+@@ -15,7 +15,7 @@
+ extension ProgressViewStyle where Self == LinearProgressViewStyle {
+     /// A progress view that visually indicates its progress using a horizontal
+     /// bar.
+-    @_alwaysEmitIntoClient
++
+     @MainActor
+     @preconcurrency
+     public static var linear: LinearProgressViewStyle {
+--- a/Sources/SwiftUI/View/Control/Slider/Slider.swift
++++ b/Sources/SwiftUI/View/Control/Slider/Slider.swift
+@@ -130,7 +130,7 @@
+     /// The slider calls `onEditingChanged` when editing begins and ends. For
+     /// example, on iOS, editing begins when the user starts to drag the thumb
+     /// along the slider's track.
+-    @_alwaysEmitIntoClient
++
+     public init<V>(
+         value: Binding<V>,
+         in bounds: ClosedRange<V> = 0 ... 1,
+@@ -170,7 +170,7 @@
+     /// The slider calls `onEditingChanged` when editing begins and ends. For
+     /// example, on iOS, editing begins when the user starts to drag the thumb
+     /// along the slider's track.
+-    @_alwaysEmitIntoClient
++
+     public init<V>(
+         value: Binding<V>,
+         in bounds: ClosedRange<V>,
+@@ -212,7 +212,7 @@
+     /// The slider calls `onEditingChanged` when editing begins and ends. For
+     /// example, on iOS, editing begins when the user starts to drag the thumb
+     /// along the slider's track.
+-    @_alwaysEmitIntoClient
++
+     public init<V>(
+         value: Binding<V>,
+         in bounds: ClosedRange<V> = 0 ... 1,
+@@ -246,7 +246,7 @@
+     /// The slider calls `onEditingChanged` when editing begins and ends. For
+     /// example, on iOS, editing begins when the user starts to drag the thumb
+     /// along the slider's track.
+-    @_alwaysEmitIntoClient
++
+     public init<V>(
+         value: Binding<V>,
+         in bounds: ClosedRange<V>,
+--- a/Sources/SwiftUI/View/Image/AsyncImage.swift
++++ b/Sources/SwiftUI/View/Image/AsyncImage.swift
+@@ -173,7 +173,7 @@
+     ///     modify it as needed before returning it.
+     ///   - placeholder: A closure that returns the view to show until the
+     ///     load operation completes successfully.
+-    @_alwaysEmitIntoClient
++
+     public init<I, P>(
+         url: URL?,
+         scale: CGFloat = 1,
+--- a/Sources/SwiftUI/View/Label/DefaultLabelStyle.swift
++++ b/Sources/SwiftUI/View/Label/DefaultLabelStyle.swift
+@@ -13,7 +13,7 @@
+ extension LabelStyle where Self == DefaultLabelStyle {
+     /// A label style that resolves its appearance automatically based on the
+     /// current context.
+-    @_alwaysEmitIntoClient
++
+     @MainActor
+     @preconcurrency
+     public static var automatic: DefaultLabelStyle {
+--- a/Sources/SwiftUI/View/Label/IconOnlyLabelStyle.swift
++++ b/Sources/SwiftUI/View/Label/IconOnlyLabelStyle.swift
+@@ -15,7 +15,7 @@
+     ///
+     /// The title of the label is still used for non-visual descriptions, such as
+     /// VoiceOver.
+-    @_alwaysEmitIntoClient
++
+     @MainActor
+     @preconcurrency
+     public static var iconOnly: IconOnlyLabelStyle {
+--- a/Sources/SwiftUI/View/Label/TitleAndIconLabelStyle.swift
++++ b/Sources/SwiftUI/View/Label/TitleAndIconLabelStyle.swift
+@@ -36,7 +36,7 @@
+     /// The relative layout of the title and icon is dependent on the context it
+     /// is displayed in. In most cases, however, the label is arranged
+     /// horizontally with the icon leading.
+-    @_alwaysEmitIntoClient
++
+     @MainActor
+     @preconcurrency
+     public static var titleAndIcon: TitleAndIconLabelStyle {
+--- a/Sources/SwiftUI/View/Label/TitleOnlyLabelStyle.swift
++++ b/Sources/SwiftUI/View/Label/TitleOnlyLabelStyle.swift
+@@ -12,7 +12,7 @@
+ @available(OpenSwiftUI_v2_0, *)
+ extension LabelStyle where Self == TitleOnlyLabelStyle {
+     /// A label style that only displays the title of the label.
+-    @_alwaysEmitIntoClient
++
+     @MainActor
+     @preconcurrency
+     public static var titleOnly: TitleOnlyLabelStyle {
+--- a/Sources/SwiftUI/View/Toggle/SwitchToggleStyle.swift
++++ b/Sources/SwiftUI/View/Toggle/SwitchToggleStyle.swift
+@@ -12,7 +12,7 @@
+ // MARK: - SwitchToggleStyle [WIP]
+ 
+ extension ToggleStyle where Self == SwitchToggleStyle {
+-    @_alwaysEmitIntoClient
++
+     @MainActor
+     @preconcurrency
+     public static var `switch`: SwitchToggleStyle {
+--- a/Sources/SwiftUICore/Animation/Animatable/VectorArithmetic.swift
++++ b/Sources/SwiftUICore/Animation/Animatable/VectorArithmetic.swift
+@@ -24,7 +24,7 @@
+ extension VectorArithmetic {
+     /// Returns a value with each component of this value multiplied by the
+     /// given value.
+-    @_alwaysEmitIntoClient
++
+     public func scaled(by rhs: Double) -> Self {
+         var result = self
+         result.scale(by: rhs)
+@@ -46,7 +46,7 @@
+     /// Returns this value interpolated with `other` by the specified `amount`.
+     ///
+     /// This result is equivalent to `self + (other - self) * amount`.
+-    @_alwaysEmitIntoClient
++
+     public func interpolated(towards other: Self, amount: Double) -> Self {
+         var result = self
+         result.interpolate(towards: other, amount: amount)
+--- a/Sources/SwiftUICore/Animation/Animation/Spring/FluidSpringAnimation.swift
++++ b/Sources/SwiftUICore/Animation/Animation/Spring/FluidSpringAnimation.swift
+@@ -227,7 +227,7 @@
+     ///   - blendDuration: The duration in seconds over which to
+     ///     interpolate changes to the duration.
+     /// - Returns: a spring animation.
+-    @_alwaysEmitIntoClient
++
+     public static func spring(
+         duration: TimeInterval = 0.5,
+         bounce: Double = 0.0,
+@@ -278,7 +278,7 @@
+     /// response values between springs over a time period.
+     ///
+     /// This uses the default parameter values.
+-    @_alwaysEmitIntoClient
++
+     public static var spring: Animation {
+         spring()
+     }
+@@ -304,14 +304,14 @@
+     /// `duration` value, intended for driving interactive animations.
+     ///
+     /// This uses the default parameter values.
+-    @_alwaysEmitIntoClient
++
+     public static var interactiveSpring: Animation {
+         interactiveSpring()
+     }
+ 
+     /// A convenience for a `spring` animation with a lower
+     /// `response` value, intended for driving interactive animations.
+-    @_alwaysEmitIntoClient
++
+     public static func interactiveSpring(
+         duration: TimeInterval = 0.15,
+         extraBounce: Double = 0.0,
+@@ -324,7 +324,7 @@
+ 
+     @_spi(_)
+     @available(*, deprecated)
+-    @_alwaysEmitIntoClient
++
+     public static func interactiveSpring(
+         duration: TimeInterval = 0.15,
+         additionalBounce: Double,
+@@ -336,7 +336,7 @@
+     }
+ 
+     /// A smooth spring animation with a predefined duration and no bounce.
+-    @_alwaysEmitIntoClient
++
+     public static var smooth: Animation {
+         smooth()
+     }
+@@ -353,21 +353,21 @@
+     ///     bounce of 0.
+     ///   - blendDuration: The duration in seconds over which to interpolate
+     ///     changes to the duration.
+-    @_alwaysEmitIntoClient
++
+     public static func smooth(duration: TimeInterval = 0.5, extraBounce: Double = 0.0) -> Animation {
+         spring(duration: duration, bounce: extraBounce)
+     }
+ 
+     @_spi(_)
+     @available(*, deprecated)
+-    @_alwaysEmitIntoClient
++
+     public static func smooth(duration: TimeInterval = 0.5, additionalBounce: Double) -> Animation {
+         spring(duration: duration, bounce: additionalBounce)
+     }
+ 
+     /// A spring animation with a predefined duration and small amount of
+     /// bounce that feels more snappy.
+-    @_alwaysEmitIntoClient
++
+     public static var snappy: Animation {
+         snappy()
+     }
+@@ -384,21 +384,21 @@
+     ///     bounce of 0.15.
+     ///   - blendDuration: The duration in seconds over which to interpolate
+     ///     changes to the duration.
+-    @_alwaysEmitIntoClient
++
+     public static func snappy(duration: TimeInterval = 0.5, extraBounce: Double = 0.0) -> Animation {
+         spring(duration: duration, bounce: 0.15 + extraBounce)
+     }
+ 
+     @_spi(_)
+     @available(*, deprecated)
+-    @_alwaysEmitIntoClient
++
+     public static func snappy(duration: TimeInterval = 0.5, additionalBounce: Double) -> Animation {
+         spring(duration: duration, bounce: 0.15 + additionalBounce)
+     }
+ 
+     /// A spring animation with a predefined duration and higher amount of
+     /// bounce.
+-    @_alwaysEmitIntoClient
++
+     public static var bouncy: Animation {
+         bouncy()
+     }
+@@ -415,14 +415,14 @@
+     ///     bounce of 0.3.
+     ///   - blendDuration: The duration in seconds over which to interpolate
+     ///     changes to the duration.
+-    @_alwaysEmitIntoClient
++
+     public static func bouncy(duration: TimeInterval = 0.5, extraBounce: Double = 0.0) -> Animation {
+         spring(duration: duration, bounce: 0.3 + extraBounce)
+     }
+ 
+     @_spi(_)
+     @available(*, deprecated)
+-    @_alwaysEmitIntoClient
++
+     public static func bouncy(duration: TimeInterval = 0.5, additionalBounce: Double) -> Animation {
+         spring(duration: duration, bounce: 0.3 + additionalBounce)
+     }
+--- a/Sources/SwiftUICore/Animation/Animation/Spring/Respring/Spring.swift
++++ b/Sources/SwiftUICore/Animation/Animation/Spring/Respring/Spring.swift
+@@ -85,7 +85,7 @@
+ 
+     @_spi(_)
+     @available(*, deprecated)
+-    @_alwaysEmitIntoClient
++
+     public static func bouncy(duration: TimeInterval = 0.5, additionalBounce: Double) -> Spring {
+         Self(duration: duration, bounce: 0.3 + additionalBounce)
+     }
+--- a/Sources/SwiftUICore/Animation/Animation/Spring/SpringAnimation.swift
++++ b/Sources/SwiftUICore/Animation/Animation/Spring/SpringAnimation.swift
+@@ -194,7 +194,7 @@
+     ///     a value in the range [0, 1] representing the magnitude of
+     ///     the value being animated.
+     /// - Returns: a spring animation.
+-    @_alwaysEmitIntoClient
++
+     public static func interpolatingSpring(
+         duration: TimeInterval = 0.5,
+         bounce: Double = 0.0,
+@@ -215,7 +215,7 @@
+     /// adding the effects of each animation.
+     ///
+     /// This uses the default parameter values.
+-    @_alwaysEmitIntoClient
++
+     public static var interpolatingSpring: Animation {
+         .interpolatingSpring()
+     }
+--- a/Sources/SwiftUICore/Animation/Timeline/TimelineSchedule.swift
++++ b/Sources/SwiftUICore/Animation/Timeline/TimelineSchedule.swift
+@@ -207,7 +207,7 @@
+     /// - Parameters:
+     ///   - startDate: The date on which to start the sequence.
+     ///   - interval: The time interval between successive sequence entries.
+-    @_alwaysEmitIntoClient
++
+     public static func periodic(
+         from startDate: Date,
+         by interval: TimeInterval
+@@ -240,7 +240,7 @@
+     /// The schedule defines the ``EveryMinuteTimelineSchedule/Entries``
+     /// structure to return the sequence of dates when the timeline view calls
+     /// the ``EveryMinuteTimelineSchedule/entries(from:mode:)`` method.
+-    @_alwaysEmitIntoClient
++
+     public static var everyMinute: EveryMinuteTimelineSchedule {
+         .init()
+     }
+@@ -279,7 +279,7 @@
+     /// - Parameter dates: The sequence of dates at which a timeline view
+     ///   updates. Use a monotonically increasing sequence of dates,
+     ///   and ensure that at least one is in the future.
+-    @_alwaysEmitIntoClient
++
+     public static func explicit<S>(_ dates: S) -> ExplicitTimelineSchedule<S> where Self == ExplicitTimelineSchedule<S>, S: Sequence, S.Element == Date {
+         .init(dates)
+     }
+--- a/Sources/SwiftUICore/Animation/Transaction/Transaction.swift
++++ b/Sources/SwiftUICore/Animation/Transaction/Transaction.swift
+@@ -213,7 +213,7 @@
+ /// - Returns: The result of executing the closure with the specified
+ ///   transaction value.
+ @available(OpenSwiftUI_v1_0, *)
+-@_alwaysEmitIntoClient
++
+ public func withTransaction<R, V>(
+     _ keyPath: WritableKeyPath<Transaction, V>,
+     _ value: V,
+--- a/Sources/SwiftUICore/Animation/Transaction/TransactionModifier.swift
++++ b/Sources/SwiftUICore/Animation/Transaction/TransactionModifier.swift
+@@ -145,7 +145,7 @@
+     /// - Returns: A view that wraps this view and applies a transformation to
+     ///   all transactions used within the view whenever `value` changes.
+     @available(OpenSwiftUI_v5_0, *)
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func transaction(
+         value: some Equatable,
+         _ transform: @escaping (inout Transaction) -> Void
+@@ -178,7 +178,7 @@
+ 
+     @_spi(DoNotImport)
+     @available(OpenSwiftUI_v3_0, *)
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func ignoresAnimation() -> some View {
+         transaction { t in
+             if !t.disablesAnimations {
+--- a/Sources/SwiftUICore/Animation/Transition/BlurTransition.swift
++++ b/Sources/SwiftUICore/Animation/Transition/BlurTransition.swift
+@@ -39,7 +39,7 @@
+ 
+     /// A transition that animates the insertion or removal of a view
+     /// by combining blurring and scaling effects.
+-    @_alwaysEmitIntoClient
++
+     @MainActor
+     @preconcurrency
+     public static var blurReplace: BlurReplaceTransition {
+--- a/Sources/SwiftUICore/Animation/Transition/PushTransition.swift
++++ b/Sources/SwiftUICore/Animation/Transition/PushTransition.swift
+@@ -42,7 +42,7 @@
+     ///
+     /// - Returns: A transition that animates a view by moving and
+     ///   fading it.
+-    @_alwaysEmitIntoClient
++
+     @MainActor
+     @preconcurrency
+     public static func push(from edge: Edge) -> Self {
+--- a/Sources/SwiftUICore/Animation/Transition/SlideTransition.swift
++++ b/Sources/SwiftUICore/Animation/Transition/SlideTransition.swift
+@@ -24,7 +24,7 @@
+     /// removes by moving out towards the trailing edge.
+     ///
+     /// - SeeAlso: `AnyTransition.move(edge:)`
+-    @_alwaysEmitIntoClient
++
+     @MainActor
+     @preconcurrency
+     public static var slide: SlideTransition {
+--- a/Sources/SwiftUICore/Animation/Transition/Transition.swift
++++ b/Sources/SwiftUICore/Animation/Transition/Transition.swift
+@@ -309,7 +309,7 @@
+ extension Transition where Self == IdentityTransition {
+     /// A transition that returns the input view, unmodified, as the output
+     /// view.
+-    @_alwaysEmitIntoClient
++
+     @MainActor
+     @preconcurrency
+     public static var identity: IdentityTransition {
+--- a/Sources/SwiftUICore/Animation/Transition/TransitionTraitKey.swift
++++ b/Sources/SwiftUICore/Animation/Transition/TransitionTraitKey.swift
+@@ -52,7 +52,7 @@
+     ///         }
+     ///     }
+     @available(OpenSwiftUI_v5_0, *)
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func transition<T>(_ transition: T) -> some View where T: Transition {
+         self.transition(AnyTransition(transition))
+     }
+--- a/Sources/SwiftUICore/Data/Binding/Binding.swift
++++ b/Sources/SwiftUICore/Data/Binding/Binding.swift
+@@ -136,7 +136,7 @@
+     ///   - set: A closure that sets the binding value. The closure has the
+     ///     following parameter:
+     ///       - newValue: The new value of the binding value.
+-    @_alwaysEmitIntoClient
++
+     public init(
+         @_inheritActorContext get: @escaping @isolated(any) @Sendable () -> Value,
+         @_inheritActorContext set: @escaping @isolated(any) @Sendable (Value) -> Void
+@@ -212,7 +212,7 @@
+     ///     following parameters:
+     ///       - newValue: The new value of the binding value.
+     ///       - transaction: The transaction to apply when setting a new value.
+-    @_alwaysEmitIntoClient
++
+     public init(
+         @_inheritActorContext get: @escaping @isolated(any) @Sendable () -> Value,
+         @_inheritActorContext set: @escaping @isolated(any) @Sendable (Value, Transaction) -> Void
+@@ -406,7 +406,7 @@
+     public var projectedValue: Binding<Value> { self }
+ 
+     /// Creates a binding from the value of another binding.
+-    @_alwaysEmitIntoClient
++
+     public init(projectedValue: Binding<Value>) {
+         self = projectedValue
+     }
+--- a/Sources/SwiftUICore/Data/Combine/ObservedObject.swift
++++ b/Sources/SwiftUICore/Data/Combine/ObservedObject.swift
+@@ -116,7 +116,7 @@
+     /// initializer. See that initializer for more information.
+     ///
+     /// - Parameter initialValue: An initial value.
+-    @_alwaysEmitIntoClient
++
+     public init(initialValue: ObjectType) {
+         self.init(wrappedValue: initialValue)
+     }
+--- a/Sources/SwiftUICore/Data/State/State.swift
++++ b/Sources/SwiftUICore/Data/State/State.swift
+@@ -310,7 +310,7 @@
+     ///
+     /// - Parameter value: An initial value to store in the state
+     ///   property.
+-    @_alwaysEmitIntoClient
++
+     public init(initialValue value: Value) {
+         _value = value
+     }
+--- a/Sources/SwiftUICore/Event/Gesture/GestureMask.swift
++++ b/Sources/SwiftUICore/Event/Gesture/GestureMask.swift
+@@ -211,7 +211,7 @@
+     /// - Parameters:
+     ///    - gesture: A gesture to attach to the view.
+     ///    - isEnabled: Whether the added gesture is enabled.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func gesture<T>(
+         _ gesture: T,
+         isEnabled: Bool
+@@ -265,7 +265,7 @@
+     /// - Parameters:
+     ///    - gesture: A gesture to attach to the view.
+     ///    - isEnabled: Whether the added gesture is enabled.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func highPriorityGesture<T>(
+         _ gesture: T,
+         isEnabled: Bool
+@@ -324,7 +324,7 @@
+     /// - Parameters:
+     ///    - gesture: A gesture to attach to the view.
+     ///    - isEnabled: Whether the added gesture is enabled.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func simultaneousGesture<T>(
+         _ gesture: T,
+         isEnabled: Bool
+--- a/Sources/SwiftUICore/Graphic/Color/Color+ShapeStyle.swift
++++ b/Sources/SwiftUICore/Graphic/Color/Color+ShapeStyle.swift
+@@ -12,7 +12,7 @@
+     package func resolvePaint(in environment: EnvironmentValues) -> Color.Resolved { resolve(in: environment) }
+     
+     @available(*, deprecated, message: "obsolete")
+-    @_alwaysEmitIntoClient
++
+     nonisolated public static func _makeView<S>(view: _GraphValue<_ShapeView<S, Self>>, inputs: _ViewInputs) -> _ViewOutputs where S: Shape {
+         _ShapeView<S, Self>._makeView(view: view, inputs: inputs)
+     }
+--- a/Sources/SwiftUICore/Graphic/Color/SystemColors.swift
++++ b/Sources/SwiftUICore/Graphic/Color/SystemColors.swift
+@@ -73,67 +73,67 @@
+ 
+ extension ShapeStyle where Self == Color {
+     /// A context-dependent red color suitable for use in UI elements.
+-    @_alwaysEmitIntoClient
++
+     public static var red: Color { .red }
+ 
+     /// A context-dependent orange color suitable for use in UI elements.
+-    @_alwaysEmitIntoClient
++
+     public static var orange: Color { .orange }
+     
+     /// A context-dependent yellow color suitable for use in UI elements.
+-    @_alwaysEmitIntoClient
++
+     public static var yellow: Color { .yellow }
+     
+     /// A context-dependent green color suitable for use in UI elements.
+-    @_alwaysEmitIntoClient
++
+     public static var green: Color { .green }
+     
+     /// A context-dependent mint color suitable for use in UI elements.
+-    @_alwaysEmitIntoClient
++
+     public static var mint: Color { .mint }
+     
+     /// A context-dependent teal color suitable for use in UI elements.
+-    @_alwaysEmitIntoClient
++
+     public static var teal: Color { .teal }
+     
+     /// A context-dependent cyan color suitable for use in UI elements.
+-    @_alwaysEmitIntoClient
++
+     public static var cyan: Color { .cyan }
+     
+     /// A context-dependent blue color suitable for use in UI elements.
+-    @_alwaysEmitIntoClient
++
+     public static var blue: Color { .blue }
+     
+     /// A context-dependent indigo color suitable for use in UI elements.
+-    @_alwaysEmitIntoClient
++
+     public static var indigo: Color { .indigo }
+     
+     /// A context-dependent purple color suitable for use in UI elements.
+-    @_alwaysEmitIntoClient
++
+     public static var purple: Color { .purple }
+     
+     /// A context-dependent pink color suitable for use in UI elements.
+-    @_alwaysEmitIntoClient
++
+     public static var pink: Color { .pink }
+     
+     /// A context-dependent brown color suitable for use in UI elements.
+-    @_alwaysEmitIntoClient
++
+     public static var brown: Color { .brown }
+     
+     /// A white color suitable for use in UI elements.
+-    @_alwaysEmitIntoClient
++
+     public static var white: Color { .white }
+     
+     /// A context-dependent gray color suitable for use in UI elements.
+-    @_alwaysEmitIntoClient
++
+     public static var gray: Color { .gray }
+     
+     /// A black color suitable for use in UI elements.
+-    @_alwaysEmitIntoClient
++
+     public static var black: Color { .black }
+     
+     /// A clear color suitable for use in UI elements.
+-    @_alwaysEmitIntoClient
++
+     public static var clear: Color { .clear }
+ }
+ 
+--- a/Sources/SwiftUICore/Layout/Alignment/AlignmentGuide.swift
++++ b/Sources/SwiftUICore/Layout/Alignment/AlignmentGuide.swift
+@@ -1107,7 +1107,7 @@
+     /// contains the text, centerFirstTextBaseline, appears aligned with, and
+     /// partially overlapping, the first line of the text in the upper quadrant,
+     /// centered horizontally.](Alignment-centerFirstTextBaseline-1-iOS)
+-    @_alwaysEmitIntoClient
++
+     public static var centerFirstTextBaseline: Alignment {
+         .init(horizontal: .center, vertical: .firstTextBaseline)
+     }
+@@ -1125,7 +1125,7 @@
+     /// contains the text, centerLastTextBaseline, appears aligned with, and
+     /// partially overlapping, the last line of the text in the lower quadrant,
+     /// centered horizontally.](Alignment-centerLastTextBaseline-1-iOS)
+-    @_alwaysEmitIntoClient
++
+     public static var centerLastTextBaseline: Alignment {
+         .init(horizontal: .center, vertical: .lastTextBaseline)
+     }
+@@ -1145,7 +1145,7 @@
+     /// partially overlapping, the first line of the text in the upper quadrant.
+     /// The box aligns with the left edge of the
+     /// square.](Alignment-leadingFirstTextBaseline-1-iOS)
+-    @_alwaysEmitIntoClient
++
+     public static var leadingFirstTextBaseline: Alignment {
+         .init(horizontal: .leading, vertical: .firstTextBaseline)
+     }
+@@ -1164,7 +1164,7 @@
+     /// contains the text, leadingLastTextBaseline, appears aligned with the
+     /// last line of the text in the lower quadrant. The box aligns with the
+     /// left edge of the square.](Alignment-leadingLastTextBaseline-1-iOS)
+-    @_alwaysEmitIntoClient
++
+     public static var leadingLastTextBaseline: Alignment {
+         .init(horizontal: .leading, vertical: .lastTextBaseline)
+     }
+@@ -1183,7 +1183,7 @@
+     /// contains the text, trailingFirstTextBaseline, appears aligned with the
+     /// first line of the text in the upper quadrant. The box aligns with the
+     /// right edge of the square.](Alignment-trailingFirstTextBaseline-1-iOS)
+-    @_alwaysEmitIntoClient
++
+     public static var trailingFirstTextBaseline: Alignment {
+         .init(horizontal: .trailing, vertical: .firstTextBaseline)
+     }
+@@ -1202,7 +1202,7 @@
+     /// contains the text, trailingLastTextBaseline, appears aligned with the
+     /// last line of the text in the lower quadrant. The box aligns with the
+     /// right edge of the square.](Alignment-trailingLastTextBaseline-1-iOS)
+-    @_alwaysEmitIntoClient
++
+     public static var trailingLastTextBaseline: Alignment {
+         .init(horizontal: .trailing, vertical: .lastTextBaseline)
+     }
+--- a/Sources/SwiftUICore/Layout/Layout.swift
++++ b/Sources/SwiftUICore/Layout/Layout.swift
+@@ -2004,7 +2004,7 @@
+     ///   lay out.
+     ///
+     /// - Returns: A composite view that combines all the input views.
+-    @_alwaysEmitIntoClient
++
+     @_disfavoredOverload
+     public func callAsFunction<V>(@ViewBuilder _ content: () -> V) -> some View where V: View {
+         return _VariadicView.Tree(_LayoutRoot(self)) { content() }
+@@ -2012,7 +2012,7 @@
+ 
+     @_spi(_)
+     @available(*, deprecated, message: "replaced by implicit function call")
+-    @_alwaysEmitIntoClient
++
+     public func content<V>(@ViewBuilder _ content: () -> V) -> some View where V: View {
+         return callAsFunction(content)
+     }
+--- a/Sources/SwiftUICore/Layout/Modifier/InsetViewModifier.swift
++++ b/Sources/SwiftUICore/Layout/Modifier/InsetViewModifier.swift
+@@ -301,7 +301,7 @@
+     /// See the ``View/safeAreaInset(edge:alignment:spacing:content)``
+     /// modifier for adding to the safe area based on the size of a
+     /// view.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func safeAreaPadding(_ insets: EdgeInsets) -> some View {
+         modifier(SafeAreaPaddingModifier(edges: .all, insets: insets))
+     }
+@@ -323,7 +323,7 @@
+     /// See the ``View/safeAreaInset(edge:alignment:spacing:content)``
+     /// modifier for adding to the safe area based on the size of a
+     /// view.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func safeAreaPadding(_ edges: Edge.Set = .all, _ length: CGFloat? = nil) -> some View {
+         modifier(SafeAreaPaddingModifier(
+             edges: edges,
+@@ -348,7 +348,7 @@
+     /// See the ``View/safeAreaInset(edge:alignment:spacing:content)``
+     /// modifier for adding to the safe area based on the size of a
+     /// view.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func safeAreaPadding(_ length: CGFloat) -> some View {
+         safeAreaPadding(.all, length)
+     }
+--- a/Sources/SwiftUICore/Modifier/CustomViewModifier.swift
++++ b/Sources/SwiftUICore/Modifier/CustomViewModifier.swift
+@@ -36,7 +36,7 @@
+     }
+ 
+     @available(OpenSwiftUI_v2_0, *)
+-    @_alwaysEmitIntoClient
++
+     nonisolated public static func _viewListCount(inputs: _ViewListCountInputs) -> Int? {
+         _viewListCount(inputs: inputs) { _ in nil }
+     }
+--- a/Sources/SwiftUICore/Render/GeometryEffect/OffsetEffect.swift
++++ b/Sources/SwiftUICore/Render/GeometryEffect/OffsetEffect.swift
+@@ -166,7 +166,7 @@
+ extension Transition where Self == OffsetTransition {
+ 
+     /// Returns a transition that offset the view by the specified amount.
+-    @_alwaysEmitIntoClient
++
+     @MainActor
+     @preconcurrency
+     public static func offset(_ offset: CGSize) -> Self {
+@@ -175,7 +175,7 @@
+ 
+     /// Returns a transition that offset the view by the specified x and y
+     /// values.
+-    @_alwaysEmitIntoClient
++
+     @MainActor
+     @preconcurrency
+     public static func offset(x: CGFloat = 0, y: CGFloat = 0) -> Self {
+--- a/Sources/SwiftUICore/Render/GeometryEffect/Rotation3DEffect.swift
++++ b/Sources/SwiftUICore/Render/GeometryEffect/Rotation3DEffect.swift
+@@ -22,7 +22,7 @@
+ 
+     public var perspective: CGFloat
+ 
+-    @_alwaysEmitIntoClient
++
+     public init(
+         angle: Angle,
+         axis: (x: CGFloat, y: CGFloat, z: CGFloat),
+--- a/Sources/SwiftUICore/Render/GeometryEffect/ScaleEffect.swift
++++ b/Sources/SwiftUICore/Render/GeometryEffect/ScaleEffect.swift
+@@ -172,13 +172,13 @@
+ extension Transition where Self == ScaleTransition {
+ 
+     /// Returns a transition that scales the view.
+-    @_alwaysEmitIntoClient
++
+     public static var scale: ScaleTransition {
+         get { Self(1e-5) }
+     }
+ 
+     /// Returns a transition that scales the view by the specified amount.
+-    @_alwaysEmitIntoClient
++
+     public static func scale(_ scale: Double, anchor: UnitPoint = .center) -> Self {
+         Self(scale, anchor: anchor)
+     }
+--- a/Sources/SwiftUICore/Render/RendererEffect/OpacityEffect.swift
++++ b/Sources/SwiftUICore/Render/RendererEffect/OpacityEffect.swift
+@@ -191,7 +191,7 @@
+ 
+     /// A transition from transparent to opaque on insertion, and from opaque to
+     /// transparent on removal.
+-    @_alwaysEmitIntoClient
++
+     @MainActor
+     @preconcurrency
+     public static var opacity: OpacityTransition {
+@@ -234,7 +234,7 @@
+     ///
+     ///     Circle().fill(.opacity(0.5))
+     ///
+-    @_alwaysEmitIntoClient
++
+     public static func opacity(_ opacity: Double) -> some ShapeStyle {
+         _OpacityShapeStyle(style: _ImplicitShapeStyle(), opacity: Float(opacity))
+     }
+--- a/Sources/SwiftUICore/Render/RendererEffect/RendererEffect.swift
++++ b/Sources/SwiftUICore/Render/RendererEffect/RendererEffect.swift
+@@ -256,7 +256,7 @@
+         .geometryGroup
+     }
+ 
+-    @_alwaysEmitIntoClient
++
+     nonisolated public init() {}
+ }
+ 
+@@ -293,7 +293,7 @@
+     ///
+     /// Returns: a new view whose geometry is isolated from that of its
+     /// parent view.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func geometryGroup() -> some View {
+         modifier(_GeometryGroupEffect())
+     }
+--- a/Sources/SwiftUICore/Shape/ContainerShape.swift
++++ b/Sources/SwiftUICore/Shape/ContainerShape.swift
+@@ -34,7 +34,7 @@
+     /// A shape that is replaced by an inset version of the current
+     /// container shape. If no container shape was defined, is replaced by
+     /// a rectangle.
+-    @_alwaysEmitIntoClient
++
+     public static var containerRelative: ContainerRelativeShape {
+         .init()
+     }
+--- a/Sources/SwiftUICore/Shape/RoundedCornerStyle.swift
++++ b/Sources/SwiftUICore/Shape/RoundedCornerStyle.swift
+@@ -270,28 +270,28 @@
+     package var bottomLeft: CGFloat
+ 
+     /// The radius of the top-leading corner.
+-    @_alwaysEmitIntoClient
++
+     public var topLeading: CGFloat {
+         get { topLeft }
+         set { topLeft = newValue }
+     }
+ 
+     /// The radius of the bottom-leading corner.
+-    @_alwaysEmitIntoClient
++
+     public var bottomLeading: CGFloat {
+         get { bottomLeft }
+         set { bottomLeft = newValue }
+     }
+ 
+     /// The radius of the bottom-trailing corner.
+-    @_alwaysEmitIntoClient
++
+     public var bottomTrailing: CGFloat {
+         get { bottomRight }
+         set { bottomRight = newValue }
+     }
+ 
+     /// The radius of the top-trailing corner.
+-    @_alwaysEmitIntoClient
++
+     public var topTrailing: CGFloat {
+         get { topRight }
+         set { topRight = newValue }
+@@ -313,7 +313,7 @@
+     ///   - bottomLeading: the radius of the bottom-leading corner.
+     ///   - bottomTrailing: the radius of the bottom-trailing corner.
+     ///   - topTrailing: the radius of the top-trailing corner.
+-    @_alwaysEmitIntoClient
++
+     public init(topLeading: CGFloat = 0, bottomLeading: CGFloat = 0, bottomTrailing: CGFloat = 0, topTrailing: CGFloat = 0) {
+         self.init(
+             topLeft: topLeading, topRight: topTrailing,
+--- a/Sources/SwiftUICore/Shape/ShapeStyle/BackgroundStyle.swift
++++ b/Sources/SwiftUICore/Shape/ShapeStyle/BackgroundStyle.swift
+@@ -79,7 +79,7 @@
+     /// Mode.
+     ///
+     /// For information about how to use shape styles, see ``ShapeStyle``.
+-    @_alwaysEmitIntoClient
++
+     public static var background: BackgroundStyle {
+         .init()
+     }
+--- a/Sources/SwiftUICore/Shape/ShapeStyle/BlendMode.swift
++++ b/Sources/SwiftUICore/Shape/ShapeStyle/BlendMode.swift
+@@ -59,7 +59,7 @@
+     ///
+     ///     Circle().fill(.blendMode(.overlay))
+     ///
+-    @_alwaysEmitIntoClient
++
+     public static func blendMode(_ mode: BlendMode) -> some ShapeStyle {
+         _BlendModeShapeStyle(
+             style: _ImplicitShapeStyle(),
+--- a/Sources/SwiftUICore/Shape/ShapeStyle/ContentStyle.swift
++++ b/Sources/SwiftUICore/Shape/ShapeStyle/ContentStyle.swift
+@@ -18,7 +18,7 @@
+     /// to the ``View/foregroundStyle(_:)`` modifier.
+     ///
+     /// For information about how to use shape styles, see ``ShapeStyle``.
+-    @_alwaysEmitIntoClient
++
+     public static var primary: HierarchicalShapeStyle { .primary }
+ 
+     /// A shape style that maps to the second level of the current content style.
+@@ -30,7 +30,7 @@
+     /// to the ``View/foregroundStyle(_:)`` modifier.
+     ///
+     /// For information about how to use shape styles, see ``ShapeStyle``.
+-    @_alwaysEmitIntoClient
++
+     public static var secondary: HierarchicalShapeStyle { .secondary }
+ 
+     /// A shape style that maps to the third level of the current content
+@@ -43,7 +43,7 @@
+     /// to the ``View/foregroundStyle(_:)`` modifier.
+     ///
+     /// For information about how to use shape styles, see ``ShapeStyle``.
+-    @_alwaysEmitIntoClient
++
+     public static var tertiary: HierarchicalShapeStyle { .tertiary }
+ 
+     /// A shape style that maps to the fourth level of the current content
+@@ -56,7 +56,7 @@
+     /// to the ``View/foregroundStyle(_:)`` modifier.
+     ///
+     /// For information about how to use shape styles, see ``ShapeStyle``.
+-    @_alwaysEmitIntoClient
++
+     public static var quaternary: HierarchicalShapeStyle { .quaternary }
+ }
+ 
+@@ -71,7 +71,7 @@
+     /// to the ``View/foregroundStyle(_:)`` modifier.
+     ///
+     /// For information about how to use shape styles, see ``ShapeStyle``.
+-    @_alwaysEmitIntoClient
++
+     public static var quinary: HierarchicalShapeStyle { .quinary }
+ }
+ 
+@@ -304,25 +304,25 @@
+ 
+ extension ShapeStyle {
+     /// Returns the second level of this shape style.
+-    @_alwaysEmitIntoClient
++
+     public var secondary: some ShapeStyle {
+         HierarchicalShapeStyleModifier(base: self, level: 1)
+     }
+ 
+     /// Returns the third level of this shape style.
+-    @_alwaysEmitIntoClient
++
+     public var tertiary: some ShapeStyle {
+         HierarchicalShapeStyleModifier(base: self, level: 2)
+     }
+ 
+     /// Returns the fourth level of this shape style.
+-    @_alwaysEmitIntoClient
++
+     public var quaternary: some ShapeStyle {
+         HierarchicalShapeStyleModifier(base: self, level: 3)
+     }
+ 
+     /// Returns the fifth level of this shape style.
+-    @_alwaysEmitIntoClient
++
+     public var quinary: some ShapeStyle {
+         HierarchicalShapeStyleModifier(base: self, level: 4)
+     }
+--- a/Sources/SwiftUICore/Shape/ShapeStyle/ForegroundStyle.swift
++++ b/Sources/SwiftUICore/Shape/ShapeStyle/ForegroundStyle.swift
+@@ -407,7 +407,7 @@
+     /// a given view and its child views.
+     ///
+     /// For information about how to use shape styles, see ``ShapeStyle``.
+-    @_alwaysEmitIntoClient
++
+     public static var foreground: ForegroundStyle {
+         .init()
+     }
+--- a/Sources/SwiftUICore/Shape/ShapeStyle/SeparatorShapeStyle.swift
++++ b/Sources/SwiftUICore/Shape/ShapeStyle/SeparatorShapeStyle.swift
+@@ -10,7 +10,7 @@
+     /// A style appropriate for foreground separator or border lines.
+     ///
+     /// For information about how to use shape styles, see ``ShapeStyle``.
+-    @_alwaysEmitIntoClient
++
+     public static var separator: SeparatorShapeStyle { .init() }
+ }
+ 
+--- a/Sources/SwiftUICore/Shape/ShapeStyle/ShadowStyle.swift
++++ b/Sources/SwiftUICore/Shape/ShapeStyle/ShadowStyle.swift
+@@ -216,7 +216,7 @@
+     ///
+     /// - Returns: A new shape style based on the current style that uses the
+     ///   specified shadow style.
+-    @_alwaysEmitIntoClient
++
+     public static func shadow(_ style: ShadowStyle) -> some ShapeStyle {
+         return _ShadowShapeStyle(
+             style: _ImplicitShapeStyle(), shadowStyle: style)
+--- a/Sources/SwiftUICore/Shape/ShapeView.swift
++++ b/Sources/SwiftUICore/Shape/ShapeView.swift
+@@ -284,7 +284,7 @@
+     ///   - content: The color or gradient to use when filling this shape.
+     ///   - style: The style options that determine how the fill renders.
+     /// - Returns: A shape filled with the color or gradient you supply.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func fill<S>(_ content: S = .foreground, style: FillStyle = FillStyle()) -> _ShapeView<Self, S> where S: ShapeStyle {
+         _ShapeView(shape: self, style: content, fillStyle: style)
+     }
+@@ -312,7 +312,7 @@
+     ///     whether the stroke is dashed --- that determine how to render this
+     ///     shape.
+     /// - Returns: A stroked shape.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func stroke<S>(_ content: S, style: StrokeStyle, antialiased: Bool = true) -> StrokeShapeView<Self, S, EmptyView> where S: ShapeStyle {
+         StrokeShapeView(
+             shape: self,
+@@ -333,7 +333,7 @@
+     ///   - content: The color or gradient with which to stroke this shape.
+     ///   - lineWidth: The width of the stroke that outlines this shape.
+     /// - Returns: A stroked shape.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func stroke<S>(_ content: S, lineWidth: CGFloat = 1, antialiased: Bool = true) -> StrokeShapeView<Self, S, EmptyView> where S: ShapeStyle {
+         stroke(
+             content,
+@@ -350,7 +350,7 @@
+     /// Returns a view that is the result of insetting `self` by
+     /// `style.lineWidth / 2`, stroking the resulting shape with
+     /// `style`, and then filling with `content`.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func strokeBorder<S>(_ content: S = .foreground, style: StrokeStyle, antialiased: Bool = true) -> StrokeBorderShapeView<Self, S, EmptyView> where S: ShapeStyle {
+         StrokeBorderShapeView(
+             shape: self,
+@@ -365,7 +365,7 @@
+     /// border (aka inner stroke) of `self` with `content`. This is
+     /// equivalent to insetting `self` by `lineWidth / 2` and stroking the
+     /// resulting shape with `lineWidth` as the line-width.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func strokeBorder<S>(_ content: S = .foreground, lineWidth: CGFloat = 1, antialiased: Bool = true) -> StrokeBorderShapeView<Self, S, EmptyView> where S: ShapeStyle {
+         strokeBorder(
+             content,
+@@ -394,35 +394,35 @@
+ 
+     /// The shape that this type draws and provides for other drawing
+     /// operations.
+-    @_alwaysEmitIntoClient
++
+     public var shape: Content {
+         get { view.content.shape }
+         set { view.content.shape = newValue }
+     }
+ 
+     /// The style that fills this view's shape.
+-    @_alwaysEmitIntoClient
++
+     public var style: Style {
+         get { view.content.style }
+         set { view.content.style = newValue }
+     }
+ 
+     /// The fill style used when filling this view's shape.
+-    @_alwaysEmitIntoClient
++
+     public var fillStyle: FillStyle {
+         get { view.content.fillStyle }
+         set { view.content.fillStyle = newValue }
+     }
+ 
+     /// The background shown beneath this view.
+-    @_alwaysEmitIntoClient
++
+     public var background: Background {
+         get { view.modifier.background }
+         set { view.modifier.background = newValue }
+     }
+ 
+     /// Create a FillShapeView.
+-    @_alwaysEmitIntoClient
++
+     public init(shape: Content, style: Style, fillStyle: FillStyle, background: Background) {
+         view = .init(
+             content: _ShapeView(
+@@ -459,42 +459,42 @@
+ 
+     /// The shape that this type draws and provides for other drawing
+     /// operations.
+-    @_alwaysEmitIntoClient
++
+     public var shape: Content {
+         get { view.content.shape.shape }
+         set { view.content.shape.shape = newValue }
+     }
+ 
+     /// The style that strokes this view's shape.
+-    @_alwaysEmitIntoClient
++
+     public var style: Style {
+         get { view.content.style }
+         set { view.content.style = newValue }
+     }
+ 
+     /// The stroke style used when stroking this view's shape.
+-    @_alwaysEmitIntoClient
++
+     public var strokeStyle: StrokeStyle {
+         get { view.content.shape.style }
+         set { view.content.shape.style = newValue }
+     }
+ 
+     /// Whether this shape should be drawn antialiased.
+-    @_alwaysEmitIntoClient
++
+     public var isAntialiased: Swift.Bool {
+         get { view.content.fillStyle.isAntialiased }
+         set { view.content.fillStyle.isAntialiased = newValue }
+     }
+ 
+     /// The background shown beneath this view.
+-    @_alwaysEmitIntoClient
++
+     public var background: Background {
+         get { view.modifier.background }
+         set { view.modifier.background = newValue }
+     }
+ 
+     /// Create a StrokeShapeView.
+-    @_alwaysEmitIntoClient
++
+     public init(shape: Content, style: Style, strokeStyle: StrokeStyle, isAntialiased: Swift.Bool, background: Background) {
+         view = .init(
+             content: _ShapeView(
+@@ -534,35 +534,35 @@
+     var view: ViewType
+ 
+     /// The style that strokes the border of this view's shape.
+-    @_alwaysEmitIntoClient
++
+     public var style: Style {
+         get { view.content.style }
+         set { view.content.style = newValue }
+     }
+ 
+     /// The stroke style used when stroking this view's shape.
+-    @_alwaysEmitIntoClient
++
+     public var strokeStyle: StrokeStyle {
+         get { view.content.shape.style }
+         set { view.content.shape.style = newValue }
+     }
+ 
+     /// Whether this shape should be drawn antialiased.
+-    @_alwaysEmitIntoClient
++
+     public var isAntialiased: Swift.Bool {
+         get { view.content.fillStyle.isAntialiased }
+         set { view.content.fillStyle.isAntialiased = newValue }
+     }
+ 
+     /// The background shown beneath this view.
+-    @_alwaysEmitIntoClient
++
+     public var background: Background {
+         get { view.modifier.background }
+         set { view.modifier.background = newValue }
+     }
+ 
+     /// Create a stroke border shape.
+-    @_alwaysEmitIntoClient
++
+     public init(shape: Content, style: Style, strokeStyle: StrokeStyle, isAntialiased: Swift.Bool, background: Background) {
+         self.shape = shape
+         view = .init(
+@@ -596,7 +596,7 @@
+     ///   - content: The color or gradient to use when filling this shape.
+     ///   - style: The style options that determine how the fill renders.
+     /// - Returns: A shape filled with the color or gradient you supply.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func fill<S>(_ content: S = .foreground, style: FillStyle = FillStyle()) -> FillShapeView<Self.Content, S, Self> where S: ShapeStyle {
+         FillShapeView(
+             shape: shape,
+@@ -629,7 +629,7 @@
+     ///     whether the stroke is dashed --- that determine how to render this
+     ///     shape.
+     /// - Returns: A stroked shape.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func stroke<S>(_ content: S, style: StrokeStyle, antialiased: Swift.Bool = true) -> StrokeShapeView<Self.Content, S, Self> where S: ShapeStyle {
+         StrokeShapeView(
+             shape: shape,
+@@ -650,7 +650,7 @@
+     ///   - content: The color or gradient with which to stroke this shape.
+     ///   - lineWidth: The width of the stroke that outlines this shape.
+     /// - Returns: A stroked shape.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func stroke<S>(_ content: S, lineWidth: CGFloat = 1, antialiased: Swift.Bool = true) -> StrokeShapeView<Self.Content, S, Self> where S: ShapeStyle {
+         stroke(
+             content,
+@@ -666,7 +666,7 @@
+     ///
+     /// This method strokes the resulting shape with
+     /// `style` and fills it with `content`.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func strokeBorder<S>(_ content: S = .foreground, style: StrokeStyle, antialiased: Bool = true) -> StrokeBorderShapeView<Self.Content, S, Self> where S: ShapeStyle {
+         StrokeBorderShapeView(
+             shape: shape,
+@@ -681,7 +681,7 @@
+     ///
+     /// This is equivalent to insetting `self` by `lineWidth / 2` and stroking the
+     /// resulting shape with `lineWidth` as the line-width.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func strokeBorder<S>(_ content: S = .foreground, lineWidth: CGFloat = 1, antialiased: Bool = true) -> StrokeBorderShapeView<Self.Content, S, Self> where S: ShapeStyle {
+         strokeBorder(
+             content,
+--- a/Sources/SwiftUICore/Shape/Shapes.swift
++++ b/Sources/SwiftUICore/Shape/Shapes.swift
+@@ -11,7 +11,7 @@
+ 
+ extension Shape where Self == Rectangle {
+     /// A rectangular shape aligned inside the frame of the view containing it.
+-    @_alwaysEmitIntoClient
++
+     public static var rect: Rectangle { .init() }
+ }
+ 
+@@ -38,14 +38,14 @@
+  extension Shape where Self == RoundedRectangle {
+      /// A rectangular shape with rounded corners, aligned inside the frame of
+      /// the view containing it.
+-     @_alwaysEmitIntoClient
++
+      public static func rect(cornerSize: CGSize, style: RoundedCornerStyle = .continuous) -> Self {
+          .init(cornerSize: cornerSize, style: style)
+      }
+ 
+      /// A rectangular shape with rounded corners, aligned inside the frame of
+      /// the view containing it.
+-     @_alwaysEmitIntoClient
++
+      public static func rect(cornerRadius: CGFloat, style: RoundedCornerStyle = .continuous) -> Self {
+          .init(cornerRadius: cornerRadius, style: style)
+      }
+@@ -104,7 +104,7 @@
+ extension Shape where Self == UnevenRoundedRectangle {
+     /// A rectangular shape with rounded corners with different values, aligned
+     /// inside the frame of the view containing it.
+-    @_alwaysEmitIntoClient
++
+     public static func rect(cornerRadii: RectangleCornerRadii, style: RoundedCornerStyle = .continuous) -> Self {
+         .init(cornerRadii: cornerRadii, style: style)
+     }
+@@ -112,7 +112,7 @@
+     /// A rectangular shape with rounded corners with different values, aligned
+     /// inside the frame of the view containing it.
+ 
+-    @_alwaysEmitIntoClient
++
+     public static func rect(topLeadingRadius: CGFloat = 0, bottomLeadingRadius: CGFloat = 0, bottomTrailingRadius: CGFloat = 0, topTrailingRadius: CGFloat = 0, style: RoundedCornerStyle = .continuous) -> Self {
+         .init(
+             topLeadingRadius: topLeadingRadius,
+@@ -147,7 +147,7 @@
+     }
+ 
+     /// Creates a new rounded rectangle shape with uneven corners.
+-    @_alwaysEmitIntoClient
++
+     public init(topLeadingRadius: CGFloat = 0, bottomLeadingRadius: CGFloat = 0, bottomTrailingRadius: CGFloat = 0, topTrailingRadius: CGFloat = 0, style: RoundedCornerStyle = .continuous) {
+         self.init(
+             cornerRadii: .init(
+@@ -177,7 +177,7 @@
+     ///
+     /// A capsule shape is equivalent to a rounded rectangle where the corner
+     /// radius is chosen as half the length of the rectangle's smallest edge.
+-    @_alwaysEmitIntoClient
++
+     public static var capsule: Capsule {
+         .init()
+     }
+@@ -186,7 +186,7 @@
+     ///
+     /// A capsule shape is equivalent to a rounded rectangle where the corner
+     /// radius is chosen as half the length of the rectangle's smallest edge.
+-    @_alwaysEmitIntoClient
++
+     public static func capsule(style: RoundedCornerStyle) -> Self {
+         .init(style: style)
+     }
+@@ -225,7 +225,7 @@
+ 
+ extension Shape where Self == Ellipse {
+     /// An ellipse aligned inside the frame of the view containing it.
+-    @_alwaysEmitIntoClient
++
+     public static var ellipse: Ellipse { .init() }
+ }
+ 
+@@ -254,7 +254,7 @@
+     ///
+     /// The circle's radius equals half the length of the frame rectangle's
+     /// smallest edge.
+-    @_alwaysEmitIntoClient
++
+     public static var circle: Circle { .init() }
+ }
+ 
+--- a/Sources/SwiftUICore/Shape/Tint.swift
++++ b/Sources/SwiftUICore/Shape/Tint.swift
+@@ -194,7 +194,7 @@
+     ///
+     /// You can set the tint color with the `tint(_:)` modifier. If no explicit
+     /// tint is set, the tint is derived from the app's accent color.
+-    @_alwaysEmitIntoClient
++
+     public static var tint: TintShapeStyle {
+         .init()
+     }
+--- a/Sources/SwiftUICore/View/ConditionalContent.swift
++++ b/Sources/SwiftUICore/View/ConditionalContent.swift
+@@ -35,7 +35,7 @@
+     /// _ConditionalContent on your behalf when using conditional
+     /// statements in a variety of result builders.
+     @available(*, deprecated, message: "Do not use this.")
+-    @_alwaysEmitIntoClient
++
+     public init(_storage: Storage) {
+         self.storage = _storage
+     }
+--- a/Sources/SwiftUICore/View/Container/ContainerValueWritingModifier.swift
++++ b/Sources/SwiftUICore/View/Container/ContainerValueWritingModifier.swift
+@@ -104,7 +104,7 @@
+     ///   - value: The new value to set for the item specified by `keyPath`.
+     ///
+     /// - Returns: A view that has the given value set in its containerValues.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func containerValue<V>(
+         _ keyPath: WritableKeyPath<ContainerValues, V>,
+         _ value: V
+@@ -123,7 +123,7 @@
+     /// The container value to set for `keyPath`.
+     public var value: Value
+ 
+-    @_alwaysEmitIntoClient
++
+     public init(
+         keyPath: WritableKeyPath<ContainerValues, Value>,
+         value: Value
+--- a/Sources/SwiftUICore/View/DynamicView/AnyView.swift
++++ b/Sources/SwiftUICore/View/DynamicView/AnyView.swift
+@@ -31,7 +31,7 @@
+         }
+     }
+ 
+-    @_alwaysEmitIntoClient
++
+     public init<V>(erasing view: V) where V : View {
+         self.init(view)
+     }
+--- a/Sources/SwiftUICore/View/DynamicView/DebugReplaceableView.swift
++++ b/Sources/SwiftUICore/View/DynamicView/DebugReplaceableView.swift
+@@ -43,7 +43,7 @@
+     /// actually changing as it is in place of an opaque result type. As such,
+     /// it *should not be used in app code*.
+     @available(*, deprecated, message: "DebugReplaceableView should not be used directly, to type erase a View, you should use AnyView.")
+-    @_alwaysEmitIntoClient
++
+     public init<V>(erasing view: V) where V: View {
+         self.init(_erasing: view)
+     }
+--- a/Sources/SwiftUICore/View/DynamicViewContent/ForEach.swift
++++ b/Sources/SwiftUICore/View/DynamicViewContent/ForEach.swift
+@@ -1642,7 +1642,7 @@
+     ///     create views dynamically.
+     ///   - content: The view builder that creates views dynamically.
+     @_disfavoredOverload
+-    @_alwaysEmitIntoClient
++
+     public init<C>(
+         _ data: Binding<C>,
+         @ViewBuilder content: @escaping (Binding<C.Element>) -> Content
+@@ -1669,7 +1669,7 @@
+     ///   - id: The key path to the provided data's identifier.
+     ///   - content: The view builder that creates views dynamically.
+     @_disfavoredOverload
+-    @_alwaysEmitIntoClient
++
+     public init<C>(
+         _ data: Binding<C>,
+         id: KeyPath<C.Element, ID>,
+--- a/Sources/SwiftUICore/View/Group.swift
++++ b/Sources/SwiftUICore/View/Group.swift
+@@ -104,7 +104,7 @@
+ 
+     /// Creates a group with the provided content. You don't use this directly.
+     @available(OpenSwiftUI_v1_0, *)
+-    @_alwaysEmitIntoClient
++
+     public static func _make(content: Content) -> Group<Content> {
+         self.init(_content: content)
+     }
+--- a/Sources/SwiftUICore/View/Tag.swift
++++ b/Sources/SwiftUICore/View/Tag.swift
+@@ -67,7 +67,7 @@
+     ///   also be set.
+     ///
+     /// - Returns: A view with the specified tag set.
+-    @_alwaysEmitIntoClient
++
+     nonisolated public func tag<V>(_ tag: V, includeOptional: Bool = true) -> some View where V: Hashable {
+         _trait(TagValueTraitKey<V>.self, .tagged(tag))
+             ._trait(
+--- a/Sources/SwiftUICore/View/Text/Text/Text+Renderer.swift
++++ b/Sources/SwiftUICore/View/Text/Text/Text+Renderer.swift
+@@ -191,7 +191,7 @@
+         @available(OpenSwiftUI_v5_0, *)
+         public private(set) var numberOfLines: Int
+ 
+-        @_alwaysEmitIntoClient
++
+         public var startIndex: Int { 0 }
+ 
+         public var endIndex: Int { lines.endIndex }
+@@ -214,17 +214,17 @@
+                 self.value = value
+             }
+ 
+-            @_alwaysEmitIntoClient
++
+             public static func < (lhs: Text.Layout.CharacterIndex, rhs: Text.Layout.CharacterIndex) -> Bool {
+                 lhs.value < rhs.value
+             }
+ 
+-            @_alwaysEmitIntoClient
++
+             public func advanced(by n: Int) -> Text.Layout.CharacterIndex {
+                 .init(value: value + n)
+             }
+ 
+-            @_alwaysEmitIntoClient
++
+             public func distance(to other: Text.Layout.CharacterIndex) -> Int {
+                 other.value - value
+             }
+@@ -252,14 +252,14 @@
+             public var leading: CGFloat
+ 
+             /// Initializes to an empty bounds with zero origin.
+-            @_alwaysEmitIntoClient
++
+             public init() {
+                 origin = .init()
+                 (width, ascent, descent, leading) = (0, 0, 0, 0)
+             }
+ 
+             /// Returns a rectangle encapsulating the bounds.
+-            @_alwaysEmitIntoClient
++
+             public var rect: CGRect {
+                 CGRect(
+                     x: origin.x,
+@@ -297,7 +297,7 @@
+ 
+             package var drawingOptions: Text.Layout.DrawingOptions
+ 
+-            @_alwaysEmitIntoClient
++
+             public var startIndex: Int {
+                  0
+             }
+@@ -361,7 +361,7 @@
+                 lineOrigin
+             }
+ 
+-            @_alwaysEmitIntoClient
++
+             public var startIndex: Int {
+                 0
+             }
+@@ -370,12 +370,12 @@
+                 _openSwiftUIUnimplementedFailure()
+             }
+ 
+-            @_alwaysEmitIntoClient
++
+             public subscript(index: Int) -> Text.Layout.RunSlice {
+                 self[index ..< index &+ 1]
+             }
+ 
+-            @_alwaysEmitIntoClient
++
+             public subscript(bounds: Range<Int>) -> Text.Layout.RunSlice {
+                 RunSlice(run: self, indices: bounds)
+             }
+@@ -423,17 +423,17 @@
+                 self.indices = indices
+             }
+ 
+-            @_alwaysEmitIntoClient
++
+             public var startIndex: Int {
+                 indices.lowerBound
+             }
+ 
+-            @_alwaysEmitIntoClient
++
+             public var endIndex: Int {
+                 indices.upperBound
+             }
+ 
+-            @_alwaysEmitIntoClient
++
+             public subscript(index: Int) -> Text.Layout.RunSlice {
+                 self[index ..< index &+ 1]
+             }
+@@ -444,7 +444,7 @@
+ 
+             /// The custom attribute of type `T` associated with the
+             /// run of glyphs, or nil.
+-            @_alwaysEmitIntoClient
++
+             public subscript<T>(key: T.Type) -> T? where T: TextAttribute {
+                 run[key]
+             }
+@@ -522,7 +522,7 @@
+     public struct DrawingOptions: OptionSet {
+         public let rawValue: UInt32
+ 
+-        @_alwaysEmitIntoClient
++
+         public init(rawValue: UInt32) {
+             self.rawValue = rawValue
+         }
+@@ -530,7 +530,7 @@
+         /// If set, subpixel quantization requested by the text engine
+         /// is disabled. This can be useful for text that will be
+         /// animated to prevent it jittering.
+-        @_alwaysEmitIntoClient
++
+         public static var disablesSubpixelQuantization: Text.Layout.DrawingOptions {
+             .init(rawValue: 1 << 0)
+         }
+--- a/Sources/SwiftUICore/View/Text/Text/Text+Selection.swift
++++ b/Sources/SwiftUICore/View/Text/Text/Text+Selection.swift
+@@ -51,7 +51,7 @@
+     ///             .textSelection(.enabled)
+     ///     }
+     ///
+-    @_alwaysEmitIntoClient
++
+     public static var enabled: EnabledTextSelectability {
+         .init()
+     }
+@@ -73,7 +73,7 @@
+     ///        .contentShape(Rectangle())
+     ///        .gesture(someGesture)
+     ///
+-    @_alwaysEmitIntoClient
++
+     public static var disabled: DisabledTextSelectability {
+         .init()
+     }
+--- a/Sources/SwiftUICore/View/Text/Util/ContentSizeCategory.swift
++++ b/Sources/SwiftUICore/View/Text/Util/ContentSizeCategory.swift
+@@ -78,7 +78,7 @@
+ 
+ @available(OpenSwiftUI_v2_0, *)
+ extension ContentSizeCategory {
+-    @_alwaysEmitIntoClient
++
+     public static func < (lhs: ContentSizeCategory, rhs: ContentSizeCategory) -> Bool {
+         func comparisonValue(for sizeCategory: Self) -> Int {
+             switch sizeCategory {
+@@ -100,17 +100,17 @@
+         return comparisonValue(for: lhs) < comparisonValue(for: rhs)
+     }
+     
+-    @_alwaysEmitIntoClient
++
+     public static func <= (lhs: ContentSizeCategory, rhs: ContentSizeCategory) -> Bool {
+         !(rhs < lhs)
+     }
+     
+-    @_alwaysEmitIntoClient
++
+     public static func > (lhs: ContentSizeCategory, rhs: ContentSizeCategory) -> Bool {
+         rhs < lhs
+     }
+     
+-    @_alwaysEmitIntoClient
++
+     public static func >= (lhs: ContentSizeCategory, rhs: ContentSizeCategory) -> Bool {
+         !(lhs < rhs)
+     }
+--- a/Sources/SwiftUICore/View/ViewBuilder.swift
++++ b/Sources/SwiftUICore/View/ViewBuilder.swift
+@@ -32,7 +32,7 @@
+ @resultBuilder
+ public struct ViewBuilder {
+     /// Builds an expression within the builder.
+-    @_alwaysEmitIntoClient
++
+     public static func buildExpression<Content>(_ content: Content) -> Content where Content: View {
+         content
+     }
+@@ -40,13 +40,13 @@
+     /// Rejects incompatible expressions within the builder.
+     @available(*, unavailable, message: "this expression does not conform to 'View'")
+     @_disfavoredOverload
+-    @_alwaysEmitIntoClient
++
+     public static func buildExpression(_ invalid: Any) -> some View {
+         fatalError()
+     }
+ 
+     /// Builds an empty view from a block containing no statements.
+-    @_alwaysEmitIntoClient
++
+     public static func buildBlock() -> EmptyView {
+         EmptyView()
+     }
+@@ -55,13 +55,13 @@
+     ///
+     /// An example of a single view written as a child view is
+     /// `{ Text("Hello") }`.
+-    @_alwaysEmitIntoClient
++
+     public static func buildBlock<Content>(_ content: Content) -> Content where Content: View {
+         content
+     }
+ 
+     @_disfavoredOverload
+-    @_alwaysEmitIntoClient
++
+     public static func buildBlock<each Content>(_ content: repeat each Content) -> TupleView<(repeat each Content)> where repeat each Content: View {
+         TupleView((repeat each content))
+     }
+@@ -74,21 +74,21 @@
+ extension ViewBuilder {
+     /// Produces an optional view for conditional statements in multi-statement
+     /// closures that's only visible when the condition evaluates to true.
+-    @_alwaysEmitIntoClient
++
+     public static func buildIf<Content>(_ content: Content?) -> Content? where Content: View {
+         content
+     }
+ 
+     /// Produces content for a conditional statement in a multi-statement closure
+     /// when the condition is true.
+-    @_alwaysEmitIntoClient
++
+     public static func buildEither<TrueContent, FalseContent>(first: TrueContent) -> _ConditionalContent<TrueContent, FalseContent> where TrueContent: View, FalseContent: View {
+         .init(storage: .trueContent(first))
+     }
+ 
+     /// Produces content for a conditional statement in a multi-statement closure
+     /// when the condition is false.
+-    @_alwaysEmitIntoClient
++
+     public static func buildEither<TrueContent, FalseContent>(second: FalseContent) -> _ConditionalContent<TrueContent, FalseContent> where TrueContent: View, FalseContent: View {
+         .init(storage: .falseContent(second))
+     }
+@@ -98,7 +98,7 @@
+ extension ViewBuilder {
+     /// Processes view content for a conditional compiler-control
+     /// statement that performs an availability check.
+-    @_alwaysEmitIntoClient
++
+     public static func buildLimitedAvailability<Content>(_ content: Content) -> AnyView where Content: View {
+         .init(content)
+     }
+--- a/Sources/SwiftUICore/View/ViewTrait.swift
++++ b/Sources/SwiftUICore/View/ViewTrait.swift
+@@ -106,7 +106,7 @@
+ 
+     public var isEnabled: Bool
+     
+-    @_alwaysEmitIntoClient
++
+     public init(traitKey: Trait.Type = Trait.self, value: Trait.Value, isEnabled: Bool) {
+         self.value = value
+         self.isEnabled = isEnabled
+@@ -165,7 +165,7 @@
+ @available(OpenSwiftUI_v1_0, *)
+ extension View {
+     /// Conditionally writes a trait.
+-    @_alwaysEmitIntoClient
++
+     @MainActor
+     @preconcurrency
+     public func _trait<K>(_ key: K.Type = K.self, _ value: K.Value, isEnabled: Bool) -> some View where K: _ViewTraitKey {

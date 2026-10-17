@@ -252,7 +252,7 @@ public struct AutomaticFormStyle: FormStyle {
 @available(*, unavailable) extension AutomaticFormStyle: Sendable {}
 
 extension FormStyle where Self == AutomaticFormStyle {
-    @_alwaysEmitIntoClient public static var automatic: AutomaticFormStyle { .init() }
+    public static var automatic: AutomaticFormStyle { .init() }
 }
 
 extension FormStyle where Self == ColumnsFormStyle {

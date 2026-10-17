@@ -346,9 +346,31 @@ QuartzCore draws layers through CoreGraphics, and AppKit is Finch's own.
   with the earlier SwiftUI gaps. Full import coverage rose from 3302/4589 (71%) to 3310/4589
   (72%).
 
-  `Text.accessibilityLabel` and `View.tableStyle` remain the next tied gaps, each imported
-  by five apps. Finch's text accessibility resolver does not yet turn a text label into an
-  accessibility string, so adding only the `Text` method would store metadata without
-  giving the accessibility tree a working label. Finch's `Table` also has no style path that
-  changes its layout or drawing, so a public table style would not have real effect yet.
+  At that point, `Text.accessibilityLabel` and `View.tableStyle` were the next tied gaps,
+  each imported by five apps. Finch's text accessibility resolver does not yet turn a text
+  label into an accessibility string, so adding only the `Text` method would store metadata
+  without giving the accessibility tree a working label. Finch's `Table` had no style path
+  then; the 2026-10-16 pass below adds one.
+
+- 2026-10-16: the SwiftUI API pass added 803 missing public API items from the Mac-facing
+  list. The coverage tool now counts SwiftUICore APIs that SwiftUI re-exports, and checks
+  property accessors and constructor symbols. With that correction, a clean checkout has
+  4,284 of 8,816 API items (4,532 missing); this pass has 5,087 (3,729 missing).
+  These counts use the corrected tool, so they do not compare directly with the earlier
+  2,301-present, 6,515-missing count.
+  - DatePicker uses AppKit's `NSDatePicker`. File import uses `NSOpenPanel`. ImageRenderer
+    draws a hosted view into a bitmap with Core Graphics. Gauge styles draw linear and
+    circular gauges. Button repeat behavior repeats while the button stays pressed.
+  - Table styles now change row backgrounds and borders. Columns support alignment,
+    visibility, ordering and saved customization. ControlGroup styles draw their selected
+    layout. Toolbar label styles set AppKit's toolbar display mode.
+  - Added localized resource overloads for controls, WindowGroup initializers, window
+    settings, gradient and shape style exports, and font size modifiers. APIs that need
+    behavior Finch does not have yet, such as Gauge's marked labels, remain out.
+  - `SwiftUIMore` and `swiftui-gaps-test.sh` cover the new controls and styles. The SwiftUI
+    framework build, sample app build, and all gap stages passed. The four requested host
+    comparisons passed.
+  - The 42 checked Mac apps import 4,589 SwiftUI symbols. Finch now has 3,437 (74%).
+    App Store, Calculator, Font Book, Mail, Music, QuickTime Player, iPhone Mirroring,
+    Magnifier, System Information, and Numbers Creator Studio import all their listed symbols.
 

@@ -1,0 +1,13 @@
+--- a/Sources/SwiftUI/View/Control/Button/ButtonStyle/ButtonRole.swift
++++ b/Sources/SwiftUI/View/Control/Button/ButtonStyle/ButtonRole.swift
+@@ -9,6 +9,8 @@
+ public struct ButtonRole: Equatable, Sendable {
+-    public static let destructive: ButtonRole = .init(rawValue: 1)
+-    public static let cancel: ButtonRole = .init(rawValue: 4)
++    public static let destructive: ButtonRole = .init(rawValue: 0)
++    public static let cancel: ButtonRole = .init(rawValue: 1)
++    public static let confirm: ButtonRole = .init(rawValue: 2)
++    public static let close: ButtonRole = .init(rawValue: 3)
+     
+     public static func == (a: ButtonRole, b: ButtonRole) -> Bool {
+         a.rawValue == b.rawValue

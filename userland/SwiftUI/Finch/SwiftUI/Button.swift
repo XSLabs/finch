@@ -4,6 +4,7 @@
 // in force (on macOS, the bordered push button unless a style says otherwise; see
 // ButtonStyles.swift). Upstream's is an empty placeholder.
 
+public import Foundation
 import SwiftUICore
 
 @available(OpenSwiftUI_v1_0, *)
@@ -37,6 +38,13 @@ extension Button: Sendable {}
 
 @available(OpenSwiftUI_v1_0, *)
 extension Button where Label == Text {
+    @available(macOS 13.0, *)
+    @preconcurrency
+    @_disfavoredOverload
+    nonisolated public init(_ title: LocalizedStringResource, action: @escaping @MainActor () -> Void) {
+        self.init(action: action) { Text(title) }
+    }
+
     @preconcurrency
     nonisolated public init(_ titleKey: LocalizedStringKey, action: @escaping @MainActor () -> Void) {
         self.init(role: nil, action: { MainActor.assumeIsolated { action() } }, label: Text(titleKey))
@@ -46,6 +54,18 @@ extension Button where Label == Text {
     @_disfavoredOverload
     nonisolated public init<S>(_ title: S, action: @escaping @MainActor () -> Void) where S: StringProtocol {
         self.init(role: nil, action: { MainActor.assumeIsolated { action() } }, label: Text(title))
+    }
+}
+
+@available(macOS 13.0, *)
+extension Button where Label == SwiftUI.Label<Text, Image> {
+    @preconcurrency
+    @_disfavoredOverload
+    nonisolated public init(_ title: LocalizedStringResource, systemImage: String,
+                            action: @escaping @MainActor () -> Void) {
+        self.init(action: action) {
+            SwiftUI.Label { Text(title) } icon: { Image(systemName: systemImage) }
+        }
     }
 }
 
@@ -67,6 +87,13 @@ extension Button {
 
 @available(OpenSwiftUI_v3_0, *)
 extension Button where Label == Text {
+    @available(macOS 13.0, *)
+    @preconcurrency
+    @_disfavoredOverload
+    nonisolated public init(_ title: LocalizedStringResource, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
+        self.init(role: role, action: action) { Text(title) }
+    }
+
     @preconcurrency
     nonisolated public init(_ titleKey: LocalizedStringKey, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
         self.init(role: role, action: { MainActor.assumeIsolated { action() } }, label: Text(titleKey))
@@ -77,5 +104,17 @@ extension Button where Label == Text {
     nonisolated public init<S>(_ title: S, role: ButtonRole?, action: @escaping @MainActor () -> Void)
         where S: StringProtocol {
         self.init(role: role, action: { MainActor.assumeIsolated { action() } }, label: Text(title))
+    }
+}
+
+@available(macOS 13.0, *)
+extension Button where Label == SwiftUI.Label<Text, Image> {
+    @preconcurrency
+    @_disfavoredOverload
+    nonisolated public init(_ title: LocalizedStringResource, systemImage: String, role: ButtonRole?,
+                            action: @escaping @MainActor () -> Void) {
+        self.init(role: role, action: action) {
+            SwiftUI.Label { Text(title) } icon: { Image(systemName: systemImage) }
+        }
     }
 }

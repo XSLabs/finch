@@ -1,0 +1,1077 @@
+--- a/Sources/SwiftUICore/Animation/Animatable/Animatable.swift
++++ b/Sources/SwiftUICore/Animation/Animatable/Animatable.swift
+@@ -135,6 +135,8 @@
+ 
+ @_spi(Private)
+ @available(OpenSwiftUI_v2_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     nonisolated public func unanimatable() -> some View {
+         modifier(UnanimatableModifier())
+--- a/Sources/SwiftUICore/Animation/Animatable/View+Animatable.swift
++++ b/Sources/SwiftUICore/Animation/Animatable/View+Animatable.swift
+@@ -5,6 +5,8 @@
+ //  Audited for 6.5.4
+ //  Status: Complete
+ 
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View where Self: Animatable {
+     nonisolated public static func _makeView(
+         view: _GraphValue<Self>,
+--- a/Sources/SwiftUICore/Animation/Animation/AnimationModifier.swift
++++ b/Sources/SwiftUICore/Animation/Animation/AnimationModifier.swift
+@@ -210,6 +210,8 @@
+ extension _AnimationModifier: Equatable {}
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     @inlinable
+     nonisolated public func animation<V>(_ animation: Animation?, value: V) -> some View where V: Equatable {
+@@ -218,6 +220,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v3_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View where Self: Equatable {
+     @available(OpenSwiftUI_v3_0, *)
+     @inlinable
+--- a/Sources/SwiftUICore/Animation/Transaction/TransactionModifier.swift
++++ b/Sources/SwiftUICore/Animation/Transaction/TransactionModifier.swift
+@@ -11,6 +11,8 @@
+ // MARK: View + transaction
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Applies the given transaction mutation function to all animations used
+     /// within the view.
+@@ -213,6 +215,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v5_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Applies the given transaction mutation function to all animations used
+     /// within the `body` closure.
+--- a/Sources/SwiftUICore/Animation/Transition/TransitionTraitKey.swift
++++ b/Sources/SwiftUICore/Animation/Transition/TransitionTraitKey.swift
+@@ -8,6 +8,8 @@
+ // MARK: - View + transition
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Associates a transition with the view.
+--- a/Sources/SwiftUICore/Data/Combine/EnvironmentObject.swift
++++ b/Sources/SwiftUICore/Data/Combine/EnvironmentObject.swift
+@@ -203,6 +203,8 @@
+ // MARK: - View + environmentObject
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Supplies an observable object to a view's hierarchy.
+     ///
+--- a/Sources/SwiftUICore/Data/Environment/EnvironmentKeyTransformModifier.swift
++++ b/Sources/SwiftUICore/Data/Environment/EnvironmentKeyTransformModifier.swift
+@@ -45,6 +45,8 @@
+ @available(*, unavailable)
+ extension _EnvironmentKeyTransformModifier: Sendable {}
+ 
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Transforms the environment value of the specified key path with the
+     /// given function.
+--- a/Sources/SwiftUICore/Data/Environment/EnvironmentKeyWritingModifier.swift
++++ b/Sources/SwiftUICore/Data/Environment/EnvironmentKeyWritingModifier.swift
+@@ -46,6 +46,8 @@
+ extension _EnvironmentKeyWritingModifier: Sendable {}
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Sets the environment value of the specified key path to the given value.
+--- a/Sources/SwiftUICore/Data/EnvironmentKeys/ControlSize.swift
++++ b/Sources/SwiftUICore/Data/EnvironmentKeys/ControlSize.swift
+@@ -75,6 +75,8 @@
+ @available(OpenSwiftUI_iOS_v3_0, *)
+ @available(OpenSwiftUI_watchOS_v4_0, *)
+ @available(tvOS, unavailable)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Sets the size for controls within this view.
+     ///
+--- a/Sources/SwiftUICore/Data/EnvironmentKeys/Enabled.swift
++++ b/Sources/SwiftUICore/Data/EnvironmentKeys/Enabled.swift
+@@ -25,6 +25,8 @@
+     }
+ }
+ 
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Adds a condition that controls whether users can interact with this
+     /// view.
+--- a/Sources/SwiftUICore/Data/EnvironmentKeys/EnvironmentAdditions.swift
++++ b/Sources/SwiftUICore/Data/EnvironmentKeys/EnvironmentAdditions.swift
+@@ -250,6 +250,8 @@
+ // MARK: - View + Text Additions
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Scales images within the view according to one of the relative sizes
+--- a/Sources/SwiftUICore/Data/EnvironmentKeys/PrivacyRedaction.swift
++++ b/Sources/SwiftUICore/Data/EnvironmentKeys/PrivacyRedaction.swift
+@@ -155,6 +155,8 @@
+ // MARK: - View + privacySensitive
+ 
+ @available(OpenSwiftUI_v3_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Marks the view as containing sensitive, private user data.
+--- a/Sources/SwiftUICore/Data/EnvironmentKeys/RedactionReasons.swift
++++ b/Sources/SwiftUICore/Data/EnvironmentKeys/RedactionReasons.swift
+@@ -64,6 +64,8 @@
+ // MARK: - View + redacted
+ 
+ @available(OpenSwiftUI_v2_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Adds a reason to apply a redaction to this view hierarchy.
+--- a/Sources/SwiftUICore/Data/Observation/Environment+Observation.swift
++++ b/Sources/SwiftUICore/Data/Observation/Environment+Observation.swift
+@@ -120,6 +120,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v4_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Places an observable object in the view's environment.
+     ///
+--- a/Sources/SwiftUICore/Data/Preference/PreferenceActionModifier.swift
++++ b/Sources/SwiftUICore/Data/Preference/PreferenceActionModifier.swift
+@@ -11,6 +11,8 @@
+ // MARK: - View + onPreferenceChange
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Adds an action to perform when the specified preference key's value
+     /// changes.
+--- a/Sources/SwiftUICore/Data/Preference/PreferenceTransformModifier.swift
++++ b/Sources/SwiftUICore/Data/Preference/PreferenceTransformModifier.swift
+@@ -50,6 +50,8 @@
+ // MARK: - View + transformPreference
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Applies a transformation to a preference value.
+--- a/Sources/SwiftUICore/Data/Preference/PreferenceWritingModifier.swift
++++ b/Sources/SwiftUICore/Data/Preference/PreferenceWritingModifier.swift
+@@ -69,6 +69,8 @@
+ // MARK: - View + preference
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Sets a value for the given preference.
+--- a/Sources/SwiftUICore/Event/Gesture/GestureMask.swift
++++ b/Sources/SwiftUICore/Event/Gesture/GestureMask.swift
+@@ -8,6 +8,8 @@
+ // MARK: - View + Gesture
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Attaches a gesture to the view with a lower precedence than gestures
+     /// defined by the view.
+@@ -334,6 +336,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v6_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Attaches a gesture to the view with a lower precedence than gestures
+     /// defined by the view.
+--- a/Sources/SwiftUICore/Event/Gesture/TapGesture.swift
++++ b/Sources/SwiftUICore/Event/Gesture/TapGesture.swift
+@@ -89,6 +89,8 @@
+ // MARK: - View + TapGesture
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Adds an action to perform when this view recognizes a tap gesture.
+     ///
+--- a/Sources/SwiftUICore/Finch/AllowsHitTesting.swift
++++ b/Sources/SwiftUICore/Finch/AllowsHitTesting.swift
+@@ -42,6 +42,8 @@
+ extension _AllowsHitTestingModifier: ViewModifier, MultiViewModifier, PrimitiveViewModifier {}
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     @inlinable
+     nonisolated public func allowsHitTesting(_ enabled: Bool) -> some View {
+--- a/Sources/SwiftUICore/Finch/Canvas.swift
++++ b/Sources/SwiftUICore/Finch/Canvas.swift
+@@ -96,6 +96,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v5_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     nonisolated public func textRenderer<T>(_ renderer: T) -> some View where T: TextRenderer {
+         modifier(_TextRendererViewModifier(renderer: renderer))
+@@ -139,6 +141,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     @inlinable
+     nonisolated public func brightness(_ amount: Double) -> some View {
+--- a/Sources/SwiftUICore/Finch/Glass.swift
++++ b/Sources/SwiftUICore/Finch/Glass.swift
+@@ -49,6 +49,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v7_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     nonisolated public func glassEffect(_ glass: Glass = .regular, in shape: some Shape = DefaultGlassEffectShape()) -> some View {
+         let opacity: Double = switch glass.kind {
+@@ -79,6 +81,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v7_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     nonisolated public func glassEffectTransition(_ transition: GlassEffectTransition) -> some View {
+         self
+--- a/Sources/SwiftUICore/Finch/Mask.swift
++++ b/Sources/SwiftUICore/Finch/Mask.swift
+@@ -122,6 +122,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     @inlinable
+     nonisolated public func mask<Mask>(_ mask: Mask) -> some View where Mask: View {
+--- a/Sources/SwiftUICore/Graphic/BlurStyle/VariableBlurEffect.swift
++++ b/Sources/SwiftUICore/Graphic/BlurStyle/VariableBlurEffect.swift
+@@ -30,6 +30,8 @@
+ 
+ @_spi(Private)
+ @available(OpenSwiftUI_v5_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     nonisolated public func variableBlur(maxRadius: CGFloat, mask: Image, opaque: Bool = false) -> some View {
+         modifier(VariableBlurEffect(radius: maxRadius, mask: mask, isOpaque: opaque))
+--- a/Sources/SwiftUICore/Graphic/Color/AccentColor.swift
++++ b/Sources/SwiftUICore/Graphic/Color/AccentColor.swift
+@@ -55,6 +55,8 @@
+ // MARK: - View + accentColor
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Sets the accent color for this view and the views it contains.
+--- a/Sources/SwiftUICore/Graphic/Color/ColorScheme.swift
++++ b/Sources/SwiftUICore/Graphic/Color/ColorScheme.swift
+@@ -74,6 +74,8 @@
+ 
+ // MARK: - View + ColorScheme
+ 
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Sets this view's color scheme.
+     ///
+--- a/Sources/SwiftUICore/Graphic/Color/ForegroundColor.swift
++++ b/Sources/SwiftUICore/Graphic/Color/ForegroundColor.swift
+@@ -11,6 +11,8 @@
+ // MARK: - View + foregroundColor
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     package func defaultForegroundColor(_ color: Color?) -> some View {
+         environment(\.defaultForegroundColor, color)
+--- a/Sources/SwiftUICore/Graphic/Color/PreferredColorScheme.swift
++++ b/Sources/SwiftUICore/Graphic/Color/PreferredColorScheme.swift
+@@ -37,6 +37,8 @@
+ 
+ // MARK: - View + preferredColorScheme
+ 
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Sets the preferred color scheme for this presentation.
+--- a/Sources/SwiftUICore/Layout/Alignment/AlignmentWritingModifier.swift
++++ b/Sources/SwiftUICore/Layout/Alignment/AlignmentWritingModifier.swift
+@@ -13,6 +13,8 @@
+ 
+ // MARK: - View + alignmentGuide
+ 
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Sets the view's horizontal alignment.
+     ///
+--- a/Sources/SwiftUICore/Layout/AspectRatioLayout.swift
++++ b/Sources/SwiftUICore/Layout/AspectRatioLayout.swift
+@@ -91,6 +91,8 @@
+ // MARK: - View + aspectRatio [6.4.41]
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Constrains this view's dimensions to the specified aspect ratio.
+     ///
+--- a/Sources/SwiftUICore/Layout/FixedSizeLayout.swift
++++ b/Sources/SwiftUICore/Layout/FixedSizeLayout.swift
+@@ -61,6 +61,8 @@
+ // MARK: - View + fixedSize [6.4.41]
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Fixes this view at its ideal size in the specified dimensions.
+     ///
+--- a/Sources/SwiftUICore/Layout/Layout.swift
++++ b/Sources/SwiftUICore/Layout/Layout.swift
+@@ -1924,6 +1924,8 @@
+     static var defaultValue: Value { get }
+ }
+ 
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Associates a value with a custom layout property.
+     ///
+--- a/Sources/SwiftUICore/Layout/LayoutPriority.swift
++++ b/Sources/SwiftUICore/Layout/LayoutPriority.swift
+@@ -9,6 +9,8 @@
+ // MARK: - View + layoutPriority [6.4.41]
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Sets the priority by which a parent layout should apportion space to
+     /// this child.
+--- a/Sources/SwiftUICore/Layout/Modifier/DefaultPadding.swift
++++ b/Sources/SwiftUICore/Layout/Modifier/DefaultPadding.swift
+@@ -25,6 +25,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v2_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// For use by children in containers to disable the automatic padding that
+     /// those containers apply.
+--- a/Sources/SwiftUICore/Layout/Modifier/FrameLayout.swift
++++ b/Sources/SwiftUICore/Layout/Modifier/FrameLayout.swift
+@@ -110,6 +110,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Positions this view within an invisible frame with the specified size.
+     ///
+@@ -386,6 +388,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Positions this view within an invisible frame having the specified size
+     /// constraints.
+--- a/Sources/SwiftUICore/Layout/Modifier/InsetViewModifier.swift
++++ b/Sources/SwiftUICore/Layout/Modifier/InsetViewModifier.swift
+@@ -12,6 +12,8 @@
+ // MARK: - View + _InsetViewModifier
+ 
+ @available(OpenSwiftUI_v3_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Shows the specified content above or below the modified view.
+     ///
+@@ -283,6 +285,8 @@
+ // MARK: - View + SafeAreaPaddingModifier
+ 
+ @available(OpenSwiftUI_v5_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Adds the provided insets into the safe area of this view.
+     ///
+--- a/Sources/SwiftUICore/Layout/Modifier/PaddingLayout.swift
++++ b/Sources/SwiftUICore/Layout/Modifier/PaddingLayout.swift
+@@ -79,6 +79,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Adds a different padding amount to each edge of this view.
+     ///
+--- a/Sources/SwiftUICore/Layout/SafeAreaIgnoringLayout.swift
++++ b/Sources/SwiftUICore/Layout/SafeAreaIgnoringLayout.swift
+@@ -95,6 +95,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Changes the view's proposed area to extend outside the screen's safe
+@@ -139,6 +141,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v2_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Expands the safe area of a view.
+--- a/Sources/SwiftUICore/Layout/SafeAreaInsets.swift
++++ b/Sources/SwiftUICore/Layout/SafeAreaInsets.swift
+@@ -307,6 +307,8 @@
+ package typealias SafeAreaInsetsModifier = ModifiedContent<_PaddingLayout, _SafeAreaInsetsModifier>
+ 
+ @available(OpenSwiftUI_v2_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     @MainActor
+     @preconcurrency
+--- a/Sources/SwiftUICore/Layout/Stack/ZIndex.swift
++++ b/Sources/SwiftUICore/Layout/Stack/ZIndex.swift
+@@ -6,6 +6,8 @@
+ //  Status: Complete
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Controls the display order of overlapping views.
+     ///
+--- a/Sources/SwiftUICore/Modifier/ViewModifier/AppearanceActionModifier.swift
++++ b/Sources/SwiftUICore/Modifier/ViewModifier/AppearanceActionModifier.swift
+@@ -63,6 +63,8 @@
+ 
+ // MARK: - View Extension
+ 
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Adds an action to perform before this view appears.
+     ///
+--- a/Sources/SwiftUICore/Modifier/ViewModifier/BackgroundModifier.swift
++++ b/Sources/SwiftUICore/Modifier/ViewModifier/BackgroundModifier.swift
+@@ -356,6 +356,8 @@
+ // MARK: - View + Background
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Layers the given view behind this view.
+     ///
+@@ -406,6 +408,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v3_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Layers the views that you specify behind this view.
+     ///
+--- a/Sources/SwiftUICore/Modifier/ViewModifier/OverlayModifier.swift
++++ b/Sources/SwiftUICore/Modifier/ViewModifier/OverlayModifier.swift
+@@ -168,6 +168,8 @@
+ // MARK: - View + Overlay
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Layers a secondary view in front of this view.
+     ///
+@@ -234,6 +236,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v3_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Layers the views that you specify in front of this view.
+     ///
+--- a/Sources/SwiftUICore/Modifier/ViewModifier/ValueActionModifier.swift
++++ b/Sources/SwiftUICore/Modifier/ViewModifier/ValueActionModifier.swift
+@@ -12,6 +12,8 @@
+ 
+ import Foundation
+ @available(OpenSwiftUI_v2_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Performs an action when a specified value changes.
+     ///
+@@ -216,6 +218,8 @@
+ // MARK: - View + onChange2
+ 
+ @available(OpenSwiftUI_v5_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Adds a modifier for this view that fires an action when a specific
+     /// value changes.
+@@ -328,6 +332,8 @@
+ 
+ @_spi(Private)
+ @available(OpenSwiftUI_v6_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     @_spi(Private)
+     public func _transactionalOnChange<V>(
+--- a/Sources/SwiftUICore/Modifier/ViewModifier.swift
++++ b/Sources/SwiftUICore/Modifier/ViewModifier.swift
+@@ -332,6 +332,8 @@
+ 
+ // MARK: - View + modifier
+ 
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Applies a modifier to a view and returns a new view.
+     ///
+--- a/Sources/SwiftUICore/Render/GeometryEffect/MatchedGeometryEffect.swift
++++ b/Sources/SwiftUICore/Render/GeometryEffect/MatchedGeometryEffect.swift
+@@ -40,6 +40,8 @@
+ // MARK: - View + matchedGeometryEffect
+ 
+ @available(OpenSwiftUI_v2_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Defines a group of views with synchronized geometry using an
+--- a/Sources/SwiftUICore/Render/GeometryEffect/OffsetEffect.swift
++++ b/Sources/SwiftUICore/Render/GeometryEffect/OffsetEffect.swift
+@@ -78,6 +78,8 @@
+ // MARK: - View + offset
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Offset this view by the horizontal and vertical amount specified in the
+--- a/Sources/SwiftUICore/Render/GeometryEffect/Rotation3DEffect.swift
++++ b/Sources/SwiftUICore/Render/GeometryEffect/Rotation3DEffect.swift
+@@ -151,6 +151,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Renders a view's content as if it's rotated in three dimensions around
+     /// the specified axis.
+--- a/Sources/SwiftUICore/Render/GeometryEffect/RotationEffect.swift
++++ b/Sources/SwiftUICore/Render/GeometryEffect/RotationEffect.swift
+@@ -68,6 +68,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Rotates a view's rendered output in two dimensions around the specified
+     /// point.
+--- a/Sources/SwiftUICore/Render/GeometryEffect/ScaleEffect.swift
++++ b/Sources/SwiftUICore/Render/GeometryEffect/ScaleEffect.swift
+@@ -66,6 +66,8 @@
+ // MARK: - View + scaleEffect
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Scales this view's rendered output by the given vertical and horizontal
+--- a/Sources/SwiftUICore/Render/RendererEffect/BlendModeEffect.swift
++++ b/Sources/SwiftUICore/Render/RendererEffect/BlendModeEffect.swift
+@@ -52,6 +52,8 @@
+ // MARK: - View + blendMode
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Sets the blend mode for compositing this view with overlapping views.
+     ///
+@@ -88,6 +90,8 @@
+ 
+ @_spi(Private)
+ @available(OpenSwiftUI_v3_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     @inlinable
+     nonisolated public func extendedBlendMode(_ blendMode: GraphicsContext.BlendMode) -> some View {
+--- a/Sources/SwiftUICore/Render/RendererEffect/BlurEffect.swift
++++ b/Sources/SwiftUICore/Render/RendererEffect/BlurEffect.swift
+@@ -48,6 +48,8 @@
+ // MARK: - View + blur
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Applies a Gaussian blur to this view.
+--- a/Sources/SwiftUICore/Render/RendererEffect/ClipEffect.swift
++++ b/Sources/SwiftUICore/Render/RendererEffect/ClipEffect.swift
+@@ -39,6 +39,8 @@
+ // MARK: - View Extension
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Sets a clipping shape for this view.
+--- a/Sources/SwiftUICore/Render/RendererEffect/CompositingGroupEffect.swift
++++ b/Sources/SwiftUICore/Render/RendererEffect/CompositingGroupEffect.swift
+@@ -32,6 +32,8 @@
+ // MARK: - View + compositingGroup
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Wraps this view in a compositing group.
+     ///
+--- a/Sources/SwiftUICore/Render/RendererEffect/OpacityEffect.swift
++++ b/Sources/SwiftUICore/Render/RendererEffect/OpacityEffect.swift
+@@ -68,6 +68,8 @@
+ // MARK: - View + opacity
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Sets the transparency of this view.
+--- a/Sources/SwiftUICore/Render/RendererEffect/RendererEffect.swift
++++ b/Sources/SwiftUICore/Render/RendererEffect/RendererEffect.swift
+@@ -261,6 +261,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v5_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Isolates the geometry (e.g. position and size) of the view
+     /// from its parent view.
+--- a/Sources/SwiftUICore/Render/RendererEffect/ShadowEffect.swift
++++ b/Sources/SwiftUICore/Render/RendererEffect/ShadowEffect.swift
+@@ -80,6 +80,8 @@
+ // MARK: - View + shadow
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Adds a shadow to this view.
+--- a/Sources/SwiftUICore/Shape/ContainerShape.swift
++++ b/Sources/SwiftUICore/Shape/ContainerShape.swift
+@@ -88,6 +88,8 @@
+ // MARK: - View + ContainerShape
+ 
+ @available(OpenSwiftUI_v3_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Sets the container shape to use for any container relative shape
+     /// within this view.
+@@ -116,6 +118,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v2_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     public func _containerShape<T>(_ shape: T) -> some View where T: InsettableShape {
+         modifier(SystemContainerShapeModifier(shape: shape))
+--- a/Sources/SwiftUICore/Shape/ShapeStyle/BackgroundStyle.swift
++++ b/Sources/SwiftUICore/Shape/ShapeStyle/BackgroundStyle.swift
+@@ -160,6 +160,8 @@
+ // MARK: - View + _addingBackgroundGroup / _addingBackgroundLayer
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Add a background group, affecting the default background color.
+--- a/Sources/SwiftUICore/Shape/ShapeStyle/ForegroundStyle.swift
++++ b/Sources/SwiftUICore/Shape/ShapeStyle/ForegroundStyle.swift
+@@ -11,6 +11,8 @@
+ // MARK: - View + foregroundStyle
+ 
+ @available(OpenSwiftUI_v3_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Sets a view's foreground elements to use a given style.
+     ///
+--- a/Sources/SwiftUICore/Shape/Tint.swift
++++ b/Sources/SwiftUICore/Shape/Tint.swift
+@@ -11,6 +11,8 @@
+ // MARK: - View + tint ShapeStyle
+ 
+ @available(OpenSwiftUI_v4_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Sets the tint within this view.
+     ///
+@@ -77,6 +79,8 @@
+ 
+ @_spi(Private)
+ @available(OpenSwiftUI_v6_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     @inlinable
+     nonisolated public func tint<S>(_ tint: S?, for placement: TintPlacement) -> some View where S: ShapeStyle {
+@@ -91,6 +95,8 @@
+ // MARK: - View + tint Color
+ 
+ @available(OpenSwiftUI_v3_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Sets the tint color within this view.
+     ///
+--- a/Sources/SwiftUICore/Test/TestIDView.swift
++++ b/Sources/SwiftUICore/Test/TestIDView.swift
+@@ -11,6 +11,8 @@
+ 
+ @_spi(Testing)
+ @available(OpenSwiftUI_v2_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     nonisolated public func testID<ID>(_ id: ID) -> TestIDView<Self, ID> where ID: Hashable {
+         TestIDView(content: self, id: id)
+--- a/Sources/SwiftUICore/View/Container/ContainerValueWritingModifier.swift
++++ b/Sources/SwiftUICore/View/Container/ContainerValueWritingModifier.swift
+@@ -9,6 +9,8 @@
+ import OpenAttributeGraphShims
+ 
+ @available(OpenSwiftUI_v6_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Sets a particular container value of a view.
+     ///
+--- a/Sources/SwiftUICore/View/CustomView.swift
++++ b/Sources/SwiftUICore/View/CustomView.swift
+@@ -11,6 +11,8 @@
+ // MARK: - View default implmementation [6.0.87]
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     nonisolated public static func _makeView(view: _GraphValue<Self>, inputs: _ViewInputs) -> _ViewOutputs {
+         makeView(view: view, inputs: inputs)
+--- a/Sources/SwiftUICore/View/DynamicView/IDView.swift
++++ b/Sources/SwiftUICore/View/DynamicView/IDView.swift
+@@ -38,6 +38,8 @@
+ 
+ // MARK: - IDView + View extension
+ 
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Binds a view's identity to the given proxy value.
+     ///
+--- a/Sources/SwiftUICore/View/Image/ImageDynamicRange.swift
++++ b/Sources/SwiftUICore/View/Image/ImageDynamicRange.swift
+@@ -147,6 +147,8 @@
+ 
+ @available(OpenSwiftUI_v5_0, *)
+ @_spi_available(watchOS, introduced: 10.0)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Returns a new view configured with the specified allowed
+--- a/Sources/SwiftUICore/View/Image/SymbolRenderingMode.swift
++++ b/Sources/SwiftUICore/View/Image/SymbolRenderingMode.swift
+@@ -246,6 +246,8 @@
+ // MARK: - View + symbolRenderingMode
+ 
+ @available(OpenSwiftUI_v3_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Sets the rendering mode for symbol images within this view.
+--- a/Sources/SwiftUICore/View/Image/SymbolVariants.swift
++++ b/Sources/SwiftUICore/View/Image/SymbolVariants.swift
+@@ -378,6 +378,8 @@
+ // MARK: - SymbolVariants + EnvironmentValues
+ 
+ @available(OpenSwiftUI_v3_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Makes symbols within the view show a particular variant.
+--- a/Sources/SwiftUICore/View/Style/StyleContext.swift
++++ b/Sources/SwiftUICore/View/Style/StyleContext.swift
+@@ -299,6 +299,8 @@
+ // MARK: View + StyleContext
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     package func styleContext<C>(_ context: C) -> some View where C: StyleContext {
+         modifier(StyleContextWriter<C>())
+--- a/Sources/SwiftUICore/View/Tag.swift
++++ b/Sources/SwiftUICore/View/Tag.swift
+@@ -9,6 +9,8 @@
+ // MARK: - View + Tag
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Sets the unique tag value of this view.
+--- a/Sources/SwiftUICore/View/Text/LineLimits.swift
++++ b/Sources/SwiftUICore/View/Text/LineLimits.swift
+@@ -11,6 +11,8 @@
+ // MARK: - View + Line Limits
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Sets the maximum number of lines that text can occupy in this view.
+     ///
+--- a/Sources/SwiftUICore/View/Text/Text/Text+Date.swift
++++ b/Sources/SwiftUICore/View/Text/Text/Text+Date.swift
+@@ -530,6 +530,8 @@
+ // MARK: - Text + ReferenceDate
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     @_spi(OpenSwiftUIPrivate)
+     @available(OpenSwiftUI_v3_0, *)
+--- a/Sources/SwiftUICore/View/Text/Text/Text+Justification.swift
++++ b/Sources/SwiftUICore/View/Text/Text/Text+Justification.swift
+@@ -52,6 +52,8 @@
+ 
+ @_spi(Private)
+ @available(OpenSwiftUI_v5_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     @available(OpenSwiftUI_v5_0, *)
+--- a/Sources/SwiftUICore/View/Text/Text/Text+Scale.swift
++++ b/Sources/SwiftUICore/View/Text/Text/Text+Scale.swift
+@@ -97,6 +97,8 @@
+ // MARK: - View + textScale
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Applies a text scale to text in the view.
+--- a/Sources/SwiftUICore/View/Text/Text/Text+Suffix.swift
++++ b/Sources/SwiftUICore/View/Text/Text/Text+Suffix.swift
+@@ -60,6 +60,8 @@
+ // MARK: - View + textSuffix
+ 
+ @available(OpenSwiftUI_v5_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     @_spi(Private)
+     @available(OpenSwiftUI_v5_0, *)
+--- a/Sources/SwiftUICore/View/Text/Text/TextLineStyle.swift
++++ b/Sources/SwiftUICore/View/Text/Text/TextLineStyle.swift
+@@ -100,6 +100,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v4_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Applies an underline to the text in this view.
+--- a/Sources/SwiftUICore/View/Text/Typesetting/TypesettingLanguage.swift
++++ b/Sources/SwiftUICore/View/Text/Typesetting/TypesettingLanguage.swift
+@@ -70,6 +70,8 @@
+ // MARK: - View + typesettingLanguage
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Specifies the language for typesetting.
+--- a/Sources/SwiftUICore/View/Text/Typesetting/TypesettingLanguageAwareLineHeightRatio.swift
++++ b/Sources/SwiftUICore/View/Text/Typesetting/TypesettingLanguageAwareLineHeightRatio.swift
+@@ -37,6 +37,8 @@
+ // MARK: - View + typesettingLanguageAwareLineHeightRatio
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     @_spi(Private)
+     @available(OpenSwiftUI_v5_0, *)
+--- a/Sources/SwiftUICore/View/Text/Util/DynamicTypeSize.swift
++++ b/Sources/SwiftUICore/View/Text/Util/DynamicTypeSize.swift
+@@ -90,6 +90,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v3_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Sets the Dynamic Type size within the view to the given value.
+     ///
+--- a/Sources/SwiftUICore/View/Text/Util/EnvironmentParagraphStyle.swift
++++ b/Sources/SwiftUICore/View/Text/Util/EnvironmentParagraphStyle.swift
+@@ -324,6 +324,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+ 
+     /// Sets the alignment of a text view that contains multiple lines of text.
+--- a/Sources/SwiftUICore/View/Text/Util/ParagraphTypesetting.swift
++++ b/Sources/SwiftUICore/View/Text/Util/ParagraphTypesetting.swift
+@@ -34,6 +34,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     @_spi(Private)
+     @available(OpenSwiftUI_v5_0, *)
+--- a/Sources/SwiftUICore/View/Text/Util/WritingMode.swift
++++ b/Sources/SwiftUICore/View/Text/Util/WritingMode.swift
+@@ -38,6 +38,8 @@
+ }
+ 
+ @available(OpenSwiftUI_v5_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     @_spi(Private)
+     @available(OpenSwiftUI_v5_0, *)
+--- a/Sources/SwiftUICore/View/View.swift
++++ b/Sources/SwiftUICore/View/View.swift
+@@ -51,6 +51,8 @@
+ @_typeEraser(AnyView)
+ @preconcurrency
+ @MainActor
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ public protocol View {
+     /// Instantiates the view using `view` as its source value, and
+     /// `inputs` as its input values. Returns the view's output values.
+--- a/Sources/SwiftUICore/View/ViewTrait.swift
++++ b/Sources/SwiftUICore/View/ViewTrait.swift
+@@ -88,6 +88,8 @@
+ extension _TraitWritingModifier: Sendable {}
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Associate a trait `value` for the given `key` for this view content.
+     @inlinable
+@@ -163,6 +165,8 @@
+ extension _ConditionalTraitWritingModifier: Sendable {}
+ 
+ @available(OpenSwiftUI_v1_0, *)
++@available(macOS 10.15, *)
++@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+ extension View {
+     /// Conditionally writes a trait.
+ 

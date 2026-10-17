@@ -18,6 +18,7 @@ struct _FinchWindowOptions {
     var hiddenTitleBar = false
     var unifiedToolbar: Bool?
     var toolbarShowsTitle = true
+    var toolbarLabelStyle: ToolbarLabelStyle?
     var level: NSWindow.Level?
     var movableByBackground: Bool?
 
@@ -33,6 +34,7 @@ struct _FinchWindowOptions {
             window.toolbarStyle = unifiedToolbar ? .unified : .expanded
             if !toolbarShowsTitle { window.titleVisibility = .hidden }
         }
+        if let toolbarLabelStyle { window.toolbar?.displayMode = toolbarLabelStyle._finchDisplayMode }
         if let level { window.level = level }
         if let movableByBackground { window.isMovableByWindowBackground = movableByBackground }
     }

@@ -69,7 +69,6 @@ public struct _ToolbarItemList {}
 @available(OpenSwiftUI_v2_0, *)
 @resultBuilder
 public struct ToolbarContentBuilder {
-    @_alwaysEmitIntoClient
     public static func buildExpression<Content>(_ content: Content) -> Content where Content: ToolbarContent {
         content
     }
@@ -78,7 +77,6 @@ public struct ToolbarContentBuilder {
         content
     }
 
-    @_alwaysEmitIntoClient
     public static func buildExpression<Content>(_ content: Content) -> Content where Content: CustomizableToolbarContent {
         content
     }
@@ -247,7 +245,6 @@ extension ToolbarItem where ID == () {
 
 @available(OpenSwiftUI_v2_0, *)
 extension ToolbarItem: CustomizableToolbarContent where ID == String {
-    @_alwaysEmitIntoClient
     nonisolated public init(id: String, placement: ToolbarItemPlacement = .automatic, @ViewBuilder content: () -> Content) {
         self.init(id: id, placement: placement, showsByDefault: true, content: content)
     }
@@ -425,6 +422,7 @@ final class _FinchWindowToolbar: NSObject, NSToolbarDelegate {
     private func update() {
         guard let window else { return }
         let all = sections.flatMap(\.items)
+        let labelStyle = _FinchWindowOptions.current.toolbarLabelStyle
         var regions: [[(NSToolbarItem.Identifier, _FinchToolbarItem)]] = [[], [], []]
         for (index, item) in all.enumerated() {
             let identifier = NSToolbarItem.Identifier("org.finch.SwiftUI.toolbar.\(index)")
@@ -445,7 +443,8 @@ final class _FinchWindowToolbar: NSObject, NSToolbarDelegate {
             // toolbar buttons are drawn bare, as Apple's are until the pointer is over them
             // and controls as Apple's are there: labels hidden, toggles as buttons
             let content = AnyView(item.content.buttonStyle(.borderless).labelsHidden()
-                .environment(\._finchInToolbar, true)._finchInheriting(environment))
+                .environment(\._finchInToolbar, true)
+                .environment(\._finchToolbarLabelStyle, labelStyle)._finchInheriting(environment))
             if let controller = controllers[identifier] {
                 controller.rootView = content
             } else {
@@ -467,9 +466,10 @@ final class _FinchWindowToolbar: NSObject, NSToolbarDelegate {
             identifiers = order
             let toolbar = NSToolbar(identifier: "org.finch.SwiftUI.toolbar")
             toolbar.delegate = self
-            toolbar.displayMode = .iconOnly
+            toolbar.displayMode = labelStyle?._finchDisplayMode ?? NSToolbar.DisplayMode.default
             window.toolbar = toolbar
         }
+        window.toolbar?.displayMode = labelStyle?._finchDisplayMode ?? .default
     }
 
     nonisolated func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {

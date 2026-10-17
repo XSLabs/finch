@@ -190,12 +190,10 @@ public struct LinearGradient: ShapeStyle, View, Sendable {
         self.endPoint = endPoint
     }
 
-    @_alwaysEmitIntoClient
     public init(colors: [Color], startPoint: UnitPoint, endPoint: UnitPoint) {
         self.init(gradient: Gradient(colors: colors), startPoint: startPoint, endPoint: endPoint)
     }
 
-    @_alwaysEmitIntoClient
     public init(stops: [Gradient.Stop], startPoint: UnitPoint, endPoint: UnitPoint) {
         self.init(gradient: Gradient(stops: stops), startPoint: startPoint, endPoint: endPoint)
     }
@@ -228,12 +226,10 @@ public struct RadialGradient: ShapeStyle, View, Sendable {
         self.endRadius = endRadius
     }
 
-    @_alwaysEmitIntoClient
     public init(colors: [Color], center: UnitPoint, startRadius: CGFloat, endRadius: CGFloat) {
         self.init(gradient: Gradient(colors: colors), center: center, startRadius: startRadius, endRadius: endRadius)
     }
 
-    @_alwaysEmitIntoClient
     public init(stops: [Gradient.Stop], center: UnitPoint, startRadius: CGFloat, endRadius: CGFloat) {
         self.init(gradient: Gradient(stops: stops), center: center, startRadius: startRadius, endRadius: endRadius)
     }
@@ -308,12 +304,10 @@ public struct AngularGradient: ShapeStyle, View, Sendable {
         self.endAngle = endAngle
     }
 
-    @_alwaysEmitIntoClient
     public init(colors: [Color], center: UnitPoint, startAngle: Angle, endAngle: Angle) {
         self.init(gradient: Gradient(colors: colors), center: center, startAngle: startAngle, endAngle: endAngle)
     }
 
-    @_alwaysEmitIntoClient
     public init(stops: [Gradient.Stop], center: UnitPoint, startAngle: Angle, endAngle: Angle) {
         self.init(gradient: Gradient(stops: stops), center: center, startAngle: startAngle, endAngle: endAngle)
     }
@@ -323,12 +317,10 @@ public struct AngularGradient: ShapeStyle, View, Sendable {
         self.init(gradient: gradient, center: center, startAngle: angle, endAngle: angle + .degrees(360))
     }
 
-    @_alwaysEmitIntoClient
     public init(colors: [Color], center: UnitPoint, angle: Angle = .zero) {
         self.init(gradient: Gradient(colors: colors), center: center, angle: angle)
     }
 
-    @_alwaysEmitIntoClient
     public init(stops: [Gradient.Stop], center: UnitPoint, angle: Angle = .zero) {
         self.init(gradient: Gradient(stops: stops), center: center, angle: angle)
     }

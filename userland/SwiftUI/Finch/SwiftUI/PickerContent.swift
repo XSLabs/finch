@@ -178,17 +178,14 @@ extension PickerContent {
 @available(OpenSwiftUI_v6_0, *)
 @resultBuilder
 public struct PickerBuilder<SelectionValue> where SelectionValue: Hashable {
-    @_alwaysEmitIntoClient
     public static func buildExpression<C>(_ content: C) -> C where C: PickerContent {
         content
     }
 
-    @_alwaysEmitIntoClient
     public static func buildBlock<C>(_ content: C) -> C where C: PickerContent {
         content
     }
 
-    @_alwaysEmitIntoClient
     public static func buildBlock<each C>(_ content: repeat each C)
         -> _TuplePickerContent<SelectionValue, (repeat (each C)._IdentifiedView)> where repeat each C: PickerContent {
         _TuplePickerContent((repeat (each content)._identifiedView))

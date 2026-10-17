@@ -83,6 +83,7 @@ extension DisclosureGroup where Label == Text {
 @preconcurrency
 public struct ControlGroup<Content>: View where Content: View {
     var content: Content
+    @Environment(\._finchControlGroupStyles) private var styles
 
     public init(@ViewBuilder content: () -> Content) {
         self.content = content()
@@ -91,13 +92,17 @@ public struct ControlGroup<Content>: View where Content: View {
     @MainActor
     @preconcurrency
     public var body: some View {
-        HStack(spacing: 12) { content }
-            .buttonStyle(.borderless)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(nsColor: .separatorColor)))
-            .fixedSize()
+        let parts = (content as? _FinchLabeledControlGroupContent)
+        let configuration = ControlGroupStyleConfiguration(hasLabel: parts != nil)
+        let style = styles.last ?? _FinchAnyControlGroupStyle(AutomaticControlGroupStyle())
+        return style.makeBody(configuration)
+            .environment(\._finchControlGroupStyles, Array(styles.dropLast()))
+            .viewAlias(ControlGroupStyleConfiguration.Content.self) {
+                parts?._finchContent ?? AnyView(content)
+            }
+            .viewAlias(ControlGroupStyleConfiguration.Label.self) {
+                parts?._finchLabel ?? AnyView(EmptyView())
+            }
     }
 }
 
@@ -141,6 +146,11 @@ public struct ControlGroupStyleConfiguration {
 
     public let content = Content()
     public let label = Label()
+    let _hasLabel: Bool
+
+    init(hasLabel: Bool = false) {
+        self._hasLabel = hasLabel
+    }
 }
 
 @available(*, unavailable) extension ControlGroupStyleConfiguration: Sendable {}

@@ -11,7 +11,6 @@ import SwiftUICore
 @available(watchOS, unavailable)
 @available(visionOS, unavailable)
 extension ToggleStyle where Self == CheckboxToggleStyle {
-    @_alwaysEmitIntoClient
     @MainActor
     @preconcurrency
     public static var checkbox: CheckboxToggleStyle { .init() }

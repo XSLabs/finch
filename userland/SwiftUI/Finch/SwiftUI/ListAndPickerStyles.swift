@@ -117,23 +117,23 @@ public struct __UniversalListStyle: ListStyle, _FinchListStyle {
 @available(*, unavailable) extension __UniversalListStyle: Sendable {}
 
 extension ListStyle where Self == DefaultListStyle {
-    @_alwaysEmitIntoClient public static var automatic: DefaultListStyle { .init() }
+    public static var automatic: DefaultListStyle { .init() }
 }
 
 extension ListStyle where Self == SidebarListStyle {
-    @_alwaysEmitIntoClient public static var sidebar: SidebarListStyle { .init() }
+    public static var sidebar: SidebarListStyle { .init() }
 }
 
 extension ListStyle where Self == InsetListStyle {
-    @_alwaysEmitIntoClient public static var inset: InsetListStyle { .init() }
+    public static var inset: InsetListStyle { .init() }
 }
 
 extension ListStyle where Self == PlainListStyle {
-    @_alwaysEmitIntoClient public static var plain: PlainListStyle { .init() }
+    public static var plain: PlainListStyle { .init() }
 }
 
 extension ListStyle where Self == BorderedListStyle {
-    @_alwaysEmitIntoClient public static var bordered: BorderedListStyle { .init() }
+    public static var bordered: BorderedListStyle { .init() }
 }
 
 // MARK: - Pickers
@@ -242,25 +242,25 @@ public struct PalettePickerStyle: PickerStyle, _FinchPickerStyle {
 @available(*, unavailable) extension PalettePickerStyle: Sendable {}
 
 extension PickerStyle where Self == DefaultPickerStyle {
-    @_alwaysEmitIntoClient public static var automatic: DefaultPickerStyle { .init() }
+    public static var automatic: DefaultPickerStyle { .init() }
 }
 
 extension PickerStyle where Self == MenuPickerStyle {
-    @_alwaysEmitIntoClient public static var menu: MenuPickerStyle { .init() }
+    public static var menu: MenuPickerStyle { .init() }
 }
 
 extension PickerStyle where Self == SegmentedPickerStyle {
-    @_alwaysEmitIntoClient public static var segmented: SegmentedPickerStyle { .init() }
+    public static var segmented: SegmentedPickerStyle { .init() }
 }
 
 extension PickerStyle where Self == RadioGroupPickerStyle {
-    @_alwaysEmitIntoClient public static var radioGroup: RadioGroupPickerStyle { .init() }
+    public static var radioGroup: RadioGroupPickerStyle { .init() }
 }
 
 extension PickerStyle where Self == InlinePickerStyle {
-    @_alwaysEmitIntoClient public static var inline: InlinePickerStyle { .init() }
+    public static var inline: InlinePickerStyle { .init() }
 }
 
 extension PickerStyle where Self == PalettePickerStyle {
-    @_alwaysEmitIntoClient public static var palette: PalettePickerStyle { .init() }
+    public static var palette: PalettePickerStyle { .init() }
 }
