@@ -30,7 +30,11 @@ rotates them, decodes H.264, VP8, VP9 and AV1, and encodes H.264 through open st
 codecs. Its comparison test checks pixel operations exactly and allows up to 16 levels
 of difference in each average decoded RGB channel. CoreData reads compiled models and
 supports basic SQLite and in-memory stores, contexts, fetches, and to-one relationships.
-ContactsUI presents a contact picker and card over Finch Contacts; CoreSpotlight stores
+CloudKit implements local records, zones, shares, subscriptions, notification parsing,
+operation settings and saved sync state. Finch has no iCloud service, so account checks
+report no account and remote work returns an error. Its host comparison matches Apple's
+for the tested data models; 509 of 1,208 public API items are present, with the rest still
+missing (`docs/design/CLOUDKIT.md`). ContactsUI presents a contact picker and card over Finch Contacts; CoreSpotlight stores
 searchable items in a local index and runs queries; LinkPresentation fetches page metadata through
 Foundation and shows it in an AppKit card. CryptoKit is built
 from swift-crypto 5.0.1, with BoringSSL and
@@ -185,6 +189,7 @@ block-beta
         gamecontroller["GameController<br/>snapshot gamepad profiles and state;<br/>keyboard and mouse from AppKit events;<br/>no physical controllers until Finch IOKit<br/>can enumerate HID devices"]
         pdfkit["PDFKit<br/>pages, text and search,<br/>outlines, URL links, PDFView;<br/>docs/design/PDFKIT.md"]
         avkit["AVKit<br/>AVPlayerView, basic controls<br/>and full-screen mode;<br/>no routes or PiP service"]
+        cloudkit["CloudKit<br/>local records, sharing,<br/>notifications and saved sync state;<br/>no iCloud service"]
         securityui["SecurityInterface<br/>certificate, trust, identity,<br/>keychain and authorization panels"]
         authservices["AuthenticationServices<br/>web, Apple ID, password and<br/>passkey request APIs"]
         cg["CoreGraphics<br/>bitmap contexts, paths, images,<br/>gradients, patterns, fonts, text,<br/>shadows (over Skia, skcms);<br/>PDF writing (SkPDF), PDF reading<br/>and drawing (own parser);<br/>window server client, displays,<br/>Quartz events (posting, sources)"]
@@ -296,7 +301,7 @@ block-beta
     class t7,t6,t5,t4,t3,t2,t1,t0 layer
     class kexts,metal planned
     class apps testapp
-    class opengl,later,mediaaddons,coreimage,videotoolbox,services,contacts,intents,contactui,corespotlight,linkpresentation,cfnetwork,appsupport,shell,uti,appkit,gamecontroller,pdfkit,avkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
+    class opengl,later,mediaaddons,coreimage,videotoolbox,services,contacts,intents,contactui,corespotlight,linkpresentation,cfnetwork,appsupport,shell,uti,appkit,gamecontroller,pdfkit,avkit,cloudkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
     class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui,cmark,sqlite upstream
     class vz firmware
@@ -335,6 +340,7 @@ flowchart LR
     gamecontroller["GameController"]:::finch
     pdfkit["PDFKit"]:::finch
     avkit["AVKit"]:::finch
+    cloudkitfw["CloudKit"]:::finch
     securityui["SecurityInterface"]:::finch
     authservices["AuthenticationServices"]:::finch
     uif["UIFoundation<br/>TextKit 1 and 2"]:::finch
@@ -433,6 +439,8 @@ flowchart LR
     coredatafw --> combine
     coredatafw --> sqlite
     coredatafw --> swift
+    cloudkitfw --> ffound
+    cloudkitfw --> cf
     ffound --> openssl
     ffound --> cmark
     gcore --> ffound

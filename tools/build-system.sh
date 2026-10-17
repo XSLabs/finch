@@ -99,6 +99,8 @@ steps=(
     "Foundation|userland/Foundation/build.sh"
     # Finch's CoreData implementation (models, contexts, SQLite and memory stores).
     "CoreData|userland/CoreData/build.sh"
+    # CloudKit local data models, sharing, operations and serialized sync state.
+    "CloudKit|userland/CloudKit/build.sh"
     # CFNetwork (HTTP, sockets, hosts, Bonjour, proxies), which CoreServices re-exports
     "CFNetwork|userland/CFNetwork/build.sh"
     "UniformTypeIdentifiers|userland/UniformTypeIdentifiers/build.sh"

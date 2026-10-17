@@ -75,7 +75,7 @@ $(OUT)/finch-videotoolbox-test: videotoolbox-test.c
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -o $@ $< -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework CoreFoundation
 
-all: $(OUT)/finch-coredata-test
+all: $(OUT)/finch-cloudkit-test $(OUT)/finch-cloudkit-unavailable-test $(OUT)/finch-coredata-test
 all: $(OUT)/finch-pdfkit-test $(OUT)/finch-avkit-test
 all: $(OUT)/finch-intents-test
 
@@ -90,6 +90,16 @@ all: $(OUT)/finch-gamecontroller-test
 $(OUT)/finch-gamecontroller-test: gamecontroller-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fno-objc-arc -Wno-deprecated-declarations -o $@ $< -framework GameController -framework Foundation
+
+# CloudKit's offline record, sharing, subscription and sync data models.
+$(OUT)/finch-cloudkit-test: cloudkit-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -o $@ $< -framework CloudKit -framework Foundation
+
+# Finch's no-account response for local CloudKit requests.
+$(OUT)/finch-cloudkit-unavailable-test: cloudkit-unavailable-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -o $@ $< -framework CloudKit -framework Foundation
 
 # Compiled-model loading, fetches and SQLite stores shared with Apple's CoreData.
 $(OUT)/finch-coredata-test: coredata-test.swift $(OUT)/CoreDataTest.momd

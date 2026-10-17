@@ -6,7 +6,7 @@ This report compares public C declarations and SDK export lists, Objective-C cla
 
 Behavior-verified counts come from item IDs in build/compat-results/*.json. Generated comparisons and constant checks merge their item records into the same framework file. Records with status verified (or the older verified/passed flags) count; a later result replaces the status for that item ID. The full name-by-name report is kept in build/api-coverage.json.
 
-Overall: **28.0%** (152,108 of 543,220 API items across 843 parsed frameworks or dylibs).
+Overall: **28.1%** (152,731 of 543,220 API items across 843 parsed frameworks or dylibs).
 
 6 frameworks or dylibs had a parse or load issue and are left out of the overall percentage. 141 parsed successfully but had no public macOS API items.
 
@@ -84,7 +84,7 @@ Overall: **28.0%** (152,108 of 543,220 API items across 843 parsed frameworks or
 | Cinematic | 284 | 0 | 284 | 0.0% | 0/284 | complete |
 | ClassKit | 176 | 0 | 176 | 0.0% | 0/176 | complete |
 | ClassKitUI | 20 | 0 | 20 | 0.0% | 0/20 | complete |
-| CloudKit | 1,208 | 0 | 1,208 | 0.0% | 0/1208 | complete |
+| CloudKit | 1,208 | 509 | 699 | 42.1% | 0/1208 | complete |
 | Cocoa | 19,543 | 17,031 | 2,512 | 87.1% | 0/19543 | complete |
 | Collaboration | 48 | 0 | 48 | 0.0% | 0/48 | complete |
 | ColorSync | 205 | 205 | 0 | 100.0% | 150/205 | complete |
@@ -737,7 +737,7 @@ Overall: **28.0%** (152,108 of 543,220 API items across 843 parsed frameworks or
 | swift/libswiftARKit | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftAVFoundation | 671 | 605 | 66 | 90.2% | 0/671 | complete |
 | swift/libswiftCallKit | 0 | 0 | 0 | 0.0% | 0/0 | empty |
-| swift/libswiftCloudKit | 997 | 0 | 997 | 0.0% | 0/997 | complete |
+| swift/libswiftCloudKit | 997 | 114 | 883 | 11.4% | 0/997 | complete |
 | swift/libswiftCompatibilitySpan | 461 | 461 | 0 | 100.0% | 0/461 | complete |
 | swift/libswiftCompression | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftContacts | 830 | 0 | 830 | 0.0% | 0/830 | complete |
@@ -894,14 +894,12 @@ These SDK frameworks or dylibs have no Finch image. The size column is the numbe
 | libcblas | 1,464 |
 | MusicKit | 1,370 |
 | DiscRecording | 1,267 |
-| CloudKit | 1,208 |
 | BackgroundAssets | 1,174 |
 | SceneKit | 1,093 |
 | libcorecrypto_trace | 1,092 |
 | libcorecrypto_noasm | 1,073 |
 | libnetsnmp | 1,013 |
 | libnetsnmp.25 | 1,013 |
-| swift/libswiftCloudKit | 997 |
 | AddressBook | 975 |
 | swift/libswiftCoreData | 959 |
 | libruby | 948 |
@@ -1378,9 +1376,9 @@ Priority score is missing API items multiplied by the number of apps app-sweep.p
 | ApplicationServices | 1,203 | 15 | 18,045 |
 | Carbon | 1,503 | 12 | 18,036 |
 | Foundation | 1,588 | 11 | 17,468 |
-| CloudKit | 1,208 | 13 | 15,704 |
 | AVFoundation | 508 | 25 | 12,700 |
 | QuartzCore | 1,122 | 10 | 11,220 |
 | Quartz | 2,192 | 5 | 10,960 |
 | MetalPerformanceShaders/MPSNeuralNetwork | 1,541 | 7 | 10,787 |
 | CoreML | 900 | 11 | 9,900 |
+| MediaPlayer | 635 | 15 | 9,525 |
