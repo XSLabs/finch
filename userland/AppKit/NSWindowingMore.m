@@ -737,6 +737,18 @@ each_view(NSView *v, void (^block)(NSView *))
 }
 @end
 
+id
+FinchAppKitSwiftColumnResizeCursor(NSUInteger directions)
+{
+    return [[NSCursor columnResizeCursorInDirections:(NSHorizontalDirections)directions] retain];
+}
+
+id
+FinchAppKitSwiftRowResizeCursor(NSUInteger directions)
+{
+    return [[NSCursor rowResizeCursorInDirections:(NSVerticalDirections)directions] retain];
+}
+
 #pragma mark - Menus and toolbars
 
 @implementation NSMenu (FinchWindowingMore)

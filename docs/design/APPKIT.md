@@ -813,3 +813,23 @@ draws (`userland/tests/app-test.c`).
   input servers, media library browsing, file authorization and account-backed sharing
   need Apple services Finch does not have. Writing Tools, Touch Bar interaction and touch
   tracking also need missing services or hardware.
+- 2026-10-17: another API gap pass. The public API inventory now finds 15,937 of 18,585
+  items present, down from 3,448 missing to 2,648: 800 more items available. AppKit now
+  registers the public protocols used by clients, gives accessibility elements Apple's
+  self-returning hit test, and adds a real `NSTextInsertionIndicator` view. Its default
+  display mode follows Apple's automatic value until an app sets a mode; hidden and visible
+  modes then track the view in a window. `NSMenuItemBadge` now encodes and decodes Apple's
+  four JSON fields. The Swift overlay adds the 4-to-10-value `NSView.Invalidating`
+  initializers, horizontal and vertical direction sets, column and row resize cursors, and
+  the text attribute keys for underline, strikethrough, text effects, and related values.
+  The new tests check those values against Apple's AppKit. They also keep protocol
+  references in the test program, since those two protocols appear in Apple's runtime when
+  a client uses them. The API coverage tool then reports 800 more items present.
+
+  The full AppKit host run passed 29 tests. Two existing display-rounding cases remain
+  listed as known differences. `appkit-containers2-test` still differs in the default
+  thickness reported by `NSDrawer` (2 in Finch, 0 in Apple's run); this pass did not change
+  drawer code. The AppKit behavior comparison checked 789 cases: 678 matched, 91 differed,
+  and none crashed. The verified count stayed at 678 from the earlier run. Broad defaults
+  on plain `NSObject` were left out because Apple does not give those methods to every
+  object; they also changed menu validation and editing behavior in Finch.

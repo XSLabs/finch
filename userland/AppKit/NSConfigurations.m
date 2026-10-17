@@ -17,6 +17,7 @@
     NSInteger _itemCount;
     NSMenuItemBadgeType _type;
     NSString *_stringValue;
+    BOOL _usesPreferredLocalization;
 }
 
 static NSString *
@@ -30,18 +31,47 @@ counted(NSInteger count, NSString *one, NSString *many)
 
 - (instancetype)initWithCount:(NSInteger)count type:(NSMenuItemBadgeType)type
 {
-    if ((self = [super init])) {
-        _itemCount = count;
-        _type = type;
-        switch (type) {
-        case NSMenuItemBadgeTypeUpdates: _stringValue = [counted(count, @"update", @"updates") copy]; break;
-        case NSMenuItemBadgeTypeNewItems: _stringValue = [counted(count, @"new", @"new") copy]; break;
-        case NSMenuItemBadgeTypeAlerts: _stringValue = [counted(count, @"alert", @"alerts") copy]; break;
-        default:
-            _stringValue = count > 0 ? [[NSNumberFormatter localizedStringFromNumber:@(count) numberStyle:NSNumberFormatterDecimalStyle] copy] : nil;
-        }
-    }
+    if ((self = [super init]))
+        [self _finchSetCount:count type:type stringValue:nil usesPreferredLocalization:NO];
     return self;
+}
+
+- (void)_finchSetCount:(NSInteger)count type:(NSMenuItemBadgeType)type stringValue:(NSString *)stringValue usesPreferredLocalization:(BOOL)usesPreferredLocalization
+{
+    _itemCount = count;
+    _type = type;
+    _usesPreferredLocalization = usesPreferredLocalization;
+    [_stringValue release];
+    if (type == NSMenuItemBadgeTypeNone && count == 0 && stringValue) {
+        _stringValue = [stringValue copy];
+        return;
+    }
+    switch (type) {
+    case NSMenuItemBadgeTypeUpdates: _stringValue = [counted(count, @"update", @"updates") copy]; break;
+    case NSMenuItemBadgeTypeNewItems: _stringValue = [counted(count, @"new", @"new") copy]; break;
+    case NSMenuItemBadgeTypeAlerts: _stringValue = [counted(count, @"alert", @"alerts") copy]; break;
+    default:
+        _stringValue = count > 0 ? [[NSNumberFormatter localizedStringFromNumber:@(count) numberStyle:NSNumberFormatterDecimalStyle] copy] : nil;
+    }
+}
+
+- (id)_finchSetCodingState:(NSDictionary *)state
+{
+    [self _finchSetCount:[state[@"itemCount"] integerValue]
+                    type:[state[@"type"] integerValue]
+             stringValue:state[@"stringValue"] == [NSNull null] ? nil : state[@"stringValue"]
+ usesPreferredLocalization:[state[@"usesPreferredLocalization"] boolValue]];
+    return self;
+}
+
+- (NSDictionary *)_finchCodingState
+{
+    return @{
+        @"itemCount": @(_itemCount),
+        @"stringValue": _stringValue ?: [NSNull null],
+        @"type": @(_type),
+        @"usesPreferredLocalization": @(_usesPreferredLocalization),
+    };
 }
 
 - (instancetype)initWithCount:(NSInteger)count { return [self initWithCount:count type:NSMenuItemBadgeTypeNone]; }
@@ -49,7 +79,7 @@ counted(NSInteger count, NSString *one, NSString *many)
 - (instancetype)initWithString:(NSString *)string
 {
     if ((self = [super init]))
-        _stringValue = [string copy];
+        [self _finchSetCount:0 type:NSMenuItemBadgeTypeNone stringValue:string usesPreferredLocalization:NO];
     return self;
 }
 

@@ -221,13 +221,8 @@ FinchAccessibilityResolve(Class cls, SEL sel)
 
 - (id)accessibilityHitTest:(NSPoint)point
 {
-    for (id child in [[self accessibilityChildren] reverseObjectEnumerator])
-        if ([child respondsToSelector:@selector(accessibilityFrame)] && NSPointInRect(point, [child accessibilityFrame]))
-            return [child respondsToSelector:@selector(accessibilityHitTest:)] ? [child accessibilityHitTest:point] : child;
     return self;
 }
-
-- (id)accessibilityFocusedUIElement { return self; }
 
 @end
 

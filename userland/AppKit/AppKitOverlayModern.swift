@@ -8,7 +8,172 @@
 import Foundation
 @_exported import AppKit
 
+@available(macOS 15.0, *)
+@frozen public enum NSHorizontalDirection: Int8, CaseIterable, Codable {
+  case left
+  case right
+
+  @frozen public struct Set: OptionSet, Equatable, Hashable {
+    public typealias Element = NSHorizontalDirection.Set
+    public typealias RawValue = Int8
+    public typealias ArrayLiteralElement = NSHorizontalDirection.Set.Element
+
+    public let rawValue: Int8
+
+    public init(rawValue: Int8) { self.rawValue = rawValue }
+    public init(_ direction: NSHorizontalDirection) { self = direction == .left ? .left : .right }
+
+    public static let left = Set(rawValue: 1 << NSHorizontalDirection.left.rawValue)
+    public static let right = Set(rawValue: 1 << NSHorizontalDirection.right.rawValue)
+    public static let all: Set = [.left, .right]
+
+    public func contains(_ member: NSHorizontalDirection) -> Bool {
+      contains(Set(member))
+    }
+
+    @discardableResult
+    public mutating func insert(_ newMember: __owned NSHorizontalDirection) -> (inserted: Bool, memberAfterInsert: NSHorizontalDirection) {
+      let inserted = !contains(newMember)
+      self = Set(rawValue: rawValue | Set(newMember).rawValue)
+      return (inserted, newMember)
+    }
+
+    @discardableResult
+    public mutating func remove(_ member: NSHorizontalDirection) -> NSHorizontalDirection? {
+      guard contains(member) else { return nil }
+      self = Set(rawValue: rawValue & ~Set(member).rawValue)
+      return member
+    }
+
+    @discardableResult
+    public mutating func update(with newMember: __owned NSHorizontalDirection) -> NSHorizontalDirection? {
+      let oldMember = contains(newMember) ? newMember : nil
+      self = Set(rawValue: rawValue | Set(newMember).rawValue)
+      return oldMember
+    }
+  }
+
+  public typealias AllCases = [NSHorizontalDirection]
+  public typealias RawValue = Int8
+
+  public static var allCases: [NSHorizontalDirection] { [.left, .right] }
+
+  public static func leading(relativeTo layoutDirection: NSUserInterfaceLayoutDirection) -> NSHorizontalDirection {
+    layoutDirection == .rightToLeft ? .right : .left
+  }
+
+  public static func trailing(relativeTo layoutDirection: NSUserInterfaceLayoutDirection) -> NSHorizontalDirection {
+    layoutDirection == .rightToLeft ? .left : .right
+  }
+}
+
+@available(macOS 15.0, *)
+@frozen public enum NSVerticalDirection: Int8, CaseIterable, Codable {
+  case up
+  case down
+
+  @frozen public struct Set: OptionSet, Equatable, Hashable {
+    public typealias Element = NSVerticalDirection.Set
+    public typealias RawValue = Int8
+    public typealias ArrayLiteralElement = NSVerticalDirection.Set.Element
+
+    public let rawValue: Int8
+
+    public init(rawValue: Int8) { self.rawValue = rawValue }
+    public init(_ direction: NSVerticalDirection) { self = direction == .up ? .up : .down }
+
+    public static let up = Set(rawValue: 1 << NSVerticalDirection.up.rawValue)
+    public static let down = Set(rawValue: 1 << NSVerticalDirection.down.rawValue)
+    public static let all: Set = [.up, .down]
+
+    public func contains(_ member: NSVerticalDirection) -> Bool {
+      contains(Set(member))
+    }
+
+    @discardableResult
+    public mutating func insert(_ newMember: __owned NSVerticalDirection) -> (inserted: Bool, memberAfterInsert: NSVerticalDirection) {
+      let inserted = !contains(newMember)
+      self = Set(rawValue: rawValue | Set(newMember).rawValue)
+      return (inserted, newMember)
+    }
+
+    @discardableResult
+    public mutating func remove(_ member: NSVerticalDirection) -> NSVerticalDirection? {
+      guard contains(member) else { return nil }
+      self = Set(rawValue: rawValue & ~Set(member).rawValue)
+      return member
+    }
+
+    @discardableResult
+    public mutating func update(with newMember: __owned NSVerticalDirection) -> NSVerticalDirection? {
+      let oldMember = contains(newMember) ? newMember : nil
+      self = Set(rawValue: rawValue | Set(newMember).rawValue)
+      return oldMember
+    }
+  }
+
+  public typealias AllCases = [NSVerticalDirection]
+  public typealias RawValue = Int8
+
+  public static var allCases: [NSVerticalDirection] { [.up, .down] }
+}
+
 // MARK: - Toolbar badges
+
+@available(macOS 14.0, *)
+extension NSMenuItemBadge {
+  @objc dynamic public var stringValue: String? {
+    let state = self.perform(Selector(("_finchCodingState"))).takeUnretainedValue() as! [String: Any]
+    return state["stringValue"] as? String
+  }
+}
+
+@available(macOS 15.0, *)
+extension NSMenuItemBadge: Codable {
+  private enum CodingKeys: String, CodingKey {
+    case itemCount
+    case stringValue
+    case type
+    case usesPreferredLocalization
+  }
+
+  public required convenience init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let itemCount = try container.decode(Int.self, forKey: .itemCount)
+    let stringValue = try container.decodeIfPresent(String.self, forKey: .stringValue)
+    let type = try container.decode(Int.self, forKey: .type)
+    let usesPreferredLocalization = try container.decode(Bool.self, forKey: .usesPreferredLocalization)
+
+    if type == NSMenuItemBadge.BadgeType.none.rawValue && itemCount == 0, let stringValue {
+      self.init(string: stringValue)
+    } else {
+      self.init(count: itemCount)
+    }
+
+    let state: [String: Any] = [
+      "itemCount": itemCount,
+      "stringValue": stringValue as Any? ?? NSNull(),
+      "type": type,
+      "usesPreferredLocalization": usesPreferredLocalization,
+    ]
+    _ = self.perform(Selector(("_finchSetCodingState:")), with: state)
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    let state = self.perform(Selector(("_finchCodingState"))).takeUnretainedValue() as! [String: Any]
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(state["itemCount"] as! Int, forKey: .itemCount)
+    if state["itemCount"] as! Int == 0,
+       state["type"] as! Int == NSMenuItemBadge.BadgeType.none.rawValue,
+       let stringValue = state["stringValue"] as? String {
+      try container.encode(stringValue, forKey: .stringValue)
+    } else {
+      try container.encodeNil(forKey: .stringValue)
+    }
+    try container.encode(state["type"] as! Int, forKey: .type)
+    try container.encode(state["usesPreferredLocalization"] as! Bool, forKey: .usesPreferredLocalization)
+  }
+}
 
 @_silgen_name("FinchAppKitSwiftItemBadgeWithCount")
 private func _finchItemBadgeWithCount(_ count: Int) -> AnyObject
@@ -633,6 +798,34 @@ extension NSView {
       self.init(wrappedValue: wrappedValue, NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(invalidation1, invalidation2), invalidation3))
     }
 
+    public init<InvalidationType1, InvalidationType2, InvalidationType3, InvalidationType4>(wrappedValue: Value, _ invalidation1: InvalidationType1, _ invalidation2: InvalidationType2, _ invalidation3: InvalidationType3, _ invalidation4: InvalidationType4) where InvalidationType == NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<InvalidationType1, InvalidationType2>, NSView.Invalidations.Tuple<InvalidationType3, InvalidationType4>>, InvalidationType1 : NSViewInvalidating, InvalidationType2 : NSViewInvalidating, InvalidationType3 : NSViewInvalidating, InvalidationType4 : NSViewInvalidating {
+      self.init(wrappedValue: wrappedValue, NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(invalidation1, invalidation2), NSView.Invalidations.Tuple(invalidation3, invalidation4)))
+    }
+
+    public init<InvalidationType1, InvalidationType2, InvalidationType3, InvalidationType4, InvalidationType5>(wrappedValue: Value, _ invalidation1: InvalidationType1, _ invalidation2: InvalidationType2, _ invalidation3: InvalidationType3, _ invalidation4: InvalidationType4, _ invalidation5: InvalidationType5) where InvalidationType == NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<InvalidationType1, InvalidationType2>, NSView.Invalidations.Tuple<InvalidationType3, InvalidationType4>>, InvalidationType5>, InvalidationType1 : NSViewInvalidating, InvalidationType2 : NSViewInvalidating, InvalidationType3 : NSViewInvalidating, InvalidationType4 : NSViewInvalidating, InvalidationType5 : NSViewInvalidating {
+      self.init(wrappedValue: wrappedValue, NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(invalidation1, invalidation2), NSView.Invalidations.Tuple(invalidation3, invalidation4)), invalidation5))
+    }
+
+    public init<InvalidationType1, InvalidationType2, InvalidationType3, InvalidationType4, InvalidationType5, InvalidationType6>(wrappedValue: Value, _ invalidation1: InvalidationType1, _ invalidation2: InvalidationType2, _ invalidation3: InvalidationType3, _ invalidation4: InvalidationType4, _ invalidation5: InvalidationType5, _ invalidation6: InvalidationType6) where InvalidationType == NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<InvalidationType1, InvalidationType2>, NSView.Invalidations.Tuple<InvalidationType3, InvalidationType4>>, NSView.Invalidations.Tuple<InvalidationType5, InvalidationType6>>, InvalidationType1 : NSViewInvalidating, InvalidationType2 : NSViewInvalidating, InvalidationType3 : NSViewInvalidating, InvalidationType4 : NSViewInvalidating, InvalidationType5 : NSViewInvalidating, InvalidationType6 : NSViewInvalidating {
+      self.init(wrappedValue: wrappedValue, NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(invalidation1, invalidation2), NSView.Invalidations.Tuple(invalidation3, invalidation4)), NSView.Invalidations.Tuple(invalidation5, invalidation6)))
+    }
+
+    public init<InvalidationType1, InvalidationType2, InvalidationType3, InvalidationType4, InvalidationType5, InvalidationType6, InvalidationType7>(wrappedValue: Value, _ invalidation1: InvalidationType1, _ invalidation2: InvalidationType2, _ invalidation3: InvalidationType3, _ invalidation4: InvalidationType4, _ invalidation5: InvalidationType5, _ invalidation6: InvalidationType6, _ invalidation7: InvalidationType7) where InvalidationType == NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<InvalidationType1, InvalidationType2>, NSView.Invalidations.Tuple<InvalidationType3, InvalidationType4>>, NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<InvalidationType5, InvalidationType6>, InvalidationType7>>, InvalidationType1 : NSViewInvalidating, InvalidationType2 : NSViewInvalidating, InvalidationType3 : NSViewInvalidating, InvalidationType4 : NSViewInvalidating, InvalidationType5 : NSViewInvalidating, InvalidationType6 : NSViewInvalidating, InvalidationType7 : NSViewInvalidating {
+      self.init(wrappedValue: wrappedValue, NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(invalidation1, invalidation2), NSView.Invalidations.Tuple(invalidation3, invalidation4)), NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(invalidation5, invalidation6), invalidation7)))
+    }
+
+    public init<InvalidationType1, InvalidationType2, InvalidationType3, InvalidationType4, InvalidationType5, InvalidationType6, InvalidationType7, InvalidationType8>(wrappedValue: Value, _ invalidation1: InvalidationType1, _ invalidation2: InvalidationType2, _ invalidation3: InvalidationType3, _ invalidation4: InvalidationType4, _ invalidation5: InvalidationType5, _ invalidation6: InvalidationType6, _ invalidation7: InvalidationType7, _ invalidation8: InvalidationType8) where InvalidationType == NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<InvalidationType1, InvalidationType2>, NSView.Invalidations.Tuple<InvalidationType3, InvalidationType4>>, NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<InvalidationType5, InvalidationType6>, NSView.Invalidations.Tuple<InvalidationType7, InvalidationType8>>>, InvalidationType1 : NSViewInvalidating, InvalidationType2 : NSViewInvalidating, InvalidationType3 : NSViewInvalidating, InvalidationType4 : NSViewInvalidating, InvalidationType5 : NSViewInvalidating, InvalidationType6 : NSViewInvalidating, InvalidationType7 : NSViewInvalidating, InvalidationType8 : NSViewInvalidating {
+      self.init(wrappedValue: wrappedValue, NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(invalidation1, invalidation2), NSView.Invalidations.Tuple(invalidation3, invalidation4)), NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(invalidation5, invalidation6), NSView.Invalidations.Tuple(invalidation7, invalidation8))))
+    }
+
+    public init<InvalidationType1, InvalidationType2, InvalidationType3, InvalidationType4, InvalidationType5, InvalidationType6, InvalidationType7, InvalidationType8, InvalidationType9>(wrappedValue: Value, _ invalidation1: InvalidationType1, _ invalidation2: InvalidationType2, _ invalidation3: InvalidationType3, _ invalidation4: InvalidationType4, _ invalidation5: InvalidationType5, _ invalidation6: InvalidationType6, _ invalidation7: InvalidationType7, _ invalidation8: InvalidationType8, _ invalidation9: InvalidationType9) where InvalidationType == NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<InvalidationType1, InvalidationType2>, NSView.Invalidations.Tuple<InvalidationType3, InvalidationType4>>, NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<InvalidationType5, InvalidationType6>, NSView.Invalidations.Tuple<InvalidationType7, InvalidationType8>>>, InvalidationType9>, InvalidationType1 : NSViewInvalidating, InvalidationType2 : NSViewInvalidating, InvalidationType3 : NSViewInvalidating, InvalidationType4 : NSViewInvalidating, InvalidationType5 : NSViewInvalidating, InvalidationType6 : NSViewInvalidating, InvalidationType7 : NSViewInvalidating, InvalidationType8 : NSViewInvalidating, InvalidationType9 : NSViewInvalidating {
+      self.init(wrappedValue: wrappedValue, NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(invalidation1, invalidation2), NSView.Invalidations.Tuple(invalidation3, invalidation4)), NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(invalidation5, invalidation6), NSView.Invalidations.Tuple(invalidation7, invalidation8))), invalidation9))
+    }
+
+    public init<InvalidationType1, InvalidationType2, InvalidationType3, InvalidationType4, InvalidationType5, InvalidationType6, InvalidationType7, InvalidationType8, InvalidationType9, InvalidationType10>(wrappedValue: Value, _ invalidation1: InvalidationType1, _ invalidation2: InvalidationType2, _ invalidation3: InvalidationType3, _ invalidation4: InvalidationType4, _ invalidation5: InvalidationType5, _ invalidation6: InvalidationType6, _ invalidation7: InvalidationType7, _ invalidation8: InvalidationType8, _ invalidation9: InvalidationType9, _ invalidation10: InvalidationType10) where InvalidationType == NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<InvalidationType1, InvalidationType2>, NSView.Invalidations.Tuple<InvalidationType3, InvalidationType4>>, NSView.Invalidations.Tuple<NSView.Invalidations.Tuple<InvalidationType5, InvalidationType6>, NSView.Invalidations.Tuple<InvalidationType7, InvalidationType8>>>, NSView.Invalidations.Tuple<InvalidationType9, InvalidationType10>>, InvalidationType1 : NSViewInvalidating, InvalidationType2 : NSViewInvalidating, InvalidationType3 : NSViewInvalidating, InvalidationType4 : NSViewInvalidating, InvalidationType5 : NSViewInvalidating, InvalidationType6 : NSViewInvalidating, InvalidationType7 : NSViewInvalidating, InvalidationType8 : NSViewInvalidating, InvalidationType9 : NSViewInvalidating, InvalidationType10 : NSViewInvalidating {
+      self.init(wrappedValue: wrappedValue, NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(invalidation1, invalidation2), NSView.Invalidations.Tuple(invalidation3, invalidation4)), NSView.Invalidations.Tuple(NSView.Invalidations.Tuple(invalidation5, invalidation6), NSView.Invalidations.Tuple(invalidation7, invalidation8))), NSView.Invalidations.Tuple(invalidation9, invalidation10)))
+    }
+
     public static subscript<EnclosingSelf>(_enclosingInstance observed: EnclosingSelf, wrapped wrappedKeyPath: ReferenceWritableKeyPath<EnclosingSelf, Value>, storage storageKeyPath: ReferenceWritableKeyPath<EnclosingSelf, NSView.Invalidating<Value, InvalidationType>>) -> Value where EnclosingSelf : NSView {
       get { observed[keyPath: storageKeyPath]._value }
       set {
@@ -709,8 +902,21 @@ extension NSView {
 
 // MARK: - Cursors, menu items, pop-up buttons, bezels
 
+@_silgen_name("FinchAppKitSwiftColumnResizeCursor")
+private func _finchColumnResizeCursor(_ directions: UInt) -> AnyObject
+@_silgen_name("FinchAppKitSwiftRowResizeCursor")
+private func _finchRowResizeCursor(_ directions: UInt) -> AnyObject
+
 @available(macOS 15.0, *)
 extension NSCursor {
+  public class func columnResize(directions: NSHorizontalDirection.Set) -> NSCursor {
+    _finchColumnResizeCursor(UInt(directions.rawValue)) as! NSCursor
+  }
+
+  public class func rowResize(directions: NSVerticalDirection.Set) -> NSCursor {
+    _finchRowResizeCursor(UInt(directions.rawValue)) as! NSCursor
+  }
+
   public enum FrameResizeDirection : Int8, CaseIterable {
     case inward
     case outward
@@ -841,15 +1047,23 @@ extension AttributeScopes {
     public let ligature: LigatureAttribute
     public let kern: KernAttribute
     public let tracking: TrackingAttribute
+    public let strikethroughStyle: StrikethroughStyleAttribute
+    public let underlineStyle: UnderlineStyleAttribute
     public let strokeColor: StrokeColorAttribute
     public let strokeWidth: StrokeWidthAttribute
     public let shadow: ShadowAttribute
+    public let textEffect: TextEffectAttribute
     public let attachment: AttachmentAttribute
     public let baselineOffset: BaselineOffsetAttribute
     public let underlineColor: UnderlineColorAttribute
     public let strikethroughColor: StrikethroughColorAttribute
+    public let obliqueness: ObliquenessAttribute
+    public let expansion: ExpansionAttribute
     public let toolTip: ToolTipAttribute
+    public let markedClauseSegment: MarkedClauseSegmentAttribute
     public let superscript: SuperscriptAttribute
+    public let textAlternatives: TextAlternativesAttribute
+    public let glyphInfo: GlyphInfoAttribute
     public let cursor: CursorAttribute
     public let foundation: AttributeScopes.FoundationAttributes
   }
@@ -892,6 +1106,44 @@ extension AttributeScopes.AppKitAttributes {
     public typealias Value = CGFloat
     public static let name = "NSTracking"
   }
+  @frozen public enum StrikethroughStyleAttribute : CodableAttributedStringKey, ObjectiveCConvertibleAttributedStringKey {
+    public typealias Value = NSUnderlineStyle
+    public typealias ObjectiveCValue = NSNumber
+    public static let name = "NSStrikethrough"
+    public static func encode(_ value: NSUnderlineStyle, to encoder: Encoder) throws {
+      var container = encoder.singleValueContainer()
+      try container.encode(value.rawValue)
+    }
+    public static func decode(from decoder: Decoder) throws -> NSUnderlineStyle {
+      let container = try decoder.singleValueContainer()
+      return NSUnderlineStyle(rawValue: try container.decode(Int.self))
+    }
+    public static func objectiveCValue(for value: NSUnderlineStyle) throws -> NSNumber {
+      NSNumber(value: value.rawValue)
+    }
+    public static func value(for object: NSNumber) throws -> NSUnderlineStyle {
+      NSUnderlineStyle(rawValue: object.intValue)
+    }
+  }
+  @frozen public enum UnderlineStyleAttribute : CodableAttributedStringKey, ObjectiveCConvertibleAttributedStringKey {
+    public typealias Value = NSUnderlineStyle
+    public typealias ObjectiveCValue = NSNumber
+    public static let name = "NSUnderline"
+    public static func encode(_ value: NSUnderlineStyle, to encoder: Encoder) throws {
+      var container = encoder.singleValueContainer()
+      try container.encode(value.rawValue)
+    }
+    public static func decode(from decoder: Decoder) throws -> NSUnderlineStyle {
+      let container = try decoder.singleValueContainer()
+      return NSUnderlineStyle(rawValue: try container.decode(Int.self))
+    }
+    public static func objectiveCValue(for value: NSUnderlineStyle) throws -> NSNumber {
+      NSNumber(value: value.rawValue)
+    }
+    public static func value(for object: NSNumber) throws -> NSUnderlineStyle {
+      NSUnderlineStyle(rawValue: object.intValue)
+    }
+  }
   @frozen public enum StrokeColorAttribute : AttributedStringKey {
     public typealias Value = NSColor
     public static let name = "NSStrokeColor"
@@ -903,6 +1155,18 @@ extension AttributeScopes.AppKitAttributes {
   @frozen public enum ShadowAttribute : AttributedStringKey {
     public typealias Value = NSShadow
     public static let name = "NSShadow"
+  }
+  @frozen public enum TextEffectAttribute : CodableAttributedStringKey {
+    public typealias Value = NSAttributedString.TextEffectStyle
+    public static let name = "NSTextEffect"
+    public static func encode(_ value: NSAttributedString.TextEffectStyle, to encoder: Encoder) throws {
+      var container = encoder.singleValueContainer()
+      try container.encode(value.rawValue)
+    }
+    public static func decode(from decoder: Decoder) throws -> NSAttributedString.TextEffectStyle {
+      let container = try decoder.singleValueContainer()
+      return NSAttributedString.TextEffectStyle(rawValue: try container.decode(String.self))
+    }
   }
   @frozen public enum AttachmentAttribute : AttributedStringKey {
     public typealias Value = NSTextAttachment
@@ -920,6 +1184,14 @@ extension AttributeScopes.AppKitAttributes {
     public typealias Value = NSColor
     public static let name = "NSStrikethroughColor"
   }
+  @frozen public enum ObliquenessAttribute : CodableAttributedStringKey {
+    public typealias Value = CGFloat
+    public static let name = "NSObliqueness"
+  }
+  @frozen public enum ExpansionAttribute : CodableAttributedStringKey {
+    public typealias Value = CGFloat
+    public static let name = "NSExpansion"
+  }
   @frozen public enum ToolTipAttribute : AttributedStringKey {
     public typealias Value = String
     public static let name = "NSToolTip"
@@ -928,8 +1200,23 @@ extension AttributeScopes.AppKitAttributes {
     public typealias Value = Int
     public static let name = "NSSuperScript"
   }
+  @frozen public enum MarkedClauseSegmentAttribute : CodableAttributedStringKey {
+    public typealias Value = Int
+    public static let name = "NSMarkedClauseSegment"
+  }
+  @frozen public enum TextAlternativesAttribute : CodableAttributedStringKey {
+    public typealias Value = NSTextAlternatives
+    public static let name = "NSTextAlternatives"
+  }
+  @frozen public enum GlyphInfoAttribute : CodableAttributedStringKey {
+    public typealias Value = NSGlyphInfo
+    public static let name = "NSGlyphInfo"
+  }
   @frozen public enum CursorAttribute : AttributedStringKey {
     public typealias Value = NSCursor
     public static let name = "NSCursor"
   }
 }
+
+@available(macOS 12, *)
+extension NSUnderlineStyle: Hashable {}

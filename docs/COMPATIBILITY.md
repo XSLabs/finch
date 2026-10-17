@@ -6,7 +6,7 @@ This report compares public C declarations and SDK export lists, Objective-C cla
 
 Behavior-verified counts come from item IDs in build/compat-results/*.json. Generated comparisons and constant checks merge their item records into the same framework file. Records with status verified (or the older verified/passed flags) count; a later result replaces the status for that item ID. The full name-by-name report is kept in build/api-coverage.json.
 
-Overall: **26.6%** (144,420 of 543,220 API items across 843 parsed frameworks or dylibs).
+Overall: **27.0%** (146,622 of 543,220 API items across 843 parsed frameworks or dylibs).
 
 6 frameworks or dylibs had a parse or load issue and are left out of the overall percentage. 141 parsed successfully but had no public macOS API items.
 
@@ -30,7 +30,7 @@ Overall: **26.6%** (144,420 of 543,220 API items across 843 parsed frameworks or
 | AdServices | 4 | 0 | 4 | 0.0% | 0/4 | complete |
 | AdSupport | 3 | 0 | 3 | 0.0% | 0/3 | complete |
 | AppIntents | 4,043 | 904 | 3,139 | 22.4% | 0/4043 | complete |
-| AppKit | 18,585 | 15,133 | 3,452 | 81.4% | 3578/18585 | complete |
+| AppKit | 18,585 | 15,933 | 2,652 | 85.7% | 3578/18585 | complete |
 | AppleConvergedTransport | 14 | 0 | 14 | 0.0% | 0/14 | complete |
 | AppleScriptKit | 96 | 0 | 96 | 0.0% | 0/96 | complete |
 | AppleScriptObjC | 1 | 0 | 1 | 0.0% | 0/1 | complete |
@@ -85,7 +85,7 @@ Overall: **26.6%** (144,420 of 543,220 API items across 843 parsed frameworks or
 | ClassKit | 176 | 0 | 176 | 0.0% | 0/176 | complete |
 | ClassKitUI | 20 | 0 | 20 | 0.0% | 0/20 | complete |
 | CloudKit | 1,208 | 0 | 1,208 | 0.0% | 0/1208 | complete |
-| Cocoa | 19,543 | 15,829 | 3,714 | 81.0% | 0/19543 | complete |
+| Cocoa | 19,543 | 16,530 | 3,013 | 84.6% | 0/19543 | complete |
 | Collaboration | 48 | 0 | 48 | 0.0% | 0/48 | complete |
 | ColorSync | 205 | 205 | 0 | 100.0% | 150/205 | complete |
 | Combine | 1,299 | 1,291 | 8 | 99.4% | 0/1299 | complete |
@@ -732,7 +732,7 @@ Overall: **26.6%** (144,420 of 543,220 API items across 843 parsed frameworks or
 | swift/libswift_time | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswift_Volatile | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftAccelerate | 0 | 0 | 0 | 0.0% | 0/0 | empty |
-| swift/libswiftAppKit | 18,585 | 15,163 | 3,422 | 81.6% | 0/18585 | complete |
+| swift/libswiftAppKit | 18,585 | 15,864 | 2,721 | 85.4% | 0/18585 | complete |
 | swift/libswiftAppleArchive | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftARKit | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftAVFoundation | 671 | 605 | 66 | 90.2% | 0/671 | complete |
@@ -1376,7 +1376,7 @@ Priority score is missing API items multiplied by the number of apps app-sweep.p
 |---|---:|---:|---:|
 | SwiftUI | 3,729 | 25 | 93,225 |
 | WebKit | 2,908 | 32 | 93,056 |
-| AppKit | 3,452 | 26 | 89,752 |
+| AppKit | 2,652 | 26 | 68,952 |
 | AppIntents | 3,139 | 15 | 47,085 |
 | Vision | 2,674 | 13 | 34,762 |
 | ApplicationServices | 1,704 | 15 | 25,560 |

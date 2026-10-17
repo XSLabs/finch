@@ -10,6 +10,13 @@ final class Watched: NSView {
   var displays = 0
   @NSView.Invalidating(.layout) var size: CGFloat = 1
   @NSView.Invalidating(.layout, .display) var color: Int = 0
+  @NSView.Invalidating(.layout, .display, .constraints, .intrinsicContentSize) var four: Int = 0
+  @NSView.Invalidating(.layout, .display, .constraints, .intrinsicContentSize, .restorableState) var five: Int = 0
+  @NSView.Invalidating(.layout, .display, .constraints, .intrinsicContentSize, .restorableState, .layout) var six: Int = 0
+  @NSView.Invalidating(.layout, .display, .constraints, .intrinsicContentSize, .restorableState, .layout, .display) var seven: Int = 0
+  @NSView.Invalidating(.layout, .display, .constraints, .intrinsicContentSize, .restorableState, .layout, .display, .constraints) var eight: Int = 0
+  @NSView.Invalidating(.layout, .display, .constraints, .intrinsicContentSize, .restorableState, .layout, .display, .constraints, .intrinsicContentSize) var nine: Int = 0
+  @NSView.Invalidating(.layout, .display, .constraints, .intrinsicContentSize, .restorableState, .layout, .display, .constraints, .intrinsicContentSize, .restorableState) var ten: Int = 0
   override var needsLayout: Bool {
     didSet { if needsLayout { layouts += 1 } }
   }
@@ -84,6 +91,23 @@ struct Main {
     print("  with headers:", tds.numberOfRows(in: tv), tds.sectionIdentifier(forRow: 0) ?? "nil", tds.itemIdentifier(forRow: 1) ?? -1,
           tds.row(forSectionIdentifier: "b") ?? -1, tds.row(forItemIdentifier: 4) ?? -1)
 
+    if #available(macOS 15.0, *) {
+      var horizontal = NSHorizontalDirection.Set.left
+      let inserted = horizontal.insert(.right)
+      let removed = horizontal.remove(.left)
+      let replaced = horizontal.update(with: .left)
+      let vertical = NSVerticalDirection.Set.all
+      print("directions:", NSHorizontalDirection.allCases.map(\.rawValue), NSHorizontalDirection.Set.all.rawValue,
+            inserted.inserted, inserted.memberAfterInsert.rawValue, removed?.rawValue ?? -1,
+            replaced?.rawValue ?? -1, horizontal.rawValue, horizontal.contains(.right),
+            NSHorizontalDirection.leading(relativeTo: .leftToRight).rawValue,
+            NSHorizontalDirection.trailing(relativeTo: .rightToLeft).rawValue)
+      print("  vertical:", NSVerticalDirection.allCases.map(\.rawValue), vertical.rawValue,
+            vertical.contains(.up), vertical.contains(.down), NSVerticalDirection.Set(NSVerticalDirection.down).rawValue)
+      print("resize cursors:", NSCursor.columnResize(directions: .all) === NSCursor.columnResize,
+            NSCursor.rowResize(directions: .all) === NSCursor.rowResize)
+    }
+
     // suggestions
     var item = NSSuggestionItem(representedValue: 7, title: "Seven")
     item.secondaryTitle = "the number"
@@ -106,12 +130,26 @@ struct Main {
     w.size = 2
     w.color = 3
     print("invalidating: unchanged \(unchanged) layouts \(w.layouts > 0) displays \(w.displays > 0) values \(w.size) \(w.color)")
+    w.four = 4; w.five = 5; w.six = 6; w.seven = 7; w.eight = 8; w.nine = 9; w.ten = 10
+    print("  invalidation arities:", w.four, w.five, w.six, w.seven, w.eight, w.nine, w.ten)
 
     // cursors, menu items, pop-up buttons, bezels
     let all = NSCursor.FrameResizeDirection.Set.all
     print("frame resize:", all.rawValue, NSCursor.FrameResizeDirection.Set.inward.rawValue, NSCursor.FrameResizeDirection.Set(.outward).rawValue,
           NSCursor.FrameResizeDirection.allCases.count)
     print("  cursor made:", NSCursor.frameResize(position: .left, directions: .all) !== NSCursor.arrow)
+    if #available(macOS 15.0, *) {
+      let badges = [NSMenuItemBadge.updates(count: 2), NSMenuItemBadge.newItems(count: 7),
+                    NSMenuItemBadge.alerts(count: 0), NSMenuItemBadge(string: "Ready"), NSMenuItemBadge(count: 9)]
+      let encoder = JSONEncoder()
+      encoder.outputFormatting = [.sortedKeys]
+      for badge in badges {
+        let data = try! encoder.encode(badge)
+        let decoded = try! JSONDecoder().decode(NSMenuItemBadge.self, from: data)
+        print("  menu badge:", String(data: data, encoding: .utf8)!, decoded.itemCount,
+              decoded.type.rawValue, decoded.stringValue ?? "nil")
+      }
+    }
     let header = NSMenuItem.sectionHeader(title: "Section")
     print("section header:", header.title, header.isSectionHeader, header.isEnabled)
     let menu = NSMenu()
@@ -169,5 +207,25 @@ struct Main {
           AttributeScopes.AppKitAttributes.ForegroundColorAttribute.name)
     let ns = NSAttributedString(a)
     print("  bridged:", ns.attribute(.foregroundColor, at: 0, effectiveRange: nil) != nil, ns.attribute(.kern, at: 0, effectiveRange: nil) as? CGFloat ?? 0)
+    a.appKit.strikethroughStyle = .single
+    a.appKit.underlineStyle = .single
+    a.appKit.textEffect = .letterpressStyle
+    a.appKit.obliqueness = 0.25
+    a.appKit.expansion = 0.5
+    a.appKit.markedClauseSegment = 3
+    let styled = NSAttributedString(a)
+    print("  extra attribute values:",
+          (styled.attribute(.strikethroughStyle, at: 0, effectiveRange: nil) as? NSNumber)?.intValue ?? -1,
+          (styled.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? NSNumber)?.intValue ?? -1,
+          styled.attribute(.textEffect, at: 0, effectiveRange: nil) as? String ?? "nil",
+          styled.attribute(.obliqueness, at: 0, effectiveRange: nil) as? CGFloat ?? -1,
+          styled.attribute(.expansion, at: 0, effectiveRange: nil) as? CGFloat ?? -1,
+          styled.attribute(.markedClauseSegment, at: 0, effectiveRange: nil) as? Int ?? -1)
+    let encoded = try! JSONEncoder().encode(a)
+    let decoded = try! JSONDecoder().decode(AttributedString.self, from: encoded)
+    print("  attribute coding:", decoded.appKit.strikethroughStyle?.rawValue ?? -1,
+          decoded.appKit.underlineStyle?.rawValue ?? -1, decoded.appKit.textEffect?.rawValue ?? "nil")
+    print("  extra attribute keys:", AttributeScopes.AppKitAttributes.TextAlternativesAttribute.name,
+          AttributeScopes.AppKitAttributes.GlyphInfoAttribute.name)
   }
 }

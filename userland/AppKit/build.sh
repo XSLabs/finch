@@ -43,6 +43,7 @@ done
 "$(xcrun -f swiftc)" -c -wmo -module-name AppKit -import-underlying-module -parse-as-library \
     -enable-library-evolution -module-link-name swiftAppKit -target arm64e-apple-macos26.0 -sdk "${SDKROOT}" \
     -swift-version 5 -O "${HERE}"/*.swift -o "${OBJ}/AppKit-swift.o" \
+    -emit-module-interface-path "${OBJ}/AppKit.swiftinterface" \
     $(for l in Metal CoreImage QuartzCore UniformTypeIdentifiers XPC os IOKit Dispatch _Builtin_float; do
         echo -Xfrontend -disable-autolink-library -Xfrontend swift$l; done)   # only the Swift libraries it uses
 

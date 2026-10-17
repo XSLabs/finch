@@ -2,6 +2,7 @@
 /* Local AppKit values and APIs that do not need a screen, printer or Apple service. */
 #import <AppKit/AppKit.h>
 #import <CoreImage/CoreImage.h>
+#import <objc/runtime.h>
 
 static void
 out(NSString *format, ...)
@@ -281,6 +282,12 @@ appkit_additions(void)
     edited.value = @9;
     edited.key = @"renamed";
     out(@"  edited pair %@=%@ old key gone %d", edited.key, controller.content[@"renamed"], controller.content[@"alpha"] == nil);
+
+    NSMenu *menu = [NSMenu new];
+    BOOL handlesMenuChanged = [NSWindow respondsToSelector:@selector(menuChanged:)];
+    if (handlesMenuChanged)
+        [NSWindow menuChanged:menu];
+    out(@"  deprecated window menu change %d", handlesMenuChanged);
 }
 
 static void
@@ -349,12 +356,82 @@ pasteboard_values(void)
         colorData.length > 0, readColor != nil, readColor.redComponent, readColor.greenComponent, readColor.blueComponent);
 }
 
+static void
+accessibility_values(void)
+{
+    out(@"accessibility:");
+    NSObject *object = [NSObject new];
+    out(@"  plain object optional methods %d %d %d", [object respondsToSelector:@selector(accessibilityHitTest:)],
+        [object respondsToSelector:@selector(accessibilityFocusedUIElement)],
+        [object respondsToSelector:@selector(accessibilityNotifiesWhenDestroyed)]);
+
+    NSAccessibilityElement *root = [NSAccessibilityElement new];
+    root.accessibilityFrame = NSMakeRect(0, 0, 100, 100);
+    NSAccessibilityElement *child = [NSAccessibilityElement new];
+    child.accessibilityFrame = NSMakeRect(10, 10, 20, 20);
+    [root accessibilityAddChildElement:child];
+    BOOL supportsHitTesting = [root respondsToSelector:@selector(accessibilityHitTest:)];
+    BOOL supportsFocus = [root respondsToSelector:@selector(accessibilityFocusedUIElement)];
+    BOOL supportsDestructionNotice = [root respondsToSelector:@selector(accessibilityNotifiesWhenDestroyed)];
+    out(@"  element methods %d %d %d child hit %d outside self %d focus self %d destroyed notice %d",
+        supportsHitTesting, supportsFocus, supportsDestructionNotice,
+        supportsHitTesting && [root accessibilityHitTest:NSMakePoint(15, 15)] == child,
+        supportsHitTesting && [root accessibilityHitTest:NSMakePoint(80, 80)] == root,
+        supportsFocus && root.accessibilityFocusedUIElement == root,
+        supportsDestructionNotice && root.accessibilityNotifiesWhenDestroyed);
+}
+
+static void
+protocol_values(void)
+{
+    out(@"AppKit protocols:");
+    Protocol *browserDelegate = @protocol(NSBrowserDelegate);
+    Protocol *textFinderClient = @protocol(NSTextFinderClient);
+    (void)browserDelegate;
+    (void)textFinderClient;
+    const char *names[] = {
+        "NSWindowDelegate", "NSApplicationDelegate", "NSOutlineViewDelegate", "NSTableViewDelegate",
+        "NSBrowserDelegate", "NSCollectionViewDelegate", "NSAccessibilityColor", "NSTextFinderClient",
+    };
+    NSUInteger found = 0;
+    for (size_t i = 0; i < sizeof names / sizeof names[0]; i++)
+        found += objc_getProtocol(names[i]) != nil;
+    Protocol *window = objc_getProtocol("NSWindowDelegate");
+    Protocol *app = objc_getProtocol("NSApplicationDelegate");
+    Protocol *color = objc_getProtocol("NSAccessibilityColor");
+    BOOL resize = protocol_getMethodDescription(window, sel_registerName("windowWillResize:toSize:"), NO, YES).name != NULL;
+    BOOL terminate = protocol_getMethodDescription(app, sel_registerName("applicationShouldTerminate:"), NO, YES).name != NULL;
+    BOOL colorName = protocol_getProperty(color, "accessibilityName", NO, YES) != NULL;
+    out(@"  registered %lu/%lu methods %d %d color property %d", (unsigned long)found,
+        (unsigned long)(sizeof names / sizeof names[0]), resize, terminate, colorName);
+}
+
+static void
+text_insertion_indicator_values(void)
+{
+    out(@"text insertion indicator:");
+    NSTextInsertionIndicator *indicator = [[NSTextInsertionIndicator alloc] initWithFrame:NSMakeRect(0, 0, 1, 16)];
+    out(@"  defaults mode %ld options %ld default color %d", (long)indicator.displayMode,
+        (long)indicator.automaticModeOptions, [indicator.color isEqual:[NSColor textInsertionPointColor]]);
+    indicator.displayMode = NSTextInsertionIndicatorDisplayModeHidden;
+    indicator.automaticModeOptions = NSTextInsertionIndicatorAutomaticModeOptionsShowWhileTracking;
+    indicator.color = [NSColor redColor];
+    __block BOOL inserted = NO;
+    indicator.effectsViewInserter = ^(NSView *view) { inserted = view != nil; };
+    indicator.effectsViewInserter([[NSView alloc] initWithFrame:NSZeroRect]);
+    out(@"  changed mode %ld options %ld color red %.0f callback %d", (long)indicator.displayMode,
+        (long)indicator.automaticModeOptions, indicator.color.redComponent, inserted);
+}
+
 int
 main(void)
 {
     @autoreleasepool {
         [NSApplication sharedApplication];
         printing();
+        accessibility_values();
+        protocol_values();
+        text_insertion_indicator_values();
         text_values();
         appkit_additions();
         table_values();
