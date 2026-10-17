@@ -10,13 +10,20 @@ APP="${ROOT}/build/userland/apps/SwiftUIMore.app/Contents/MacOS/SwiftUIMore"
 LIBRARY="${ROOT}/build/root/System/Library"
 TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT
+# Finch's standalone libraries, alone on the library path, as tools/host-tests.sh has them
+# (all of usr/lib/system would swap in Finch's libSystem under the host app)
+mkdir -p "${TMP}/lib"
+for l in usr/lib/libMobileGestalt usr/lib/libDiagnosticMessagesClient usr/lib/libsandbox.1 \
+         usr/lib/system/libfinchaccount usr/lib/system/libsystem_dnssd; do
+    ln -s "${ROOT}/build/root/${l}.dylib" "${TMP}/lib/"
+done
 
 run() {
     local stage="$1"
     shift
     if ! FINCH_THEME=Classic SWIFTUI_GAPS_TEST=1 SWIFTUI_GAPS_STAGE="${stage}" \
         DYLD_FRAMEWORK_PATH="${LIBRARY}/Frameworks:${LIBRARY}/PrivateFrameworks" \
-        DYLD_LIBRARY_PATH="${ROOT}/build/root/usr/lib/swift" \
+        DYLD_LIBRARY_PATH="${ROOT}/build/root/usr/lib/swift:${TMP}/lib" \
         FINCH_FONT_DIRS="${LIBRARY}/Fonts" \
         "${RUNNER}" "${SERVER}" "${APP}" "window:SwiftUI More" wait:300 "$@" \
         > "${TMP}/${stage}.out" 2>&1; then
