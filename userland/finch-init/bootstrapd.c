@@ -18,7 +18,9 @@
  *   right, and finch-init asks the kernel for a port-destroyed notification
  *   first, so when the job exits the right comes back to finch-init with any
  *   unread messages still queued. Clients' send rights stay valid across
- *   job restarts.
+ *   job restarts. Requests are dropped only when a job fails before that
+ *   service has ever checked in, so clients do not wait forever for a server
+ *   that never started.
  *
  *   Dynamic (checked in by any process, no declaration). check_in creates
  *   it; it disappears when its owner's receive right is destroyed.
@@ -49,6 +51,12 @@
 #define ROUTINE_CHECK_IN 206
 #define ROUTINE_LOOK_UP  207
 
+#ifdef BOOTSTRAPD_TESTING
+/* The focused host test pauses here so it can kill a check-in caller before
+ * the reply is sent. This hook is absent from finch-init itself. */
+extern void bootstrapd_test_before_check_in_reply(xpc_object_t reply);
+#endif
+
 /* libxpc private API (also exported by Apple's libxpc). */
 int xpc_pipe_receive(mach_port_t port, xpc_object_t *message);
 int xpc_pipe_routine_reply(xpc_object_t reply);
@@ -63,6 +71,8 @@ struct service {
 	mach_port_t port;           /* send right, always; plus the receive right while held */
 	void *owner;                /* declaring job, or NULL for a dynamic service */
 	bool held;                  /* finch-init holds the receive right */
+	bool checked_in_once;       /* keep queued messages after a working job restarts */
+	bool destroyed_notification_armed;
 	struct service *next;
 };
 
@@ -166,7 +176,7 @@ disarm(struct service *s)
 #pragma mark - Routines
 
 static kern_return_t
-check_in(struct domain *d, const char *name, pid_t pid, xpc_object_t reply)
+check_in(struct domain *d, const char *name, pid_t pid, xpc_object_t reply, struct service **checked_in)
 {
 	struct service *s = find_in(d, name);
 	mach_port_t port, previous = MACH_PORT_NULL;
@@ -179,19 +189,25 @@ check_in(struct domain *d, const char *name, pid_t pid, xpc_object_t reply)
 		if (hooks.may_check_in == NULL || !hooks.may_check_in(s->owner, pid)) {
 			return BOOTSTRAP_NOT_PRIVILEGED;
 		}
-		/* When the job's copy of the receive right dies, it comes back here. */
-		if (mach_port_request_notification(mach_task_self(), s->port, MACH_NOTIFY_PORT_DESTROYED, 0,
-		        notify_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous) != KERN_SUCCESS) {
-			return BOOTSTRAP_NO_MEMORY;
-		}
-		if (MACH_PORT_VALID(previous)) {
-			mach_port_deallocate(mach_task_self(), previous);
+		/* A failed reply can return the receive right synchronously, leaving
+		 * this one-shot watch armed. Reuse it until port_returned consumes it. */
+		if (!s->destroyed_notification_armed) {
+			if (mach_port_request_notification(mach_task_self(), s->port,
+			        MACH_NOTIFY_PORT_DESTROYED, 0, notify_port,
+			        MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous) != KERN_SUCCESS) {
+				return BOOTSTRAP_NO_MEMORY;
+			}
+			if (MACH_PORT_VALID(previous)) {
+				mach_port_deallocate(mach_task_self(), previous);
+			}
+			s->destroyed_notification_armed = true;
 		}
 		disarm(s);
 		s->held = false;
 		recv = xpc_mach_recv_create(s->port);   /* the reply moves the receive right */
 		xpc_dictionary_set_value(reply, "port", recv);
 		xpc_release(recv);
+		*checked_in = s;
 		return BOOTSTRAP_SUCCESS;
 	}
 	if (s != NULL) {
@@ -256,6 +272,8 @@ handle(struct domain *d, xpc_object_t request)
 	audit_token_t token;
 	pid_t pid;
 	kern_return_t kr;
+	int reply_status;
+	struct service *checked_in = NULL;
 
 	if (reply == NULL) {
 		return;   /* not a routine: nothing to answer */
@@ -275,7 +293,7 @@ handle(struct domain *d, xpc_object_t request)
 	} else if (name == NULL || strnlen(name, sizeof(name_t)) >= sizeof(name_t)) {
 		kr = BOOTSTRAP_BAD_COUNT;
 	} else if (routine == ROUTINE_CHECK_IN) {
-		kr = check_in(d, name, pid, reply);
+		kr = check_in(d, name, pid, reply, &checked_in);
 	} else if (routine == ROUTINE_LOOK_UP) {
 		kr = look_up(d, name, reply);
 	} else {
@@ -284,7 +302,32 @@ handle(struct domain *d, xpc_object_t request)
 	xpc_dictionary_set_int64(reply, "error", kr);
 	xpc_dictionary_set_int64(reply, "req_pid", pid);
 	xpc_dictionary_set_int64(reply, "rec_execcnt", 0);
-	xpc_pipe_routine_reply(reply);
+	if (checked_in != NULL) {
+#ifdef BOOTSTRAPD_TESTING
+		bootstrapd_test_before_check_in_reply(reply);
+#endif
+	}
+	reply_status = xpc_pipe_routine_reply(reply);
+#ifdef BOOTSTRAPD_TESTING
+	bootstrapd_test_reply_status(reply_status);
+#endif
+	if (reply_status == 0) {
+		if (checked_in != NULL) {
+			checked_in->checked_in_once = true;
+		}
+	} else if (checked_in != NULL) {
+		/* A failed Mach send can return MOVE_RECEIVE descriptors to this
+		 * task before mach_msg() returns. Check the actual right instead of
+		 * waiting for a port-destroyed notice that will not come in that
+		 * case. The send-once destination may also be gone because this job
+		 * exited during check-in. */
+		mach_port_type_t type = 0;
+		if (mach_port_type(mach_task_self(), checked_in->port, &type) == KERN_SUCCESS &&
+		    (type & MACH_PORT_TYPE_RECEIVE)) {
+			checked_in->held = true;
+			arm(checked_in);
+		}
+	}
 	xpc_release(reply);
 }
 
@@ -337,6 +380,70 @@ bootstrapd_rearm(void *owner)
 		for (struct service *s = d->services; s != NULL; s = s->next) {
 			if (s->owner == owner) {
 				arm(s);
+			}
+		}
+	}
+}
+
+/* Drop all queued requests from a service that has never checked in. Destroying
+ * the request releases its send-once reply right, which wakes an XPC/MIG client
+ * with the usual server-died result. The service's receive right and send-right
+ * name stay in place, so a later client can ask the job to start again. */
+static void
+drain_queued(mach_port_t port, mach_port_msgcount_t pending)
+{
+	size_t capacity = sizeof(mach_msg_header_t) + MAX_TRAILER_SIZE;
+	mach_msg_header_t *message = malloc(capacity);
+
+	if (message == NULL || pending == 0) {
+		free(message);
+		return;
+	}
+	while (pending > 0) {
+		kern_return_t kr = mach_msg(message, MACH_RCV_MSG | MACH_RCV_TIMEOUT | MACH_RCV_LARGE,
+		    0, (mach_msg_size_t)capacity, port, 0, MACH_PORT_NULL);
+		if (kr == MACH_MSG_SUCCESS) {
+			mach_msg_destroy(message);
+			pending--;
+			continue;
+		}
+		if (kr == MACH_RCV_TOO_LARGE && message->msgh_size > capacity) {
+			size_t needed = (size_t)message->msgh_size + MAX_TRAILER_SIZE;
+			mach_msg_header_t *larger = realloc(message, needed);
+			if (larger != NULL) {
+				message = larger;
+				capacity = needed;
+				continue;
+			}
+		}
+		/* The queue changed or Mach could not safely receive this message. */
+		break;
+	}
+	free(message);
+}
+
+static void
+drain_unstarted(struct service *s)
+{
+	mach_port_status_t status;
+	mach_msg_type_number_t info_count = MACH_PORT_RECEIVE_STATUS_COUNT;
+	if (mach_port_get_attributes(mach_task_self(), s->port, MACH_PORT_RECEIVE_STATUS,
+	        (mach_port_info_t)&status, &info_count) != KERN_SUCCESS) {
+		return;
+	}
+	/* Drain only the batch already queued at entry. New callers must not keep
+	 * finch-init's serial queue busy forever. */
+	drain_queued(s->port, status.mps_msgcount);
+}
+
+void
+bootstrapd_start_failed(void *owner)
+{
+	for (struct domain *d = domains; d != NULL; d = d->next) {
+		for (struct service *s = d->services; s != NULL; s = s->next) {
+			if (s->owner == owner && s->held && !s->checked_in_once) {
+				disarm(s);
+				drain_unstarted(s);
 			}
 		}
 	}
@@ -430,7 +537,16 @@ port_returned(void)
 			mach_port_mod_refs(mach_task_self(), port, MACH_PORT_RIGHT_RECEIVE, -1);
 			continue;
 		}
+		s->destroyed_notification_armed = false;
 		s->held = true;
+		/* The first check-in reply may have failed after moving the receive
+		 * right out. If its return was delayed until this notification, wake
+		 * callers that were queued while no server had successfully checked
+		 * in. Once a reply succeeds, queued requests survive normal restarts. */
+		if (!s->checked_in_once) {
+			disarm(s);
+			drain_unstarted(s);
+		}
 		arm(s);
 	}
 }

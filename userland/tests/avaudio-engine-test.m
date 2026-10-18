@@ -103,11 +103,13 @@ players(void)
     printf("  last render %lld, player time %lld, node time for player 5 %lld\n", last.sampleTime, [p playerTimeForNodeTime:last].sampleTime,
            [p nodeTimeForPlayerTime:[AVAudioTime timeWithSampleTime:5 atRate:48000]].sampleTime);
     /* (volume and pan changed while playing ramp in Apple's; not compared here) */
-    [p scheduleBuffer:ramp(mono(48000), 8, 0.125f) completionHandler:nil];
+    /* The player timeline is at sample 32; leave eight frames before this buffer. */
+    [p scheduleBuffer:ramp(mono(48000), 8, 0.125f) atTime:[AVAudioTime timeWithSampleTime:40 atRate:48000] options:0 completionHandler:nil];
     render(e, 16, 12);
     [p pause];
     printf("paused: playing %d player time %s\n", p.playing, [p playerTimeForNodeTime:p.lastRenderTime] ? "some" : "nil");
-    [p scheduleBuffer:ramp(mono(48000), 4, 0.25f) completionHandler:^{
+    /* The player timeline is at sample 48; pausing keeps this timestamp fixed. */
+    [p scheduleBuffer:ramp(mono(48000), 4, 0.25f) atTime:[AVAudioTime timeWithSampleTime:48 atRate:48000] options:0 completionHandler:^{
       done += 100;
     }];
     render(e, 8, 8);

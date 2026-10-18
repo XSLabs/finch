@@ -63,6 +63,31 @@ resources and CMS signatures. Requirement parsing and trust serialization also
 exist. These checks do not establish an Apple signing identity or enforce an
 app sandbox. Hardware keys and the assessment service remain unavailable.
 
+The new `0007-finch-sandbox-vnode-enforcement-proof.patch` is a small kernel
+experiment, not a complete app sandbox. Its separate `FinchSandbox` policy can
+deny file reads or file writes for the calling process. It has no profile parser
+and does not accept Apple's sandbox profiles. The guest-only
+`finch-sandbox-enforcement-proof-test` checks open files, new opens, child
+processes, and attempts to clear or replace the restriction. The kernel builds
+and boots in QEMU, and these checks pass (2026-10-18). Read and write checks use
+the current process's restriction, including when the file was opened before
+the restriction was applied. The interaction with the borrowed Sandbox
+policy also remains unverified. These changes do not close the 1.0 sandbox gap.
+New file-backed memory mappings are also checked (2026-10-18). Deny-read blocks
+all such mappings, including ones initially requested with no access. Deny-write
+blocks writable mappings and prevents a read-only mapping from gaining write
+access later. These guest checks pass with Finch's rebuilt kernel. Writable
+private mappings are also denied, even though they would not write back to the file.
+Existing mappings, POSIX shared memory and passing an open file to an unrestricted
+process remain outside this proof. Asynchronous reads and writes submitted after
+applying a restriction now pass denial checks in both the default worker mode
+and `aio_new_workq=0` (2026-10-18). The hooks check both the current process and
+the request's saved caller credential, so an older kernel worker cannot miss the
+restriction. Tests require access denied, zero transferred bytes, and unchanged
+read buffers and file contents. Requests queued before the restriction are not
+guaranteed to be blocked; applying it also does not cancel I/O already past its
+access check.
+
 `finch-security-core-test` covers keys, signatures and caller-root trust.
 `finch-security-roots-test` checks a real public HTTPS chain at a fixed date,
 wrong hostnames, explicit roots, root-store selection and an absent store. It
@@ -156,8 +181,8 @@ refused writes, public password redaction, file permissions, shared legacy-hash
 checks. A separate host fixture also proves recovery after a failed account-file
 write. They use the exact
 release account templates. These checks use private temporary folders. The
-tool does not create home folders, grant admin rights, install an OS, or prove
-a full console login. Correct-password, wrong-password and locked-account checks
+tool does not grant admin rights or install an OS. Correct-password,
+wrong-password and locked-account checks
 now pass through the real PAM and OpenDirectory code in QEMU (2026-10-11).
 The helper copies the release account files and PAM modules into a private,
 root-owned folder, creates a test account with the shared account library, then
@@ -171,6 +196,24 @@ identity and home, and proves that logout starts a fresh login prompt
 and accounts that survive reboot remain open.
 The ordinary user password-change path still needs a
 privileged service; `accountctl` itself does not run with extra permissions.
+
+Home creation is now an explicit option: `accountctl -d ACCOUNT_FOLDER -R
+TARGET_ROOT create NAME UID GID GECOS HOME SHELL`. The account folder and target
+root are separate, required choices. Without `-R`, account creation still only
+changes account files. With it, the tool creates `HOME` under the chosen root,
+with the new user's owner and group and mode 0700. Parent folders must already
+exist and be protected from other users. The tool refuses links, `..`, and an
+existing home with the wrong owner or permissions. An existing home must also
+be empty, so a reused user number cannot hand an old user's files to a new
+account. The check reads the already-open folder; focused host and VM tests confirm
+that rejected homes keep their contents and no account is added (2026-10-18).
+An empty home left by an interrupted attempt can still be reused.
+If saving the account fails,
+it removes only the empty home it just created, after checking that it is still
+the same folder and that the account was not saved. Host fixture tests pass
+(2026-10-17). The rebuilt VM also passes account creation, empty-home reuse,
+non-empty-home refusal, PAM and OpenDirectory checks (2026-10-18). These checks
+do not finish first-user setup or reboot persistence.
 
 ## SystemConfiguration
 

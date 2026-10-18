@@ -4,6 +4,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <ifaddrs.h>
+#include <limits.h>
 #include <net/if.h>
 #include <net/route.h>
 #include <netinet/in.h>
@@ -12,8 +13,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <sys/sockio.h>
 #include <sys/socket.h>
+#include <stdbool.h>
 #include <unistd.h>
 
 static int test_getifaddrs(struct ifaddrs **all);
@@ -21,7 +24,23 @@ static void test_freeifaddrs(struct ifaddrs *all);
 static int test_socket(int domain, int type, int protocol);
 static int test_ioctl(int fd, unsigned long request, ...);
 static int test_close(int fd);
+static int test_openat(int directory, const char *path, int flags, ...);
+static int test_fstatat(int directory, const char *path, struct stat *st, int flags);
+static int test_renameat(int fromDirectory, const char *from, int toDirectory,
+    const char *to);
+static int test_fsync(int fd);
 static int test_sethostname(const char *hostname, size_t length);
+static void expectRollbackOrder(const char *name);
+
+static int resolverFixtureDirFD = -1;
+static bool failResolverDirectorySync;
+static bool failResolverRestoreFileSync;
+static bool armResolverRestoreFileSyncOnHostname;
+static bool replaceResolverBeforeHostname;
+static bool failResolverPostInstallStat;
+static bool replaceResolverAtPostInstallStat;
+static bool resolverPostInstallStatPending;
+static char resolverFixturePath[PATH_MAX];
 
 static unsigned int
 test_if_nametoindex(const char *name)
@@ -36,26 +55,24 @@ static int forbidden_open(const char *path, int flags, ...)
     abort();
 }
 
-static int forbidden_openat(int directory, const char *path, int flags, ...)
-{
-    (void)directory;
-    (void)flags;
-    fprintf(stderr, "unexpected relative file access: %s\n", path);
-    abort();
-}
-
 #define if_nametoindex test_if_nametoindex
 #define getifaddrs test_getifaddrs
 #define freeifaddrs test_freeifaddrs
 #define socket test_socket
 #define ioctl test_ioctl
 #define close test_close
+#define openat test_openat
+#define fstatat test_fstatat
+#define renameat test_renameat
+#define fsync test_fsync
 #define sethostname test_sethostname
 #define open forbidden_open
-#define openat forbidden_openat
 #define main configd_daemon_entry
 #include "../oss/configd.daemon.c"
 #undef main
+#undef fsync
+#undef renameat
+#undef fstatat
 #undef openat
 #undef open
 #undef sethostname
@@ -103,6 +120,13 @@ fakeReset(void)
 	fakeFailLookup = false;
 	fakeFailDelete = false;
 	fakeFailHostname = false;
+	failResolverDirectorySync = false;
+	failResolverRestoreFileSync = false;
+	armResolverRestoreFileSyncOnHostname = false;
+	replaceResolverBeforeHostname = false;
+	failResolverPostInstallStat = false;
+	replaceResolverAtPostInstallStat = false;
+	resolverPostInstallStatPending = false;
 }
 
 static bool
@@ -191,8 +215,85 @@ test_socket(int domain, int type, int protocol)
 static int
 test_close(int fd)
 {
-	(void)fd;
-	return 0;
+	if (fd == 42)
+		return 0;
+	if (fd == resolverFixtureDirFD)
+		resolverFixtureDirFD = -1;
+	return close(fd);
+}
+
+static int
+test_openat(int directory, const char *path, int flags, ...)
+{
+	if (directory != resolverFixtureDirFD || path == NULL || strchr(path, '/') != NULL ||
+	    strcmp(path, ".") == 0 || strcmp(path, "..") == 0) {
+		fprintf(stderr, "unexpected relative file access: %s\n", path ? path : "(null)");
+		abort();
+	}
+	if (flags & O_CREAT) {
+		va_list args;
+		va_start(args, flags);
+		mode_t mode = (mode_t)va_arg(args, int);
+		va_end(args);
+		return openat(directory, path, flags, mode);
+	}
+	return openat(directory, path, flags);
+}
+
+static int
+test_fstatat(int directory, const char *path, struct stat *st, int flags)
+{
+	if (directory == resolverFixtureDirFD && path != NULL &&
+	    strcmp(path, "resolv.conf") == 0 && resolverPostInstallStatPending) {
+		resolverPostInstallStatPending = false;
+		if (failResolverPostInstallStat) {
+			failResolverPostInstallStat = false;
+			errno = EIO;
+			return -1;
+		}
+		if (replaceResolverAtPostInstallStat) {
+			static const char externalContents[] = "post-install writer\n";
+			replaceResolverAtPostInstallStat = false;
+			int fd = openat(directory, ".post-install-writer",
+			    O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+			if (fd < 0 || write(fd, externalContents,
+			    sizeof(externalContents) - 1) != (ssize_t)(sizeof(externalContents) - 1) ||
+			    close(fd) < 0 || renameat(directory, ".post-install-writer",
+			    directory, "resolv.conf") < 0) {
+				fprintf(stderr, "could not model a post-install resolver writer\n");
+				exit(1);
+			}
+		}
+	}
+	return fstatat(directory, path, st, flags);
+}
+
+static int
+test_renameat(int fromDirectory, const char *from, int toDirectory, const char *to)
+{
+	int result = renameat(fromDirectory, from, toDirectory, to);
+	if (result == 0 && fromDirectory == resolverFixtureDirFD &&
+	    toDirectory == resolverFixtureDirFD && from != NULL && to != NULL &&
+	    strncmp(from, ".configd-install-", strlen(".configd-install-")) == 0 &&
+	    strcmp(to, "resolv.conf") == 0)
+		resolverPostInstallStatPending = true;
+	return result;
+}
+
+static int
+test_fsync(int fd)
+{
+	if (fd == resolverFixtureDirFD && failResolverDirectorySync) {
+		failResolverDirectorySync = false;
+		errno = EIO;
+		return -1;
+	}
+	if (fd != resolverFixtureDirFD && failResolverRestoreFileSync) {
+		failResolverRestoreFileSync = false;
+		errno = EIO;
+		return -1;
+	}
+	return fsync(fd);
 }
 
 static int
@@ -200,6 +301,20 @@ test_sethostname(const char *hostname, size_t length)
 {
 	(void)hostname;
 	(void)length;
+	if (replaceResolverBeforeHostname && resolverFixtureDirFD >= 0) {
+		int fd = openat(resolverFixtureDirFD, ".later-writer",
+		    O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+		if (fd < 0 || write(fd, "external writer\n", 16) != 16 ||
+		    close(fd) < 0 || renameat(resolverFixtureDirFD, ".later-writer",
+		    resolverFixtureDirFD, "resolv.conf") < 0) {
+			fprintf(stderr, "could not model a later resolver writer\n");
+			exit(1);
+		}
+	}
+	if (armResolverRestoreFileSyncOnHostname) {
+		armResolverRestoreFileSyncOnHostname = false;
+		failResolverRestoreFileSync = true;
+	}
 	if (fakeFailHostname) {
 		errno = EIO;
 		return -1;
@@ -687,6 +802,330 @@ buildTestNetworkPlan(size_t serviceCount, bool includeDNS, NetworkApplyPlan *pla
 	return status;
 }
 
+static void
+resolverFixtureFilePath(char path[PATH_MAX])
+{
+	int n = snprintf(path, PATH_MAX, "%s/resolv.conf", resolverFixturePath);
+	if (n < 0 || n >= PATH_MAX) {
+		fprintf(stderr, "resolver fixture path was too long\n");
+		exit(1);
+	}
+}
+
+static void
+removeResolverFixtureFile(void)
+{
+	char path[PATH_MAX];
+	resolverFixtureFilePath(path);
+	if (unlink(path) < 0 && errno != ENOENT) {
+		perror("remove resolver fixture");
+		exit(1);
+	}
+}
+
+static void
+writeResolverFixtureFile(const UInt8 *bytes, size_t length, mode_t mode)
+{
+	char path[PATH_MAX];
+	resolverFixtureFilePath(path);
+	int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+	if (fd < 0 || !writeAll(fd, bytes, length) || fchmod(fd, mode) < 0 || close(fd) < 0) {
+		perror("write resolver fixture");
+		exit(1);
+	}
+}
+
+static void
+setResolverFixtureGroup(gid_t group)
+{
+	char path[PATH_MAX];
+	resolverFixtureFilePath(path);
+	if (chown(path, (uid_t)-1, group) < 0) {
+		perror("set resolver fixture group");
+		exit(1);
+	}
+}
+
+static bool
+resolverFixtureMatches(const UInt8 *bytes, size_t length, mode_t mode, uid_t owner, gid_t group)
+{
+	char path[PATH_MAX];
+	resolverFixtureFilePath(path);
+	int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+	if (fd < 0)
+		return false;
+	struct stat st;
+	bool matches = fstat(fd, &st) == 0 && S_ISREG(st.st_mode) &&
+	    (st.st_mode & 07777) == mode && st.st_uid == owner && st.st_gid == group &&
+	    st.st_size >= 0 && (size_t)st.st_size == length;
+	UInt8 *actual = matches && length ? malloc(length) : NULL;
+	if (matches && length && actual == NULL)
+		matches = false;
+	size_t offset = 0;
+	while (matches && offset < length) {
+		ssize_t count = read(fd, actual + offset, length - offset);
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0) {
+			matches = false;
+			break;
+		}
+		offset += (size_t)count;
+	}
+	if (matches && length)
+		matches = memcmp(actual, bytes, length) == 0;
+	free(actual);
+	close(fd);
+	return matches;
+}
+
+static bool
+resolverFixtureIsAbsent(void)
+{
+	char path[PATH_MAX];
+	struct stat st;
+	resolverFixtureFilePath(path);
+	return lstat(path, &st) < 0 && errno == ENOENT;
+}
+
+static int
+prepareResolverTestPlan(NetworkApplyPlan *plan)
+{
+	int status = buildTestNetworkPlan(2, true, plan);
+	if (status != SC_OK)
+		return status;
+	int directory = open(resolverFixturePath, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	if (directory < 0) {
+		freeNetworkApplyPlan(plan);
+		return SC_FAILED;
+	}
+	resolverFixtureDirFD = directory;
+	plan->resolverDirectoryFD = directory;
+	strlcpy(plan->resolverLeaf, "resolv.conf", sizeof(plan->resolverLeaf));
+	status = snapshotResolverTarget(plan, geteuid());
+	if (status == SC_OK)
+		status = snapshotIPv4Aliases(plan);
+	if (status != SC_OK)
+		freeNetworkApplyPlan(plan);
+	return status;
+}
+
+static void
+testResolverSnapshotRejectsUnsafeFiles(void)
+{
+	NetworkApplyPlan plan;
+	char path[PATH_MAX];
+	UInt8 *large = calloc(MAX_RESOLVER_SNAPSHOT_BYTES + 1, 1);
+	if (large == NULL)
+		exit(1);
+	resolverFixtureFilePath(path);
+
+	writeResolverFixtureFile((const UInt8 *)"safe\n", 5, 0600);
+	if (buildTestNetworkPlan(2, true, &plan) != SC_OK)
+		exit(1);
+	resolverFixtureDirFD = open(resolverFixturePath, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	plan.resolverDirectoryFD = resolverFixtureDirFD;
+	strlcpy(plan.resolverLeaf, "resolv.conf", sizeof(plan.resolverLeaf));
+	if (snapshotResolverTarget(&plan, (uid_t)(geteuid() + 1)) != SC_ACCESS_ERROR) {
+		fprintf(stderr, "resolver file with the wrong owner was accepted\n");
+		exit(1);
+	}
+	freeNetworkApplyPlan(&plan);
+
+	removeResolverFixtureFile();
+	if (symlink("outside", path) < 0 || buildTestNetworkPlan(2, true, &plan) != SC_OK)
+		exit(1);
+	resolverFixtureDirFD = open(resolverFixturePath, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	plan.resolverDirectoryFD = resolverFixtureDirFD;
+	strlcpy(plan.resolverLeaf, "resolv.conf", sizeof(plan.resolverLeaf));
+	if (snapshotResolverTarget(&plan, geteuid()) != SC_ACCESS_ERROR) {
+		fprintf(stderr, "resolver symlink was accepted\n");
+		exit(1);
+	}
+	freeNetworkApplyPlan(&plan);
+
+	removeResolverFixtureFile();
+	writeResolverFixtureFile((const UInt8 *)"unsafe\n", 7, 0666);
+	if (buildTestNetworkPlan(2, true, &plan) != SC_OK)
+		exit(1);
+	resolverFixtureDirFD = open(resolverFixturePath, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	plan.resolverDirectoryFD = resolverFixtureDirFD;
+	strlcpy(plan.resolverLeaf, "resolv.conf", sizeof(plan.resolverLeaf));
+	if (snapshotResolverTarget(&plan, geteuid()) != SC_ACCESS_ERROR) {
+		fprintf(stderr, "group/world-writable resolver file was accepted\n");
+		exit(1);
+	}
+	freeNetworkApplyPlan(&plan);
+
+	writeResolverFixtureFile(large, MAX_RESOLVER_SNAPSHOT_BYTES + 1, 0600);
+	if (buildTestNetworkPlan(2, true, &plan) != SC_OK)
+		exit(1);
+	resolverFixtureDirFD = open(resolverFixturePath, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	plan.resolverDirectoryFD = resolverFixtureDirFD;
+	strlcpy(plan.resolverLeaf, "resolv.conf", sizeof(plan.resolverLeaf));
+	if (snapshotResolverTarget(&plan, geteuid()) != SC_ACCESS_ERROR) {
+		fprintf(stderr, "oversized resolver file was accepted\n");
+		exit(1);
+	}
+	freeNetworkApplyPlan(&plan);
+	free(large);
+	removeResolverFixtureFile();
+}
+
+static void
+testResolverRollbackAfterHostnameFailure(void)
+{
+	const UInt8 oldContents[] = "old resolver\n";
+	NetworkApplyPlan plan;
+	writeResolverFixtureFile(oldContents, sizeof(oldContents) - 1, 0640);
+	setResolverFixtureGroup(getegid());
+	struct stat oldStat;
+	char path[PATH_MAX];
+	resolverFixtureFilePath(path);
+	if (stat(path, &oldStat) < 0 || prepareResolverTestPlan(&plan) != SC_OK) {
+		fprintf(stderr, "could not prepare existing resolver rollback check\n");
+		exit(1);
+	}
+	fakeReset();
+	fakeFailHostname = true;
+	if (applyPreparedNetworkPlan(&plan, true, "finch-test") != SC_FAILED ||
+	    !resolverFixtureMatches(oldContents, sizeof(oldContents) - 1,
+	    oldStat.st_mode & 07777, oldStat.st_uid, oldStat.st_gid) || fakeAliasCount() != 0) {
+		fprintf(stderr, "hostname failure did not restore resolver contents and metadata\n");
+		exit(1);
+	}
+	expectRollbackOrder("resolver hostname failure");
+	freeNetworkApplyPlan(&plan);
+}
+
+static void
+testResolverRollbackWhenOriginallyAbsent(void)
+{
+	NetworkApplyPlan plan;
+	removeResolverFixtureFile();
+	if (prepareResolverTestPlan(&plan) != SC_OK) {
+		fprintf(stderr, "could not prepare absent resolver rollback check\n");
+		exit(1);
+	}
+	fakeReset();
+	fakeFailHostname = true;
+	if (applyPreparedNetworkPlan(&plan, true, "finch-test") != SC_FAILED ||
+	    !resolverFixtureIsAbsent() || fakeAliasCount() != 0) {
+		fprintf(stderr, "hostname failure did not remove a newly created resolver file\n");
+		exit(1);
+	}
+	expectRollbackOrder("absent resolver hostname failure");
+	freeNetworkApplyPlan(&plan);
+}
+
+static void
+testResolverPostInstallStatFailureRollsBack(void)
+{
+	const UInt8 oldContents[] = "old resolver after stat failure\n";
+	NetworkApplyPlan plan;
+	writeResolverFixtureFile(oldContents, sizeof(oldContents) - 1, 0640);
+	setResolverFixtureGroup(getegid());
+	struct stat oldStat;
+	char path[PATH_MAX];
+	resolverFixtureFilePath(path);
+	if (stat(path, &oldStat) < 0 || prepareResolverTestPlan(&plan) != SC_OK) {
+		fprintf(stderr, "could not prepare post-install stat failure check\n");
+		exit(1);
+	}
+	fakeReset();
+	failResolverPostInstallStat = true;
+	if (applyPreparedNetworkPlan(&plan, false, NULL) != SC_FAILED ||
+	    failResolverPostInstallStat || resolverPostInstallStatPending ||
+	    !resolverFixtureMatches(oldContents, sizeof(oldContents) - 1,
+	    oldStat.st_mode & 07777, oldStat.st_uid, oldStat.st_gid) || fakeAliasCount() != 0) {
+		fprintf(stderr, "post-install stat failure did not safely restore resolver state\n");
+		exit(1);
+	}
+	expectRollbackOrder("post-install resolver stat failure");
+	freeNetworkApplyPlan(&plan);
+}
+
+static void
+testResolverPostInstallStatMismatchKeepsLaterWriter(void)
+{
+	static const UInt8 externalContents[] = "post-install writer\n";
+	NetworkApplyPlan plan;
+	struct stat directoryStat;
+	writeResolverFixtureFile((const UInt8 *)"old resolver\n", 13, 0644);
+	setResolverFixtureGroup(getegid());
+	if (stat(resolverFixturePath, &directoryStat) < 0 ||
+	    prepareResolverTestPlan(&plan) != SC_OK) {
+		fprintf(stderr, "could not prepare post-install writer check\n");
+		exit(1);
+	}
+	fakeReset();
+	replaceResolverAtPostInstallStat = true;
+	int status = applyPreparedNetworkPlan(&plan, false, NULL);
+	bool contentsMatch = resolverFixtureMatches(externalContents,
+	    sizeof(externalContents) - 1, 0600, geteuid(), directoryStat.st_gid);
+	if (status != SC_FAILED || replaceResolverAtPostInstallStat ||
+	    resolverPostInstallStatPending || !contentsMatch || fakeAliasCount() != 0) {
+		fprintf(stderr, "post-install identity mismatch failed unsafely: status=%d file=%d\n",
+		    status, contentsMatch);
+		exit(1);
+	}
+	expectRollbackOrder("post-install resolver identity mismatch");
+	freeNetworkApplyPlan(&plan);
+}
+
+static void
+testResolverRollbackFailureWhileStagingRestore(void)
+{
+	NetworkApplyPlan plan;
+	struct stat directoryStat;
+	writeResolverFixtureFile((const UInt8 *)"old resolver\n", 13, 0640);
+	setResolverFixtureGroup(getegid());
+	if (stat(resolverFixturePath, &directoryStat) < 0 ||
+	    prepareResolverTestPlan(&plan) != SC_OK) {
+		fprintf(stderr, "could not prepare resolver restore failure check\n");
+		exit(1);
+	}
+	fakeReset();
+	fakeFailHostname = true;
+	armResolverRestoreFileSyncOnHostname = true;
+	if (applyPreparedNetworkPlan(&plan, true, "finch-test") != SC_FAILED ||
+	    !resolverFixtureMatches((const UInt8 *)plan.resolverContents,
+	    plan.resolverLength, 0644, geteuid(), directoryStat.st_gid) || fakeAliasCount() != 0) {
+		fprintf(stderr, "resolver restore failure was hidden or changed the installed file\n");
+		exit(1);
+	}
+	expectRollbackOrder("resolver restore failure");
+	freeNetworkApplyPlan(&plan);
+}
+
+static void
+testResolverRollbackPreservesLaterWriter(void)
+{
+	const UInt8 externalContents[] = "external writer\n";
+	NetworkApplyPlan plan;
+	struct stat directoryStat;
+	writeResolverFixtureFile((const UInt8 *)"old resolver\n", 13, 0644);
+	setResolverFixtureGroup(getegid());
+	if (stat(resolverFixturePath, &directoryStat) < 0 ||
+	    prepareResolverTestPlan(&plan) != SC_OK) {
+		fprintf(stderr, "could not prepare later resolver writer check\n");
+		exit(1);
+	}
+	fakeReset();
+	fakeFailHostname = true;
+	replaceResolverBeforeHostname = true;
+	int status = applyPreparedNetworkPlan(&plan, true, "finch-test");
+	bool contentsMatch = resolverFixtureMatches(externalContents,
+	    sizeof(externalContents) - 1, 0600, geteuid(), directoryStat.st_gid);
+	if (status != SC_FAILED || !contentsMatch || fakeAliasCount() != 0) {
+		fprintf(stderr, "later writer check failed: status=%d file=%d aliases=%zu\n",
+		    status, contentsMatch, fakeAliasCount());
+		exit(1);
+	}
+	expectRollbackOrder("later resolver writer");
+	freeNetworkApplyPlan(&plan);
+}
+
 static bool
 callIs(size_t index, unsigned long request, const char *addressText)
 {
@@ -712,14 +1151,32 @@ static void
 testRollbackAfterLaterFailure(void)
 {
 	NetworkApplyPlan plan;
+	const UInt8 oldContents[] = "old resolver before sync failure\n";
+	writeResolverFixtureFile(oldContents, sizeof(oldContents) - 1, 0640);
+	setResolverFixtureGroup(getegid());
+	struct stat oldStat;
+	char path[PATH_MAX];
+	resolverFixtureFilePath(path);
+	if (stat(path, &oldStat) < 0) {
+		fprintf(stderr, "could not stat resolver fixture before sync failure\n");
+		exit(1);
+	}
 	fakeReset();
-	if (buildTestNetworkPlan(2, true, &plan) != SC_OK ||
-	    snapshotIPv4Aliases(&plan) != SC_OK ||
-	    applyPreparedNetworkPlan(&plan, false, NULL) != SC_FAILED) {
+	if (prepareResolverTestPlan(&plan) != SC_OK) {
+		fprintf(stderr, "could not prepare resolver sync failure\n");
+		exit(1);
+	}
+	failResolverDirectorySync = true;
+	if (applyPreparedNetworkPlan(&plan, false, NULL) != SC_FAILED) {
 		fprintf(stderr, "resolver failure did not fail the apply\n");
 		exit(1);
 	}
 	expectRollbackOrder("resolver failure");
+	if (!resolverFixtureMatches(oldContents, sizeof(oldContents) - 1,
+	    oldStat.st_mode & 07777, oldStat.st_uid, oldStat.st_gid)) {
+		fprintf(stderr, "directory sync failure did not restore old resolver contents\n");
+		exit(1);
+	}
 	freeNetworkApplyPlan(&plan);
 }
 
@@ -870,15 +1327,33 @@ main(void)
         exit(1);
     }
     CFRelease(badString);
+    if (strlcpy(resolverFixturePath, "/private/tmp/finch-configd-resolver-XXXXXX",
+        sizeof(resolverFixturePath)) >= sizeof(resolverFixturePath) ||
+        mkdtemp(resolverFixturePath) == NULL) {
+        perror("create private resolver fixture");
+        return 1;
+    }
     testMasksAndDomains();
     testPriority();
     testInvalidPreferences();
     testHostnameOnly();
+    testResolverSnapshotRejectsUnsafeFiles();
     testRollbackAfterLaterFailure();
+    testResolverRollbackAfterHostnameFailure();
+    testResolverRollbackWhenOriginallyAbsent();
+    testResolverPostInstallStatFailureRollsBack();
+    testResolverPostInstallStatMismatchKeepsLaterWriter();
+    testResolverRollbackFailureWhileStagingRestore();
+    testResolverRollbackPreservesLaterWriter();
     testExistingAndConflictingTuples();
     testAddFailureRollback();
     testChangedTupleAndLookupFailures();
     testHostnameAndDeleteFailures();
-    puts("configd network apply validation: PASS (preflight, DNS priority, safe IPv4 rollback)");
+    removeResolverFixtureFile();
+    if (rmdir(resolverFixturePath) < 0) {
+        perror("remove private resolver fixture directory");
+        return 1;
+    }
+    puts("configd network apply validation: PASS (preflight, DNS rollback, safe IPv4 rollback)");
     return 0;
 }

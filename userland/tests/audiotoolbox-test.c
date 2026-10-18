@@ -9,6 +9,7 @@
 #include <AudioToolbox/AudioHardwareService.h>
 #include <CoreServices/CoreServices.h>
 #include <dlfcn.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -580,8 +581,25 @@ music_sequence(void)
         kMusicSequenceFile_MIDIType, kMusicSequenceLoadSMF_PreserveTracks);
     UInt32 loadedTracks = 0;
     if (!loadStatus) MusicSequenceGetTrackCount(loaded, &loadedTracks);
-    CFURLRef midiURL = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)"build/music-sequence-test.mid",
-        strlen("build/music-sequence-test.mid"), false);
+    char midiPath[] = "/tmp/finch-music-sequence-test.XXXXXX";
+    int midiFD = mkstemp(midiPath);
+    if (midiFD < 0) {
+        fprintf(stderr, "could not create temporary MIDI file: %s\n", strerror(errno));
+        exit(1);
+    }
+    if (close(midiFD) != 0) {
+        int error = errno;
+        (void)unlink(midiPath);
+        fprintf(stderr, "could not close temporary MIDI file: %s\n", strerror(error));
+        exit(1);
+    }
+    CFURLRef midiURL = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)midiPath,
+        strlen(midiPath), false);
+    if (!midiURL) {
+        (void)unlink(midiPath);
+        fprintf(stderr, "could not make a URL for temporary MIDI file\n");
+        exit(1);
+    }
     OSStatus createFileStatus = MusicSequenceFileCreate(sequence, midiURL, kMusicSequenceFile_MIDIType,
         kMusicSequenceFileFlags_EraseFile, 480);
     MusicSequence loadedFromFile = NULL;
@@ -604,11 +622,14 @@ music_sequence(void)
            (int)createFileStatus, (int)fileLoadStatus, (unsigned)fileTracks,
            (int)copyTrackStatus, (unsigned)copiedHasEvent);
     if (midiData) CFRelease(midiData);
-    if (midiURL) CFRelease(midiURL);
+    CFRelease(midiURL);
     if (copiedIterator) DisposeMusicEventIterator(copiedIterator);
     if (loaded) DisposeMusicSequence(loaded);
     if (loadedFromFile) DisposeMusicSequence(loadedFromFile);
-    unlink("build/music-sequence-test.mid");
+    if (unlink(midiPath) != 0) {
+        fprintf(stderr, "could not remove temporary MIDI file: %s\n", strerror(errno));
+        exit(1);
+    }
 
     CABarBeatTime barBeat = {0};
     MusicSequenceBeatsToBarBeatTime(sequence, 5.5, 960, &barBeat);

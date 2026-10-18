@@ -325,6 +325,7 @@ main(void)
 	char fixture[] = FIXTURE_PARENT "/account-login-test.XXXXXX";
 	char leaf[NAME_MAX + 1] = {0};
 	char path[PATH_MAX];
+	char home[PATH_MAX];
 	char error[256] = {0};
 	char username[32];
 	struct at_store store = { .directory_fd = -1 };
@@ -356,6 +357,7 @@ main(void)
 	strlcpy(leaf, last_slash + 1, sizeof(leaf));
 	if (!make_directory(strcat(strcpy(path, fixture), "/etc"), 0755) ||
 	    !make_directory(strcat(strcpy(path, fixture), "/etc/pam.d"), 0755) ||
+	    !make_directory(strcat(strcpy(path, fixture), "/Users"), 0755) ||
 	    !make_directory(strcat(strcpy(path, fixture), "/private"), 0755) ||
 	    !make_directory(strcat(strcpy(path, fixture), "/private/etc"), 0755) ||
 	    !make_directory(strcat(strcpy(path, fixture), "/usr"), 0755) ||
@@ -423,7 +425,8 @@ main(void)
 		goto done;
 	}
 	if (snprintf(username, sizeof(username), "finchlogin%d", (int)getpid()) >=
-	    (int)sizeof(username))
+	    (int)sizeof(username) ||
+	    snprintf(home, sizeof(home), "/Users/%s", username) >= (int)sizeof(home))
 		goto done;
 	root_fd = open(fixture, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 	if (root_fd < 0 || fchdir(root_fd) != 0 || chroot(".") != 0) {
@@ -437,10 +440,39 @@ main(void)
 	}
 	close(root_fd);
 	root_fd = -1;
-	if (at_store_open(&store, "/private/etc", error, sizeof(error)) != 0 ||
-	    at_store_create_user(&store, username, TEST_UID_BASE + (uid_t)getpid(),
-	        20, "Finch Login Test", "/var/empty", "/bin/sh", TEST_PASSWORD,
-	        error, sizeof(error)) != 0) {
+	if (at_store_open(&store, "/private/etc", error, sizeof(error)) != 0)
+		goto done;
+	/* A recycled user number must not give a new account an old home's files.
+	 * Leave the empty folder afterward to check safe reuse on the real path. */
+	static const char kept_contents[] = "previous user's file\n";
+	if (!make_directory(home, 0700) ||
+	    chown(home, TEST_UID_BASE + (uid_t)getpid(), 20) != 0 ||
+	    snprintf(path, sizeof(path), "%s/keep.txt", home) >= (int)sizeof(path) ||
+	    !write_file(path, kept_contents, 0600)) {
+		perror("account login test existing home");
+		goto done;
+	}
+	if (at_store_create_user_with_home_root(&store, username,
+	    TEST_UID_BASE + (uid_t)getpid(), 20, "Finch Login Test", home,
+	    "/bin/sh", TEST_PASSWORD, "/", error, sizeof(error)) == 0) {
+		fputs("account login test accepted a non-empty home\n", stderr);
+		goto done;
+	}
+	char kept[sizeof(kept_contents)] = {0};
+	int kept_fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+	ssize_t kept_length = kept_fd < 0 ? -1 : read(kept_fd, kept, sizeof(kept));
+	if (kept_fd >= 0)
+		close(kept_fd);
+	if (kept_length != (ssize_t)(sizeof(kept_contents) - 1) ||
+	    memcmp(kept, kept_contents, sizeof(kept_contents) - 1) != 0 ||
+	    unlink(path) != 0) {
+		fputs("account login test changed the rejected home's file\n", stderr);
+		goto done;
+	}
+	memset(error, 0, sizeof(error));
+	if (at_store_create_user_with_home_root(&store, username,
+	        TEST_UID_BASE + (uid_t)getpid(), 20, "Finch Login Test", home,
+	        "/bin/sh", TEST_PASSWORD, "/", error, sizeof(error)) != 0) {
 		fprintf(stderr, "account login test could not create its fixture user: %s\n",
 		    error);
 		goto done;

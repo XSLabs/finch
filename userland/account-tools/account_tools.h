@@ -25,10 +25,19 @@ int at_store_open(struct at_store *store, const char *directory,
 	char *error, size_t error_size);
 void at_store_close(struct at_store *store);
 
-/* New accounts must use an existing group and a non-system uid (500+). */
+/* New accounts must use an existing group and a non-system uid (500+).
+ * This legacy helper only updates account files; it does not touch HOME. */
 int at_store_create_user(struct at_store *store, const char *name, uid_t uid,
 	gid_t gid, const char *gecos, const char *home, const char *shell,
 	const char *password, char *error, size_t error_size);
+
+/* Like at_store_create_user, but safely creates HOME under target_root. HOME
+ * is an absolute path inside target_root. Existing homes are accepted only
+ * when they are empty real directories owned by uid:gid with mode 0700. */
+int at_store_create_user_with_home_root(struct at_store *store,
+	const char *name, uid_t uid, gid_t gid, const char *gecos,
+	const char *home, const char *shell, const char *password,
+	const char *target_root, char *error, size_t error_size);
 
 /* A non-root caller may only change their own password and must prove the old one. */
 int at_store_change_password(struct at_store *store, const char *name,

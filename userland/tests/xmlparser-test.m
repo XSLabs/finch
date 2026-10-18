@@ -14,7 +14,11 @@ q(NSString *s)
 {
     if (!s) return @"nil";
     /* Temporary files' URLs differ from machine to machine. */
-    NSString *tmp = [NSURL fileURLWithPath:NSTemporaryDirectory()].absoluteString;
+    static NSString *tmp;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        tmp = [[NSURL fileURLWithPath:NSTemporaryDirectory()].absoluteString copy];
+    });
     if (![tmp isEqual:@"file:///tmp/"])  /* where it is /tmp, the fixed /tmp paths below must show as they are */
         s = [s stringByReplacingOccurrencesOfString:tmp withString:@"file://$TMPDIR/"];
     NSMutableString *m = [NSMutableString stringWithString:@"\""];

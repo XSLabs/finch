@@ -5,6 +5,29 @@
 `firmware/` directory holds Apple binaries extracted from an IPSW. They live only in the
 submodule's working tree and are never committed.
 
+## Sandbox compiler needed for startup
+
+The fresh 2026-10-17 image cannot start notifyd with Finch's current
+`libsandbox.1.dylib`: the library does not compile or apply named sandbox
+profiles. The older VM had inherited the compiler from its base image. To
+retain that compiler explicitly while testing other parts of Finch, build with:
+
+```sh
+FINCH_VM_BASE_SANDBOX=1 tools/vm/with-vm-lock.sh tools/vm/mkramdisk.sh
+```
+
+This option borrows the base image's library, reports its hash in the build
+log, and records the choice in
+`/usr/share/finch/development-borrowed-components.txt` inside the image. It does
+not change `build/root` or the install archive. It is a development aid, not a
+release fix. Finch still needs its own compiler and tests showing that the
+kernel enforces the resulting restrictions. Without the option, the builder
+uses Finch's library and the startup blocker remains visible.
+
+The VM test runner reads that marker from the running guest. It reports the
+borrowed library and marks `libsandbox-test` as unverified even if the program
+exits successfully. A known-failure entry cannot turn that result into a pass.
+
 ## Target
 | | |
 |---|---|
@@ -88,7 +111,8 @@ tools used by another user, e.g. `su` run from `nobody` reports "not running set
 `tools/vm/vm-tests.py` runs every test program in the image (`tools/vm/overlay.txt`) in one
 boot and checks each: the host suite's comparison tests against Apple's output on the host
 (all but the first line, by checksum), its window-server and Finch-only tests against their
-`.expected` files, and the rest by exit status. Every check also needs exit status 0. Each test
+`.expected` files, and explicitly listed self-checking tests by exit status. A new test
+must declare how its result is checked. Every check also needs exit status 0. Each test
 has 240 seconds; one that hangs is killed and the rest still run. The guest runs Finch with
 the host suite's settings (`FINCH_THEME=Classic`), and window tests take a step a second
 (`FINCH_TEST_TICK=1`), since QEMU is about fifty times slower than the M4.
@@ -101,6 +125,28 @@ tools/vm/vm-tests.py --scripts    # and the test scripts that set up a guest of 
 tools/vm/vm-tests.py --list       # how each is checked
 tools/vm/vm-tests.py --coverage   # tests the Makefile builds that no suite runs
 ```
+
+Set `KC` to use Finch's rebuilt kernel; without it, the VM uses the base firmware's
+kernel. `FINCH_BOOTKC` is not supported and is rejected by the launcher. For example:
+
+```sh
+KC="$PWD/build/kc/finch-0.0.1.t8132.development" tools/vm/vm-tests.py sandbox-enforcement-proof-test
+```
+
+Each run saves `build/vm-tests/run.json` with the kernel, disk image and trust-cache
+paths and hashes, the selected boot options, and display state around Apple
+reference collection. The runner rejects missing inputs and fails if the input
+files change during the run. The keychain script records its separate images
+just before boot, then the runner checks their hashes again afterward. These
+records identify the host files used; they do not prove guest enforcement or
+turn a development image into a release. Keep the run record with its log before
+starting another run, which replaces it.
+
+An offline or changed host display can change Apple's layout and image results.
+The runner records a warning and leaves the actual comparisons visible; it does
+not treat those differences as passes. Video comparisons use the same bounded
+lossy-color check as the host suite, while retaining exact checks for the other
+reported fields.
 
 A failed test's output and what it should have been are left in `build/vm-tests/`
 (`diff NAME.want NAME.vm`). Fields that depend on the machine (home and temporary folders,

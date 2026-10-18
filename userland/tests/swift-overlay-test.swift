@@ -150,7 +150,8 @@ let runsView = mAttributed.runs
 let runIndex = runsView.index(runsView.startIndex, offsetBy: 1, limitedBy: runsView.endIndex)!
 show("attributed view indexes", "\(characterView.count)/\(characterView.distance(from: characterView.startIndex, to: characterIndex)) \(scalarView.count)/\(scalarView.distance(from: scalarView.startIndex, to: scalarIndex)) \(runsView.distance(from: runsView.startIndex, to: runIndex))")
 let height = Measurement(value: 1.75, unit: UnitLength.meters)
-show("person height", height.formatted(.measurement(width: .abbreviated, usage: .personHeight)))
+// Keep this comparison independent of the host's preferred measurement system.
+show("person height", height.formatted(.measurement(width: .abbreviated, usage: .personHeight).locale(Locale(identifier: "en_US"))))
 let temperature = Measurement(value: 23.5, unit: UnitTemperature.celsius)
 show("temperature without scale", temperature.formatted(.measurement(width: .abbreviated, hidesScaleName: true)))
 let name = PersonNameComponents(namePrefix: "Dr.", givenName: "John", middleName: "Q", familyName: "Public", nameSuffix: "Jr.")

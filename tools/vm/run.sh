@@ -20,6 +20,11 @@
 # Quit with Ctrl-A x.
 set -euo pipefail
 
+if [[ -n "${FINCH_BOOTKC:-}" ]]; then
+    echo 'FINCH_BOOTKC is not a supported override; set KC to the kernel collection path.' >&2
+    exit 2
+fi
+
 FINCH_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DVM="${FINCH_ROOT}/third_party/darwin-vm"
 FW="${DVM}/firmware"
@@ -62,4 +67,8 @@ args=(
 [[ -n "${QEMUPORT:-}" ]] && args+=(-chardev "socket,id=s0,host=localhost,server=on,wait=off,port=${QEMUPORT}" -serial chardev:s0)
 
 trap 'stty sane 2>/dev/null || true' EXIT
+printf 'VM kernel: %s\n' "${KC}"
+shasum -a 256 "${KC}"
+printf 'VM ramdisk: %s\n' "${RAMDISK}"
+shasum -a 256 "${RAMDISK}"
 "${QEMU}" "${args[@]}"

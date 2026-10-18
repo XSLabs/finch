@@ -42,6 +42,7 @@ LIBS="build/root/usr/lib/swift:${TMP}/lib:${R}/Frameworks/OpenGL.framework/Versi
 
 # name|arguments: comparison tests (arguments are relative to the repo root)
 COMPARE=(
+    "appkit-misc2-test|" "forward-test|" "runtime-test|"
     "iokit-test|" "pdfkit-test|" "avkit-test|" "intents-test|" "gamecontroller-test|" "cloudkit-test|"
     "media-player-test|" "media-accessibility-test|" "corebluetooth-test|" "libsandbox-test|" "cryptotokenkit-test|" "widgetkit-test|"
     "constants-test|" "calculate-test|" "swiftdata-test|" "tipkit-test|" "avaudio-file-test|" "avaudio-compressed-buffer-test|" "avaudio-converter-test|" "avaudio-engine-test|" "avaudio-player-test|" "avaudio-unit-test|" "audiounit-effects-test|" "itemprovider-test|" "formatters2-test|" "urlcache-test|" "appkit-small3-test|" "compositional-test|" "filepromise-test|" "appkit-swift2-test|" "private-calls-test|" "mobilegestalt-test|" "utilities-test|" "foundation-audit-test|" "tree-test|" "outline-bindings-test|" "typeselect-test|" "screencapturekit-test|" "appkit-compat-test|" "pdf-image-rep-test|" "sounddesc-test|" "avasset-test|" "avexport-test|" "avfoundation-overlay-test|" "avreader-test|" "avwriter-test|" "avimage-test|" "avplayer-test|" "opengl-test|" "appkit-typedstream-test|" "system-images-test|" "quartzfilters-test|" "printcore-test|" "symbols-test|" "xml-test|" "document-more-test|" "textview-more-test|" "windowing-more-test|" "contacts-search-links-test|" "contacts-search-links-swift-test|"
@@ -58,7 +59,7 @@ COMPARE=(
 )
 # Finch-only window-server tests and their expected output
 EXPECT=(window controls-window menu-window text-window panels-window tables-window statusbar drag-window screencapture avplayer opengl)
-FINCH_ONLY=("cloudkit-unavailable-test|" "contacts-search-links-fetch-test|--fetch-local" "quartzcore-renderer-test|" "security-core-test|" "security-keychain-encryption-test|" "keychain-crypto-test|" "security-keychain-storage-test|" "security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "avaudio-services-test|" "configd-daemon-test|" "console-policy-test|" "corebluetooth-unsupported-test|" "cryptotokenkit-empty-test|")
+FINCH_ONLY=("ws-test|${SERVER}" "cloudkit-unavailable-test|" "contacts-search-links-fetch-test|--fetch-local" "quartzcore-renderer-test|" "security-core-test|" "security-keychain-encryption-test|" "keychain-crypto-test|" "security-keychain-storage-test|" "security-roots-test|userland/tests/security-https-chain.pem" "audiounit-test|" "audioqueue-test|" "avaudio-buffer-test|" "avaudio-services-test|" "configd-daemon-test|" "console-policy-test|" "corebluetooth-unsupported-test|" "cryptotokenkit-empty-test|")
 
 want() {
     [[ $# -eq 0 || -z "${SELECTED}" ]] && return 0
@@ -232,23 +233,7 @@ for entry in "${COMPARE[@]}"; do
     masked "${name}" "${TMP}/f" > "${TMP}/f.masked"
     if [[ "${name}" == videotoolbox-test ]]; then
         # H.264 is lossy: allow the average RGB channels to differ by up to 16 levels.
-        python3 - "${TMP}/a.masked" "${TMP}/f.masked" <<'PY'
-import re, sys
-from pathlib import Path
-
-apple = Path(sys.argv[1]).read_text().splitlines()
-finch = Path(sys.argv[2]).read_text().splitlines()
-means = re.compile(r"^decoded RGB means r=([0-9]+(?:\.[0-9]+)?) g=([0-9]+(?:\.[0-9]+)?) b=([0-9]+(?:\.[0-9]+)?)$")
-if len(apple) != len(finch):
-    raise SystemExit("VideoToolbox output line counts differ")
-for line_number, (left, right) in enumerate(zip(apple, finch), 1):
-    a, f = means.match(left), means.match(right)
-    if a and f:
-        if any(abs(float(x) - float(y)) > 16.0 for x, y in zip(a.groups(), f.groups())):
-            raise SystemExit(f"decoded RGB means differ by more than 16 at line {line_number}: {left} / {right}")
-    elif left != right:
-        raise SystemExit(f"VideoToolbox output differs at line {line_number}: {left} / {right}")
-PY
+        python3 tools/video_comparison.py "${TMP}/a.masked" "${TMP}/f.masked"
         d=$?
         [[ "${d}" -eq 0 ]] && d=0 || d=1
     else
@@ -266,6 +251,7 @@ PY
         count_pass
     else
         report "${name}" "DIFFERS (${d} lines of ${n})"
+        diff -u "${TMP}/a.masked" "${TMP}/f.masked" | head -80
         count_fail
     fi
 done

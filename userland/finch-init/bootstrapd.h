@@ -57,4 +57,10 @@ void bootstrapd_describe(void *owner, xpc_object_t out);
 /* `owner` exited: watch its held services for demand again. On the queue. */
 void bootstrapd_rearm(void *owner);
 
+/* `owner` failed before a declared service ever checked in. Drop requests
+ * waiting on those still-held ports so clients see that the server died. A
+ * service that has checked in before keeps its queued requests across restarts.
+ * On the queue. */
+void bootstrapd_start_failed(void *owner);
+
 #endif

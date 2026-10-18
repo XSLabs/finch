@@ -2,15 +2,114 @@
 
 Strategy: **ship of Theseus.** Get a complete, booting system as early as possible, then
 replace Apple's proprietary parts one by one, using the originals as the reference for
-correct behavior. Every phase ends with something that boots. Since 2026-10-08, nothing
-closed is borrowed above the kernel: each closed library or framework is built from
-Apple's open source or written by Finch when something needs it. Apple's kexts (and, in
-the Tier 2 VM, its kernel) stay borrowed until Phase 3 replaces them.
+correct behavior. Every phase ends with something that boots. Libraries and frameworks
+are built from Apple's open source or written by Finch. The earlier claim that nothing
+closed remained above the kernel was too broad: on 2026-10-17 a fresh VM build exposed
+its dependence on the base image's sandbox compiler. Finch's replacement does not yet
+compile or apply profiles, so notifyd fails to start. An explicit development option
+can retain the base compiler while that work remains open. Apple's kexts (and, in the
+Tier 2 VM, its kernel) also stay borrowed until Phase 3 replaces them.
 
 **How this list is kept:** an item is checked when the scope it states is done and
 tested. Follow-on work gets its own unchecked item rather than a "Next:" appended to a
 finished one, and each commit that finishes or adds work updates this file and
 `docs/STACK.md` together.
+
+## Finch 1.0 release checks
+
+Every open item below remains work to finish. Passing an import check, building a
+library, or opening an app window does not close its user-facing requirements.
+These checks also apply across the phases:
+
+| Area | Evidence needed before release |
+|---|---|
+| Installation and boot | Install on the supported dedicated target, boot Finch's kernel and userland, create the first user, and log in without a donor macOS installation. Preserve the target's recovery route. |
+| Stored data | Save home files, accounts, passwords and network settings; shut down and boot again twice; read back the same data with the same access rules. A RAM disk does not satisfy this check. |
+| Updates and recovery | Check signatures, switch system versions, and return to the previous version while keeping user edits. Interrupt each install and boot-choice step and prove recovery. See [the installed-system requirements](design/RELEASE.md#installed-system-design-required-for-10). |
+| Devices and services | Exercise the supported target's display, input, sound, network and storage through normal apps. Check service failure and restart without losing saved data. |
+| User isolation | Show that one ordinary user cannot read another user's private files or change system files. Check login, locked accounts, keychain access and privileged operations through the installed system. |
+| Applications | For each supported app, record normal tasks and expected results, including open, edit, save, reopen and quit where applicable. Imports and basic window checks are separate evidence. |
+| Release contents | Build and check the exact release payload, record its source and tool versions, run the full test suite, and repeat installation and recovery with that payload. Keep failed and untested checks visible. |
+
+The current RAM-disk VM and folder-root update tests cover useful parts of these
+flows. They do not establish a working installed operating system.
+
+On 2026-10-17, the VM runner gained explicit result checks for every packaged
+test. New tests must choose a comparison or declare that they check their own
+results. Four tests that previously passed from their exit status now compare
+their output; all four pass on the host and the existing VM image. This does
+not count as testing a freshly built release image.
+
+Generated compatibility results now record the SDK, compiler, host version,
+test code and Finch library used. The runner rejects changed inputs during a
+run, missing Finch libraries and calls with no observable output. Older results
+remain history and do not inherit a later run's proof. A fresh CoreVideo run
+matched 196 of the generator's 302 listed items; 106 remain untested by that
+run. The broader SDK report lists 548 CoreVideo items, so this is not full
+CoreVideo coverage.
+The full host suite finished with 210 passes, no unexpected failures, four
+documented display-scale differences and no missing test programs. Those four
+differences remain visible; this host run does not replace testing the new VM
+image or an installed system.
+
+The new development VM image also passes account creation and password checks
+through PAM and OpenDirectory. CoreData writes a SQLite store, opens it in a
+second process, and returns the same records as Apple's run. These checks use
+the explicitly borrowed sandbox compiler described above. The VM runner marks
+the sandbox test as unverified in this mode; it cannot be counted as a Finch pass.
+
+On 2026-10-18, service startup failure and retry checks also pass in Finch,
+including a failed check-in reply. A small kernel policy now denies file reads
+or writes across new opens, already-open files and child processes. This is an
+enforcement proof, not a profile compiler or a complete app sandbox; its limits
+are recorded in [the security notes](design/SECURITY.md).
+
+Focused host checks also cover restoring the previous DNS file when applying
+network settings fails, including a failed directory sync after replacing the
+file. They check that rollback leaves an observed later writer's changes alone
+and reports a failed restore. The saved state lives in memory, so this does not
+cover service crashes or power loss. The rollback test and the separate network
+settings flow also pass in the rebuilt development VM.
+Further host checks cover a failed file lookup immediately after DNS replacement
+and a different writer replacing that file at the same point. The service now
+reports failure in both cases, restores its own file when safe, and leaves the
+other writer's file alone. These added cases also pass in the rebuilt VM image.
+
+The full VM comparison also exposed a missing ModelIO dependency in the MetalKit
+test. Finch reports the mesh class but cannot enter the mesh creation check.
+This remains a known failure, not proof that mesh creation works.
+
+The 2026-10-18 full development run reported 166 passes, 17 failures and four
+known display differences. Ten failures were result lines obscured by terminal
+input echoes; the runner now waits before typing its next command. Five more
+came from environment-dependent test inputs, an unspecified audio schedule time,
+and the VM runner missing the host's bounded lossy-video comparison. After these
+fixes, all 16 affected or extended checks pass with the rebuilt Finch kernel;
+the seventeenth remains the known missing ModelIO dependency. All eight separate
+service checks passed in the earlier full run. The borrowed sandbox compiler
+remains unverified, and these focused reruns are not a new full release run.
+The kernel file-access proof now also checks newly created memory mappings;
+existing mappings and other limits remain listed in the security notes.
+
+A second full development run finished with 174 passes, eight failures and five
+known failures. All eight separate service checks passed, including console
+login. One failure is the borrowed sandbox compiler. The other seven compare
+AppKit layout, menus, drawers, images, symbols and display status with Apple.
+The Apple reference reported an offline display, and the host later listed no
+display. This explains the online-status mismatch and supports a scale mismatch
+for the geometry checks; it does not prove the cause of every difference.
+The drawer code and test were unchanged from the earlier passing run. These
+seven results remain unresolved; no new exceptions were added. Future runs
+record display state before and after collecting Apple results, alongside the
+kernel, disk image, trust cache and boot settings.
+
+The follow-up image also passes the stricter account-home checks and DNS recovery
+checks. The kernel file-access test now denies asynchronous reads and writes
+submitted after applying a restriction, with both the default worker and the
+older `aio_new_workq=0` worker. Requests queued before apply remain outside this
+guarantee. The updated unsigned userland archive passes all 9,685 path checks and
+all required library links across 601 binaries. This does not establish a bootable
+or signed release.
 
 ## Progress saved on 2026-10-13
 

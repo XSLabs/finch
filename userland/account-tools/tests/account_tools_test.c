@@ -128,6 +128,218 @@ copy_release_template(const char *directory, const char *name, mode_t mode)
 }
 
 static void
+write_home_store(const char *directory, gid_t gid)
+{
+	char path[1024], groups[256];
+	assert(snprintf(path, sizeof(path), "%s/master.passwd", directory) <
+	    (int)sizeof(path));
+	write_file(path, "root:*:0:0::0:0:root:/var/root:/bin/sh\n", 0600);
+	assert(snprintf(path, sizeof(path), "%s/passwd", directory) <
+	    (int)sizeof(path));
+	write_file(path, "root:*:0:0:root:/var/root:/bin/sh\n", 0644);
+	assert(snprintf(groups, sizeof(groups), "wheel:*:0:root\nstaff:*:%u:root\n",
+	    (unsigned)gid) < (int)sizeof(groups));
+	assert(snprintf(path, sizeof(path), "%s/group", directory) <
+	    (int)sizeof(path));
+	write_file(path, groups, 0644);
+}
+
+static void
+remove_home_store(const char *directory)
+{
+	char path[1024];
+	const char *names[] = {"master.passwd", "passwd", "group", ".finch-account.lock"};
+	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
+		assert(snprintf(path, sizeof(path), "%s/%s", directory, names[i]) <
+		    (int)sizeof(path));
+		assert(unlink(path) == 0);
+	}
+	assert(rmdir(directory) == 0);
+}
+
+static void
+test_home_provisioning(void)
+{
+	char parent[] = "/private/tmp/finch-account-home.XXXXXX";
+	assert(mkdtemp(parent) != NULL);
+	char db[1024], existing_db[1024], users[1024], home[1024];
+	char blocked_mode[1024], linked_home[1024], linked_parent[1024];
+	char foreign_home[1024], sentinel[1024], rollback_home[1024];
+	char populated_home[1024], populated_file[1024];
+	char provisioned_home[1024], existing_home[1024], error[256] = {0};
+	assert(snprintf(db, sizeof(db), "%s/db", parent) < (int)sizeof(db));
+	assert(snprintf(existing_db, sizeof(existing_db), "%s/existing-db", parent) <
+	    (int)sizeof(existing_db));
+	assert(mkdir(db, 0700) == 0);
+	assert(mkdir(existing_db, 0700) == 0);
+	assert(snprintf(users, sizeof(users), "%s/Users", parent) < (int)sizeof(users));
+	assert(mkdir(users, 0700) == 0);
+	uid_t home_uid = geteuid() == 0 ? (uid_t)503 : geteuid();
+	gid_t home_gid = geteuid() == 0 ? (gid_t)20 : getegid();
+	write_home_store(db, home_gid);
+	write_home_store(existing_db, home_gid);
+
+	struct at_store store = {.directory_fd = -1};
+	assert(at_store_open(&store, db, error, sizeof(error)) == 0);
+	assert(snprintf(home, sizeof(home), "%s/Users/denied", parent) <
+	    (int)sizeof(home));
+	if (geteuid() != 0) {
+		memset(error, 0, sizeof(error));
+		assert(at_store_create_user_with_home_root(&store, "wrongowner",
+		    home_uid + 1, home_gid, "Wrong Owner", "/Users/denied", "/bin/sh",
+		    TEST_PASSWORD, parent, error, sizeof(error)) != 0);
+		assert(access(home, F_OK) != 0 && errno == ENOENT);
+	}
+
+	/* A same-owner folder with unsafe permissions cannot become HOME. */
+	assert(snprintf(blocked_mode, sizeof(blocked_mode), "%s/Users/bad-mode",
+	    parent) < (int)sizeof(blocked_mode));
+	assert(mkdir(blocked_mode, 0755) == 0);
+	assert(chmod(blocked_mode, 0755) == 0);
+	memset(error, 0, sizeof(error));
+	assert(at_store_create_user_with_home_root(&store, "badmode", home_uid,
+	    home_gid, "Bad Mode", "/Users/bad-mode", "/bin/sh", TEST_PASSWORD,
+	    parent, error, sizeof(error)) != 0);
+	assert(stat(blocked_mode, &(struct stat){0}) == 0);
+
+	/* Neither a final symlink nor a symlink in the parent path is followed. */
+	assert(snprintf(sentinel, sizeof(sentinel), "%s/sentinel", parent) <
+	    (int)sizeof(sentinel));
+	write_file(sentinel, "keep this file\n", 0600);
+	assert(snprintf(linked_home, sizeof(linked_home), "%s/Users/linked-home",
+	    parent) < (int)sizeof(linked_home));
+	assert(symlink(sentinel, linked_home) == 0);
+	memset(error, 0, sizeof(error));
+	assert(at_store_create_user_with_home_root(&store, "linkedhome", home_uid,
+	    home_gid, "Linked Home", "/Users/linked-home", "/bin/sh", TEST_PASSWORD,
+	    parent, error, sizeof(error)) != 0);
+	assert(snprintf(linked_parent, sizeof(linked_parent), "%s/LinkedUsers",
+	    parent) < (int)sizeof(linked_parent));
+	assert(symlink(users, linked_parent) == 0);
+	memset(error, 0, sizeof(error));
+	assert(at_store_create_user_with_home_root(&store, "linkedparent", home_uid,
+	    home_gid, "Linked Parent", "/LinkedUsers/through-link", "/bin/sh",
+	    TEST_PASSWORD, parent, error, sizeof(error)) != 0);
+	char *sentinel_contents = read_file(sentinel);
+	assert(strcmp(sentinel_contents, "keep this file\n") == 0);
+	free(sentinel_contents);
+	memset(error, 0, sizeof(error));
+	assert(at_store_create_user_with_home_root(&store, "dotpath", home_uid,
+	    home_gid, "Dot Path", "/Users/../escape", "/bin/sh", TEST_PASSWORD,
+	    parent, error, sizeof(error)) != 0);
+	assert(snprintf(home, sizeof(home), "%s/escape", parent) < (int)sizeof(home));
+	assert(access(home, F_OK) != 0 && errno == ENOENT);
+
+	/* Refuse a directory that belongs to another account where the test can
+	 * safely set up one. Non-root runs still cover bad mode and symlink cases. */
+	assert(snprintf(foreign_home, sizeof(foreign_home), "%s/Users/foreign",
+	    parent) < (int)sizeof(foreign_home));
+	if (geteuid() == 0) {
+		assert(mkdir(foreign_home, 0700) == 0);
+		assert(chown(foreign_home, 1001, 1001) == 0);
+		assert(chmod(foreign_home, 0700) == 0);
+		memset(error, 0, sizeof(error));
+		assert(at_store_create_user_with_home_root(&store, "foreignhome",
+		    home_uid, home_gid, "Foreign Home", "/Users/foreign", "/bin/sh",
+		    TEST_PASSWORD, parent, error, sizeof(error)) != 0);
+		struct stat foreign_stat;
+		assert(stat(foreign_home, &foreign_stat) == 0 &&
+		    foreign_stat.st_uid == 1001 && foreign_stat.st_gid == 1001 &&
+		    (foreign_stat.st_mode & 07777) == 0700);
+	}
+
+	/* Do not attach a new account to a home that already holds user data. */
+	assert(snprintf(populated_home, sizeof(populated_home),
+	    "%s/Users/populated", parent) < (int)sizeof(populated_home));
+	assert(mkdir(populated_home, 0700) == 0);
+	assert(chown(populated_home, home_uid, home_gid) == 0);
+	assert(chmod(populated_home, 0700) == 0);
+	assert(snprintf(populated_file, sizeof(populated_file), "%s/keep.txt",
+	    populated_home) < (int)sizeof(populated_file));
+	write_file(populated_file, "old home data stays here\n", 0600);
+	assert(chown(populated_file, home_uid, home_gid) == 0);
+	memset(error, 0, sizeof(error));
+	assert(at_store_create_user_with_home_root(&store, "populateduser", home_uid,
+	    home_gid, "Populated User", "/Users/populated", "/bin/sh",
+	    TEST_PASSWORD, parent, error, sizeof(error)) != 0);
+	assert(strstr(error, "must be empty") != NULL);
+	char *kept_contents = read_file(populated_file);
+	assert(strcmp(kept_contents, "old home data stays here\n") == 0);
+	free(kept_contents);
+	char home_master_path[1024], home_passwd_path[1024];
+	assert(snprintf(home_master_path, sizeof(home_master_path),
+	    "%s/master.passwd", db) < (int)sizeof(home_master_path));
+	assert(snprintf(home_passwd_path, sizeof(home_passwd_path), "%s/passwd", db) <
+	    (int)sizeof(home_passwd_path));
+	char *home_master = read_file(home_master_path);
+	char *home_passwd = read_file(home_passwd_path);
+	assert(strstr(home_master, "populateduser:") == NULL);
+	assert(strstr(home_passwd, "populateduser:") == NULL);
+	free(home_master);
+	free(home_passwd);
+
+	/* A failed account-file update removes only the empty home it just made. */
+	assert(snprintf(rollback_home, sizeof(rollback_home), "%s/Users/rollback",
+	    parent) < (int)sizeof(rollback_home));
+#ifdef AT_ACCOUNT_TOOLS_TESTING
+	char master_path[1024];
+	at_test_fail_replace("master.passwd");
+	memset(error, 0, sizeof(error));
+	assert(at_store_create_user_with_home_root(&store, "rollbackuser", home_uid,
+	    home_gid, "Rollback User", "/Users/rollback", "/bin/sh", TEST_PASSWORD,
+	    parent, error, sizeof(error)) != 0);
+	assert(access(rollback_home, F_OK) != 0 && errno == ENOENT);
+	assert(snprintf(master_path, sizeof(master_path), "%s/master.passwd", db) <
+	    (int)sizeof(master_path));
+	char *master = read_file(master_path);
+	assert(strstr(master, "rollbackuser:") == NULL);
+	free(master);
+#endif
+
+	assert(snprintf(provisioned_home, sizeof(provisioned_home),
+	    "%s/Users/provisioned", parent) < (int)sizeof(provisioned_home));
+	memset(error, 0, sizeof(error));
+	assert(at_store_create_user_with_home_root(&store, "provisioned", home_uid,
+	    home_gid, "Provisioned User", "/Users/provisioned", "/bin/sh",
+	    TEST_PASSWORD, parent, error, sizeof(error)) == 0);
+	struct stat home_stat;
+	assert(stat(provisioned_home, &home_stat) == 0 && S_ISDIR(home_stat.st_mode));
+	assert(home_stat.st_uid == home_uid && home_stat.st_gid == home_gid &&
+	    (home_stat.st_mode & 07777) == 0700);
+	at_store_close(&store);
+
+	/* A matching, already-owned empty home is accepted without being replaced. */
+	assert(snprintf(existing_home, sizeof(existing_home), "%s/Users/existing",
+	    parent) < (int)sizeof(existing_home));
+	assert(mkdir(existing_home, 0700) == 0);
+	assert(chown(existing_home, home_uid, home_gid) == 0);
+	assert(chmod(existing_home, 0700) == 0);
+	struct at_store existing_store = {.directory_fd = -1};
+	assert(at_store_open(&existing_store, existing_db, error, sizeof(error)) == 0);
+	assert(at_store_create_user_with_home_root(&existing_store, "existinguser",
+	    home_uid, home_gid, "Existing User", "/Users/existing", "/bin/sh",
+	    TEST_PASSWORD, parent, error, sizeof(error)) == 0);
+	assert(stat(existing_home, &home_stat) == 0 && home_stat.st_uid == home_uid &&
+	    home_stat.st_gid == home_gid && (home_stat.st_mode & 07777) == 0700);
+	at_store_close(&existing_store);
+
+	assert(unlink(linked_home) == 0);
+	assert(unlink(linked_parent) == 0);
+	assert(unlink(sentinel) == 0);
+	assert(unlink(populated_file) == 0);
+	assert(rmdir(blocked_mode) == 0);
+	if (geteuid() == 0)
+		assert(rmdir(foreign_home) == 0);
+	assert(rmdir(populated_home) == 0);
+	assert(rmdir(provisioned_home) == 0);
+	assert(rmdir(existing_home) == 0);
+	assert(rmdir(users) == 0);
+	remove_home_store(db);
+	remove_home_store(existing_db);
+	assert(rmdir(parent) == 0);
+}
+
+static void
 test_hashes(void)
 {
 	char hash[160];
@@ -179,6 +391,7 @@ main(void)
 	}
 
 	test_hashes();
+	test_home_provisioning();
 
 	char error[256] = {0};
 	char parent[] = "/private/tmp/finch-account-tools.XXXXXX";

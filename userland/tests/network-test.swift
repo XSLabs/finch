@@ -255,7 +255,11 @@ print("TLS options equal after same flag: \(sec_protocol_options_are_equal(secur
 
 compareTLSOptions()
 
-let pathMonitor = NWPathMonitor()
+// A host may have an external route while the VM has only loopback. Exercise
+// the same explicit interface restriction on both, then test real loopback
+// TCP and TLS connections below. IPv4 availability depends on the machine.
+let blockedInterfaceTypes: [NWInterface.InterfaceType] = [.other, .wifi, .cellular, .wiredEthernet, .loopback]
+let pathMonitor = NWPathMonitor(prohibitedInterfaceTypes: blockedInterfaceTypes)
 let pathReady = DispatchSemaphore(value: 0)
 let pathResult = Box<NWPath>()
 pathMonitor.pathUpdateHandler = { path in
@@ -268,12 +272,12 @@ pathMonitor.start(queue: DispatchQueue(label: "finch.network.path"))
 let gotPath = wait(pathReady)
 pathMonitor.cancel()
 if gotPath, let path = pathResult.value {
-    print("path: \(pathName(path.status)) IPv4=\(path.supportsIPv4)")
+    print("blocked path: \(pathName(path.status))")
 } else {
-    print("path: timeout")
+    print("blocked path: timeout")
 }
 
-let asyncPathMonitor = NWPathMonitor()
+let asyncPathMonitor = NWPathMonitor(prohibitedInterfaceTypes: blockedInterfaceTypes)
 let asyncPathReady = DispatchSemaphore(value: 0)
 let asyncPathResult = Box<String>()
 Task {
@@ -285,7 +289,7 @@ Task {
     }
 }
 let gotAsyncPath = wait(asyncPathReady)
-print("async path: \(gotAsyncPath ? (asyncPathResult.value ?? "unknown") : "timeout")")
+print("async blocked path: \(gotAsyncPath ? (asyncPathResult.value ?? "unknown") : "timeout")")
 
 let queue = DispatchQueue(label: "finch.network.tcp")
 let listener = try! NWListener(using: .tcp, on: .any)

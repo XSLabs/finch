@@ -253,8 +253,225 @@ API_UNAVAILABLE_END
             with patch.object(coverage, "ROOT", root):
                 results = coverage.verification_results()
         self.assertEqual(results["Foundation"], {
-            "objc-class:NSObject", "c:_NSLogResult", "objc-class-property:NSString:lowercaseString",
+            "c:_NSLogResult", "objc-class-property:NSString:lowercaseString",
         })
+
+    def test_legacy_difftest_results_do_not_count_as_current_evidence(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            result_dir = root / "build/compat-results"
+            result_dir.mkdir(parents=True)
+            (result_dir / "Foundation.json").write_text(json.dumps({
+                "framework": "Foundation",
+                "verified": ["c:_oldGenerated", "c:_constant"],
+                "items": {
+                    "c:_oldGenerated": {
+                        "status": "verified", "category": "auto/c", "examples": {"apple": 8, "finch": 8},
+                        "difftest_name": "oldGenerated",
+                    },
+                    "c:_constant": {"status": "verified", "verified": True},
+                },
+            }))
+            with patch.object(coverage, "ROOT", root):
+                results = coverage.verification_results()
+        self.assertEqual(results["Foundation"], {"c:_constant"})
+
+    def test_difftest_evidence_requires_current_identity_source_and_output(self):
+        identity = {"schema_version": 1, "framework": "Foundation", "sdk_version": "26.4"}
+        document = {
+            "framework": "Foundation", "input_count": 43,
+            "difftest_evidence": {
+                "schema_version": 1, "run_id": "d" * 32, "identity": identity,
+                "test_source_sha256": "a" * 64, "test_binary_sha256": "b" * 64,
+                "input_manifest_sha256": "c" * 64, "api_items": 10, "compared_items": 6,
+            },
+        }
+        with patch.object(coverage, "current_difftest_identity", return_value=identity):
+            self.assertTrue(coverage.has_fresh_difftest_evidence(
+                document, "Foundation", sdk_path="sdk", sdk_version="26.4",
+                build_root=Path("root"), specs={"Foundation": {}}))
+            self.assertFalse(coverage.has_fresh_difftest_evidence(
+                {**document, "difftest_evidence": {**document["difftest_evidence"],
+                                                     "test_binary_sha256": "stale"}},
+                "Foundation", sdk_path="sdk", sdk_version="26.4",
+                build_root=Path("root"), specs={"Foundation": {}}))
+
+        valid_item = {
+            "status": "verified", "category": "auto/c", "difftest_name": "example",
+            "examples": {"apple": 8, "finch": 8}, "finch_source_verified": True,
+            "difftest_run_id": "d" * 32,
+        }
+        self.assertTrue(coverage.verified_difftest_record(valid_item, True, "d" * 32))
+        self.assertFalse(coverage.verified_difftest_record(
+            {**valid_item, "finch_source_verified": False}, True, "d" * 32))
+        self.assertFalse(coverage.verified_difftest_record(
+            {**valid_item, "examples": {"apple": 0, "finch": 0}}, True, "d" * 32))
+        self.assertFalse(coverage.verified_difftest_record(valid_item, True, "e" * 32))
+
+    def test_difftest_zero_output_is_not_observable_behavior(self):
+        self.assertFalse(difftest.has_observable_output([]))
+        self.assertFalse(difftest.has_observable_output(["", "  "]))
+        self.assertFalse(difftest.has_observable_output(["0\tvoid"]))
+        self.assertFalse(difftest.has_observable_output(["void"]))
+        self.assertTrue(difftest.has_observable_output(["case 0\tvalue"]))
+        self.assertTrue(difftest.has_observable_output(["0\tvoid\tchanged-state"]))
+
+    def test_finch_difftest_requires_explicit_expected_image_success_marker(self):
+        with tempfile.TemporaryDirectory() as folder:
+            image = Path(folder) / "Foundation"
+            success = f"FINCH_DIFFTEST_SOURCE_OK: {image.resolve()}"
+            self.assertTrue(difftest.finch_image_was_loaded(success, image))
+            self.assertFalse(difftest.finch_image_was_loaded("", image))
+            self.assertFalse(difftest.finch_image_was_loaded(
+                "FINCH_DIFFTEST_SOURCE_OK: /different/Foundation", image))
+            self.assertFalse(difftest.finch_image_was_loaded(success, None))
+
+    def test_difftest_source_identity_tracks_framework_binary_contents(self):
+        with tempfile.TemporaryDirectory() as folder:
+            build_root = Path(folder)
+            image = build_root / "System/Library/Frameworks/Foundation.framework/Versions/A/Foundation"
+            image.parent.mkdir(parents=True)
+            image.write_bytes(b"first build")
+            with patch.object(difftest, "test_environment_identity", return_value={"compiler": "clang test"}):
+                first = difftest.evidence_identity("Foundation", folder, "26.4", image,
+                                                   build_root=build_root)
+            image.write_bytes(b"second build")
+            with patch.object(difftest, "test_environment_identity", return_value={"compiler": "clang test"}):
+                second = difftest.evidence_identity("Foundation", folder, "26.4", image,
+                                                    build_root=build_root)
+        self.assertNotEqual(first["finch_image_sha256"], second["finch_image_sha256"])
+        self.assertEqual(first["test_tool_sha256"], second["test_tool_sha256"])
+        self.assertEqual(first["environment"], {"compiler": "clang test"})
+
+    def test_dependency_change_invalidates_old_difftest_evidence_for_custom_build_root(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            build_root = root / "staged-finches"
+            bundle = build_root / "System/Library/Frameworks/Foundation.framework"
+            framework = bundle / "Versions/A"
+            dependency = build_root / "System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation"
+            framework.mkdir(parents=True)
+            dependency.parent.mkdir(parents=True)
+            image = framework / "Foundation"
+            image.write_bytes(b"Foundation image")
+            (bundle / "Versions/Current").symlink_to("A", target_is_directory=True)
+            (bundle / "Foundation").symlink_to("Versions/Current/Foundation")
+            dependency.write_bytes(b"first CoreFoundation image")
+            result_dir = root / "build/compat-results"
+            result_dir.mkdir(parents=True)
+            results_file = result_dir / "Foundation.json"
+            run_id = "a" * 32
+            identity_args = ("Foundation", "sdk", "26.4", image)
+            spec = {
+                "kind": "framework", "name": "Foundation", "module": "Foundation",
+                "relative_path": Path("Foundation.framework"),
+            }
+
+            with patch.object(difftest, "test_environment_identity", return_value={"compiler": "test"}), \
+                 patch.object(coverage, "load_tool", return_value=difftest):
+                identity = difftest.evidence_identity(
+                    *identity_args, build_root=build_root)
+                results_file.write_text(json.dumps({
+                    "framework": "Foundation", "input_count": 1,
+                    "difftest_evidence": {
+                        "schema_version": 1, "run_id": run_id, "identity": identity,
+                        "test_source_sha256": "b" * 64, "test_binary_sha256": "c" * 64,
+                        "input_manifest_sha256": "d" * 64, "api_items": 1, "compared_items": 1,
+                    },
+                    "items": {"c:_generated": {
+                        "status": "verified", "category": "auto/c", "difftest_name": "generated",
+                        "examples": {"apple": 1, "finch": 1}, "finch_source_verified": True,
+                        "difftest_run_id": run_id,
+                    }},
+                }))
+
+                with patch.object(coverage, "ROOT", root), \
+                     patch.object(difftest, "finch_runtime_identity", wraps=difftest.finch_runtime_identity) as fingerprint:
+                    current = coverage.verification_results(
+                        sdk_path="sdk", sdk_version="26.4", build_root=build_root,
+                        specs={"Foundation": spec})
+                self.assertEqual(current["Foundation"], {"c:_generated"})
+                self.assertEqual(fingerprint.call_count, 1)
+
+                dependency.write_bytes(b"changed CoreFoundation image")
+                with patch.object(coverage, "ROOT", root), \
+                     patch.object(difftest, "finch_runtime_identity", wraps=difftest.finch_runtime_identity) as fingerprint:
+                    stale = coverage.verification_results(
+                        sdk_path="sdk", sdk_version="26.4", build_root=build_root,
+                        specs={"Foundation": spec})
+                self.assertEqual(stale["Foundation"], set())
+                self.assertEqual(fingerprint.call_count, 1)
+
+    def test_difftest_framework_image_deduplicates_current_symlink(self):
+        with tempfile.TemporaryDirectory() as folder:
+            framework = Path(folder) / "System/Library/Frameworks/Foundation.framework/Versions"
+            image = framework / "A/Foundation"
+            image.parent.mkdir(parents=True)
+            image.write_bytes(b"Finch framework")
+            (framework / "Current").symlink_to("A", target_is_directory=True)
+            found = difftest.finch_framework_image("Foundation", Path(folder))
+        self.assertEqual(found, image.resolve())
+
+    def test_difftest_refuses_to_save_if_inputs_change_during_run(self):
+        identity = {"framework": "Foundation", "finch_image_sha256": "a" * 64}
+        difftest.require_unchanged_evidence(identity, identity, "b" * 64, "b" * 64,
+                                            "c" * 64, "c" * 64)
+        with self.assertRaisesRegex(RuntimeError, "framework image"):
+            difftest.require_unchanged_evidence(
+                identity, {**identity, "finch_image_sha256": "d" * 64},
+                "b" * 64, "b" * 64, "c" * 64, "c" * 64)
+        with self.assertRaisesRegex(RuntimeError, "generated test source"):
+            difftest.require_unchanged_evidence(identity, identity, "b" * 64, "d" * 64,
+                                                "c" * 64, "c" * 64)
+        with self.assertRaisesRegex(RuntimeError, "test program"):
+            difftest.require_unchanged_evidence(identity, identity, "b" * 64, "b" * 64,
+                                                "c" * 64, "d" * 64)
+
+    def test_difftest_run_ids_keep_old_merged_items_historical(self):
+        identity = {"schema_version": 1, "framework": "Foundation", "sdk_version": "26.4"}
+        old_run, new_run = "a" * 32, "b" * 32
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            result_dir = root / "build/compat-results"
+            result_dir.mkdir(parents=True)
+            path = result_dir / "Foundation.json"
+            path.write_text(json.dumps({
+                "framework": "Foundation", "input_count": 43,
+                "verified": ["c:_oldGenerated", "c:_constant"],
+                "difftest_evidence": {"schema_version": 1, "run_id": old_run, "identity": identity,
+                                      "test_source_sha256": "a" * 64, "test_binary_sha256": "b" * 64,
+                                      "input_manifest_sha256": "c" * 64, "api_items": 10,
+                                      "compared_items": 6},
+                "items": {
+                    "c:_oldGenerated": {
+                        "status": "verified", "category": "auto/c", "difftest_name": "oldGenerated",
+                        "examples": {"apple": 1, "finch": 1}, "finch_source_verified": True,
+                        "difftest_run_id": old_run,
+                    },
+                    "c:_constant": {"status": "verified", "verified": True},
+                },
+            }))
+            new_evidence = {
+                "schema_version": 1, "run_id": new_run, "identity": identity,
+                "test_source_sha256": "d" * 64, "test_binary_sha256": "e" * 64,
+                "input_manifest_sha256": "f" * 64, "api_items": 10, "compared_items": 6,
+            }
+            difftest.write_results({
+                "framework": "Foundation", "difftest_evidence": new_evidence,
+                "items": {"newGenerated": {
+                    "status": "verified", "category": "auto/c", "examples": {"apple": 1, "finch": 1},
+                    "finch_source_verified": True,
+                }},
+            }, path)
+            merged = json.loads(path.read_text())
+            self.assertEqual(merged["items"]["c:_oldGenerated"]["difftest_run_id"], old_run)
+            self.assertEqual(merged["items"]["c:_newGenerated"]["difftest_run_id"], new_run)
+            with patch.object(coverage, "ROOT", root), \
+                 patch.object(coverage, "current_difftest_identity", return_value=identity):
+                results = coverage.verification_results(
+                    sdk_path="sdk", sdk_version="26.4", build_root=Path("root"),
+                    specs={"Foundation": {}})
+        self.assertEqual(results["Foundation"], {"c:_constant", "c:_newGenerated"})
 
     def test_difftest_names_map_to_coverage_item_ids(self):
         self.assertEqual(difftest.api_item_id("CFStringCreateWithBytes"), "c:_CFStringCreateWithBytes")

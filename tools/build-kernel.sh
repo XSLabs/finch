@@ -24,6 +24,8 @@ FINCH_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="${FINCH_ROOT}/build/xnu-work"
 KC_OUT="${FINCH_ROOT}/build/kc"
 VM_FW="${FINCH_ROOT}/third_party/darwin-vm/firmware"
+DARWIN_XNU_BUILD_DIR="${FINCH_ROOT}/tools/darwin-xnu-build"
+DARWIN_XNU_BUILD_PATCH="${FINCH_ROOT}/tools/patches/darwin-xnu-build/0001-preserve-unchanged-coreentitlements-headers.patch"
 config_lc=$(tr '[:upper:]' '[:lower:]' <<<"${KERNEL_CONFIG}")
 machine_lc=$(tr '[:upper:]' '[:lower:]' <<<"${MACHINE_CONFIG}")
 KERNEL_BIN="${WORK}/build/xnu.obj/kernel.${config_lc}.${machine_lc}"
@@ -35,13 +37,34 @@ install=0
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+apply_dependency_patch() {
+    local dependency_dir="$1"
+    local patch_file="$2"
+
+    [[ -d "${dependency_dir}" ]] || die "dependency checkout not found: ${dependency_dir}"
+    [[ -f "${patch_file}" ]] || die "dependency patch not found: ${patch_file}"
+
+    if git -C "${dependency_dir}" apply --check "${patch_file}" 2>/dev/null; then
+        git -C "${dependency_dir}" apply "${patch_file}" \
+            || die "could not apply dependency patch: ${patch_file}"
+        log "Applied Finch's build fix to darwin-xnu-build"
+    elif git -C "${dependency_dir}" apply --reverse --check "${patch_file}" 2>/dev/null; then
+        log "Finch's darwin-xnu-build fix is already applied"
+    else
+        die "darwin-xnu-build is missing Finch's build fix or has conflicting edits; inspect ${patch_file}"
+    fi
+}
+
 [[ -d "${KDKROOT}" ]] || die "KDK not found: ${KDKROOT} (install it from developer.apple.com)"
+
+# Keep this performance fix in Finch so a fresh dependency checkout gets it too.
+apply_dependency_patch "${DARWIN_XNU_BUILD_DIR}" "${DARWIN_XNU_BUILD_PATCH}"
 
 # Homebrew ahead of MacPorts; python3 must be >= 3.12 for XNU/QEMU build scripts.
 export PATH="/opt/homebrew/opt/python@3.13/libexec/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
 
 mkdir -p "${WORK}" "${KC_OUT}"
-ln -sfn "${FINCH_ROOT}/tools/darwin-xnu-build/patches" "${WORK}/patches"
+ln -sfn "${DARWIN_XNU_BUILD_DIR}/patches" "${WORK}/patches"
 
 # 1. Source: pristine Apple tag + Finch patches.
 if [[ ! -d "${WORK}/xnu" ]]; then
@@ -71,7 +94,7 @@ log "Building XNU ${KERNEL_CONFIG} ${MACHINE_CONFIG} (log: build/xnu-work/build.
     KERNEL_BUILD_OBJROOT="finch-${FINCH_VERSION}/${XNU_TAG}/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}" \
     MACOS_VERSION="${MACOS_VERSION}" KDKROOT="${KDKROOT}" \
     KERNEL_CONFIG="${KERNEL_CONFIG}" ARCH_CONFIG=ARM64 MACHINE_CONFIG="${MACHINE_CONFIG}" \
-        /opt/homebrew/bin/bash "${FINCH_ROOT}/tools/darwin-xnu-build/build.sh" > build.log 2>&1
+        /opt/homebrew/bin/bash "${DARWIN_XNU_BUILD_DIR}/build.sh" > build.log 2>&1
 ) || die "XNU build failed; see ${WORK}/build.log"
 [[ -f "${KERNEL_BIN}" ]] || die "kernel not produced; see ${WORK}/build.log"
 strings "${KERNEL_BIN}" | awk '/^Darwin Kernel Version/ && !p { print "    " $0; p = 1 }'

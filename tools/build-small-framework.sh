@@ -64,7 +64,8 @@ case "${INSTALL}" in
 *.framework/Versions/A/*)
     FW="${OUT%/Versions/A/*}"
     ln -sfn A "${FW}/Versions/Current"
-    ln -sfn "Versions/Current/${NAME}" "${FW}/${NAME}"
+    RELATIVE="${OUT#"${FW}/Versions/A/"}"
+    ln -sfn "Versions/Current/${RELATIVE}" "${FW}/${NAME}"
     if [[ "${BUNDLE_ID}" != "-" ]]; then
         "${FINCH_ROOT}/tools/mkframeworkplist.sh" "${FW}" A "${NAME}" "${BUNDLE_ID}" "${NAME}" "${SHORT}" "${CURRENT}" English
     fi

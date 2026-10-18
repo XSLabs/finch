@@ -5,7 +5,21 @@ What runs on Finch today and where each piece comes from, bottom to top.
 These diagrams are updated in every commit that changes the stack, and
 `tools/render-stack.sh` checks that they render.
 
-**As of 2026-10-17:** Intents supplies SDK-declared data objects, typed initializers and
+**Release status:** Finch 1.0 remains unfinished. The development VM uses a RAM
+disk; persistent installation, boot recovery and supported-device checks remain
+open. [The release checks](ROADMAP.md#finch-10-release-checks) separate those
+requirements from library comparisons and app import counts.
+The fresh VM also exposes a sandbox compiler gap: notifyd cannot start with
+Finch's incomplete replacement. Development images can explicitly retain the
+base compiler; that borrowed component must still be replaced for 1.0.
+
+**As of 2026-10-18:** A small `FinchSandbox` kernel policy can deny file reads or
+writes. Its QEMU test covers already-open files, new opens, new file mappings, child processes,
+program changes, and attempts to clear the restriction. Asynchronous requests
+submitted after applying it are denied with both tested worker modes. It has no profile
+compiler and is not a complete app sandbox (`docs/design/SECURITY.md`).
+
+Intents supplies SDK-declared data objects, typed initializers and
 resolution results. It stores donated interactions in
 `~/Library/Finch/Intents/interactions.archive`. Its host comparison matches Apple's for
 the values it covers, and a separate check reads and clears a saved interaction. Finch
@@ -16,7 +30,7 @@ CoreBluetooth, `libsandbox.1.dylib`, CryptoTokenKit, and WidgetKit. Together the
 712 of 1,433 API items. Host comparisons cover their now-playing values and artwork,
 caption defaults, Bluetooth identifiers and GATT values, sandbox checks and extension
 tokens, token TLV records and PIN formats, and WidgetKit timelines and no-host results.
-Finch has no media-key route, Bluetooth radio, card reader, sandbox enforcement, or widget
+Finch has no media-key route, Bluetooth radio, card reader, general app sandbox, or widget
 host. `Widget` and `WidgetConfiguration` still need Finch SwiftUI support. Details and
 test boundaries are in `docs/design/SMALL-FRAMEWORKS.md`.
 GameController builds from the macOS SDK headers, without shipping
@@ -108,7 +122,8 @@ identifiers and tags match Apple's in their comparison tests. AudioUnit.framewor
 re-exports Finch's AudioToolbox at Apple's install name. CoreMIDI's client API keeps
 virtual sources, destinations and ports in a process-local graph; there is no hardware
 or system-wide routing. MetalKit keeps MTKView's settings, while texture
-and mesh creation report the missing Metal device. OpenAL stays out while CoreAudio has
+creation reports the missing Metal device. Its VM mesh check cannot run because
+ModelIO is absent; mesh creation remains unverified there. OpenAL stays out while CoreAudio has
 no output device. VideoToolbox moves pixels between Finch's CoreVideo buffers, scales
 and rotates them, decodes H.264, VP8, VP9 and AV1, and encodes H.264 with statically
 linked OpenH264, libvpx and dav1d.
@@ -152,6 +167,14 @@ also survive service restart in a private test root. Disk Arbitration starts
 and accepts client sessions. Apple's open-source FAT tools and basic mount/fsck
 dispatchers now build. Manual loopback IPv4 and DNS apply pass in QEMU, including repeat apply.
 Failed requests try to remove only newly added addresses; full undo remains open.
+DNS-file restore after an apply error passes focused host and development VM
+checks (2026-10-18), including failed syncs and an observed later writer. The
+separate network settings flow also passes; crash and power-loss recovery remain open.
+Added host checks also pass for failed path lookup and file replacement by another
+writer immediately after the DNS rename. Those added cases also pass in the rebuilt VM.
+The latest full development VM run passed all eight separate service checks.
+Seven Apple comparisons remain unresolved with an offline host display, and the
+borrowed sandbox compiler remains unverified; see the roadmap for the full counts.
 Local account tools share password checks with PAM and OpenDirectory; correct,
 wrong and locked passwords pass in a private QEMU test folder. The real login
 program also passes wrong-password refusal, user identity, home and logout checks
@@ -177,6 +200,9 @@ comparison also passes in the VM; the Tier 2 display and input work remains.
 CoreData now reads compiled models and supports basic SQLite and in-memory
 stores, contexts, fetches, and to-one relationships. Its host comparison opens
 a simple Apple-created store in Finch and a Finch-created store in Apple.
+The 2026-10-17 development VM check also writes and reopens its own store in
+separate processes, with records matching Apple's run. That image still uses
+the base image's sandbox compiler; this check does not prove standalone boot.
 Changed-model migrations, history tracking, Spotlight indexing, and several
 other store features remain unavailable (`docs/design/COREDATA.md`).
 
@@ -294,7 +320,7 @@ block-beta
         t1["Kernel"]
         xnu["XNU xnu-12377.101.15<br/>+ Finch patches"]
         kexts["Platform drivers<br/>(Finch's later)"]
-        space1[" "]
+        finchsandbox["FinchSandbox<br/>file read/write restrictions;<br/>small kernel proof, no profile compiler"]
     end
     block:L0
         columns 4
@@ -315,11 +341,12 @@ block-beta
     class t7,t6,t5,t4,t3,t2,t1,t0 layer
     class kexts,metal planned
     class apps testapp
+    class finchsandbox finch
     class opengl,later,mediaaddons,coreimage,videotoolbox,services,contacts,intents,contactui,corespotlight,linkpresentation,cfnetwork,appsupport,shell,uti,appkit,gamecontroller,pdfkit,avkit,mediaplayer,mediaaccessibility,corebluetooth,cryptotokenkit,widgetkit,libsandbox,cloudkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
     class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui,cmark,sqlite upstream
     class vz firmware
-    class space3,space3b,space3c,space3d,space2,space2b,space2c,space1 blank
+    class space3,space3b,space3c,space3d,space2,space2b,space2c blank
 ```
 
 | Colour | Meaning |

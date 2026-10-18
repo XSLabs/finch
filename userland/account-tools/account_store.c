@@ -7,6 +7,7 @@
 #include "account_tools.h"
 
 #include <CommonCrypto/CommonRandom.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -63,6 +64,15 @@ struct account_record {
 	size_t line_length;
 	size_t hash_start;
 	size_t hash_length;
+};
+
+struct home_directory {
+	int parent_fd;
+	char leaf[NAME_MAX + 1];
+	dev_t device;
+	ino_t inode;
+	bool identity_valid;
+	bool created;
 };
 
 static void
@@ -683,11 +693,320 @@ valid_optional_field(const char *text, size_t maximum)
 	return 1;
 }
 
-int
-at_store_create_user(struct at_store *store, const char *name, uid_t uid,
-	gid_t gid, const char *gecos, const char *home, const char *shell,
-	const char *password, char *error, size_t error_size)
+static int
+open_home_root(const char *path, uid_t store_owner, char *error,
+	size_t error_size)
 {
+	struct stat st;
+	int fd;
+
+	if (!path || path[0] != '/') {
+		set_error(error, error_size, "home root must be an absolute folder path");
+		errno = EINVAL;
+		return -1;
+	}
+	if (strcmp(path, "/") != 0)
+		return open_directory_path(path, store_owner, error, error_size);
+
+	fd = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (fd < 0) {
+		set_error(error, error_size, "cannot safely open home root: %s",
+		    strerror(errno));
+		return -1;
+	}
+	if (fstat(fd, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
+	    (st.st_mode & 0022) != 0) {
+		set_error(error, error_size, "home root must be a protected root-owned folder");
+		close(fd);
+		errno = EPERM;
+		return -1;
+	}
+	return fd;
+}
+
+static int
+open_home_parent(int root_fd, const char *home, uid_t store_owner,
+	struct home_directory *directory, char *error, size_t error_size)
+{
+	char path[PATH_FIELD_MAX + 1];
+	size_t length;
+
+	if (!home || home[0] != '/' || home[1] == '\0' ||
+	    (length = strnlen(home, sizeof(path))) >= sizeof(path) ||
+	    home[length - 1] == '/') {
+		set_error(error, error_size, "home must be an absolute path below the home root");
+		errno = EINVAL;
+		return -1;
+	}
+	for (size_t start = 1; start < length;) {
+		size_t end = start;
+		while (end < length && home[end] != '/')
+			end++;
+		size_t component_length = end - start;
+		if (component_length == 0 || component_length > NAME_MAX ||
+		    (component_length == 1 && home[start] == '.') ||
+		    (component_length == 2 && home[start] == '.' &&
+		        home[start + 1] == '.')) {
+			set_error(error, error_size, "home path has an unsafe path part");
+			errno = EINVAL;
+			return -1;
+		}
+		start = end + 1;
+	}
+	memcpy(path, home, length + 1);
+	char *last_slash = strrchr(path, '/');
+	if (!last_slash || strlcpy(directory->leaf, last_slash + 1,
+	    sizeof(directory->leaf)) >= sizeof(directory->leaf)) {
+		set_error(error, error_size, "home path has an invalid final folder name");
+		errno = EINVAL;
+		return -1;
+	}
+	bool parent_is_root = last_slash == path;
+	if (!parent_is_root)
+		*last_slash = '\0';
+
+	int current = dup(root_fd);
+	if (current < 0) {
+		set_error(error, error_size, "cannot open home root: %s", strerror(errno));
+		return -1;
+	}
+	if (!parent_is_root) {
+		char *component = path + 1;
+		for (;;) {
+			char *slash = strchr(component, '/');
+			if (slash)
+				*slash = '\0';
+			int child = openat(current, component,
+			    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+			if (child < 0) {
+				set_error(error, error_size, "cannot safely open home parent: %s",
+				    strerror(errno));
+				close(current);
+				return -1;
+			}
+			struct stat st;
+			if (fstat(child, &st) != 0 || !S_ISDIR(st.st_mode) ||
+			    (st.st_uid != 0 && st.st_uid != store_owner) ||
+			    ((st.st_mode & 0022) != 0 &&
+			        !(st.st_uid == 0 && (st.st_mode & S_ISVTX) != 0))) {
+				set_error(error, error_size,
+				    "home parent must be a protected folder owned by root or the caller");
+				close(child);
+				close(current);
+				errno = EPERM;
+				return -1;
+			}
+			close(current);
+			current = child;
+			if (!slash)
+				break;
+			component = slash + 1;
+		}
+	}
+	directory->parent_fd = current;
+	return 0;
+}
+
+static int
+remove_created_home(struct home_directory *directory, char *error,
+	size_t error_size)
+{
+	struct stat st;
+	if (!directory->created)
+		return 0;
+	if (directory->parent_fd < 0 || !directory->identity_valid ||
+	    fstatat(directory->parent_fd, directory->leaf, &st,
+	        AT_SYMLINK_NOFOLLOW) != 0 || !S_ISDIR(st.st_mode) ||
+	    st.st_dev != directory->device || st.st_ino != directory->inode) {
+		set_error(error, error_size,
+		    "new home changed before cleanup, so it was left in place");
+		errno = ESTALE;
+		return -1;
+	}
+	if (unlinkat(directory->parent_fd, directory->leaf, AT_REMOVEDIR) != 0) {
+		set_error(error, error_size, "cannot remove new home: %s", strerror(errno));
+		return -1;
+	}
+	directory->created = false;
+	if (fsync(directory->parent_fd) != 0) {
+		set_error(error, error_size, "cannot finish removing new home: %s",
+		    strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+
+/* Return 1 for an empty directory, 0 for a non-empty one, and -1 on error.
+ * Open relative to the already checked directory FD so this scan never follows
+ * a path that could have been replaced after the ownership check. */
+static int
+home_directory_is_empty(int home_fd)
+{
+	int scan_fd = openat(home_fd, ".",
+	    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (scan_fd < 0)
+		return -1;
+	DIR *entries = fdopendir(scan_fd);
+	if (!entries) {
+		int saved_errno = errno;
+		close(scan_fd);
+		errno = saved_errno;
+		return -1;
+	}
+
+	int result = 1;
+	errno = 0;
+	for (;;) {
+		struct dirent *entry = readdir(entries);
+		if (!entry) {
+			if (errno != 0)
+				result = -1;
+			break;
+		}
+		if (strcmp(entry->d_name, ".") != 0 &&
+		    strcmp(entry->d_name, "..") != 0) {
+			result = 0;
+			break;
+		}
+	}
+	int saved_errno = errno;
+	if (closedir(entries) != 0 && result == 1)
+		result = -1;
+	if (result < 0)
+		errno = saved_errno ? saved_errno : EIO;
+	return result;
+}
+
+static int
+prepare_home_directory(const char *target_root, const char *home,
+	uid_t uid, gid_t gid, uid_t store_owner,
+	struct home_directory *directory, char *error, size_t error_size)
+{
+	struct stat st, opened;
+	int root_fd = -1, home_fd = -1, result = -1;
+
+	if (geteuid() != 0 && (uid != geteuid() || gid != getegid())) {
+		set_error(error, error_size,
+		    "a non-root caller can only create a home for their own account");
+		errno = EPERM;
+		return -1;
+	}
+	root_fd = open_home_root(target_root, store_owner, error, error_size);
+	if (root_fd < 0)
+		goto done;
+	if (open_home_parent(root_fd, home, store_owner, directory, error,
+	    error_size) != 0)
+		goto done;
+	if (fstatat(directory->parent_fd, directory->leaf, &st,
+	    AT_SYMLINK_NOFOLLOW) == 0) {
+		if (!S_ISDIR(st.st_mode) || st.st_uid != uid || st.st_gid != gid ||
+		    (st.st_mode & 07777) != 0700) {
+			set_error(error, error_size,
+			    "existing home must be a real directory owned by the new account with mode 0700");
+			errno = EPERM;
+			goto done;
+		}
+		home_fd = openat(directory->parent_fd, directory->leaf,
+		    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+		if (home_fd < 0 || fstat(home_fd, &opened) != 0 ||
+		    opened.st_dev != st.st_dev || opened.st_ino != st.st_ino ||
+		    !S_ISDIR(opened.st_mode) || opened.st_uid != uid ||
+		    opened.st_gid != gid || (opened.st_mode & 07777) != 0700) {
+			set_error(error, error_size,
+			    "existing home changed while it was checked");
+			errno = ESTALE;
+			goto done;
+		}
+		int empty = home_directory_is_empty(home_fd);
+		if (empty <= 0) {
+			if (empty == 0) {
+				set_error(error, error_size,
+				    "existing home must be empty for a new account");
+				errno = ENOTEMPTY;
+			} else {
+				set_error(error, error_size,
+				    "cannot safely check existing home contents: %s",
+				    strerror(errno));
+			}
+			goto done;
+		}
+		result = 0;
+		goto done;
+	}
+	if (errno != ENOENT) {
+		set_error(error, error_size, "cannot check home path: %s", strerror(errno));
+		goto done;
+	}
+	if (mkdirat(directory->parent_fd, directory->leaf, 0700) != 0) {
+		set_error(error, error_size, "cannot create home: %s", strerror(errno));
+		goto done;
+	}
+	directory->created = true;
+	if (fstatat(directory->parent_fd, directory->leaf, &st,
+	    AT_SYMLINK_NOFOLLOW) != 0 || !S_ISDIR(st.st_mode) ||
+	    st.st_uid != geteuid()) {
+		set_error(error, error_size, "cannot safely identify the new home directory");
+		errno = EPERM;
+		goto done;
+	}
+	directory->device = st.st_dev;
+	directory->inode = st.st_ino;
+	directory->identity_valid = true;
+	home_fd = openat(directory->parent_fd, directory->leaf,
+	    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (home_fd < 0 || fstat(home_fd, &opened) != 0 ||
+	    opened.st_dev != directory->device || opened.st_ino != directory->inode ||
+	    !S_ISDIR(opened.st_mode) || fchown(home_fd, uid, gid) != 0 ||
+	    fchmod(home_fd, 0700) != 0 || fstat(home_fd, &opened) != 0 ||
+	    opened.st_uid != uid || opened.st_gid != gid ||
+	    (opened.st_mode & 07777) != 0700 || fsync(home_fd) != 0) {
+		set_error(error, error_size, "cannot set new home ownership and mode: %s",
+		    strerror(errno));
+		goto done;
+	}
+	if (fsync(directory->parent_fd) != 0) {
+		set_error(error, error_size, "cannot finish creating home: %s",
+		    strerror(errno));
+		goto done;
+	}
+	result = 0;
+done:
+	if (home_fd >= 0)
+		close(home_fd);
+	if (root_fd >= 0)
+		close(root_fd);
+	return result;
+}
+
+static int
+account_entry_has_home(struct at_store *store, const char *name, uid_t uid,
+	const char *home, char *error, size_t error_size)
+{
+	struct file_data master = {0};
+	struct account_record match = {0};
+	unsigned names = 0, uids = 0;
+	int result = -1;
+
+	if (read_file(store, "master.passwd", 0600, &master, error,
+	    error_size) != 0)
+		goto done;
+	if (scan_master(master.bytes, master.length, name, uid, 1, &match,
+	    &names, &uids, error, error_size) != 0)
+		goto done;
+	result = names == 1 && uids == 1 && match.uid == uid &&
+	    strcmp(match.home, home) == 0;
+done:
+	free_file(&master);
+	return result;
+}
+
+static int
+at_store_create_user_internal(struct at_store *store, const char *name,
+	uid_t uid, gid_t gid, const char *gecos, const char *home,
+	const char *shell, const char *password, const char *target_root,
+	char *error, size_t error_size)
+{
+	struct home_directory home_directory = {.parent_fd = -1};
 	struct file_data master = {0}, passwd = {0}, group = {0};
 	char hash[160] = {0};
 	char *new_master = NULL, *new_passwd = NULL;
@@ -698,7 +1017,8 @@ at_store_create_user(struct at_store *store, const char *name, uid_t uid,
 	    (uint64_t)uid > INT_MAX || (uint64_t)gid > INT_MAX ||
 	    !valid_optional_field(gecos, GECOS_MAX) || !valid_field(home, PATH_FIELD_MAX) || home[0] != '/' ||
 	    !valid_field(shell, PATH_FIELD_MAX) || shell[0] != '/' ||
-	    !at_password_is_acceptable(password)) {
+	    !at_password_is_acceptable(password) ||
+	    (target_root && (!target_root[0] || target_root[0] != '/'))) {
 		set_error(error, error_size, "new account details do not meet the local login rules");
 		errno = EINVAL;
 		return -1;
@@ -744,6 +1064,9 @@ at_store_create_user(struct at_store *store, const char *name, uid_t uid,
 	if (new_master_length > DB_MAX_BYTES || derive_public_passwd(new_master,
 	    new_master_length, &new_passwd, &new_passwd_length, error, error_size) != 0)
 		goto done;
+	if (target_root && prepare_home_directory(target_root, home, uid, gid,
+	    store->owner, &home_directory, error, error_size) != 0)
+		goto done;
 	/* Keep the two account files in sync if either replacement reports failure. */
 	if (atomic_replace(store, "passwd", new_passwd, new_passwd_length,
 	    0644, passwd.owner, passwd.group, error, error_size) != 0) {
@@ -775,6 +1098,34 @@ at_store_create_user(struct at_store *store, const char *name, uid_t uid,
 	}
 	result = 0;
 done:
+	if (result != 0 && home_directory.created) {
+		char original_error[512] = {0}, state_error[256] = {0};
+		if (error && error_size)
+			strlcpy(original_error, error, sizeof(original_error));
+		int account_state = account_entry_has_home(store, name, uid, home,
+		    state_error, sizeof(state_error));
+		if (account_state == 0) {
+			char cleanup_error[256] = {0};
+			if (remove_created_home(&home_directory, cleanup_error,
+			    sizeof(cleanup_error)) != 0)
+				set_error(error, error_size, "%s; home cleanup failed: %s",
+				    original_error, cleanup_error);
+			else
+				set_error(error, error_size, "%s; the new home was removed",
+				    original_error);
+		} else {
+			if (account_state == 1)
+				set_error(error, error_size,
+				    "%s; the account may have been saved, so the new home was kept",
+				    original_error);
+			else
+				set_error(error, error_size,
+				    "%s; account files could not be checked (%s), so the new home was kept",
+				    original_error, state_error);
+		}
+	}
+	if (home_directory.parent_fd >= 0)
+		close(home_directory.parent_fd);
 	if (lock >= 0)
 		close(lock);
 	free_file(&master);
@@ -784,6 +1135,30 @@ done:
 	free(new_passwd);
 	at_secure_clear(hash, sizeof(hash));
 	return result;
+}
+
+int
+at_store_create_user(struct at_store *store, const char *name, uid_t uid,
+	gid_t gid, const char *gecos, const char *home, const char *shell,
+	const char *password, char *error, size_t error_size)
+{
+	return at_store_create_user_internal(store, name, uid, gid, gecos, home,
+	    shell, password, NULL, error, error_size);
+}
+
+int
+at_store_create_user_with_home_root(struct at_store *store, const char *name,
+	uid_t uid, gid_t gid, const char *gecos, const char *home,
+	const char *shell, const char *password, const char *target_root,
+	char *error, size_t error_size)
+{
+	if (!target_root) {
+		set_error(error, error_size, "home creation needs an explicit target root");
+		errno = EINVAL;
+		return -1;
+	}
+	return at_store_create_user_internal(store, name, uid, gid, gecos, home,
+	    shell, password, target_root, error, error_size);
 }
 
 int

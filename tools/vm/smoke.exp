@@ -6,6 +6,7 @@
 #   expect tools/vm/smoke.exp "cmd1" "cmd2"   # run these instead of the defaults
 # Exits non-zero on a failed command, timeout, early exit or dyld error.
 set timeout 300
+set send_slow {8 0.03}
 log_user 1
 set root [file normalize [file dirname [info script]]/../..]
 # zsh adds terminal-control sequences after its prompt. Match those too, so
@@ -33,7 +34,7 @@ expect {
   }
 }
 # A failed command before a pipe must fail the check too.
-send "set -o pipefail\r"
+send -s -- "set -o pipefail\r"
 expect {
   -re $prompt {}
   timeout { puts "\n### TIMEOUT setting shell options"; catch {send "\x01x"}; exit 1 }
@@ -50,8 +51,18 @@ foreach cmd $cmds {
   incr index
   set marker "FINCH_TEST_RESULT_${index}="
   # Keep the command on its own line, so a trailing shell comment cannot hide the check.
-  send "$cmd\r"
-  send "finch_test_status=\$?; printf '\\n${marker}%d\\n' \"\$finch_test_status\"\r"
+  # The emulated UART drops bytes from large bursts. Match the pacing used
+  # by the account/login checks, including for the status command.
+  send -s -- "$cmd\r"
+  # Wait before typing the status command. Otherwise the terminal echoes its
+  # text into output still arriving from the test, breaking result lines.
+  expect {
+    -re {dyld\[[0-9]+\]|dyld: } { incr dyld_errors; exp_continue }
+    -re $prompt {}
+    timeout { puts "\n### TIMEOUT running: $cmd"; catch {send "\x01x"}; exit 1 }
+    eof { puts "\n### VM exited while running: $cmd"; exit 1 }
+  }
+  send -s -- "finch_test_status=\$?; printf '\\n${marker}%d\\n' \"\$finch_test_status\"\r"
   expect {
     -re {dyld\[[0-9]+\]|dyld: } { incr dyld_errors; exp_continue }
     -re "${marker}(\[0-9\]+)" {

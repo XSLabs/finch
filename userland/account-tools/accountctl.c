@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
 /*
- * accountctl changes only a directory that the running user owns. It has no
- * default folder, so an accidental run cannot touch the host's account files.
+ * -d selects the account files. HOME is only created when create receives an
+ * explicit -R target root, so an account-file path never doubles as a home
+ * creation scope.
  */
 
 #include "account_tools.h"
@@ -22,9 +23,11 @@ static void
 usage(FILE *stream)
 {
 	fputs("Usage:\n"
-	    "  accountctl -d ACCOUNT_FOLDER create NAME UID GID GECOS HOME SHELL\n"
+	    "  accountctl -d ACCOUNT_FOLDER [-R TARGET_ROOT] create NAME UID GID GECOS HOME SHELL\n"
 	    "  accountctl -d ACCOUNT_FOLDER change NAME\n"
-	    "\nACCOUNT_FOLDER must contain master.passwd, passwd, and group.\n",
+	    "\nACCOUNT_FOLDER must contain master.passwd, passwd, and group.\n"
+	    "With -R, HOME is created inside TARGET_ROOT. Without -R, create only\n"
+	    "updates the account files. An existing HOME must be empty.\n",
 	    stream);
 }
 
@@ -88,10 +91,12 @@ int
 main(int argc, char **argv)
 {
 	const char *directory = NULL;
+	const char *home_root = NULL;
 	int option;
-	while ((option = getopt(argc, argv, "d:h")) != -1) {
+	while ((option = getopt(argc, argv, "d:R:h")) != -1) {
 		switch (option) {
 		case 'd': directory = optarg; break;
+		case 'R': home_root = optarg; break;
 		case 'h': usage(stdout); return 0;
 		default: usage(stderr); return 2;
 		}
@@ -122,14 +127,19 @@ main(int argc, char **argv)
 		}
 		if (read_new_password(password) != 0)
 			goto finish;
-		result = at_store_create_user(&store, argv[optind], (uid_t)uid,
-		    (gid_t)gid, argv[optind + 3], argv[optind + 4], argv[optind + 5],
-		    password, error, sizeof(error)) == 0 ? 0 : 1;
+		int create_status = home_root ?
+		    at_store_create_user_with_home_root(&store, argv[optind],
+		        (uid_t)uid, (gid_t)gid, argv[optind + 3], argv[optind + 4],
+		        argv[optind + 5], password, home_root, error, sizeof(error)) :
+		    at_store_create_user(&store, argv[optind], (uid_t)uid,
+		        (gid_t)gid, argv[optind + 3], argv[optind + 4], argv[optind + 5],
+		        password, error, sizeof(error));
+		result = create_status == 0 ? 0 : 1;
 		at_secure_clear(password, sizeof(password));
 	} else if (strcmp(action, "change") == 0) {
 		char old_password[PROMPT_MAX] = {0};
 		char new_password[PROMPT_MAX] = {0};
-		if (argc - optind != 1) {
+		if (home_root || argc - optind != 1) {
 			usage(stderr);
 			at_secure_clear(old_password, sizeof(old_password));
 			at_secure_clear(new_password, sizeof(new_password));

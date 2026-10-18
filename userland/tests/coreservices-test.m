@@ -719,12 +719,12 @@ ref_path(const FSRef *ref)
 static NSString *
 rel(NSString *p)
 {
-    char buf[PATH_MAX];
+    if (!p) return p;
+    char buf[PATH_MAX], resolved[PATH_MAX];
     NSString *real = realpath(scratch.fileSystemRepresentation, buf) ? @(buf) : scratch;
-    if ([p hasPrefix:real])
-        return fixtureText([@"$S" stringByAppendingString:[p substringFromIndex:real.length]]);
-    if ([p hasPrefix:scratch])
-        return fixtureText([@"$S" stringByAppendingString:[p substringFromIndex:scratch.length]]);
+    NSString *candidate = realpath(p.fileSystemRepresentation, resolved) ? @(resolved) : p;
+    if ([candidate isEqualToString:real] || [candidate hasPrefix:[real stringByAppendingString:@"/"]])
+        return fixtureText([@"$S" stringByAppendingString:[candidate substringFromIndex:real.length]]);
     return p;
 }
 

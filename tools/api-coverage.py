@@ -32,6 +32,7 @@ RESPONDER_SOURCE = ROOT / "tools/api-audit/responds.m"
 RESPONDER = ROOT / "build/tools/api-coverage-responds"
 CACHE_SCHEMA = 4
 OBJC_FILTER_SCHEMA = 1
+_RUNTIME_IDENTITY_UNSET = object()
 TARGET = "arm64e-apple-macosx"
 SWIFT_DECL_KINDS = {
     "Func", "Var", "Constructor", "Destructor", "TypeAlias", "Struct",
@@ -1000,21 +1001,119 @@ def objc_responses(spec, items, binary, build_root):
     return answers, None
 
 
-def verification_results():
+def current_difftest_identity(framework, sdk_path, sdk_version, build_root, specs, *,
+                              runtime_identity=_RUNTIME_IDENTITY_UNSET, runner=None):
+    """Return the identity a fresh differential run for this framework must have."""
+    spec = specs.get(framework)
+    if spec is None:
+        return None
+    binary = target_binary(spec, build_root)
+    if binary is None:
+        return None
+    runner = runner or load_tool("tools/difftest/run.py", "finch_difftest_for_coverage")
+    try:
+        if runtime_identity is _RUNTIME_IDENTITY_UNSET:
+            runtime_identity = runner.finch_runtime_identity(build_root)
+        if runtime_identity is None:
+            return None
+        return runner.evidence_identity(
+            framework, sdk_path, sdk_version, binary,
+            build_root=build_root, runtime_identity=runtime_identity,
+        )
+    except (OSError, RuntimeError):
+        return None
+
+
+def has_fresh_difftest_evidence(document, framework, *, sdk_path, sdk_version, build_root, specs,
+                                runtime_identity=_RUNTIME_IDENTITY_UNSET, runner=None):
+    evidence = document.get("difftest_evidence")
+    if not isinstance(evidence, dict) or evidence.get("schema_version") != 1:
+        return False
+    if not re.fullmatch(r"[0-9a-f]{32}", str(evidence.get("run_id", ""))):
+        return False
+    identity = current_difftest_identity(
+        framework, sdk_path, sdk_version, build_root, specs,
+        runtime_identity=runtime_identity, runner=runner,
+    )
+    if identity is None or evidence.get("identity") != identity:
+        return False
+    if not re.fullmatch(r"[0-9a-f]{64}", str(evidence.get("test_source_sha256", ""))):
+        return False
+    if not re.fullmatch(r"[0-9a-f]{64}", str(evidence.get("test_binary_sha256", ""))):
+        return False
+    if not re.fullmatch(r"[0-9a-f]{64}", str(evidence.get("input_manifest_sha256", ""))):
+        return False
+    try:
+        api_items = int(evidence["api_items"])
+        compared_items = int(evidence["compared_items"])
+        input_count = int(document["input_count"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return api_items > 0 and 0 < compared_items <= api_items and input_count > 0
+
+
+def is_difftest_record(item):
+    return isinstance(item, dict) and any(
+        key in item for key in ("difftest_name", "category", "examples"))
+
+
+def verified_difftest_record(item, evidence_is_fresh, evidence_run_id):
+    examples = item.get("examples") if isinstance(item, dict) else None
+    return (evidence_is_fresh and evidence_run_id and
+            item.get("difftest_run_id") == evidence_run_id and item.get("status") == "verified" and
+            item.get("finch_source_verified") is True and isinstance(examples, dict) and
+            isinstance(examples.get("apple"), int) and examples["apple"] > 0 and
+            isinstance(examples.get("finch"), int) and examples["finch"] > 0)
+
+
+def verification_results(*, sdk_path=None, sdk_version=None, build_root=None, specs=None):
     verified = {}
     directory = ROOT / "build/compat-results"
     if not directory.is_dir():
         return verified
+    specs = specs or {}
+    build_root = build_root or BUILD_ROOT
+    identity_arguments_available = sdk_path is not None and sdk_version is not None
+    runtime_runner = None
+    runtime_identity = None
+    if identity_arguments_available:
+        try:
+            runtime_runner = load_tool("tools/difftest/run.py", "finch_difftest_for_coverage")
+            runtime_identity = runtime_runner.finch_runtime_identity(build_root)
+        except (OSError, RuntimeError):
+            runtime_identity = None
     for path in sorted(directory.glob("*.json")):
         try:
             document = json.loads(path.read_text())
         except (OSError, json.JSONDecodeError):
             continue
         framework = document.get("framework", path.stem)
+        evidence_is_fresh = False
+        evidence = document.get("difftest_evidence", {})
+        evidence_run_id = evidence.get("run_id") if isinstance(evidence, dict) else None
+        if identity_arguments_available:
+            evidence_is_fresh = has_fresh_difftest_evidence(
+                document, framework, sdk_path=sdk_path, sdk_version=sdk_version,
+                build_root=build_root, specs=specs,
+                runtime_identity=runtime_identity, runner=runtime_runner)
+        item_records = document.get("items", {})
+        if isinstance(item_records, list):
+            item_records = {str(item["id"]): item for item in item_records
+                            if isinstance(item, dict) and item.get("id")}
+        elif not isinstance(item_records, dict):
+            item_records = {}
         values = set()
         candidates = document.get("verified", [])
         if isinstance(candidates, list):
-            values.update(str(value) for value in candidates)
+            for value in candidates:
+                key = str(value)
+                record = item_records.get(key)
+                if record is None:
+                    continue
+                if is_difftest_record(record) and not verified_difftest_record(
+                        record, evidence_is_fresh, evidence_run_id):
+                    continue
+                values.add(key)
         results = document.get("results", [])
         if isinstance(results, list):
             for row in results:
@@ -1025,6 +1124,12 @@ def verification_results():
         items = document.get("items", {})
         if isinstance(items, dict):
             for key, value in items.items():
+                if is_difftest_record(value):
+                    if verified_difftest_record(value, evidence_is_fresh, evidence_run_id):
+                        values.add(key)
+                    else:
+                        values.discard(key)
+                    continue
                 if isinstance(value, dict):
                     status = value.get("status")
                     if status in ("differs", "crashes", "not-exercised") or value.get("verified") is False or value.get("passed") is False:
@@ -1041,6 +1146,12 @@ def verification_results():
                 if not isinstance(row, dict) or not row.get("id"):
                     continue
                 item_id = str(row["id"])
+                if is_difftest_record(row):
+                    if verified_difftest_record(row, evidence_is_fresh, evidence_run_id):
+                        values.add(item_id)
+                    else:
+                        values.discard(item_id)
+                    continue
                 if (row.get("status") in ("differs", "crashes", "not-exercised") or
                         row.get("verified") is False or row.get("passed") is False):
                     values.discard(item_id)
@@ -1188,10 +1299,12 @@ def markdown_report(report):
         "are included. PrivateFrameworks "
         "and underscore-named framework bundles are excluded.", "",
         "Behavior-verified counts come from item IDs in build/compat-results/*.json. "
-        "Generated comparisons and constant checks merge their item records into the same "
-        "framework file. Records with status verified (or the older verified/passed flags) "
-        "count; a later result replaces the status for that item ID. The full name-by-name "
-        "report is kept in build/api-coverage.json.", "",
+        "Generated comparison records count only when the item's run matches the saved SDK, "
+        "test code, and Finch image for this report, the Finch image was loaded during the run, "
+        "and both sides produced output. Standalone verified IDs without item records are "
+        "kept as history but are not counted. These checks cover the recorded safe inputs, "
+        "not every input an API can accept. Constant checks also merge into the framework files. The full "
+        "name-by-name report is kept in build/api-coverage.json.", "",
         f"Overall: **{summary['percent']:.1f}%** ({summary['present']:,} of "
         f"{summary['total']:,} API items across {summary['parsed_frameworks']} "
         "parsed frameworks or dylibs).", "",
@@ -1278,7 +1391,8 @@ def main(argv=None):
         SDK_CACHE.mkdir(parents=True, exist_ok=True)
         module_root, finch_modules = prepare_finch_modules(work_specs, args.build_root)
         prepare_sdk_modules(work_specs)
-        verify = verification_results()
+        verify = verification_results(sdk_path=sdk, sdk_version=sdk_version,
+                                      build_root=args.build_root, specs=specs_by_id)
         try:
             compile_responder()
         except RuntimeError as error:

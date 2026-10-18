@@ -1,0 +1,39 @@
+diff --git a/patches/26.0/00_setup_coreentitlements.sh b/patches/26.0/00_setup_coreentitlements.sh
+index 845ee67..44965b3 100644
+--- a/patches/26.0/00_setup_coreentitlements.sh
++++ b/patches/26.0/00_setup_coreentitlements.sh
+@@ -35,9 +35,21 @@ echo "Setting up CoreEntitlements V2 headers..."
+ # Create V2 directory if it doesn't exist
+ mkdir -p "${EXTERNAL_HEADERS}/CoreEntitlements/V2"
+ 
++# Leave identical headers alone so make does not rebuild every file that uses them.
++copy_if_different() {
++    local source="$1"
++    local destination="$2"
++    if [[ -f "${destination}" ]] && cmp -s "${source}" "${destination}"; then
++        return
++    fi
++    cp "${source}" "${destination}"
++}
++
+ # Copy every V2 header (API.h pulls in Closure.h, Acceleration.h and StackProtector.h).
+-echo "  Copying V2 headers from ${KDK_CE_PATH}..."
+-cp "${KDK_CE_PATH}/V2/"*.h "${EXTERNAL_HEADERS}/CoreEntitlements/V2/"
++echo "  Checking V2 headers from ${KDK_CE_PATH}..."
++for header in "${KDK_CE_PATH}"/V2/*.h; do
++    copy_if_different "${header}" "${EXTERNAL_HEADERS}/CoreEntitlements/V2/${header##*/}"
++done
+ 
+ # Kernel.h (the CEKernelAPI_t function table AMFI hands to xnu) is not under PrivateHeaders; KDKs from
+ # 26.4 on ship it in System/Library/KernelSupport. Earlier revisions of this script wrote a made-up
+@@ -62,8 +74,8 @@ if [ -z "${KERNEL_H}" ]; then
+     echo "ERROR: no installed 26.x KDK provides ${KERNEL_H_REL}; install KDK 26.4 or newer"
+     exit 1
+ fi
+-echo "  Copying Kernel.h from ${KERNEL_H}..."
+-cp "${KERNEL_H}" "${EXTERNAL_HEADERS}/CoreEntitlements/V2/Kernel.h"
++echo "  Checking Kernel.h from ${KERNEL_H}..."
++copy_if_different "${KERNEL_H}" "${EXTERNAL_HEADERS}/CoreEntitlements/V2/Kernel.h"
+ 
+ # Older revisions of this script wrote a hand-made os/firehose_buffer_private.h here. The real
+ # header is installed by libdispatch into ${FAKEROOT_DIR}/usr/local/include/kernel, and a stale

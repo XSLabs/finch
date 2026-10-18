@@ -1,0 +1,290 @@
+diff --git a/security/conf/files b/security/conf/files
+--- a/security/conf/files
++++ b/security/conf/files
+@@ -28,3 +28,4 @@
+ security/mac_pty.c					optional config_macf
+ security/mac_kext.c					optional config_macf
+ security/mac_mach.c					optional config_macf
++security/finch_sandbox.c				optional config_macf
+diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
+--- a/osfmk/kern/startup.c
++++ b/osfmk/kern/startup.c
+@@ -159,5 +159,6 @@
+ #if CONFIG_MACF
+ #include <security/mac_mach_internal.h>
++extern void finch_sandbox_policy_init(void);
+ #if CONFIG_VNGUARD
+ extern void vnguard_policy_init(void);
+ #endif
+@@ -830,6 +831,8 @@
+ #if CONFIG_MACF
+ 	kernel_bootstrap_log("mac_policy_initmach");
+ 	mac_policy_initmach();
++	kernel_bootstrap_log("finch_sandbox_policy_init");
++	finch_sandbox_policy_init();
+ #if CONFIG_VNGUARD
+ 	kernel_bootstrap_log("vnguard_policy_init");
+ 	vnguard_policy_init();
+diff --git a/security/finch_sandbox.c b/security/finch_sandbox.c
+new file mode 100644
+--- /dev/null
++++ b/security/finch_sandbox.c
+@@ -0,0 +1,258 @@
++/* SPDX-License-Identifier: MIT OR Apache-2.0 */
++/*
++ * A small kernel-only enforcement proof. This is not a profile compiler or
++ * a complete process sandbox.
++ */
++
++#include <sys/param.h>
++#include <sys/errno.h>
++#include <string.h>
++#include <sys/fcntl.h>
++#include <sys/kauth.h>
++#include <sys/ucred.h>
++#include <sys/proc.h>
++#include <sys/systm.h>
++
++#include <kern/locks.h>
++#include <mach/vm_prot.h>
++#include <security/mac_framework.h>
++#include <security/mac_policy.h>
++
++#define FINCH_SANDBOX_PROFILE_DENY_READ	1
++#define FINCH_SANDBOX_PROFILE_DENY_WRITE	2
++
++static int finch_sandbox_label_slot;
++static mac_policy_handle_t finch_sandbox_policy_handle;
++static const char *finch_sandbox_label_names[] = { "finch_sandbox" };
++
++static LCK_GRP_DECLARE(finch_sandbox_apply_lock_group, "FinchSandbox");
++static LCK_MTX_DECLARE(finch_sandbox_apply_lock,
++    &finch_sandbox_apply_lock_group);
++
++static int
++finch_sandbox_profile(kauth_cred_t cred)
++{
++	return (int)mac_label_get(mac_cred_label(cred),
++	    finch_sandbox_label_slot);
++}
++
++/* The current-process check also protects descriptors opened before apply. */
++static int
++finch_sandbox_current_profile(void)
++{
++	kauth_cred_t cred = kauth_cred_proc_ref(current_proc());
++	int profile = finch_sandbox_profile(cred);
++
++	kauth_cred_unref(&cred);
++	return profile;
++}
++
++/* Legacy AIO can run on a kernel worker; queued requests keep their old cred. */
++static int
++finch_sandbox_vnode_io_profile(kauth_cred_t active_cred)
++{
++	int profile = finch_sandbox_current_profile();
++
++	if (IS_VALID_CRED(active_cred)) {
++		profile |= finch_sandbox_profile(active_cred);
++	}
++	return profile;
++}
++
++static int
++finch_sandbox_apply(proc_t p, int profile)
++{
++	kauth_cred_t cred;
++	int current_profile;
++	int error;
++
++	/* Serialize the check and update so two threads cannot both apply. */
++	lck_mtx_lock(&finch_sandbox_apply_lock);
++	cred = kauth_cred_proc_ref(p);
++	if (cred == NOCRED) {
++		lck_mtx_unlock(&finch_sandbox_apply_lock);
++		return ESRCH;
++	}
++	current_profile = finch_sandbox_profile(cred);
++	kauth_cred_unref(&cred);
++	if (current_profile != 0) {
++		lck_mtx_unlock(&finch_sandbox_apply_lock);
++		return EPERM;
++	}
++
++	/*
++	 * Finch's apply mutex stays held for this operation. XNU builds the
++	 * credential before taking proc_ucred_lock, then swaps under that lock.
++	 * Its helper retries from the latest credential if another change wins.
++	 *
++	 * The derive callback follows XNU's label init/associate path and then
++	 * sets only Finch's slot. It does not call every policy's label_update
++	 * hook with a Finch-only label. The borrowed Sandbox policy's association
++	 * behavior is unavailable for source review and remains unverified.
++	 */
++	error = kauth_cred_proc_update(p, PROC_SETTOKEN_NONE,
++	    ^bool (kauth_cred_t parent, kauth_cred_t model) {
++		mac_cred_label_init(model);
++		mac_cred_label_associate(parent, model);
++		mac_label_set(mac_cred_label(model), finch_sandbox_label_slot,
++		    profile);
++		posix_cred_get(model)->cr_flags |= CRF_MAC_ENFORCE;
++		return true;
++	}) ? 0 : EPERM;
++	lck_mtx_unlock(&finch_sandbox_apply_lock);
++	return error;
++}
++
++static int
++finch_sandbox_policy_syscall(proc_t p, int call, user_addr_t arg)
++{
++	if (arg != USER_ADDR_NULL) {
++		return EINVAL;
++	}
++
++	switch (call) {
++	case FINCH_SANDBOX_PROFILE_DENY_READ:
++	case FINCH_SANDBOX_PROFILE_DENY_WRITE:
++		return finch_sandbox_apply(p, call);
++	default:
++		return EINVAL;
++	}
++}
++
++static int
++finch_sandbox_cred_label_internalize(struct label *label,
++    char *element_name __unused, char *element_data)
++{
++	/* User label updates may request only the empty state. */
++	if (strcmp(element_data, "0") != 0) {
++		return EINVAL;
++	}
++	mac_label_set(label, finch_sandbox_label_slot, 0);
++	return 0;
++}
++
++static int
++finch_sandbox_cred_check_label_update(kauth_cred_t cred,
++    struct label *new_label)
++{
++	/* A user label update must never set, change, or clear our profile. */
++	if (finch_sandbox_profile(cred) != 0 ||
++	    mac_label_get(new_label, finch_sandbox_label_slot) != 0) {
++		return EPERM;
++	}
++	return 0;
++}
++
++static void
++finch_sandbox_cred_label_associate(kauth_cred_t parent_cred,
++    kauth_cred_t child_cred)
++{
++	mac_label_set(mac_cred_label(child_cred), finch_sandbox_label_slot,
++	    finch_sandbox_profile(parent_cred));
++}
++
++static void
++finch_sandbox_cred_label_update(kauth_cred_t cred,
++    struct label *new_label)
++{
++	intptr_t profile = mac_label_get(new_label, finch_sandbox_label_slot);
++
++	/* Zero never erases a profile copied from the old credential. */
++	if (profile == FINCH_SANDBOX_PROFILE_DENY_READ ||
++	    profile == FINCH_SANDBOX_PROFILE_DENY_WRITE) {
++		mac_label_set(mac_cred_label(cred), finch_sandbox_label_slot,
++		    profile);
++	}
++}
++
++static int
++finch_sandbox_vnode_check_open(kauth_cred_t cred __unused,
++    struct vnode *vp __unused, struct label *label __unused, int acc_mode)
++{
++	int profile = finch_sandbox_current_profile();
++
++	if (profile == FINCH_SANDBOX_PROFILE_DENY_READ && (acc_mode & FREAD)) {
++		return EACCES;
++	}
++	if (profile == FINCH_SANDBOX_PROFILE_DENY_WRITE && (acc_mode & FWRITE)) {
++		return EACCES;
++	}
++	return 0;
++}
++
++static int
++finch_sandbox_vnode_check_read(kauth_cred_t active_cred,
++    kauth_cred_t file_cred __unused, struct vnode *vp __unused,
++    struct label *label __unused)
++{
++	return (finch_sandbox_vnode_io_profile(active_cred) &
++	    FINCH_SANDBOX_PROFILE_DENY_READ) != 0 ? EACCES : 0;
++}
++
++static int
++finch_sandbox_vnode_check_write(kauth_cred_t active_cred,
++    kauth_cred_t file_cred __unused, struct vnode *vp __unused,
++    struct label *label __unused)
++{
++	return (finch_sandbox_vnode_io_profile(active_cred) &
++	    FINCH_SANDBOX_PROFILE_DENY_WRITE) != 0 ? EACCES : 0;
++}
++
++static int
++finch_sandbox_file_check_mmap(kauth_cred_t cred __unused,
++    struct fileglob *fg __unused, struct label *label __unused, int prot,
++    int flags __unused, uint64_t file_pos __unused, int *maxprot)
++{
++	int profile = finch_sandbox_current_profile();
++
++	/*
++	 * XNU's mprotect check only sees an address range, not the backing file.
++	 * Block all file mappings for deny-read, including PROT_NONE mappings that
++	 * could later be upgraded. For deny-write, remove write from maxprot so a
++	 * read-only mapping cannot gain write access through a later mprotect.
++	 */
++	if (profile == FINCH_SANDBOX_PROFILE_DENY_READ) {
++		return EACCES;
++	}
++	if (profile == FINCH_SANDBOX_PROFILE_DENY_WRITE) {
++		*maxprot &= ~VM_PROT_WRITE;
++		if ((prot & VM_PROT_WRITE) != 0) {
++			return EACCES;
++		}
++	}
++	return 0;
++}
++
++static struct mac_policy_ops finch_sandbox_policy_ops = {
++	.mpo_policy_syscall = finch_sandbox_policy_syscall,
++	.mpo_cred_label_associate = finch_sandbox_cred_label_associate,
++	.mpo_cred_check_label_update = finch_sandbox_cred_check_label_update,
++	.mpo_cred_label_internalize = finch_sandbox_cred_label_internalize,
++	.mpo_cred_label_update = finch_sandbox_cred_label_update,
++	.mpo_vnode_check_open = finch_sandbox_vnode_check_open,
++	.mpo_vnode_check_read = finch_sandbox_vnode_check_read,
++	.mpo_vnode_check_write = finch_sandbox_vnode_check_write,
++	.mpo_file_check_mmap = finch_sandbox_file_check_mmap,
++};
++
++static struct mac_policy_conf finch_sandbox_policy_conf = {
++	.mpc_name = "FinchSandbox",
++	.mpc_fullname = "Finch fixed-profile enforcement proof",
++	.mpc_labelnames = finch_sandbox_label_names,
++	.mpc_labelname_count = 1,
++	.mpc_ops = &finch_sandbox_policy_ops,
++	.mpc_field_off = &finch_sandbox_label_slot,
++	.mpc_loadtime_flags = 0,
++	.mpc_runtime_flags = 0,
++};
++
++void
++finch_sandbox_policy_init(void)
++{
++	int error = mac_policy_register(&finch_sandbox_policy_conf,
++	    &finch_sandbox_policy_handle, NULL);
++
++	if (error != 0) {
++		panic("FinchSandbox policy registration failed: %d", error);
++	}
++}

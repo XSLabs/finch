@@ -1,1 +1,1 @@
-configd network apply validation: PASS (preflight, DNS priority, safe IPv4 rollback)
+configd network apply validation: PASS (preflight, DNS rollback, safe IPv4 rollback)

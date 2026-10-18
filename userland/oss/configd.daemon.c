@@ -43,6 +43,7 @@
 #define SYSTEM_PREFS_ROOT "/Library/Preferences/SystemConfiguration"
 #define SYSTEM_PREFS_PATH SYSTEM_PREFS_ROOT "/preferences.plist"
 #define MAX_PLIST_SIZE (16 * 1024 * 1024)
+#define MAX_RESOLVER_SNAPSHOT_BYTES (64 * 1024)
 
 /* The message carries the kernel token captured when it was received. */
 void xpc_dictionary_get_audit_token(xpc_object_t message, audit_token_t *token);
@@ -1224,6 +1225,15 @@ typedef struct {
 	size_t resolverLength;
 	int resolverDirectoryFD;
 	char resolverLeaf[NAME_MAX + 1];
+	uid_t resolverExpectedOwner;
+	bool resolverSnapshotReady;
+	bool resolverOriginalExists;
+	struct stat resolverOriginalStat;
+	UInt8 *resolverOriginalBytes;
+	size_t resolverOriginalLength;
+	bool resolverInstalled;
+	bool resolverInstalledStatReady;
+	struct stat resolverInstalledStat;
 } NetworkApplyPlan;
 
 static void
@@ -1237,6 +1247,7 @@ freeNetworkApplyPlan(NetworkApplyPlan *plan)
 		CFRelease(plan->nameservers);
 	if (plan->searchDomains)
 		CFRelease(plan->searchDomains);
+	free(plan->resolverOriginalBytes);
 	free(plan->services);
 	memset(plan, 0, sizeof(*plan));
 	plan->resolverDirectoryFD = -1;
@@ -1530,6 +1541,114 @@ formatResolverContents(NetworkApplyPlan *plan)
 	return SC_OK;
 }
 
+static bool
+resolverStatSame(const struct stat *left, const struct stat *right)
+{
+	return left->st_dev == right->st_dev && left->st_ino == right->st_ino &&
+	    left->st_mode == right->st_mode && left->st_uid == right->st_uid &&
+	    left->st_gid == right->st_gid && left->st_nlink == right->st_nlink &&
+	    left->st_size == right->st_size &&
+	    left->st_mtimespec.tv_sec == right->st_mtimespec.tv_sec &&
+	    left->st_mtimespec.tv_nsec == right->st_mtimespec.tv_nsec &&
+	    left->st_ctimespec.tv_sec == right->st_ctimespec.tv_sec &&
+	    left->st_ctimespec.tv_nsec == right->st_ctimespec.tv_nsec;
+}
+
+static bool
+resolverStatSameFile(const struct stat *left, const struct stat *right)
+{
+	/* A rename can update ctime, so check the file state without comparing it. */
+	return left->st_dev == right->st_dev && left->st_ino == right->st_ino &&
+	    left->st_mode == right->st_mode && left->st_uid == right->st_uid &&
+	    left->st_gid == right->st_gid && left->st_nlink == right->st_nlink &&
+	    left->st_size == right->st_size &&
+	    left->st_mtimespec.tv_sec == right->st_mtimespec.tv_sec &&
+	    left->st_mtimespec.tv_nsec == right->st_mtimespec.tv_nsec;
+}
+
+static bool
+resolverTargetMatchesOriginal(NetworkApplyPlan *plan)
+{
+	struct stat current;
+	if (fstatat(plan->resolverDirectoryFD, plan->resolverLeaf, &current,
+	    AT_SYMLINK_NOFOLLOW) == 0)
+		return plan->resolverOriginalExists &&
+		    resolverStatSame(&current, &plan->resolverOriginalStat);
+	return !plan->resolverOriginalExists && errno == ENOENT;
+}
+
+static int
+snapshotResolverTarget(NetworkApplyPlan *plan, uid_t expectedOwner)
+{
+	plan->resolverExpectedOwner = expectedOwner;
+	struct stat before;
+	if (fstatat(plan->resolverDirectoryFD, plan->resolverLeaf, &before,
+	    AT_SYMLINK_NOFOLLOW) < 0) {
+		if (errno != ENOENT)
+			return SC_ACCESS_ERROR;
+		plan->resolverOriginalExists = false;
+		plan->resolverOriginalLength = 0;
+		plan->resolverSnapshotReady = true;
+		return SC_OK;
+	}
+	if (!S_ISREG(before.st_mode) || before.st_uid != expectedOwner ||
+	    before.st_nlink != 1 || (before.st_mode & (S_IWGRP | S_IWOTH)) != 0 ||
+	    before.st_size < 0 || (uintmax_t)before.st_size > MAX_RESOLVER_SNAPSHOT_BYTES)
+		return SC_ACCESS_ERROR;
+	int fd = openat(plan->resolverDirectoryFD, plan->resolverLeaf,
+	    O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+	if (fd < 0)
+		return SC_ACCESS_ERROR;
+	struct stat opened, after;
+	bool ok = fstat(fd, &opened) == 0 && resolverStatSame(&before, &opened);
+	size_t length = ok ? (size_t)opened.st_size : 0;
+	UInt8 *bytes = length ? malloc(length) : NULL;
+	if (ok && length && bytes == NULL)
+		ok = false;
+	size_t offset = 0;
+	while (ok && offset < length) {
+		ssize_t count = read(fd, bytes + offset, length - offset);
+		if (count < 0 && errno == EINTR)
+			continue;
+		if (count <= 0) {
+			ok = false;
+			break;
+		}
+		offset += (size_t)count;
+	}
+	UInt8 extra;
+	if (ok) {
+		ssize_t count;
+		do {
+			count = read(fd, &extra, sizeof(extra));
+		} while (count < 0 && errno == EINTR);
+		if (count != 0)
+			ok = false;
+	}
+	if (ok)
+		ok = fstat(fd, &after) == 0 && resolverStatSame(&opened, &after);
+	int saved = errno;
+	if (close(fd) < 0 && ok) {
+		ok = false;
+		saved = errno;
+	}
+	struct stat current;
+	if (ok)
+		ok = fstatat(plan->resolverDirectoryFD, plan->resolverLeaf, &current,
+		    AT_SYMLINK_NOFOLLOW) == 0 && resolverStatSame(&after, &current);
+	if (!ok) {
+		free(bytes);
+		errno = saved;
+		return SC_ACCESS_ERROR;
+	}
+	plan->resolverOriginalExists = true;
+	plan->resolverOriginalStat = after;
+	plan->resolverOriginalBytes = bytes;
+	plan->resolverOriginalLength = length;
+	plan->resolverSnapshotReady = true;
+	return SC_OK;
+}
+
 static int
 prepareResolverTarget(NetworkApplyPlan *plan)
 {
@@ -1553,19 +1672,13 @@ prepareResolverTarget(NetworkApplyPlan *plan)
 	int dirfd = openTrustedResolverDirectory(directory);
 	if (dirfd < 0)
 		return SC_ACCESS_ERROR;
-	struct stat target;
-	if (fstatat(dirfd, plan->resolverLeaf, &target, AT_SYMLINK_NOFOLLOW) == 0) {
-		if (!S_ISREG(target.st_mode) || target.st_uid != 0 || target.st_nlink != 1 ||
-		    (target.st_mode & (S_IWGRP | S_IWOTH)) != 0) {
-			close(dirfd);
-			return SC_ACCESS_ERROR;
-		}
-	} else if (errno != ENOENT) {
-		close(dirfd);
-		return SC_ACCESS_ERROR;
-	}
 	plan->resolverDirectoryFD = dirfd;
-	return SC_OK;
+	int status = snapshotResolverTarget(plan, 0);
+	if (status != SC_OK) {
+		close(dirfd);
+		plan->resolverDirectoryFD = -1;
+	}
+	return status;
 }
 
 static int
@@ -1769,40 +1882,184 @@ rollbackAddedIPv4(NetworkApplyPlan *plan)
 }
 
 static int
+writeResolverTemp(NetworkApplyPlan *plan, const char *purpose, const UInt8 *bytes,
+	    size_t length, uid_t owner, gid_t group, mode_t mode, struct stat *fileStat,
+	    char temp[NAME_MAX + 1])
+{
+	for (unsigned int attempt = 0; attempt < 8; attempt++) {
+		int n = snprintf(temp, NAME_MAX + 1, ".configd-%s-%d-%llu", purpose,
+		    getpid(), (unsigned long long)arc4random());
+		if (n < 0 || n >= NAME_MAX + 1)
+			return SC_FAILED;
+		int fd = openat(plan->resolverDirectoryFD, temp,
+		    O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+		if (fd < 0) {
+			if (errno == EEXIST)
+				continue;
+			return errno == EACCES || errno == EPERM || errno == EROFS ?
+			    SC_ACCESS_ERROR : SC_FAILED;
+		}
+		struct stat created;
+		bool ok = fstat(fd, &created) == 0;
+		if (ok && (created.st_uid != owner ||
+		    (group != (gid_t)-1 && created.st_gid != group)))
+			ok = fchown(fd, owner, group) == 0;
+		if (ok)
+			ok = fchmod(fd, mode) == 0 && writeAll(fd, bytes, length) && fsync(fd) == 0;
+		if (ok)
+			ok = fstat(fd, fileStat) == 0;
+		int saved = errno;
+		if (close(fd) < 0 && ok) {
+			ok = false;
+			saved = errno;
+		}
+		if (ok)
+			return SC_OK;
+		(void)unlinkat(plan->resolverDirectoryFD, temp, 0);
+		errno = saved;
+		return saved == EACCES || saved == EPERM || saved == EROFS ?
+		    SC_ACCESS_ERROR : SC_FAILED;
+	}
+	return SC_FAILED;
+}
+
+static int
 writeResolverConfig(NetworkApplyPlan *plan)
 {
 	if (!plan->hasDNS)
 		return SC_OK;
-	if (plan->resolverDirectoryFD < 0 || plan->resolverLeaf[0] == '\0')
+	if (plan->resolverDirectoryFD < 0 || plan->resolverLeaf[0] == '\0' ||
+	    !plan->resolverSnapshotReady || !resolverTargetMatchesOriginal(plan))
 		return SC_FAILED;
 	char temp[NAME_MAX + 1];
-	snprintf(temp, sizeof(temp), ".%s.configd.%d.%llu", plan->resolverLeaf, getpid(),
-	    (unsigned long long)arc4random());
-	int fd = openat(plan->resolverDirectoryFD, temp,
-	    O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0644);
-	if (fd < 0) {
-		return errno == EACCES || errno == EPERM || errno == EROFS ? SC_ACCESS_ERROR : SC_FAILED;
-	}
-	bool ok = fchmod(fd, 0644) == 0 &&
-	    writeAll(fd, (const UInt8 *)plan->resolverContents, plan->resolverLength) &&
-	    fsync(fd) == 0;
-	int saved = errno;
-	if (close(fd) < 0 && ok) {
-		ok = false;
-		saved = errno;
-	}
-	if (ok && renameat(plan->resolverDirectoryFD, temp, plan->resolverDirectoryFD,
-	    plan->resolverLeaf) < 0) {
-		ok = false;
-		saved = errno;
-	}
-	if (ok && fsync(plan->resolverDirectoryFD) < 0) {
-		ok = false;
-		saved = errno;
-	}
-	if (!ok)
+	struct stat tempStat;
+	int status = writeResolverTemp(plan, "install",
+	    (const UInt8 *)plan->resolverContents, plan->resolverLength,
+	    plan->resolverExpectedOwner, (gid_t)-1, 0644, &tempStat, temp);
+	if (status != SC_OK)
+		return status;
+	/* Keep the staged file open so its post-rename ctime is still known if the
+	 * path lookup below fails. That lets rollback verify the same file safely. */
+	int stagedFD = openat(plan->resolverDirectoryFD, temp,
+	    O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+	if (stagedFD < 0) {
+		int saved = errno;
 		(void)unlinkat(plan->resolverDirectoryFD, temp, 0);
-	return ok ? SC_OK : (saved == EACCES || saved == EPERM || saved == EROFS ?
+		return saved == EACCES || saved == EPERM || saved == EROFS ?
+		    SC_ACCESS_ERROR : SC_FAILED;
+	}
+	struct stat staged;
+	int saved = 0;
+	if (fstat(stagedFD, &staged) < 0) {
+		saved = errno;
+	} else if (!resolverStatSame(&tempStat, &staged)) {
+		saved = EIO;
+	}
+	if (saved != 0) {
+		(void)close(stagedFD);
+		(void)unlinkat(plan->resolverDirectoryFD, temp, 0);
+		return saved == EACCES || saved == EPERM || saved == EROFS ?
+		    SC_ACCESS_ERROR : SC_FAILED;
+	}
+	if (!resolverTargetMatchesOriginal(plan)) {
+		(void)close(stagedFD);
+		(void)unlinkat(plan->resolverDirectoryFD, temp, 0);
+		return SC_FAILED;
+	}
+	if (renameat(plan->resolverDirectoryFD, temp, plan->resolverDirectoryFD,
+	    plan->resolverLeaf) < 0) {
+		int saved = errno;
+		(void)close(stagedFD);
+		(void)unlinkat(plan->resolverDirectoryFD, temp, 0);
+		return saved == EACCES || saved == EPERM || saved == EROFS ?
+		    SC_ACCESS_ERROR : SC_FAILED;
+	}
+	/* Mark this before syncing the directory: rename already changed the target. */
+	plan->resolverInstalled = true;
+	int result = SC_OK;
+	struct stat stagedAfterRename;
+	bool stagedStatReady = fstat(stagedFD, &stagedAfterRename) == 0 &&
+	    resolverStatSameFile(&tempStat, &stagedAfterRename);
+	if (stagedStatReady) {
+		plan->resolverInstalledStat = stagedAfterRename;
+		plan->resolverInstalledStatReady = true;
+	}
+	struct stat installed;
+	if (fstatat(plan->resolverDirectoryFD, plan->resolverLeaf, &installed,
+	    AT_SYMLINK_NOFOLLOW) < 0) {
+		result = errno == EACCES || errno == EPERM ? SC_ACCESS_ERROR : SC_FAILED;
+	} else if (!resolverStatSameFile(&tempStat, &installed) ||
+	    (stagedStatReady && !resolverStatSame(&stagedAfterRename, &installed))) {
+		result = SC_FAILED;
+	} else {
+		plan->resolverInstalledStat = installed;
+		plan->resolverInstalledStatReady = true;
+	}
+	if (close(stagedFD) < 0 && result == SC_OK)
+		result = errno == EACCES || errno == EPERM || errno == EROFS ?
+		    SC_ACCESS_ERROR : SC_FAILED;
+	if (fsync(plan->resolverDirectoryFD) < 0 && result == SC_OK)
+		result = errno == EACCES || errno == EPERM || errno == EROFS ?
+		    SC_ACCESS_ERROR : SC_FAILED;
+	return result;
+}
+
+static bool
+resolverTargetMatchesInstalled(NetworkApplyPlan *plan)
+{
+	if (!plan->resolverInstalledStatReady)
+		return false;
+	struct stat current;
+	return fstatat(plan->resolverDirectoryFD, plan->resolverLeaf, &current,
+	    AT_SYMLINK_NOFOLLOW) == 0 && resolverStatSame(&current,
+	    &plan->resolverInstalledStat);
+}
+
+static int
+rollbackResolverConfig(NetworkApplyPlan *plan)
+{
+	if (!plan->resolverInstalled)
+		return SC_OK;
+	/* These checks and rename/unlink are separate calls, so this is best effort
+	 * protection from changes we can see, not an atomic guard against every race. */
+	if (!resolverTargetMatchesInstalled(plan)) {
+		fprintf(stderr, "configd: resolver target changed after install; leaving it in place\n");
+		return SC_FAILED;
+	}
+	if (!plan->resolverOriginalExists) {
+		if (unlinkat(plan->resolverDirectoryFD, plan->resolverLeaf, 0) < 0)
+			return errno == EACCES || errno == EPERM || errno == EROFS ?
+			    SC_ACCESS_ERROR : SC_FAILED;
+		plan->resolverInstalled = false;
+		return fsync(plan->resolverDirectoryFD) == 0 ? SC_OK :
+		    (errno == EACCES || errno == EPERM || errno == EROFS ?
+		    SC_ACCESS_ERROR : SC_FAILED);
+	}
+	char temp[NAME_MAX + 1];
+	struct stat tempStat;
+	int status = writeResolverTemp(plan, "restore", plan->resolverOriginalBytes,
+	    plan->resolverOriginalLength, plan->resolverOriginalStat.st_uid,
+	    plan->resolverOriginalStat.st_gid, plan->resolverOriginalStat.st_mode & 07777,
+	    &tempStat, temp);
+	if (status != SC_OK) {
+		fprintf(stderr, "configd: could not stage the saved resolver file\n");
+		return status;
+	}
+	if (!resolverTargetMatchesInstalled(plan)) {
+		fprintf(stderr, "configd: resolver target changed during rollback; leaving it in place\n");
+		(void)unlinkat(plan->resolverDirectoryFD, temp, 0);
+		return SC_FAILED;
+	}
+	if (renameat(plan->resolverDirectoryFD, temp, plan->resolverDirectoryFD,
+	    plan->resolverLeaf) < 0) {
+		int saved = errno;
+		(void)unlinkat(plan->resolverDirectoryFD, temp, 0);
+		return saved == EACCES || saved == EPERM || saved == EROFS ?
+		    SC_ACCESS_ERROR : SC_FAILED;
+	}
+	plan->resolverInstalled = false;
+	return fsync(plan->resolverDirectoryFD) == 0 ? SC_OK :
+	    (errno == EACCES || errno == EPERM || errno == EROFS ?
 	    SC_ACCESS_ERROR : SC_FAILED);
 }
 
@@ -1817,8 +2074,7 @@ applyNetworkServices(NetworkApplyPlan *plan)
 	return writeResolverConfig(plan);
 }
 
-/* Rollback is best effort when other actors can change addresses at the same time.
- * If hostname setup fails after DNS was written, DNS contents are not restored. */
+/* Rollback is best effort when other actors can change addresses or DNS at the same time. */
 static int
 applyPreparedNetworkPlan(NetworkApplyPlan *plan, bool hasHostname, const char *hostname)
 {
@@ -1826,6 +2082,11 @@ applyPreparedNetworkPlan(NetworkApplyPlan *plan, bool hasHostname, const char *h
 	if (status == SC_OK && hasHostname && sethostname(hostname, strlen(hostname)) < 0)
 		status = networkStatusForErrno(errno);
 	if (status != SC_OK) {
+		int resolverRollbackStatus = rollbackResolverConfig(plan);
+		if (resolverRollbackStatus != SC_OK) {
+			fprintf(stderr, "configd: resolver config rollback did not finish cleanly\n");
+			status = resolverRollbackStatus;
+		}
 		int rollbackStatus = rollbackAddedIPv4(plan);
 		if (rollbackStatus != SC_OK) {
 			fprintf(stderr, "configd: IPv4 address rollback did not finish cleanly\n");

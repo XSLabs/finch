@@ -204,7 +204,8 @@ build/userland/finch-quicklook-test /usr/local/bin/finch-quicklook-test
 build/userland/finch-exports-test /usr/local/bin/finch-exports-test
 build/userland/finch-cookies-test /usr/local/bin/finch-cookies-test
 build/userland/finch-coredata-test /usr/local/bin/finch-coredata-test
-build/userland/CoreDataTest.momd /usr/local/share/finch/CoreDataTest.momd
+build/userland/CoreDataTest.momd/CoreDataTest.mom /usr/local/share/finch/CoreDataTest.momd/CoreDataTest.mom
+build/userland/CoreDataTest.momd/VersionInfo.plist /usr/local/share/finch/CoreDataTest.momd/VersionInfo.plist
 build/userland/finch-foundation-more-test /usr/local/bin/finch-foundation-more-test
 build/userland/finch-appkit-values-test /usr/local/bin/finch-appkit-values-test
 build/userland/finch-hiservices-test /usr/local/bin/finch-hiservices-test
@@ -308,3 +309,7 @@ build/userland/finch-applescript-test /usr/local/bin/finch-applescript-test
 build/userland/finch-appkit-gaps-test /usr/local/bin/finch-appkit-gaps-test
 build/root/System/Library/Frameworks/AuthenticationServices.framework/Versions/A/AuthenticationServices /System/iOSSupport/System/Library/Frameworks/AuthenticationServices.framework/Versions/A/AuthenticationServices
 build/userland/finch-auth-frameworks-test /usr/local/bin/finch-auth-frameworks-test
+build/userland/finch-cf-preferences-container-test /usr/local/bin/finch-cf-preferences-container-test
+build/userland/finch-libsandbox-test /usr/local/bin/finch-libsandbox-test
+build/userland/finch-sandbox-enforcement-proof-test /usr/local/bin/finch-sandbox-enforcement-proof-test
+build/userland/finch-bootstrap-failure-test /usr/local/bin/finch-bootstrap-failure-test

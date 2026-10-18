@@ -6,6 +6,8 @@
 # (third_party/darwin-vm/firmware/ramdisk.dmg) is never modified.
 #
 # Also checks that every dylib our binaries link against exists in the image.
+# FINCH_VM_BASE_SANDBOX=1 keeps the base image's sandbox compiler for development
+# tests. This borrows a closed component and does not produce a Finch release.
 set -euo pipefail
 
 FINCH_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -56,6 +58,22 @@ add_hashes() {
 }
 is_macho() { file -b "$1" | grep -q '^Mach-O'; }
 
+# A dylib's own install name is not a dependency. Read load commands so it
+# cannot be mistaken for a missing library by the checks below.
+required_libraries() {
+    otool -l "$1" 2>/dev/null | awk '
+        $1 == "cmd" {
+            needed = ($2 == "LC_LOAD_DYLIB" || $2 == "LC_REEXPORT_DYLIB" ||
+                      $2 == "LC_LAZY_LOAD_DYLIB" || $2 == "LC_LOAD_UPWARD_DYLIB")
+        }
+        needed && $1 == "name" {
+            sub(/^[[:space:]]*name /, "")
+            sub(/ \(offset [0-9]+\)$/, "")
+            print
+            needed = 0
+        }'
+}
+
 # 0. Mount points for the tmpfs the boot script lays over the read-only root.
 mkdir -p "${mnt}/private/tmp" "${mnt}"/private/var/{tmp,run,log,root,rw}
 # Disk Arbitration cannot create its mount folder after the image boots read-only.
@@ -93,8 +111,21 @@ fi
 if [[ -d "${ROOT}" ]]; then
     # Runtime files only: link stubs (.tbd), static archives and headers are
     # build products for the host, not the OS.
-    rsync -a --exclude '*.tbd' --exclude '*.a' --exclude '*.dSYM' --exclude '/usr/include/' \
-        --exclude '/usr/local/include/' "${ROOT}/" "${mnt}/"
+    copy_flags=(-a --exclude '*.tbd' --exclude '*.a' --exclude '*.dSYM'
+        --exclude '/usr/include/' --exclude '/usr/local/include/')
+    if [[ "${FINCH_VM_BASE_SANDBOX:-0}" == 1 ]]; then
+        [[ -f "${mnt}/usr/lib/libsandbox.1.dylib" ]] || die "base image has no sandbox compiler"
+        copy_flags+=(--exclude '/usr/lib/libsandbox.1.dylib')
+    fi
+    rsync "${copy_flags[@]}" "${ROOT}/" "${mnt}/"
+    if [[ "${FINCH_VM_BASE_SANDBOX:-0}" == 1 ]]; then
+        mkdir -p "${mnt}/usr/share/finch"
+        printf '%s\n' 'Development only: /usr/lib/libsandbox.1.dylib comes from the base image.' \
+            'Finch sandbox profile compilation is unfinished. This is not a release image.' \
+            > "${mnt}/usr/share/finch/development-borrowed-components.txt"
+        echo "  DEVELOPMENT ONLY: keeping the base image sandbox compiler"
+        shasum -a 256 "${mnt}/usr/lib/libsandbox.1.dylib"
+    fi
     n=0
     while IFS= read -r -d '' f; do
         if is_macho "$f"; then add_hashes "${mnt}${f#"${ROOT}"}"; n=$((n + 1)); fi
@@ -167,7 +198,7 @@ done
 #    allowed to be absent (libobjc's libobjc-env and libswiftCore, as on macOS).
 missing=$( { find "${ROOT}" -type f -print0 2>/dev/null; } | while IFS= read -r -d '' f; do
     is_macho "$f" || continue
-    otool -L "$f" 2>/dev/null | tail -n +2 | grep -v ', weak)$' | awk '{print $1}' | while read -r dep; do
+    required_libraries "$f" | while read -r dep; do
         [[ "${dep}" == @* ]] && continue
         [[ -e "${mnt}${dep}" ]] || echo "${dep} (needed by ${f#"${ROOT}"})"
     done
@@ -255,7 +286,7 @@ if [[ -f "${OUT}/dyld_shared_cache_arm64e.map" ]]; then
     broken=$(grep -v '^\s*#' "${OVERLAY}" | sed '/^\s*$/d' | awk '{print $2}' | cat - <(cd "${ROOT}" && find . -type f | sed 's|^\.||') \
         | sort -u | while read -r img; do
             [[ -f "${mnt}${img}" ]] && is_macho "${mnt}${img}" || continue
-            otool -L "${mnt}${img}" 2>/dev/null | tail -n +2 | grep -v ', weak)$' | awk '{print $1}' | while read -r dep; do
+            required_libraries "${mnt}${img}" | while read -r dep; do
                 [[ "${dep}" == @* || -e "${mnt}${dep}" ]] && continue
                 grep -qx "${dep}" "${OUT}/dyld_shared_cache_arm64e.map" || echo "${img} (${dep})"
             done

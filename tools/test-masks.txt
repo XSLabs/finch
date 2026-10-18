@@ -29,3 +29,6 @@ utilities-test s#^window list: .*#window list: X#
 # whether a dynamic store can watch keys: only with configd, which Apple's host has and the
 # host run of Finch's doesn't
 sysconfig-test s#^notification keys [01]$#notification keys X#
+
+# executable folder differs between the build host and installed guest; keep its name
+runtime-test s#^(arguments: [0-9]+ last) .*/#\1 #

@@ -261,16 +261,30 @@ static void
 start_server(void)
 {
     int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) { perror("urlsession-test: socket"); exit(1); }
     int one = 1;
     setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
     struct sockaddr_in a = {.sin_len = sizeof a, .sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
-    bind(s, (struct sockaddr *)&a, sizeof a);
-    listen(s, 8);
+    if (bind(s, (struct sockaddr *)&a, sizeof a) != 0 || listen(s, 8) != 0) {
+        perror("urlsession-test: local server");
+        close(s);
+        exit(1);
+    }
     socklen_t len = sizeof a;
-    getsockname(s, (struct sockaddr *)&a, &len);
+    if (getsockname(s, (struct sockaddr *)&a, &len) != 0) {
+        perror("urlsession-test: local server address");
+        close(s);
+        exit(1);
+    }
     port = ntohs(a.sin_port);
     pthread_t t;
-    pthread_create(&t, NULL, serve, (void *)(intptr_t)s);
+    int error = pthread_create(&t, NULL, serve, (void *)(intptr_t)s);
+    if (error != 0) {
+        fprintf(stderr, "urlsession-test: server thread: %s\n", strerror(error));
+        close(s);
+        exit(1);
+    }
+    pthread_detach(t);
 }
 
 static NSURL *

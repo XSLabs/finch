@@ -75,22 +75,39 @@ $(OUT)/test/plist-test: tests/plist-test.c $(OUT)/test/libxpc-finch.dylib
 	$(CC) -arch arm64 -mmacosx-version-min=26.0 -O1 -g -fblocks -Wall \
 	    tests/plist-test.c -L$(OUT)/test -lxpc-finch -lobjc -Wl,-rpath,$(OUT)/test -o $@
 
+$(OUT)/test/bootstrap-failure-test: tests/bootstrap-failure-test.c $(BOOTSTRAPD) $(OUT)/test/libxpc-finch.dylib
+	$(CC) -arch arm64 -mmacosx-version-min=26.0 -O1 -g -fblocks -Wall \
+	    tests/bootstrap-failure-test.c \
+	    -L$(OUT)/test -lxpc-finch -lobjc -Wl,-rpath,$(OUT)/test -o $@
+
+# Guest build: resolve Finch's normal libxpc install name from the VM image.
+GUEST_BOOTSTRAP_FAILURE_TEST := $(ROOT)/build/userland/finch-bootstrap-failure-test
+$(GUEST_BOOTSTRAP_FAILURE_TEST): tests/bootstrap-failure-test.c $(BOOTSTRAPD) $(HDRS) $(OUT)/libxpc.dylib Makefile
+	@mkdir -p $(dir $@)
+	$(CC) -arch arm64e -mmacosx-version-min=26.0 -O1 -g -fblocks -Wall \
+	    -Wno-incompatible-pointer-types-discards-qualifiers \
+	    tests/bootstrap-failure-test.c -L$(OUT) -lxpc -lobjc -o $@
+	codesign -f -s - -i org.finch.test.bootstrap-failure $@
+
+guest-bootstrap-failure-test: $(GUEST_BOOTSTRAP_FAILURE_TEST)
+
 # Real plists from this Mac, compared against Apple's parser.
 PLISTS = $(shell ls /System/Library/LaunchDaemons/*.plist /System/Library/LaunchAgents/*.plist 2>/dev/null | head -200) \
          $(shell find /System/Library/CoreServices /Library/Preferences -maxdepth 3 -name '*.plist' 2>/dev/null | head -200)
 
-test: $(OUT)/test/xpc-test $(OUT)/test/serial-test $(OUT)/test/interop-test $(OUT)/test/conn-test $(OUT)/test/bootstrap-test $(OUT)/test/plist-test
+test: $(OUT)/test/xpc-test $(OUT)/test/serial-test $(OUT)/test/interop-test $(OUT)/test/conn-test $(OUT)/test/bootstrap-test $(OUT)/test/bootstrap-failure-test $(OUT)/test/plist-test
 	$(OUT)/test/xpc-test 2>/dev/null
 	$(OUT)/test/serial-test tests/fixtures/apple-25E253.txt 2>/dev/null
 	$(OUT)/test/interop-test 2>/dev/null
 	$(OUT)/test/conn-test 2>/dev/null
 	$(OUT)/test/bootstrap-test 2>/dev/null
+	$(OUT)/test/bootstrap-failure-test 2>/dev/null
 	$(OUT)/test/plist-test $(PLISTS) 2>/dev/null | tail -5
 
 clean:
 	rm -rf $(OUT)
 
-.PHONY: all test clean
+.PHONY: all test clean guest-bootstrap-failure-test
 
 # Same tests under AddressSanitizer + UndefinedBehaviorSanitizer: the wire
 # decoder parses data from other processes, so out-of-bounds reads must fail
@@ -102,7 +119,7 @@ asan: $(SRCS) $(HDRS) tests/*.c $(BOOTSTRAPD)
 	@mkdir -p $(ASAN)
 	$(CC) -arch arm64 $(COMMON) $(SANFLAGS) -dynamiclib \
 	    -install_name @rpath/libxpc-finch.dylib $(SRCS) -lobjc -o $(ASAN)/libxpc-finch.dylib
-	for t in xpc-test serial-test interop-test conn-test bootstrap-test; do \
+	for t in xpc-test serial-test interop-test conn-test bootstrap-test bootstrap-failure-test; do \
 	    $(CC) -arch arm64 -mmacosx-version-min=26.0 -g -fblocks $(SANFLAGS) \
 	        -Wno-incompatible-pointer-types-discards-qualifiers tests/$$t.c \
 	        $$([ $$t = bootstrap-test ] && echo ../finch-init/bootstrapd.c) \
@@ -113,5 +130,6 @@ asan: $(SRCS) $(HDRS) tests/*.c $(BOOTSTRAPD)
 	$(ASAN)/interop-test 2>&1 | grep -v '^objc\['
 	$(ASAN)/conn-test 2>&1 | grep -v '^objc\['
 	$(ASAN)/bootstrap-test 2>&1 | grep -v '^objc\['
+	$(ASAN)/bootstrap-failure-test
 
 .PHONY: asan

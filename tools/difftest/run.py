@@ -9,16 +9,64 @@ import hashlib
 import importlib.util
 import json
 import os
+import platform
 import re
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILD = ROOT / "build" / "difftest"
 RESULTS = ROOT / "build" / "compat-results"
 ROOT_LIB = ROOT / "build" / "root" / "System" / "Library"
+_RUNTIME_IDENTITY_UNSET = object()
+DIFFTEST_INPUTS = (
+    "tools/difftest/run.py",
+    "tools/difftest/generate.py",
+    "tools/difftest/typed.py",
+    "tools/difftest/frameworks.py",
+    "tools/difftest/masks.json",
+    "tools/api-coverage.py",
+    "tools/c-api-audit.py",
+    "tools/api-audit/headers.py",
+)
+
+SOURCE_CHECK_HEADER = r'''#include <mach-o/dyld.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+static int finch_difftest_same_image(const char *left, const char *right)
+{
+    char left_real[PATH_MAX], right_real[PATH_MAX];
+    const char *left_path = realpath(left, left_real) ? left_real : left;
+    const char *right_path = realpath(right, right_real) ? right_real : right;
+    return strcmp(left_path, right_path) == 0;
+}
+
+__attribute__((constructor))
+static void finch_difftest_check_image(void)
+{
+    const char *expected = getenv("FINCH_DIFFTEST_EXPECT_IMAGE");
+    if (!expected || !*expected) return;
+    for (uint32_t index = 0; index < _dyld_image_count(); index++) {
+        const char *loaded = _dyld_get_image_name(index);
+        if (loaded && finch_difftest_same_image(expected, loaded)) {
+            fprintf(stderr, "FINCH_DIFFTEST_SOURCE_OK: %s\n", expected);
+            fflush(stderr);
+            return;
+        }
+    }
+    fprintf(stderr, "FINCH_DIFFTEST_SOURCE_MISSING: %s\n", expected);
+    fflush(stderr);
+    _exit(86);
+}
+'''
 
 
 def load_generator():
@@ -41,9 +89,135 @@ def run_checked(command: list[str], *, cwd: Path = ROOT) -> subprocess.Completed
     return result
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def source_fingerprint() -> str:
+    """Fingerprint the code that chooses, builds, and compares each test."""
+    digest = hashlib.sha256()
+    for relative in DIFFTEST_INPUTS:
+        path = ROOT / relative
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def finch_framework_image(framework: str, build_root: Path | None = None) -> Path:
+    """Find the Finch framework binary the generated runner must load."""
+    root = (build_root or ROOT / "build/root") / "System/Library/Frameworks"
+    bundle = root / f"{framework}.framework"
+    matches = sorted({path.resolve() for path in bundle.glob(f"Versions/*/{framework}") if path.is_file()},
+                     key=str)
+    if len(matches) != 1:
+        raise RuntimeError(f"expected one Finch image for {framework}, found {len(matches)} under {bundle}")
+    return matches[0]
+
+
+def finch_runtime_identity(build_root: Path) -> dict:
+    """Hash the staged Finch libraries that can affect a differential test."""
+    root = Path(build_root).resolve()
+    library_roots = (
+        "System/Library",
+        "System/iOSSupport",
+        "usr/lib",
+        "usr/local/lib",
+    )
+    digest = hashlib.sha256()
+    file_count = 0
+    found_root = False
+    for relative_root in library_roots:
+        directory = root / relative_root
+        digest.update(relative_root.encode("utf-8") + b"\0")
+        if not directory.is_dir():
+            digest.update(b"missing\0")
+            continue
+        found_root = True
+        for path in sorted(directory.rglob("*"), key=lambda item: item.as_posix()):
+            relative = path.relative_to(root).as_posix()
+            if path.is_symlink():
+                digest.update(b"symlink\0" + relative.encode("utf-8") + b"\0")
+                digest.update(os.readlink(path).encode("utf-8") + b"\0")
+            if path.is_file():
+                digest.update(b"file\0" + relative.encode("utf-8") + b"\0")
+                digest.update(sha256_file(path).encode("ascii") + b"\0")
+                file_count += 1
+    if not found_root or file_count == 0:
+        raise RuntimeError(f"Finch runtime libraries are missing under {root}")
+    return {
+        "build_root": str(root),
+        "library_tree_sha256": digest.hexdigest(),
+        "library_file_count": file_count,
+    }
+
+
+def test_environment_identity() -> dict:
+    """Record the compiler and Apple runtime used on both sides of the test."""
+    compiler = run_checked(["xcrun", "--sdk", "macosx", "-f", "clang"]).stdout.strip()
+    compiler_version = run_checked([compiler, "--version"]).stdout.splitlines()[0]
+    return {
+        "compiler_path": compiler,
+        "compiler_version": compiler_version,
+        "compiler_args": ["-arch", "arm64e", "-mmacosx-version-min=26.0", "-O2", "-fblocks"],
+        "host_product_version": run_checked(["sw_vers", "-productVersion"]).stdout.strip(),
+        "host_build_version": run_checked(["sw_vers", "-buildVersion"]).stdout.strip(),
+        "host_architecture": platform.machine(),
+    }
+
+
+def evidence_identity(framework: str, sdk_path: Path | str, sdk_version: str,
+                      finch_image: Path, *, build_root: Path | None = None,
+                      runtime_identity=_RUNTIME_IDENTITY_UNSET) -> dict:
+    """Describe the SDK, test code, staged Finch runtime, compiler, and Apple runtime."""
+    image = Path(finch_image).resolve()
+    if not image.is_file():
+        raise RuntimeError(f"Finch framework image is missing: {image}")
+    if runtime_identity is _RUNTIME_IDENTITY_UNSET:
+        runtime_identity = finch_runtime_identity(build_root or ROOT / "build/root")
+    if runtime_identity is None:
+        raise RuntimeError("Finch runtime library identity is unavailable")
+    return {
+        "schema_version": 3,
+        "framework": framework,
+        "sdk_path": str(Path(sdk_path).resolve()),
+        "sdk_version": str(sdk_version),
+        "test_tool_sha256": source_fingerprint(),
+        "environment": test_environment_identity(),
+        "finch_image_path": str(image),
+        "finch_image_sha256": sha256_file(image),
+        "finch_runtime": runtime_identity,
+    }
+
+
+def require_unchanged_evidence(before_identity: dict, after_identity: dict,
+                               before_source_sha256: str, after_source_sha256: str,
+                               before_binary_sha256: str, after_binary_sha256: str) -> None:
+    """Refuse to save results if any inputs changed while the tests were running."""
+    changed = []
+    if before_identity != after_identity:
+        changed.append("SDK, tool, runtime, or Finch framework image")
+    if before_source_sha256 != after_source_sha256:
+        changed.append("generated test source")
+    if before_binary_sha256 != after_binary_sha256:
+        changed.append("test program")
+    if changed:
+        raise RuntimeError("difftest inputs changed during the run: " + ", ".join(changed))
+
+
 def build_program(framework: str, source: Path) -> Path:
     compiler = run_checked(["xcrun", "--sdk", "macosx", "-f", "clang"]).stdout.strip()
     sdk = run_checked(["xcrun", "--sdk", "macosx", "--show-sdk-version"]).stdout.strip()
+    sdk_path = run_checked(["xcrun", "--sdk", "macosx", "--show-sdk-path"]).stdout.strip()
+    compiler_version = run_checked([compiler, "--version"]).stdout.splitlines()[0]
+    source_check = BUILD / "source-check.h"
+    source_check.parent.mkdir(parents=True, exist_ok=True)
+    source_check.write_text(SOURCE_CHECK_HEADER)
     dependencies = {
         "Foundation": ["CoreFoundation"],
         "AppKit": ["CoreFoundation"],
@@ -69,13 +243,14 @@ def build_program(framework: str, source: Path) -> Path:
     }.get(framework, [])
     extra_frameworks = [part for dependency in dependencies for part in ("-framework", dependency)]
     build_key = hashlib.sha256(
-        source.read_bytes() + framework.encode() + sdk.encode() + b"arm64e-macosx26.0-O2-fblocks"
+        source.read_bytes() + source_check.read_bytes() + framework.encode() + sdk.encode() +
+        sdk_path.encode() + compiler.encode() + compiler_version.encode() + b"arm64e-macosx26.0-O2-fblocks"
     ).hexdigest()[:20]
     out = BUILD / "bin" / f"{framework}-{build_key}"
     out.parent.mkdir(parents=True, exist_ok=True)
     if out.is_file():
         return out
-    command = [compiler, "-arch", "arm64e", "-mmacosx-version-min=26.0", "-O2", "-fblocks",
+    command = [compiler, "-include", str(source_check), "-arch", "arm64e", "-mmacosx-version-min=26.0", "-O2", "-fblocks",
                "-Wno-deprecated-declarations", "-Wno-deprecated-implementations", "-o", str(out), str(source),
                "-framework", framework, *extra_frameworks]
     run_checked(command)
@@ -83,7 +258,7 @@ def build_program(framework: str, source: Path) -> Path:
     return out
 
 
-def child_environment(finch: bool) -> dict[str, str]:
+def child_environment(finch: bool, expected_image: Path | None = None) -> dict[str, str]:
     env = dict(os.environ)
     for name in tuple(env):
         if name.startswith("DYLD_"):
@@ -105,19 +280,32 @@ def child_environment(finch: bool) -> dict[str, str]:
     env["FINCH_THEME"] = "Classic"
     env["FINCH_FILTER_DIRS"] = str(ROOT_LIB / "Filters")
     env["FINCH_FONT_DIRS"] = str(ROOT_LIB / "Fonts")
+    if expected_image is not None:
+        env["FINCH_DIFFTEST_EXPECT_IMAGE"] = str(expected_image.resolve())
     return env
 
 
-def invoke(binary: Path, item: str, item_metadata: str, *, finch: bool, timeout: float) -> dict:
-    env = child_environment(finch)
+def finch_image_was_loaded(stderr: str, expected_image: Path | None) -> bool:
+    """Require the test program to confirm it saw the exact Finch framework image."""
+    if expected_image is None or "FINCH_DIFFTEST_SOURCE_MISSING:" in stderr:
+        return False
+    marker = f"FINCH_DIFFTEST_SOURCE_OK: {expected_image.resolve()}"
+    return marker in stderr.splitlines()
+
+
+def invoke(binary: Path, item: str, item_metadata: str, *, finch: bool, timeout: float,
+           expected_image: Path | None = None) -> dict:
+    env = child_environment(finch, expected_image if finch else None)
     try:
         result = subprocess.run([str(binary), item, item_metadata], cwd=ROOT, env=env, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, timeout=timeout, check=False)
+        stderr = result.stderr.decode("utf-8", "replace").strip()
         return {
             "returncode": result.returncode,
             "stdout": result.stdout.decode("utf-8", "replace").splitlines(),
-            "stderr": result.stderr.decode("utf-8", "replace").strip(),
+            "stderr": stderr,
             "timed_out": False,
+            "source_verified": finch and finch_image_was_loaded(stderr, expected_image),
         }
     except subprocess.TimeoutExpired as error:
         return {
@@ -125,6 +313,7 @@ def invoke(binary: Path, item: str, item_metadata: str, *, finch: bool, timeout:
             "stdout": (error.stdout or b"").decode("utf-8", "replace").splitlines(),
             "stderr": (error.stderr or b"").decode("utf-8", "replace").strip(),
             "timed_out": True,
+            "source_verified": False,
         }
 
 
@@ -259,10 +448,36 @@ def skip_reason_category(reason: str) -> str:
     return "no safe typed input"
 
 
+def has_observable_output(lines: list[str]) -> bool:
+    """Reject blank and harness-only void rows with no returned or changed value."""
+    for line in lines:
+        fields = line.strip().split("\t")
+        payload = fields[1:] if len(fields) > 1 else fields
+        if any(field.strip() and field.strip() != "void" for field in payload):
+            return True
+    return False
+
+
 def run_framework(framework: str, timeout: float, rules: list[dict], jobs: int) -> dict:
+    # Snapshot the inputs before generation or compilation, so the saved result
+    # describes the files the comparison actually started with.
+    sdk_path = run_checked(["xcrun", "--sdk", "macosx", "--show-sdk-path"]).stdout.strip()
+    sdk_version = run_checked(["xcrun", "--sdk", "macosx", "--show-sdk-version"]).stdout.strip()
+    build_root = ROOT / "build/root"
+    finch_image = finch_framework_image(framework, build_root)
+    runtime_identity = finch_runtime_identity(build_root)
+    identity = evidence_identity(framework, sdk_path, sdk_version, finch_image,
+                                 build_root=build_root, runtime_identity=runtime_identity)
+
     generator = load_generator()
     metadata = generator.generate(framework, BUILD / "generated")
-    binary = build_program(framework, Path(metadata["source"]))
+    source = Path(metadata["source"])
+    source_before_build = sha256_file(source)
+    binary = build_program(framework, source)
+    if sha256_file(source) != source_before_build:
+        raise RuntimeError("generated test source changed while the test program was being built")
+    test_source_sha256 = source_before_build
+    test_binary_sha256 = sha256_file(binary)
     type_details = json.loads(Path(metadata["type_metadata"]).read_text())
     objc_details = type_details.get("objc", {})
     tested = {}
@@ -282,7 +497,8 @@ def run_framework(framework: str, timeout: float, rules: list[dict], jobs: int) 
 
     def compare(name: str, item: dict) -> tuple[str, dict]:
         apple = invoke(binary, name, item["invocation_metadata"], finch=False, timeout=timeout)
-        finch = invoke(binary, name, item["invocation_metadata"], finch=True, timeout=timeout)
+        finch = invoke(binary, name, item["invocation_metadata"], finch=True, timeout=timeout,
+                       expected_image=finch_image)
         apple_lines, apple_masks = masked(apple["stdout"], framework, name, rules)
         finch_lines, finch_masks = masked(finch["stdout"], framework, name, rules)
         missing_font_cases = {
@@ -293,7 +509,11 @@ def run_framework(framework: str, timeout: float, rules: list[dict], jobs: int) 
         if missing_font_cases:
             apple_lines = [line for line in apple_lines if line.split("\t", 1)[0] not in missing_font_cases]
             finch_lines = [line for line in finch_lines if line.split("\t", 1)[0] not in missing_font_cases]
-        if apple["timed_out"] or finch["timed_out"] or apple["returncode"] != 0 or finch["returncode"] != 0:
+        if not finch["source_verified"]:
+            status = "not-exercised"
+            difference = None
+            reason = "the Finch framework image under test was not loaded from build/root"
+        elif apple["timed_out"] or finch["timed_out"] or apple["returncode"] != 0 or finch["returncode"] != 0:
             status = "crashes"
             difference = {
                 "apple_exit": apple["returncode"], "finch_exit": finch["returncode"],
@@ -304,6 +524,10 @@ def run_framework(framework: str, timeout: float, rules: list[dict], jobs: int) 
             status = "not-exercised"
             difference = None
             reason = "the requested font was unavailable on at least one runtime for every case"
+        elif not has_observable_output(apple_lines) or not has_observable_output(finch_lines):
+            status = "not-exercised"
+            difference = None
+            reason = "at least one runtime returned no observable output for the generated call"
         elif ((apple_lines and all("not-exercised:" in line or "no-method-signature" in line for line in apple_lines)) or
               (finch_lines and all("not-exercised:" in line or "no-method-signature" in line for line in finch_lines))):
             status = "not-exercised"
@@ -317,6 +541,7 @@ def run_framework(framework: str, timeout: float, rules: list[dict], jobs: int) 
             "status": status,
             "category": item["category"],
             "examples": {"apple": len(apple["stdout"]), "finch": len(finch["stdout"])},
+            "finch_source_verified": finch["source_verified"],
         }
         if status == "not-exercised":
             record["reason"] = locals().get("reason", "no safe typed input could be built")
@@ -351,10 +576,29 @@ def run_framework(framework: str, timeout: float, rules: list[dict], jobs: int) 
         if record["status"] == "not-exercised":
             category = skip_reason_category(record.get("reason", "no safe typed input"))
             skipped_categories[category] = skipped_categories.get(category, 0) + 1
+
+    # Do not publish a result if a source, compiler/runtime, SDK, or framework
+    # changed while calls were in flight.
+    sdk_path_after = run_checked(["xcrun", "--sdk", "macosx", "--show-sdk-path"]).stdout.strip()
+    sdk_version_after = run_checked(["xcrun", "--sdk", "macosx", "--show-sdk-version"]).stdout.strip()
+    finch_image_after = finch_framework_image(framework, build_root)
+    runtime_identity_after = finch_runtime_identity(build_root)
+    identity_after = evidence_identity(framework, sdk_path_after, sdk_version_after, finch_image_after,
+                                       build_root=build_root, runtime_identity=runtime_identity_after)
+    require_unchanged_evidence(
+        identity, identity_after, test_source_sha256, sha256_file(source),
+        test_binary_sha256, sha256_file(binary),
+    )
+    input_manifest = {
+        "sdk_items": metadata["sdk_items"],
+        "tested_items": metadata["tested_items"],
+        "input_count": metadata["input_count"],
+        "seed": metadata["seed"],
+    }
     result = {
-        "schema_version": 1,
+        "schema_version": 2,
         "framework": framework,
-        "sdk": run_checked(["xcrun", "--sdk", "macosx", "--show-sdk-version"]).stdout.strip(),
+        "sdk": sdk_version,
         "seed": metadata["seed"],
         "input_count": metadata["input_count"],
         "compared_candidates": len(tested),
@@ -364,6 +608,18 @@ def run_framework(framework: str, timeout: float, rules: list[dict], jobs: int) 
             "api_items": len(items), "exercised": exercised, "coverage_percent": round(coverage, 2),
             "verified": counts["verified"], "differs": counts["differs"], "crashes": counts["crashes"],
             "not_exercised": counts["not-exercised"], "verified_percent": round(verified_percent, 2),
+        },
+        "difftest_evidence": {
+            "schema_version": 1,
+            "run_id": uuid.uuid4().hex,
+            "identity": identity,
+            "test_source_sha256": test_source_sha256,
+            "test_binary_sha256": test_binary_sha256,
+            "api_items": len(metadata["sdk_items"]),
+            "compared_items": len(tested),
+            "input_manifest_sha256": hashlib.sha256(
+                json.dumps(input_manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest(),
         },
         "items": items,
     }
@@ -438,6 +694,8 @@ def write_results(result: dict, target: Path | None = None, *,
     generator_items = result.get("items", {})
     mapped_items = {}
     obsolete_ids = set()
+    evidence = result.get("difftest_evidence", {})
+    run_id = evidence.get("run_id") if isinstance(evidence, dict) else None
     if isinstance(generator_items, dict):
         for name, record in generator_items.items():
             item_id = api_item_id(name, property_accessors, method_ids)
@@ -453,7 +711,10 @@ def write_results(result: dict, target: Path | None = None, *,
                 obsolete_ids.add(previous_id)
                 items.pop(previous_id, None)
             if item_id:
-                mapped_items[item_id] = {**record, "difftest_name": name}
+                mapped = {**record, "difftest_name": name}
+                if isinstance(run_id, str) and run_id:
+                    mapped["difftest_run_id"] = run_id
+                mapped_items[item_id] = mapped
     items.update(mapped_items)
 
     verified = {value for value in document.get("verified", []) if isinstance(value, str)}

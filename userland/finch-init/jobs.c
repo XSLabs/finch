@@ -326,6 +326,8 @@ job_spawn(struct job *j)
 	if (rc != 0) {
 		j->pid = 0;
 		log_fn("%s: spawning %s failed: %s", j->label, j->program, strerror(rc));
+		bootstrapd_start_failed(j);
+		bootstrapd_rearm(j);
 		return;
 	}
 	j->started = time(NULL);
@@ -620,6 +622,9 @@ jobs_child_exited(pid_t pid, int status)
 	} else if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
 		log_fn("%s: exited with status %d", j->label, WEXITSTATUS(status));
 	}
+	/* A failed first start must wake callers waiting on a held service port.
+	 * Once a service has checked in, its queued requests still survive restarts. */
+	bootstrapd_start_failed(j);
 	restart = !shutting_down && (j->keepalive == KEEPALIVE_ALWAYS ||
 	    (j->keepalive == KEEPALIVE_ON_SUCCESS && success) ||
 	    (j->keepalive == KEEPALIVE_ON_FAILURE && !success));

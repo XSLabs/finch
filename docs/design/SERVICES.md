@@ -148,6 +148,15 @@ before the job has ever run.
    message relaunches the job. Clients never see the port change, and their send rights
    and XPC connections keep working.
 
+If the job fails to start, or exits before its first check-in, finch-init drops
+the requests already waiting for that service. Releasing their reply rights
+tells waiting callers that the server died. The service port stays valid, so
+a later request can start it again. Each cleanup handles only the queue length
+seen at entry; new requests cannot keep that cleanup running forever. After a
+service has checked in successfully, unread requests still survive its restarts.
+A service that remains alive but never checks in can still leave callers waiting;
+this change does not add a startup deadline.
+
 Processes may also check in names nobody declared (dynamic services). Such a name lives
 until its owner's receive right dies.
 
@@ -215,6 +224,20 @@ holds. Before this fix, finch-init's messages silently stopped after the first s
 exit.
 
 ## Tests
+
+- `userland/libxpc/tests/bootstrap-failure-test.c` passes 93 host checks for
+  failed first starts, waiting callers, retries, large requests, bounded cleanup
+  and messages retained after a working service restarts. It uses real Mach
+  ports with a test job manager. The matching VM script,
+  `tools/vm/test-bootstrap-startup-failure.sh`, also passes: one declared job
+  first exits before check-in, its waiting client gets a connection error, and
+  a later request starts that same job and receives a reply. The host test also
+  kills a check-in reply destination before the send. It checks that Finch
+  recovers the receive right, wakes the waiting client, and lets the service
+  retry. The port-return watch survives the failed reply; Finch reuses it until
+  the port returns, then sets up a new watch for the next start. This failed-reply
+  case also passes in QEMU using the same test job manager and Finch's kernel
+  and libxpc (2026-10-17).
 
 - `userland/libxpc/tests/bootstrap-test.c` (host, ASan/UBSan) covers:
   - The registry rules.

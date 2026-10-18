@@ -19,6 +19,8 @@ all: $(OUT)/finch-coreservices-identity-test
 all: $(OUT)/finch-media-player-test $(OUT)/finch-media-accessibility-test
 all: $(OUT)/finch-corebluetooth-test $(OUT)/finch-corebluetooth-unsupported-test
 all: $(OUT)/finch-libsandbox-test
+all: $(OUT)/finch-sandbox-enforcement-proof-test
+all: $(OUT)/finch-bootstrap-failure-test
 all: $(OUT)/finch-cryptotokenkit-test $(OUT)/finch-cryptotokenkit-empty-test
 all: $(OUT)/finch-widgetkit-test
 
@@ -144,6 +146,17 @@ $(OUT)/CoreDataTest.momd: CoreDataTest.xcdatamodeld/CoreDataTest.xcdatamodel/con
 $(OUT)/finch-console-policy-test: console-policy-test.c ../finch-init/console-policy.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -o $@ $<
+
+# Guest-only fixed-profile kernel checks; never run this against the host kernel.
+$(OUT)/finch-bootstrap-failure-test: FORCE
+	$(MAKE) -C ../libxpc guest-bootstrap-failure-test GUEST_BOOTSTRAP_FAILURE_TEST="$(abspath $@)"
+
+.PHONY: FORCE
+FORCE:
+
+$(OUT)/finch-sandbox-enforcement-proof-test: sandbox-enforcement-proof-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -idirafter ../../build/sdk/include -o $@ $<
 
 # Local application lookup, Apple event values and filesystem services.
 $(OUT)/finch-coreservices-test: coreservices-test.m coreservices-uttypes.inc
