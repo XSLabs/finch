@@ -63,6 +63,19 @@ including a failed check-in reply. A small kernel policy now denies file reads
 or writes across new opens, already-open files and child processes. This is an
 enforcement proof, not a profile compiler or a complete app sandbox; its limits
 are recorded in [the security notes](design/SECURITY.md).
+The versioned kernel interface also passes guest checks for malformed requests,
+stale process identities, permission to query another process, and inheritance
+across fork and exec. It explicitly rejects the unfinished notification-service
+profile without changing the caller's restrictions.
+The cross-user notification test also passes in the development guest: a user
+cannot register for another user's protected names, while an allowed post is
+delivered. The release image and service confinement still need separate checks.
+
+The same day's image build exposed a shared error-list race in the cache
+builder. Workers now collect errors separately before a serial merge. The
+patched tool builds the development image successfully, including the expected
+missing-symbol pass for unsupported base-image binaries. Image creation now
+refreshes the builder incrementally so existing checkouts pick up its fixes.
 
 Focused host checks also cover restoring the previous DNS file when applying
 network settings fails, including a failed directory sync after replacing the
@@ -233,7 +246,8 @@ Apple's is closed. Developed in the emulated M4 first. The map is
           pam_launchd by `login` and `su -l`, or `launchctl asuser`; 2026-10-08)
     - [ ] Run Apple's open-source daemons under it (notifyd, syslogd, configd, ...)
       - [x] notifyd; syslogd (checks in with `launch_msg`, which Finch's libxpc
-            answers from finch-init's job; 2026-10-07)
+            answers from finch-init's job; 2026-10-07). Notifyd's current VM
+            runs still require the explicitly borrowed sandbox compiler.
       - [x] finch-logd and `log show`/`log stream`: os_log over libdispatch's open-source
             firehose server (`docs/design/LOGD.md`, 2026-10-08)
       - [x] aslmanager (on demand), newsyslog, dynamic_pager (2026-10-08)
@@ -293,14 +307,16 @@ Apple's is closed. Developed in the emulated M4 first. The map is
   - [x] libmalloc no longer depends on libcorecrypto
   - [x] libsystem_featureflags, coreservices, darwindirectory, eligibility, symptoms,
         trial, secinit, sanitizers, libRosetta: Finch's own (`userland/libsystem`)
-  - [x] The rest of the strict Phase 1 exit: `docs/design/PHASE1-EXIT.md`
-        (2026-10-07; `tools/check-boot-path.py`: 94/94 boot-path images Finch-built)
+  - [ ] Finish the strict Phase 1 exit: `docs/design/PHASE1-EXIT.md`.
+        The earlier 94/94 linked-image check missed the sandbox compiler loaded
+        at runtime. Replace the borrowed compiler and prove notifyd startup.
 - [x] **1.5 dyld from source.** dyld-1376.6 boots the VM (`tools/build-system.sh`)
 - [ ] Finch root image on its own APFS volume (bare-metal Tier 3)
 
 **Exit:** the VM boots to a shell with no closed-source Apple binaries above the kernel.
-**Reached 2026-10-07** (`docs/design/PHASE1-EXIT.md`). The unchecked items above
-continue alongside Phase 2.
+**Still open** (`docs/design/PHASE1-EXIT.md`): the 2026-10-07 claim was withdrawn
+after the fresh-image sandbox failure. The unchecked items above continue
+alongside Phase 2.
 
 ## Phase 2: Open graphics stack and first app
 Nothing closed is borrowed (2026-10-08). Unmodified Mac apps need Foundation,

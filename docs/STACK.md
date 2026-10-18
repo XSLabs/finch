@@ -18,6 +18,9 @@ writes. Its QEMU test covers already-open files, new opens, new file mappings, c
 program changes, and attempts to clear the restriction. Asynchronous requests
 submitted after applying it are denied with both tested worker modes. It has no profile
 compiler and is not a complete app sandbox (`docs/design/SECURITY.md`).
+Its versioned request interface also passes guest checks for invalid requests,
+stale process identities, query permissions, and restriction inheritance.
+The notification-service profile remains unavailable and fails explicitly.
 
 Intents supplies SDK-declared data objects, typed initializers and
 resolution results. It stores donated interactions in

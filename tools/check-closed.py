@@ -4,8 +4,8 @@
 
     tools/check-closed.py [-v]
 
-Finch runs nothing closed (docs/design/COREFOUNDATION.md). Every Mach-O that
-the image gets from Finch (build/root, and the overlay manifest
+This is a dependency inventory, not proof that Finch runs nothing closed.
+Every Mach-O that the image gets from Finch (build/root, and the overlay manifest
 tools/vm/overlay.txt) is checked: each library it links (weak links too, as
 dyld loads those when present, except weak links to libraries macOS itself
 doesn't ship, such as libobjc's to libobjc-env) must also come from Finch.

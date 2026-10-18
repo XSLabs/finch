@@ -174,9 +174,12 @@ static int check_common(struct check_request *req, uint32_t type, va_list ap)
 		req->filter_arg = (uint32_t)va_arg(ap, int);
 		break;
 	}
-	case 9:   /* two arguments, passed by address */
+	case 9:   /* notification posts use one name; other operations also pass a value */
 		pair.a = (uint64_t)va_arg(ap, void *);
-		pair.b = (uint64_t)(int64_t)va_arg(ap, int);
+		if (req->operation && !strcmp(req->operation, "darwin-notification-post"))
+			pair.b = 0;
+		else
+			pair.b = (uint64_t)(int64_t)va_arg(ap, int);
 		req->filter_kind = 35;
 		req->filter_arg = (uint64_t)&pair;
 		break;

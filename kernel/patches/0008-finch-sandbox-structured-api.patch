@@ -1,0 +1,228 @@
+--- a/security/finch_sandbox.c
++++ b/security/finch_sandbox.c
+@@ -11,6 +11,7 @@
+ #include <sys/kauth.h>
+ #include <sys/ucred.h>
+ #include <sys/proc.h>
++#include <sys/proc_private.h>
+ #include <sys/systm.h>
+ 
+ #include <kern/locks.h>
+@@ -18,9 +19,46 @@
+ #include <security/mac_framework.h>
+ #include <security/mac_policy.h>
+ 
++#define FINCH_SANDBOX_ABI_VERSION	1
++#define FINCH_SANDBOX_POLICY	"FinchSandbox"
+ #define FINCH_SANDBOX_PROFILE_DENY_READ	1
+ #define FINCH_SANDBOX_PROFILE_DENY_WRITE	2
++#define FINCH_SANDBOX_PROFILE_NOTIFYD	3
++#define FINCH_SANDBOX_CALL_APPLY	0x100
++#define FINCH_SANDBOX_CALL_CHECK	0x101
++#define FINCH_SANDBOX_OP_STATUS	0
++#define FINCH_SANDBOX_OP_READ_DATA	1
++#define FINCH_SANDBOX_OP_WRITE_DATA	2
++#define FINCH_SANDBOX_RESULT_DENY	1
+ 
++/* These local layouts match kernel/include/finch_sandbox_abi.h. */
++struct finch_sandbox_apply_request {
++	uint32_t version;
++	uint32_t size;
++	uint32_t profile;
++	uint32_t flags;
++	uint64_t reserved[2];
++};
++
++struct finch_sandbox_check_request {
++	uint32_t version;
++	uint32_t size;
++	int32_t target_pid;
++	uint32_t target_pidversion;
++	uint32_t operation;
++	uint32_t flags;
++	uint64_t reserved[2];
++	uint32_t result;
++	uint32_t result_reserved;
++};
++
++_Static_assert(sizeof(struct finch_sandbox_apply_request) == 32,
++    "Finch sandbox apply request size");
++_Static_assert(sizeof(struct finch_sandbox_check_request) == 48,
++    "Finch sandbox check request size");
++_Static_assert(__offsetof(struct finch_sandbox_check_request, result) == 40,
++    "Finch sandbox check result offset");
++
+ static int finch_sandbox_label_slot;
+ static mac_policy_handle_t finch_sandbox_policy_handle;
+ static const char *finch_sandbox_label_names[] = { "finch_sandbox" };
+@@ -103,16 +141,159 @@
+ 	return error;
+ }
+ 
++static bool
++finch_sandbox_reserved_zero(const uint64_t reserved[2])
++{
++	return reserved[0] == 0 && reserved[1] == 0;
++}
++
+ static int
+-finch_sandbox_policy_syscall(proc_t p, int call, user_addr_t arg)
++finch_sandbox_apply_request(proc_t p, user_addr_t arg)
+ {
+-	if (arg != USER_ADDR_NULL) {
++	struct finch_sandbox_apply_request request;
++	int error;
++
++	if (arg == USER_ADDR_NULL) {
+ 		return EINVAL;
+ 	}
++	error = copyin(arg, &request, sizeof(request));
++	if (error != 0) {
++		return error;
++	}
++	if (request.version != FINCH_SANDBOX_ABI_VERSION || request.size != sizeof(request) ||
++	    request.flags != 0 || !finch_sandbox_reserved_zero(request.reserved)) {
++		return EINVAL;
++	}
+ 
++	switch (request.profile) {
++	case FINCH_SANDBOX_PROFILE_DENY_READ:
++	case FINCH_SANDBOX_PROFILE_DENY_WRITE:
++		return finch_sandbox_apply(p, (int)request.profile);
++	case FINCH_SANDBOX_PROFILE_NOTIFYD:
++		/* This profile stays unavailable until all of its rules are enforced. */
++		return ENOTSUP;
++	default:
++		return EINVAL;
++	}
++}
++
++static int
++finch_sandbox_check_request(proc_t caller, user_addr_t arg)
++{
++	struct finch_sandbox_check_request request;
++	audit_token_t target_token;
++	proc_t target = NULL;
++	kauth_cred_t caller_cred = NOCRED;
++	kauth_cred_t target_cred = NOCRED;
++	uint32_t result;
++	int error;
++	bool claims_self;
++
++	if (arg == USER_ADDR_NULL) {
++		return EINVAL;
++	}
++	error = copyin(arg, &request, sizeof(request));
++	if (error != 0) {
++		return error;
++	}
++	if (request.version != FINCH_SANDBOX_ABI_VERSION || request.size != sizeof(request) ||
++	    request.flags != 0 || request.result_reserved != 0 ||
++	    !finch_sandbox_reserved_zero(request.reserved)) {
++		return EINVAL;
++	}
++	if (request.operation != FINCH_SANDBOX_OP_STATUS &&
++	    request.operation != FINCH_SANDBOX_OP_READ_DATA &&
++	    request.operation != FINCH_SANDBOX_OP_WRITE_DATA) {
++		return EINVAL;
++	}
++	if (request.target_pid <= 0) {
++		return ESRCH;
++	}
++
++	/* Non-root callers may ask only about their own live process. */
++	claims_self = request.target_pid == proc_pid(caller) &&
++	    request.target_pidversion == (uint32_t)proc_pidversion(caller);
++	if (!claims_self) {
++		caller_cred = kauth_cred_proc_ref(caller);
++		if (caller_cred == NOCRED) {
++			return ESRCH;
++		}
++		if (kauth_cred_getuid(caller_cred) != 0) {
++			kauth_cred_unref(&caller_cred);
++			return EPERM;
++		}
++		kauth_cred_unref(&caller_cred);
++	}
++
++	/* Only pid and pidversion are identity data in this request. */
++	bzero(&target_token, sizeof(target_token));
++	target_token.val[5] = (uint32_t)request.target_pid;
++	target_token.val[7] = request.target_pidversion;
++	target = proc_find_audit_token(target_token);
++	if (target == NULL) {
++		return ESRCH;
++	}
++	if (proc_pidversion(target) != (int)request.target_pidversion) {
++		error = ESRCH;
++		goto out;
++	}
++
++	target_cred = kauth_cred_proc_ref(target);
++	if (target_cred == NOCRED) {
++		error = ESRCH;
++		goto out;
++	}
++	/* An exec during the read makes the supplied process identity stale. */
++	if (proc_pidversion(target) != (int)request.target_pidversion) {
++		error = ESRCH;
++		goto out;
++	}
++
++	int profile = finch_sandbox_profile(target_cred);
++	switch (request.operation) {
++	case FINCH_SANDBOX_OP_STATUS:
++		result = (uint32_t)profile;
++		break;
++	case FINCH_SANDBOX_OP_READ_DATA:
++		result = (profile & FINCH_SANDBOX_PROFILE_DENY_READ) != 0 ?
++		    FINCH_SANDBOX_RESULT_DENY : 0;
++		break;
++	case FINCH_SANDBOX_OP_WRITE_DATA:
++		result = (profile & FINCH_SANDBOX_PROFILE_DENY_WRITE) != 0 ?
++		    FINCH_SANDBOX_RESULT_DENY : 0;
++		break;
++	default:
++		error = EINVAL;
++		goto out;
++	}
++
++	error = copyout(&result,
++	    arg + offsetof(struct finch_sandbox_check_request, result),
++	    sizeof(result));
++out:
++	if (target_cred != NOCRED) {
++		kauth_cred_unref(&target_cred);
++	}
++	if (target != NULL) {
++		proc_rele(target);
++	}
++	return error;
++}
++
++static int
++finch_sandbox_policy_syscall(proc_t p, int call, user_addr_t arg)
++{
+ 	switch (call) {
++	case FINCH_SANDBOX_CALL_APPLY:
++		return finch_sandbox_apply_request(p, arg);
++	case FINCH_SANDBOX_CALL_CHECK:
++		return finch_sandbox_check_request(p, arg);
+ 	case FINCH_SANDBOX_PROFILE_DENY_READ:
+ 	case FINCH_SANDBOX_PROFILE_DENY_WRITE:
++		if (arg != USER_ADDR_NULL) {
++			return EINVAL;
++		}
++		/* The original fixed-profile proof calls keep working unchanged. */
+ 		return finch_sandbox_apply(p, call);
+ 	default:
+ 		return EINVAL;
+@@ -236,7 +417,7 @@
+ };
+ 
+ static struct mac_policy_conf finch_sandbox_policy_conf = {
+-	.mpc_name = "FinchSandbox",
++	.mpc_name = FINCH_SANDBOX_POLICY,
+ 	.mpc_fullname = "Finch fixed-profile enforcement proof",
+ 	.mpc_labelnames = finch_sandbox_label_names,
+ 	.mpc_labelname_count = 1,

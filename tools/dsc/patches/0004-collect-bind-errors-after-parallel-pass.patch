@@ -1,0 +1,36 @@
+diff --git a/cache_builder/NewSharedCacheBuilder.cpp b/cache_builder/NewSharedCacheBuilder.cpp
+--- a/cache_builder/NewSharedCacheBuilder.cpp
++++ b/cache_builder/NewSharedCacheBuilder.cpp
+@@ -488,6 +488,8 @@
+         auto& builderCacheDylibs = builderCacheDylibsOwner;
+         for ( const CacheDylib& cacheDylib : this->cacheDylibs )
+             builderCacheDylibs.push_back(&cacheDylib);
++        std::vector<std::vector<std::string>> symbolErrorsByDylibOwner(this->cacheDylibs.size());
++        auto& symbolErrorsByDylib = symbolErrorsByDylibOwner;
+ 
+         Error err = parallel::forEach(this->cacheDylibs, ^(size_t index, CacheDylib& cacheDylib) {
+             Diagnostics diag;
+@@ -496,8 +498,9 @@
+             std::vector<Error> symbolErrors = cacheDylib.calculateBindTargets(diag, this->config, aggregateTimer, builderCacheDylibs,
+                                                                               dylibPatchInfo);
+             if ( !symbolErrors.empty() ) {
++                std::vector<std::string>& dylibErrors = symbolErrorsByDylib[index];
+                 for ( const Error& symbolErr : symbolErrors )
+-                    this->errors.push_back(symbolErr.message());
++                    dylibErrors.push_back(symbolErr.message());
+             }
+             if ( diag.hasError() )
+                 return Error("%s", diag.errorMessageCStr());
+@@ -508,6 +511,12 @@
+ 
+             return Error();
+         });
++
++        // Merge worker results in dylib order after all parallel writes finish.
++        for ( std::vector<std::string>& dylibErrors : symbolErrorsByDylib ) {
++            for ( std::string& symbolError : dylibErrors )
++                this->errors.push_back(std::move(symbolError));
++        }
+ 
+         if ( err )
+             return err;

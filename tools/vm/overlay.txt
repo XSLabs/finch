@@ -312,4 +312,7 @@ build/userland/finch-auth-frameworks-test /usr/local/bin/finch-auth-frameworks-t
 build/userland/finch-cf-preferences-container-test /usr/local/bin/finch-cf-preferences-container-test
 build/userland/finch-libsandbox-test /usr/local/bin/finch-libsandbox-test
 build/userland/finch-sandbox-enforcement-proof-test /usr/local/bin/finch-sandbox-enforcement-proof-test
+build/userland/finch-sandbox-request-test /usr/local/bin/finch-sandbox-request-test
+build/userland/finch-notify-access-test /usr/local/bin/finch-notify-access-test
+build/userland/finch-notify-path-access-test /usr/local/bin/finch-notify-path-access-test
 build/userland/finch-bootstrap-failure-test /usr/local/bin/finch-bootstrap-failure-test

@@ -94,7 +94,11 @@ while read -r target src; do
     if (( ${#pids[@]} >= $(sysctl -n hw.ncpu) )); then wait "${pids[0]}"; pids=("${pids[@]:1}"); fi
 done < "${FINCH_ROOT}/tools/dsc/sources.txt"
 wait
-cat "${LOG}".*.log >> "${LOG}" 2>/dev/null; rm -f "${LOG}".*.log
+for source_log in "${LOG}".*.log; do
+    [[ -f "${source_log}" ]] || continue
+    cat "${source_log}" >> "${LOG}"
+    rm -f "${source_log}"
+done
 if grep -q "^FAILED" "${LOG}"; then
     echo "error: $(grep -c '^FAILED' "${LOG}") sources failed (see ${LOG})" >&2
     exit 1

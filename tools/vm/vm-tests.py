@@ -76,6 +76,7 @@ EXIT_CHECKS = {
     'font-replacements-test', 'log-test', 'introspect-test', 'mdnsd-test',
     'diskarbitration-session-test',
     'sandbox-enforcement-proof-test',
+    'sandbox-request-test', 'notify-access-test', 'notify-path-access-test',
     'bootstrap-failure-test',
     # This is only a crash check for a process with hardened-process entitlements.
     'hardened-test',

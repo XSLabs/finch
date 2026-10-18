@@ -41,6 +41,14 @@ the published source:
 The script compiles the sources directly (the list is in `tools/dsc/sources.txt`, taken
 from Xcode's build plan) into `build/tools/dyld_shared_cache_builder`.
 
+The 2026-10-18 image build exposed a race in the builder's missing-symbol
+reporting. Parallel workers appended to the same C++ vector without a lock;
+several earlier crash reports also pointed to that code. Finch's
+`0004-collect-bind-errors-after-parallel-pass.patch` gives each worker its own
+error list and joins the lists in library order after the workers finish.
+Image creation now runs the incremental builder build each time, so an old
+executable cannot silently skip a newly added source patch.
+
 ## Building the cache (`tools/vm/mkramdisk.sh`, step 4)
 
 1. `tools/dsc/mkmanifest.py` walks the finished image. It lists every arm64e dylib and

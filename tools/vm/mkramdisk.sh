@@ -214,7 +214,9 @@ fi
 #    FINCH_DSC=0 skips it (dyld then loads every dylib from disk).
 if [[ "${FINCH_DSC:-1}" != 0 ]]; then
     builder="${FINCH_ROOT}/build/tools/dyld_shared_cache_builder"
-    [[ -x "${builder}" ]] || "${FINCH_ROOT}/tools/dsc/build-builder.sh" >/dev/null || die "cache builder build failed"
+    # Refresh the host tool so source fixes also reach existing checkouts.
+    # Its build script reuses object files whose sources have not changed.
+    "${FINCH_ROOT}/tools/dsc/build-builder.sh" >/dev/null || die "cache builder build failed"
     rm -rf "${mnt}/System/Library/dyld"
     # The base image still holds closed Apple binaries that link libraries
     # Finch has replaced (CoreFoundation, ...) and need symbols Finch's don't

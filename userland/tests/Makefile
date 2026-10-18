@@ -20,6 +20,8 @@ all: $(OUT)/finch-media-player-test $(OUT)/finch-media-accessibility-test
 all: $(OUT)/finch-corebluetooth-test $(OUT)/finch-corebluetooth-unsupported-test
 all: $(OUT)/finch-libsandbox-test
 all: $(OUT)/finch-sandbox-enforcement-proof-test
+all: $(OUT)/finch-notify-access-test $(OUT)/finch-sandbox-request-test
+all: $(OUT)/finch-notify-path-access-test
 all: $(OUT)/finch-bootstrap-failure-test
 all: $(OUT)/finch-cryptotokenkit-test $(OUT)/finch-cryptotokenkit-empty-test
 all: $(OUT)/finch-widgetkit-test
@@ -157,6 +159,18 @@ FORCE:
 $(OUT)/finch-sandbox-enforcement-proof-test: sandbox-enforcement-proof-test.c
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -idirafter ../../build/sdk/include -o $@ $<
+
+$(OUT)/finch-sandbox-request-test: sandbox-request-test.c ../../kernel/include/finch_sandbox_abi.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -idirafter ../../build/sdk/include -o $@ $<
+
+$(OUT)/finch-notify-access-test: notify-access-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fblocks -o $@ $<
+
+$(OUT)/finch-notify-path-access-test: notify-path-access-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fblocks -o $@ $<
 
 # Local application lookup, Apple event values and filesystem services.
 $(OUT)/finch-coreservices-test: coreservices-test.m coreservices-uttypes.inc

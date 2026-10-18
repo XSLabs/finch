@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT OR Apache-2.0
-"""Phase 1 exit check: is everything the boot path loads above the kernel Finch-built?
+"""Check whether Finch supplies the boot programs' eagerly linked libraries.
 
     tools/check-boot-path.py [image path...]
 
@@ -9,7 +9,9 @@ and tools, notifyd, the console shell and its modules, dyld) plus any paths
 given, follows their dylib dependencies recursively, and reports every image
 that build/root (or tools/vm/overlay.txt) doesn't provide. Weak and delay-init
 links are skipped, as dyld only loads those on demand or when present.
-Exit 0 when nothing is missing.
+Exit 0 when no linked path is missing. This does not follow dlopen calls, check
+that supplied libraries implement the needed functions, or prove a working boot.
+In particular, notifyd loads its sandbox compiler at runtime.
 """
 import os
 import subprocess

@@ -88,6 +88,61 @@ read buffers and file contents. Requests queued before the restriction are not
 guaranteed to be blocked; applying it also does not cancel I/O already past its
 access check.
 
+The versioned request interface in `kernel/include/finch_sandbox_abi.h` uses
+separate apply and query calls. It supports only the two file restrictions above.
+Queries name a process by PID and its kernel version number, then read that
+process's current credential. The answer is a snapshot and may become stale
+before it reaches the caller; file operations still pass through kernel checks.
+Ordinary callers may query themselves; root may query another process.
+The reserved notifyd profile fails with `ENOTSUP` and
+does not change the caller. The guest request tests pass with the rebuilt
+kernel (2026-10-18), including malformed requests, failed result writes,
+stale identities, cross-process query permissions, and inheritance across
+fork and exec. This interface does not compile Apple's profile language or
+answer its general sandbox queries.
+
+### Notification service work still required
+
+Notifyd currently runs as root with the development image's borrowed sandbox
+compiler. Replacing it requires more than accepting its profile name:
+
+- Start the service as a dedicated non-root user. Check shared memory,
+  bootstrap check-in, logging, and client access under that identity.
+- Give it only the fixed log files it needs. Identify allowed files by kernel
+  object labels set through trusted setup. A pathname prefix alone is unsafe
+  because links and renames can change what a name refers to. Cover creation,
+  open, writes, truncate, links, renames, removal, and metadata changes.
+- Restrict POSIX shared memory to the notification center's exact name and
+  check access after opening it. Restrict executable mappings, process and
+  privilege changes, device access, and system setting reads and writes.
+- Close socket paths that skip a fresh access check after connection, including
+  ordinary file-descriptor reads and writes and bulk send/receive calls. Keep
+  the borrowed policy's existing call contract intact when adding Finch checks.
+- Have the bootstrap server enforce the service's allowed lookups and
+  registrations using the sender identity supplied by the kernel. Existing
+  Mach send rights allow messages that do not pass through that server; this
+  remaining boundary needs its own design and tests.
+
+The file-watch code now refuses checks when it cannot switch to the client's
+identity. It restores the original groups and cache setting, and stops the
+service if it cannot restore its identity after a check. Missing paths remain
+watchable for later creation; other failed checks revoke access. The timezone
+exception now checks a full folder name, so a sibling with the same prefix does
+not qualify. `userland/tests/pathwatch-credential-fault-test.py` exercises the
+patched functions with failed setup and cleanup calls, saved error values, and
+timezone folder boundaries. These checks pass on 2026-10-18. The guest's
+`notify-path-access-test` also observes creation of a new file in an allowed
+folder while receiving no events from a changed root-only file. Neither check
+proves that the full file-watch service works under a dedicated non-root account.
+
+The cross-user notification test is separate from these sandbox requirements.
+It checks notifyd's own `user.uid.*` access rules and an allowed post as a
+positive control. It passes in the development guest on 2026-10-18, alongside
+the sandbox request, sandbox enforcement and CoreFoundation notification tests.
+The child starts a fresh executable before changing user, since libnotify
+disables inherited state after fork. This does not establish service confinement
+or replace the required release-image checks.
+
 `finch-security-core-test` covers keys, signatures and caller-root trust.
 `finch-security-roots-test` checks a real public HTTPS chain at a fixed date,
 wrong hostnames, explicit roots, root-store selection and an absent store. It

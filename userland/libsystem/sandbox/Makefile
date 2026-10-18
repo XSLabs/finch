@@ -15,8 +15,13 @@ $(TESTBIN)-wire: tests/rootless-wire.c rootless.c internal.h Makefile
 	@mkdir -p $(dir $@)
 	$(CC) -arch arm64e -O1 -Wall -Wextra -Werror $< -o $@
 
-check test: all $(TESTBIN) $(TESTBIN)-wire
+$(TESTBIN)-check-wire: tests/sandbox-wire.c sandbox.c internal.h Makefile
+	@mkdir -p $(dir $@)
+	$(CC) -arch arm64e -O1 -Wall -Wextra -Werror -ffunction-sections -fdata-sections -Wl,-dead_strip $< -o $@
+
+check test: all $(TESTBIN) $(TESTBIN)-wire $(TESTBIN)-check-wire
 	$(TESTBIN) $(OUT)/$(NAME).dylib
 	$(TESTBIN)-wire
+	$(TESTBIN)-check-wire
 
 .PHONY: check test
