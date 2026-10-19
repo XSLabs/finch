@@ -24,6 +24,28 @@ belong to its service account. Temporary directories have the usual shared
 access rules. The installed boot script preserves existing jobs and data.
 System accounts start locked; an installer must create the first user.
 
+The release templates reserve user and group number 11 for `_notifyd`, with a
+locked password and no login shell. The configured VM base has no conflicting
+name or number (checked read-only on 2026-10-18). Template and archive tests pass,
+but the service still runs as root. The updater now loads the new service record
+before restoring saved accounts, then merges it into the staged system. It
+refuses conflicting names or numbers before swapping system folders. It also
+keeps accepting old signed payloads that do not define this account.
+
+On 2026-10-18, all 128 host updater checks pass with Finch's frameworks. They
+include preserving user passwords privately, rebuilding the public account
+file without hashes, repeat installs, name and number conflicts, rollback, and
+recovery after a forced stop following the account merge. The account helper's
+78 focused checks also pass. These checks cover an offline staged root, not an
+installed system booting from persistent storage. Development-image account
+setup still needs a verified ownership step: its normal mount hides the stored
+owners, and the helper refuses to write through such a mount.
+`tools/vm/finalize-system-accounts.sh` prepares a separate image copy with file
+ownership enabled and replaces the original only after checking the account
+files. Its cleanup passes 15 temporary-file checks, including failed restore
+and uncertain detach cases. It has not yet been run against a real image and
+requires administrator access to preserve root ownership.
+
 The embedded file list records file hashes, owners, permissions, the repository
 commit, whether local changes exist, and the requested source versions. The
 archive uses a fixed timestamp and sorted paths. Given the same input files and
@@ -41,9 +63,13 @@ requires each strong link to resolve to a packaged file. It reports absent weak
 links separately. It does not check symbols or libraries opened later by a
 running program. On 2026-10-18 it checked 601 binaries with no missing required
 links. The optional `libobjc-env.dylib` and seven Swift overlays were absent.
-The latest archive check covered 9,685 paths, including the shared account
-library, account tool, and FAT filesystem helpers. The VM-only test programs
-and their account templates are not included in this install payload.
+The latest archive check covered 9,687 paths, including the shared account
+library, account tool, and updater with service-account merging. Its updater
+bytes match the staged binary. The three packaged account files have root
+ownership and the expected private/public modes. The VM-only test programs,
+their account templates, and upstream XCTest bundles are not included in this
+install payload. The package tests also check that a staged XCTest bundle is
+excluded while its neighboring system library remains included.
 
 The archive also unpacked with Finch's `gzip` and `pax` in QEMU on 2026-10-11.
 The password file had owner/group 0:0 and mode 600, and cron's job directory
@@ -147,9 +173,12 @@ interruption at each boot-choice and install step. Then repeat the supported
 install and recovery flow on the dedicated Finch hardware target. Tier 1's
 RAM-only disk and a folder-root test cannot substitute for those checks.
 
-The 2026-10-17 storage review found that the pinned QEMU Darwin machine has no
-PCI or VirtIO disk bus. Compiling generic disk devices into QEMU does not make
-them usable by this machine. Its current boot path supplies only a RAM disk.
+The normal QEMU Darwin boot still supplies only a RAM disk. On October 18,
+a separate experiment added an opt-in PCI bridge and attached a VirtIO disk
+under Finch XNU. An APFS marker survived a full QEMU process restart with its
+contents, owner, and permissions intact. This proves the basic disk path;
+accounts and homes still use RAM in the normal boot. See
+[PERSISTENT_VM_STORAGE.md](PERSISTENT_VM_STORAGE.md) for the evidence and limits.
 Homes use `/private/var/rw/Users`, while account records use `/private/etc`;
 both must be backed by persistent storage, with all account writers using the
 same authoritative files. Copying account records into RAM at boot is not enough.

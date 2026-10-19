@@ -4,8 +4,18 @@
 # building ramdisks and booting the QEMU VM don't trip over each other.
 #
 #   tools/vm/with-vm-lock.sh tools/vm/mkramdisk.sh
+#   tools/vm/with-vm-lock.sh --try tools/vm/finalize-system-accounts.sh --locked
 #   tools/vm/with-vm-lock.sh sh -c 'tools/vm/mkramdisk.sh && expect tools/vm/smoke.exp "finch-foo-test | cksum"'
 set -euo pipefail
+try=0
+if [[ "${1:-}" == "--try" ]]; then
+    try=1
+    shift
+fi
+if [[ $# -eq 0 ]]; then
+    echo "usage: $0 [--try] COMMAND [ARG ...]" >&2
+    exit 2
+fi
 lock=/tmp/finch-vm.lock
 until mkdir "$lock" 2>/dev/null; do
     # a lock left by a process that has gone
@@ -30,6 +40,10 @@ PY
     then
         rm -rf "$lock"
         continue
+    fi
+    if [[ "$try" == 1 ]]; then
+        echo "VM lock is already held; wait for the VM work to finish, then retry" >&2
+        exit 1
     fi
     sleep 5
 done

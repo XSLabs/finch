@@ -15,6 +15,53 @@ from check_libraries import links, resolve
 
 
 class RootfsTests(unittest.TestCase):
+    def test_installed_test_bundle_is_not_packaged(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stage = root / 'stage'
+            accounts = stage / 'private/etc'
+            accounts.mkdir(parents=True)
+            (accounts / 'master.passwd').write_text(
+                'root:*:0:0::0:0:Root:/var/root:/bin/sh\n')
+            bundle = stage / 'usr/lib/system/xctests.xctest/Contents/MacOS'
+            bundle.mkdir(parents=True)
+            (bundle / 'xctests').write_bytes(b'developer test program')
+            library = stage / 'usr/lib/system/libsystem_notify.dylib'
+            library.write_bytes(b'system library')
+            overlay = root / 'overlay.txt'
+            overlay.write_text('')
+            entries = pack.collect(stage, overlay, root)
+            self.assertIn('usr/lib/system/libsystem_notify.dylib', entries)
+            self.assertFalse(any('.xctest' in name for name in entries))
+
+    def test_notifyd_release_account_is_locked_and_has_its_own_group(self):
+        templates = Path(__file__).resolve().parents[2] / 'userland/release/etc'
+        users = [line.split(':') for line in (templates / 'master.passwd').read_text().splitlines()
+                 if line and not line.startswith('#')]
+        groups = [line.split(':') for line in (templates / 'group').read_text().splitlines()
+                  if line and not line.startswith('#')]
+        self.assertEqual([row for row in users if row[0] == '_notifyd'],
+                         [['_notifyd', '*', '11', '11', '', '0', '0',
+                           'Notification Service', '/var/empty', '/sbin/nologin']])
+        self.assertEqual([row for row in groups if row[0] == '_notifyd'],
+                         [['_notifyd', '*', '11', '']])
+        self.assertEqual([row[0] for row in users if int(row[2]) == 11], ['_notifyd'])
+        self.assertEqual([row[0] for row in groups if int(row[2]) == 11], ['_notifyd'])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            account_dir = root / 'stage/private/etc'
+            account_dir.mkdir(parents=True)
+            for filename in ('master.passwd', 'group'):
+                (account_dir / filename).write_bytes((templates / filename).read_bytes())
+            overlay = root / 'overlay.txt'
+            overlay.write_text('')
+            entries = pack.collect(root / 'stage', overlay, root)
+            self.assertIn(b'_notifyd:*:11:11:Notification Service:/var/empty:/sbin/nologin\n',
+                          entries['private/etc/passwd']['data'])
+            self.assertEqual(entries['private/etc/master.passwd']['mode'], 0o600)
+            self.assertEqual(entries['private/etc/passwd']['mode'], 0o644)
+            self.assertEqual(entries['private/etc/group']['mode'], 0o644)
+
     def test_verifier_rejects_public_password_hash(self):
         entries = {}
         for name in ('private', 'private/etc', 'usr', 'usr/share', 'usr/share/finch'):

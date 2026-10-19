@@ -38,6 +38,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "../system-accounts/system_accounts.h"
 
 extern char **environ;
 
@@ -561,14 +562,49 @@ install(const char *archive, const char *signature, const char *root)
 		close(lock);
 		return 1;
 	}
-	struct stat st;
-	int had = path_status(root, &st);
-	if (had < 0 || (had && carry(root, stage, 0) != 0)) {
-		fprintf(stderr, "finch-update: %s is unchanged\n", root);
+	/* Keep the new service record before saved accounts replace the defaults. */
+	char account_root[PATH_MAX], account_dir[PATH_MAX], account_error[256] = {0};
+	sa_notifyd_plan *account_plan = NULL;
+	/* Resolve the caller's root prefix (including /var on macOS), but never
+	 * follow links inside the new payload's private/etc account path. */
+	if (realpath(stage, account_root) == NULL) {
+		fprintf(stderr, "finch-update: cannot resolve staging directory: %s\n", strerror(errno));
 		remove_tree(stage);
 		close(lock);
 		return 1;
 	}
+	int account_path_size = snprintf(account_dir, sizeof account_dir, "%s/private/etc", account_root);
+	if (account_path_size < 0 || account_path_size >= (int)sizeof account_dir ||
+	    sa_notifyd_plan_load_optional(account_dir, &account_plan,
+	        account_error, sizeof account_error) < 0) {
+		fprintf(stderr, "finch-update: cannot read service accounts: %s\n",
+		    account_error[0] ? account_error : "staging path is too long");
+		sa_notifyd_plan_free(account_plan);
+		remove_tree(stage);
+		close(lock);
+		return 1;
+	}
+	struct stat st;
+	int had = path_status(root, &st);
+	if (had < 0 || (had && carry(root, stage, 0) != 0)) {
+		fprintf(stderr, "finch-update: %s is unchanged\n", root);
+		sa_notifyd_plan_free(account_plan);
+		remove_tree(stage);
+		close(lock);
+		return 1;
+	}
+	if (account_plan != NULL &&
+	    sa_notifyd_plan_apply_staged(account_plan, account_dir,
+	        account_error, sizeof account_error) < 0) {
+		fprintf(stderr, "finch-update: cannot add service account: %s; %s is unchanged\n",
+		    account_error, root);
+		sa_notifyd_plan_free(account_plan);
+		remove_tree(stage);
+		close(lock);
+		return 1;
+	}
+	sa_notifyd_plan_free(account_plan);
+	test_stop_at("install.after_account_merge");
 	if (sync_tree(stage) < 0) {
 		fprintf(stderr, "finch-update: can't finish writing %s: %s\n", stage, strerror(errno));
 		remove_tree(stage);

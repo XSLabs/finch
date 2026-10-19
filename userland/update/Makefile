@@ -10,9 +10,9 @@ CFLAGS := -arch arm64e -mmacosx-version-min=26.4 -O2 -Wall -Wextra -Werror
 
 all: $(ROOT)/usr/sbin/finch-update $(if $(wildcard $(KEYS)/update-key.der),$(ROOT)/usr/share/finch/update-key.der)
 
-$(ROOT)/usr/sbin/finch-update: finch-update.c fetch.m
+$(ROOT)/usr/sbin/finch-update: finch-update.c fetch.m ../system-accounts/system_accounts.c ../system-accounts/system_accounts.h
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -o $@ finch-update.c fetch.m -fobjc-arc -framework Security -framework CoreFoundation -framework Foundation
+	$(CC) $(CFLAGS) -o $@ finch-update.c fetch.m ../system-accounts/system_accounts.c -fobjc-arc -framework Security -framework CoreFoundation -framework Foundation
 	codesign -f -s - -i org.finch.update $@
 
 $(ROOT)/usr/share/finch/update-key.der: $(KEYS)/update-key.der

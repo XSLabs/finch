@@ -36,7 +36,9 @@ def safe_path(value):
 
 def runtime_path(path):
     parts = PurePosixPath(path).parts
-    return (parts[0] in ROOTS and not any(p in {'Headers', 'PrivateHeaders', 'Modules', 'include', 'AppleInternal'} or p.endswith('.dSYM') for p in parts)
+    # Some upstream build targets install their XCTest bundles beside libraries.
+    # Those bundles need the developer test runtime and are not system programs.
+    return (parts[0] in ROOTS and not any(p in {'Headers', 'PrivateHeaders', 'Modules', 'include', 'AppleInternal'} or p.endswith(('.dSYM', '.xctest')) for p in parts)
             and not path.startswith('private/etc/pam.d/')
             and 'Dyld.framework' not in parts
             and not path.endswith(('.a', '.tbd', '.h')))

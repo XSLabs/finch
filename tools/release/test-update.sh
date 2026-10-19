@@ -26,11 +26,59 @@ fails=0
 if [[ -z "${FINCH_UPDATE_TEST_TOOL:-}" ]]; then
     xcrun -sdk macosx clang -arch arm64e -mmacosx-version-min=26.4 -O2 -Wall -Wextra -Werror \
         -DFINCH_UPDATE_TESTING -o "${TOOL}" "${FINCH_ROOT}/userland/update/finch-update.c" \
-        "${FINCH_ROOT}/userland/update/fetch.m" -fobjc-arc -framework Security -framework CoreFoundation \
+        "${FINCH_ROOT}/userland/update/fetch.m" "${FINCH_ROOT}/userland/system-accounts/system_accounts.c" \
+        -fobjc-arc -framework Security -framework CoreFoundation \
         -framework Foundation || exit 1
 fi
 check() {
     if [[ "$1" == "$2" ]]; then echo "ok: $3"; else echo "FAIL: $3 (got $1, want $2)"; fails=$((fails + 1)); fi
+}
+public_passwd_status() {
+    local file="$1"
+    if [[ ! -f "${file}" || ! -r "${file}" || -L "${file}" ]]; then
+        echo missing
+        return
+    fi
+    # Public passwd must have seven fields and a literal * in every password slot.
+    # Checking the whole column catches hash formats beyond the common $6$ form.
+    if awk -F: 'NF != 7 || $2 != "*" { bad = 1 } END { exit bad }' "${file}"; then
+        echo clear
+    else
+        echo hash
+    fi
+}
+make_account_root() {
+    local root="$1" kind="$2"
+    mkdir -p "${root}/etc" "${root}/private/etc" "${root}.finch-old/etc"
+    echo active > "${root}/etc/version"
+    echo active root data > "${root}/marker"
+    echo prior > "${root}.finch-old/etc/version"
+    echo prior rollback data > "${root}.finch-old/marker"
+    case "${kind}" in
+        name)
+            printf '%s\n' \
+                'root:*:0:0::0:0:System Administrator:/var/root:/bin/sh' \
+                '_notifyd:unlocked:11:11::0:0:Notification Server:/var/empty:/sbin/nologin' \
+                > "${root}/private/etc/master.passwd"
+            printf '%s\n' 'wheel:*:0:root' '_notifyd:*:11:' > "${root}/private/etc/group"
+            ;;
+        uid)
+            printf '%s\n' \
+                'root:*:0:0::0:0:System Administrator:/var/root:/bin/sh' \
+                'other:*:11:20::0:0:Other:/Users/other:/bin/zsh' \
+                > "${root}/private/etc/master.passwd"
+            printf '%s\n' 'wheel:*:0:root' 'staff:*:20:' > "${root}/private/etc/group"
+            ;;
+        gid)
+            printf '%s\n' \
+                'root:*:0:0::0:0:System Administrator:/var/root:/bin/sh' \
+                'other:*:22:22::0:0:Other:/Users/other:/bin/zsh' \
+                > "${root}/private/etc/master.passwd"
+            printf '%s\n' 'wheel:*:0:root' 'other:*:11:' > "${root}/private/etc/group"
+            ;;
+    esac
+    chmod 600 "${root}/private/etc/master.passwd"
+    chmod 644 "${root}/private/etc/group"
 }
 run_tool() {
     if [[ "${FINCH_UPDATE_TEST_USE_APPLE:-}" == 1 ]]; then
@@ -88,6 +136,19 @@ openssl ecparam -name prime256v1 -genkey -noout -out "${T}/other.pem" 2>/dev/nul
 mkdir -p "${T}/v2/etc" && echo two > "${T}/v2/etc/version"
 tar -C "${T}/v2" -czf "${T}/v2.tar.gz" .
 openssl dgst -sha256 -sign "${T}/key.pem" -out "${T}/v2.tar.gz.sig" "${T}/v2.tar.gz"
+cp "${T}/v2.tar.gz" "${T}/legacy.tar.gz"
+cp "${T}/v2.tar.gz.sig" "${T}/legacy.tar.gz.sig"
+mkdir -p "${T}/account-v2/etc" "${T}/account-v2/private/etc"
+echo two > "${T}/account-v2/etc/version"
+printf '%s\n' \
+    'root:*:0:0::0:0:System Administrator:/var/root:/bin/sh' \
+    '_notifyd:*:11:11::0:0:Notification Server:/var/empty:/sbin/nologin' \
+    > "${T}/account-v2/private/etc/master.passwd"
+printf '%s\n' 'wheel:*:0:root' '_notifyd:*:11:' > "${T}/account-v2/private/etc/group"
+chmod 600 "${T}/account-v2/private/etc/master.passwd"
+chmod 644 "${T}/account-v2/private/etc/group"
+tar -C "${T}/account-v2" -czf "${T}/account-v2.tar.gz" .
+openssl dgst -sha256 -sign "${T}/key.pem" -out "${T}/account-v2.tar.gz.sig" "${T}/account-v2.tar.gz"
 mkdir -p "${T}/v3/etc" && echo three > "${T}/v3/etc/version"
 head -c 8000000 /dev/urandom > "${T}/v3/etc/blob"
 tar -C "${T}/v3" -czf "${T}/v3.tar.gz" .
@@ -100,17 +161,129 @@ check "$(upd verify "${T}/changed.tar.gz")" 1 "a changed archive doesn't"
 openssl dgst -sha256 -sign "${T}/other.pem" -out "${T}/other.sig" "${T}/v2.tar.gz"
 check "$(upd verify "${T}/v2.tar.gz" "${T}/other.sig")" 1 "another key's signature doesn't"
 
+# An older signed payload has no private/etc tree. It must still install while keeping
+# the human and root accounts already on the machine.
+mkdir -p "${T}/legacy-root/etc" "${T}/legacy-root/private/etc"
+echo one > "${T}/legacy-root/etc/version"
+printf '%s\n' \
+    'ada:$6$ada-secret:501:20::0:0:Ada User:/Users/ada:/bin/zsh' \
+    'root:$6$root-secret:0:0::0:0:System Administrator:/var/root:/bin/sh' \
+    > "${T}/legacy-root/private/etc/master.passwd"
+printf '%s\n' 'wheel:*:0:root' 'staff:*:20:ada' > "${T}/legacy-root/private/etc/group"
+cp "${T}/legacy-root/private/etc/master.passwd" "${T}/legacy-master.before"
+cp "${T}/legacy-root/private/etc/group" "${T}/legacy-group.before"
+chmod 600 "${T}/legacy-root/private/etc/master.passwd"
+chmod 644 "${T}/legacy-root/private/etc/group"
+check "$(upd install "${T}/legacy.tar.gz" --root "${T}/legacy-root")" 0 "an older signed update without private/etc still installs"
+check "$(cmp -s "${T}/legacy-master.before" "${T}/legacy-root/private/etc/master.passwd" && echo same || echo changed)" same "  and keeps both account rows"
+check "$(cmp -s "${T}/legacy-group.before" "${T}/legacy-root/private/etc/group" && echo same || echo changed)" same "  and their groups"
+check "$(grep -c '^_notifyd:' "${T}/legacy-root/private/etc/master.passwd" || true)" 0 "  without inventing a service account for an old payload"
+
+# A current update must keep real account hashes private, add the locked service row,
+# and rebuild the public passwd file without carrying any hashes into it.
+mkdir -p "${T}/migration/etc" "${T}/migration/private/etc"
+echo one > "${T}/migration/etc/version"
+printf '%s\n' \
+    'ada:$6$ada-secret:501:20::0:0:Ada User:/Users/ada:/bin/zsh' \
+    'root:$6$root-secret:0:0::0:0:System Administrator:/var/root:/bin/sh' \
+    > "${T}/migration/private/etc/master.passwd"
+printf '%s\n' 'wheel:*:0:root' 'staff:*:20:ada' > "${T}/migration/private/etc/group"
+printf '%s\n' \
+    'ada:$6$old-public-hash:501:20:Ada User:/Users/ada:/bin/zsh' \
+    'root:$6$old-root-hash:0:0:System Administrator:/var/root:/bin/sh' \
+    > "${T}/migration/private/etc/passwd"
+chmod 600 "${T}/migration/private/etc/master.passwd"
+chmod 644 "${T}/migration/private/etc/group" "${T}/migration/private/etc/passwd"
+check "$(upd install "${T}/account-v2.tar.gz" --root "${T}/migration")" 0 "an update adds the locked notify service account"
+check "$(grep -Fxc 'ada:$6$ada-secret:501:20::0:0:Ada User:/Users/ada:/bin/zsh' "${T}/migration/private/etc/master.passwd")" 1 "  and preserves the human account and its private hash"
+check "$(grep -Fxc 'root:$6$root-secret:0:0::0:0:System Administrator:/var/root:/bin/sh' "${T}/migration/private/etc/master.passwd")" 1 "  and preserves root's private hash"
+check "$(grep -Fxc '_notifyd:*:11:11::0:0:Notification Server:/var/empty:/sbin/nologin' "${T}/migration/private/etc/master.passwd")" 1 "  with the locked UID and GID 11 service row"
+check "$(grep -Fxc '_notifyd:*:11:' "${T}/migration/private/etc/group")" 1 "  and the matching locked group"
+check "$(grep -Fxc 'ada:*:501:20:Ada User:/Users/ada:/bin/zsh' "${T}/migration/private/etc/passwd")" 1 "  with a hash-free public Ada row"
+check "$(grep -Fxc 'root:*:0:0:System Administrator:/var/root:/bin/sh' "${T}/migration/private/etc/passwd")" 1 "  with a hash-free public root row"
+check "$(grep -Fxc '_notifyd:*:11:11:Notification Server:/var/empty:/sbin/nologin' "${T}/migration/private/etc/passwd")" 1 "  with a public notify service row"
+check "$(public_passwd_status "${T}/migration/private/etc/passwd")" clear "  and no private hash in public passwd"
+cp "${T}/migration/private/etc/master.passwd" "${T}/migration-master.once"
+cp "${T}/migration/private/etc/group" "${T}/migration-group.once"
+cp "${T}/migration/private/etc/passwd" "${T}/migration-passwd.once"
+check "$(upd install "${T}/account-v2.tar.gz" --root "${T}/migration")" 0 "installing the same update again succeeds"
+check "$(cmp -s "${T}/migration-master.once" "${T}/migration/private/etc/master.passwd" && echo same || echo changed)" same "  without duplicating or changing master accounts"
+check "$(cmp -s "${T}/migration-group.once" "${T}/migration/private/etc/group" && echo same || echo changed)" same "  without duplicating or changing groups"
+check "$(cmp -s "${T}/migration-passwd.once" "${T}/migration/private/etc/passwd" && echo same || echo changed)" same "  without changing the public account view"
+check "$(upd rollback --root "${T}/migration")" 0 "rollback after account migration succeeds"
+check "$(grep -Fxc 'ada:$6$ada-secret:501:20::0:0:Ada User:/Users/ada:/bin/zsh' "${T}/migration/private/etc/master.passwd")" 1 "  and keeps the human account through rollback"
+check "$(grep -Fxc '_notifyd:*:11:11::0:0:Notification Server:/var/empty:/sbin/nologin' "${T}/migration/private/etc/master.passwd")" 1 "  and keeps the service account through rollback"
+check "$(grep -Fxc '_notifyd:*:11:' "${T}/migration/private/etc/group")" 1 "  with the matching group"
+check "$(public_passwd_status "${T}/migration/private/etc/passwd")" clear "  with public passwd still free of hashes"
+
+# A conflicting name, user ID, or group ID must stop before either root is swapped.
+for conflict in name uid gid; do
+    root="${T}/conflict-${conflict}"
+    make_account_root "${root}" "${conflict}"
+    cp "${root}/private/etc/master.passwd" "${root}.master.before"
+    cp "${root}/private/etc/group" "${root}.group.before"
+    check "$(upd install "${T}/account-v2.tar.gz" --root "${root}")" 1 "a ${conflict} account conflict stops the update"
+    check "$(cat "${root}/etc/version")" active "  and leaves the active system in place"
+    check "$(cat "${root}/marker")" "active root data" "  without changing other active files"
+    check "$(cat "${root}.finch-old/etc/version")" prior "  and leaves the rollback system in place"
+    check "$(cmp -s "${root}.master.before" "${root}/private/etc/master.passwd" && echo same || echo changed)" same "  without changing active accounts"
+    check "$(cmp -s "${root}.group.before" "${root}/private/etc/group" && echo same || echo changed)" same "  without changing active groups"
+    check "$(cat "${root}.finch-old/marker")" "prior rollback data" "  without changing other rollback files"
+    check "$([[ -e "${root}.finch-new" ]] && echo left || echo cleared)" cleared "  and clears the refused staging tree"
+done
+
+# Stop after account merging but before the swap. The restart must throw away a damaged
+# partial stage and rebuild it from the signed archive and the untouched active accounts.
+mkdir -p "${T}/account-retry/etc" "${T}/account-retry/private/etc" "${T}/account-retry.finch-old/etc"
+echo one > "${T}/account-retry/etc/version"
+echo prior > "${T}/account-retry.finch-old/etc/version"
+printf '%s\n' \
+    'ada:$6$ada-secret:501:20::0:0:Ada User:/Users/ada:/bin/zsh' \
+    'root:$6$root-secret:0:0::0:0:System Administrator:/var/root:/bin/sh' \
+    > "${T}/account-retry/private/etc/master.passwd"
+printf '%s\n' 'wheel:*:0:root' 'staff:*:20:ada' > "${T}/account-retry/private/etc/group"
+chmod 600 "${T}/account-retry/private/etc/master.passwd"
+chmod 644 "${T}/account-retry/private/etc/group"
+cp "${T}/account-retry/private/etc/master.passwd" "${T}/account-retry.master.before"
+cp "${T}/account-retry/private/etc/group" "${T}/account-retry.group.before"
+start_stopped_update install.after_account_merge "${T}/account-merge.ready" "${T}/account-merge.log" install "${T}/account-v2.tar.gz" --root "${T}/account-retry"
+check "$([[ $? -eq 0 ]] && echo stopped || echo missed)" stopped "the account-merge interruption point is reached"
+check "$(cat "${T}/account-retry.finch-new/etc/version")" two "  the staged system was unpacked"
+check "$(grep -Fxc '_notifyd:*:11:11::0:0:Notification Server:/var/empty:/sbin/nologin' "${T}/account-retry.finch-new/private/etc/master.passwd")" 1 "  the service account was merged before stopping"
+kill_stopped_update
+check "$(cat "${T}/account-retry/etc/version")" one "  killing the updater leaves the active system alone"
+check "$(cat "${T}/account-retry.finch-old/etc/version")" prior "  and leaves the prior rollback tree alone"
+check "$(cmp -s "${T}/account-retry.master.before" "${T}/account-retry/private/etc/master.passwd" && echo same || echo changed)" same "  with no changes to active accounts"
+check "$(cmp -s "${T}/account-retry.group.before" "${T}/account-retry/private/etc/group" && echo same || echo changed)" same "  with no changes to active groups"
+echo stale > "${T}/account-retry.finch-new/etc/version"
+printf '%s\n' 'stale staged account data' > "${T}/account-retry.finch-new/private/etc/master.passwd"
+check "$(upd install "${T}/account-v2.tar.gz" --root "${T}/account-retry")" 0 "the interrupted account update can be retried"
+check "$(cat "${T}/account-retry/etc/version")" two "  the retry rebuilds the system from the signed archive"
+check "$(grep -Fxc 'ada:$6$ada-secret:501:20::0:0:Ada User:/Users/ada:/bin/zsh' "${T}/account-retry/private/etc/master.passwd")" 1 "  and keeps the human account"
+check "$(grep -Fxc '_notifyd:*:11:11::0:0:Notification Server:/var/empty:/sbin/nologin' "${T}/account-retry/private/etc/master.passwd")" 1 "  and merges the service account again"
+check "$(grep -Fxc '_notifyd:*:11:' "${T}/account-retry/private/etc/group")" 1 "  with the matching group"
+check "$(public_passwd_status "${T}/account-retry/private/etc/passwd")" clear "  without copying hashes into public passwd"
+
 mkdir -p "${T}/system/etc" && echo one > "${T}/system/etc/version"
 # the user's files and accounts, which an update keeps
 mkdir -p "${T}/system/Users/ada/Documents" "${T}/system/private/etc" && echo draft > "${T}/system/Users/ada/Documents/notes.txt"
 chmod 640 "${T}/system/Users/ada/Documents/notes.txt"
 ln -s Documents/notes.txt "${T}/system/Users/ada/note-link"
 echo 'ada:*:501:20::0:0:Ada:/Users/ada:/bin/zsh' > "${T}/system/private/etc/master.passwd"
+echo 'wheel:*:0:root' > "${T}/system/private/etc/group"
+chmod 600 "${T}/system/private/etc/master.passwd"
+chmod 644 "${T}/system/private/etc/group"
 mkdir -p "${T}/system/Library/Preferences" "${T}/system/Library/LaunchDaemons" "${T}/v2/Library/LaunchDaemons"
 mkdir -p "${T}/system/private/var/root" && echo hi > "${T}/system/private/var/root/.profile"
 echo dark > "${T}/system/Library/Preferences/look" && echo old > "${T}/system/Library/LaunchDaemons/job" && echo new > "${T}/v2/Library/LaunchDaemons/job"
 head -c 1000000 /dev/urandom > "${T}/v2/etc/blob"
-mkdir -p "${T}/v2/Users" "${T}/v2/private/etc" && echo 'root:*:0:0::0:0:System Administrator:/var/root:/bin/sh' > "${T}/v2/private/etc/master.passwd"
+mkdir -p "${T}/v2/Users" "${T}/v2/private/etc" && printf '%s\n' \
+    'root:*:0:0::0:0:System Administrator:/var/root:/bin/sh' \
+    '_notifyd:*:11:11::0:0:Notification Server:/var/empty:/sbin/nologin' \
+    > "${T}/v2/private/etc/master.passwd"
+printf '%s\n' 'wheel:*:0:root' '_notifyd:*:11:' > "${T}/v2/private/etc/group"
+chmod 600 "${T}/v2/private/etc/master.passwd"
+chmod 644 "${T}/v2/private/etc/group"
 tar -C "${T}/v2" -czf "${T}/v2.tar.gz" . && openssl dgst -sha256 -sign "${T}/key.pem" -out "${T}/v2.tar.gz.sig" "${T}/v2.tar.gz"
 check "$(upd install "${T}/changed.tar.gz" --root "${T}/system")" 1 "an unsigned update isn't installed"
 check "$(cat "${T}/system/etc/version")" one "  and the system is unchanged"
@@ -120,7 +293,12 @@ check "$(cat "${T}/system.finch-old/etc/version")" one "  the previous one is ke
 check "$(cat "${T}/system/Users/ada/Documents/notes.txt")" draft "  the user's files came across"
 check "$(stat -f '%Lp' "${T}/system/Users/ada/Documents/notes.txt")" 640 "  with its file mode"
 check "$([[ -L "${T}/system/Users/ada/note-link" ]] && readlink "${T}/system/Users/ada/note-link" || echo missing)" Documents/notes.txt "  and its symbolic link"
-check "$(cut -d: -f1 "${T}/system/private/etc/master.passwd")" ada "  and the accounts, not the payload's"
+check "$(grep -Fxc 'ada:*:501:20::0:0:Ada:/Users/ada:/bin/zsh' "${T}/system/private/etc/master.passwd")" 1 "  and the active user's account, not the payload's"
+check "$(grep -Fxc '_notifyd:*:11:11::0:0:Notification Server:/var/empty:/sbin/nologin' "${T}/system/private/etc/master.passwd")" 1 "  with the locked notify service account"
+check "$(grep -Fxc '_notifyd:*:11:' "${T}/system/private/etc/group")" 1 "  and its matching group"
+check "$(grep -Fxc 'ada:*:501:20:Ada:/Users/ada:/bin/zsh' "${T}/system/private/etc/passwd")" 1 "  with a public account entry"
+check "$(grep -Fxc '_notifyd:*:11:11:Notification Server:/var/empty:/sbin/nologin' "${T}/system/private/etc/passwd")" 1 "  with a public notify service entry"
+check "$(public_passwd_status "${T}/system/private/etc/passwd")" clear "  without a password hash in public passwd"
 check "$(cat "${T}/system/Library/Preferences/look")" dark "  and the settings"
 check "$(cat "${T}/system/private/var/root/.profile")" hi "  even where the update has no folder for them"
 check "$(cat "${T}/system/Library/LaunchDaemons/job")" new "  but the system's own files are the update's"
@@ -133,6 +311,10 @@ check "$([[ -e "${T}/system.finch-new" ]] && echo left || echo cleared)" cleared
 check "$(upd rollback --root "${T}/system")" 0 "rollback"
 check "$(cat "${T}/system/etc/version")" one "  the previous system is back"
 check "$(cat "${T}/system/Users/ada/Documents/notes.txt")" draft "  with the user's files"
+check "$(grep -Fxc 'ada:*:501:20:Ada:/Users/ada:/bin/zsh' "${T}/system/private/etc/passwd")" 1 "  and its public account entry"
+check "$(grep -Fxc '_notifyd:*:11:11::0:0:Notification Server:/var/empty:/sbin/nologin' "${T}/system/private/etc/master.passwd")" 1 "  and the notify service account"
+check "$(grep -Fxc '_notifyd:*:11:' "${T}/system/private/etc/group")" 1 "  with its matching group"
+check "$(public_passwd_status "${T}/system/private/etc/passwd")" clear "  without exposing account hashes"
 check "$(upd rollback --root "${T}/system")" 1 "a second rollback has nothing to go back to"
 
 # A recovery name may contain only a real system tree. A symlink could otherwise be
