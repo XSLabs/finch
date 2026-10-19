@@ -1,0 +1,2416 @@
+--- a/libnotify.h
++++ b/libnotify.h
+@@ -166,6 +166,10 @@
+ 		uint64_t hash_key;
+ 	} cid;
+ 	uint32_t lastval;
++	/* Kernel-issued identity and private path-watch event state. */
++	int32_t pidversion;
++	uint64_t pathwatch_generation;
++	uint64_t pathwatch_sequence;
+ 	uint16_t service_index;
+ 	uint8_t suspend_count;
+ 	uint8_t state_and_type;
+--- a/notify_client.c
++++ b/notify_client.c
+@@ -240,10 +240,100 @@
+ 	/* path monitoring */
+ 	char *path;
+ 	int path_flags;
++	uint64_t path_generation;
++	atomic_uint_least32_t path_event_count;
++	os_unfair_lock path_signal_lock;
++	uint32_t path_signal_suspend_count;
++	bool path_signal_pending;
++	bool path_setup;
++	struct client_pathwatch_s *path_watch;
++	/* The private acknowledged cancel already removed this token from notifyd. */
++	bool server_cancelled;
+ 
+ 	/* name table node for this registration */
+ 	name_node_t *name_node;
+ } registration_node_t;
++
++/*
++ * A path watch is kept in the registering process. Every open below runs with
++ * that process's credentials and sandbox. The fixed arrays put a hard limit
++ * on the descriptors one registration can hold.
++ */
++#define CLIENT_PATHWATCH_MAX_SOURCES 64
++#define CLIENT_PATHWATCH_MAX_FDS 512
++#define CLIENT_PATHWATCH_MAX_SYMLINKS 32
++#define CLIENT_PATHWATCH_ALL_FLAGS 0x000003ff
++#define CLIENT_PATHWATCH_EVENT_MASK (DISPATCH_VNODE_DELETE | DISPATCH_VNODE_WRITE | \
++		DISPATCH_VNODE_EXTEND | DISPATCH_VNODE_ATTRIB | DISPATCH_VNODE_LINK | \
++		DISPATCH_VNODE_RENAME | DISPATCH_VNODE_REVOKE)
++
++static char client_pathwatch_queue_key;
++
++typedef struct client_pathwatch_source_s {
++	struct client_pathwatch_s *watch;
++	dispatch_source_t source;
++	int fd;
++	bool is_target;
++	bool is_symlink;
++	bool resumed;
++	bool counted;
++	bool source_group_entered;
++	dispatch_group_t retired_group;
++} client_pathwatch_source_t;
++
++typedef struct client_pathwatch_retry_timer_s {
++	struct client_pathwatch_s *watch;
++	dispatch_source_t source;
++	bool resumed;
++} client_pathwatch_retry_timer_t;
++
++typedef struct client_pathwatch_s {
++	atomic_uint_fast32_t refcount;
++	registration_node_t *registration;
++	char *path;
++	uint32_t flags;
++	uint64_t generation;
++	uint64_t sequence;
++	atomic_bool active;
++	bool rebuilding;
++	bool have_snapshot;
++	bool present;
++	bool access_blocked;
++	struct stat link_stat;
++	struct stat target_stat;
++	dispatch_queue_t queue;
++	dispatch_group_t source_group;
++	client_pathwatch_retry_timer_t *retry_timer;
++	os_unfair_lock lock;
++	atomic_bool cancelled;
++	uint32_t source_count;
++	client_pathwatch_source_t *sources[CLIENT_PATHWATCH_MAX_SOURCES];
++} client_pathwatch_t;
++
++static void client_pathwatch_cancel(client_pathwatch_t *watch);
++static void client_pathwatch_cancel_and_drain(client_pathwatch_t *watch);
++static void client_pathwatch_release(client_pathwatch_t *watch);
++static void client_pathwatch_source_event(void *context);
++static void client_pathwatch_source_cancel(void *context);
++static void client_pathwatch_retry_timer_event(void *context);
++static void client_pathwatch_retry_timer_cancel(void *context);
++static bool client_pathwatch_create_retry_timer(client_pathwatch_t *watch);
++static void client_pathwatch_resume_retry_timer(client_pathwatch_t *watch);
++static void client_pathwatch_schedule_retry_timer(client_pathwatch_t *watch, bool retry);
++static bool client_pathwatch_build_path_sources(client_pathwatch_t *watch, const char *path,
++						unsigned symlink_depth);
++static uint32_t client_pathwatch_reconcile(client_pathwatch_t *watch);
++static bool client_pathwatch_reconcile_after_arm(client_pathwatch_t *watch, bool access_restored);
++static uint32_t client_pathwatch_create(registration_node_t *r, char *path, int flags,
++					uint64_t generation, client_pathwatch_t **out_watch);
++static void client_pathwatch_start(client_pathwatch_t *watch);
++static void client_pathwatch_deliver(client_pathwatch_t *watch, uint32_t data);
++static void client_pathwatch_rebuild(client_pathwatch_t *watch);
++static bool client_pathwatch_needs_server_relay(registration_node_t *r);
++static bool client_pathwatch_needs_regeneration(registration_node_t *r);
++static void client_pathwatch_signal_suspend(registration_node_t *r, bool suspend);
++static void client_pathwatch_signal_deliver(registration_node_t *r);
++static uint32_t client_pathwatch_register_relay(registration_node_t *r, uint64_t generation);
+ 
+ 
+ /* FORWARD */
+@@ -491,6 +581,10 @@
+ #define _notify_server_register_signal_2(...) _ipc_base_call(_notify_server_register_signal_2, ##__VA_ARGS__)
+ #define _notify_server_register_file_descriptor_2(...) _ipc_base_call(_notify_server_register_file_descriptor_2, ##__VA_ARGS__)
+ #define _notify_server_register_mach_port_2(...) _ipc_base_call(_notify_server_register_mach_port_2, ##__VA_ARGS__)
++#define _notify_server_pathwatch_register_3(...) _ipc_base_call(_notify_server_pathwatch_register_3, ##__VA_ARGS__)
++#define _notify_server_pathwatch_event_3(...) _ipc_base_call(_notify_server_pathwatch_event_3, ##__VA_ARGS__)
++#define _notify_server_cancel_3(...) _ipc_base_call(_notify_server_cancel_3, ##__VA_ARGS__)
++#define _notify_server_regenerate_3(...) _ipc_base_call(_notify_server_regenerate_3, ##__VA_ARGS__)
+ #define _notify_server_cancel_2(...) _ipc_base_call(_notify_server_cancel_2, ##__VA_ARGS__)
+ #define _notify_server_get_state_2(...) _ipc_base_call(_notify_server_get_state_2, ##__VA_ARGS__)
+ #define _notify_server_get_state_3(...) _ipc_base_call(_notify_server_get_state_3, ##__VA_ARGS__)
+@@ -506,6 +600,8 @@
+ #define _filtered_notify_server_checkin(...) _ipc_base_call(_filtered_notify_server_checkin, ##__VA_ARGS__)
+ #define _filtered_notify_server_post(...) _ipc_base_call(_filtered_notify_server_post, ##__VA_ARGS__)
+ #define _filtered_notify_server_regenerate(...) _ipc_base_call(_filtered_notify_server_regenerate, ##__VA_ARGS__)
++#define _filtered_notify_server_regenerate_3(...) _ipc_base_call(_filtered_notify_server_regenerate_3, ##__VA_ARGS__)
++#define _filtered_notify_server_cancel_3(...) _ipc_base_call(_filtered_notify_server_cancel_3, ##__VA_ARGS__)
+ #define _filtered_notify_server_set_state_2(...) _ipc_base_call(_filtered_notify_server_set_state_2, ##__VA_ARGS__)
+ #define _filtered_notify_server_set_state_3(...) _ipc_base_call(_filtered_notify_server_set_state_3, ##__VA_ARGS__)
+ 
+@@ -704,6 +800,7 @@
+ 
+ 	mutex_lock("global", &globals->notify_lock, __func__, __LINE__);
+ 	registration_node_t *r = _nc_table_find_n(&globals->registration_table, token);
++	if (r != NULL && (r->flags & NOTIFY_FLAG_CANCELED)) r = NULL;
+ 	if (r != NULL) registration_node_retain(r);
+ 	mutex_unlock("global", &globals->notify_lock, __func__, __LINE__);
+ 
+@@ -731,7 +828,7 @@
+ 	mutex_lock("global", &globals->notify_lock, __func__, __LINE__);
+ 	registration_node_t *r = _nc_table_find_n(&globals->registration_table, val);
+ 	if (r == NULL) valid = false;
+-	else if (r->flags & NOTIFY_FLAG_COALESCE_BASE) valid = false;
++	else if (r->flags & (NOTIFY_FLAG_COALESCE_BASE | NOTIFY_FLAG_CANCELED)) valid = false;
+ 	mutex_unlock("global", &globals->notify_lock, __func__, __LINE__);
+ 
+ #ifdef DEBUG
+@@ -765,8 +862,12 @@
+ #ifdef DEBUG
+ 		if (_libnotify_debug & DEBUG_CANCEL) _notify_client_log(ASL_LEVEL_NOTICE, "_notify_server_cancel_2 token %u", r->token);
+ #endif
+-		// hold lock across async server call
+-		(void)_notify_server_cancel_2(globals->notify_server_port, r->token);
++		/* A path-watch token may already have been canceled synchronously. */
++		if (!r->server_cancelled)
++		{
++			// hold lock across async server call
++			(void)_notify_server_cancel_2(globals->notify_server_port, r->token);
++		}
+ 	}
+ 
+ 	notify_release_file_descriptor_locked(globals, r->fd);
+@@ -803,6 +904,7 @@
+ 
+ 	uint32_t reg_token = r->token;
+ 	uint32_t reg_flags = r->flags;
++	bool server_cancelled = r->server_cancelled;
+ 	registration_node_free_locked(globals, r);
+ 
+ 	if (reg_flags & NOTIFY_FLAG_SELF)
+@@ -831,7 +933,7 @@
+ 		return;
+ 	}
+ 	kern_return_t kstatus = KERN_SUCCESS;
+-	if ((reg_flags & NOTIFY_FLAG_COALESCED) == 0)
++	if (((reg_flags & NOTIFY_FLAG_COALESCED) == 0) && !server_cancelled)
+ 	{
+ 		// hold lock across async server call
+ 		kstatus = _notify_server_cancel_2(globals->notify_server_port, reg_token);
+@@ -1259,6 +1361,8 @@
+ 	}
+ 
+ 	os_atomic_store(&reg_node->refcount, 1, relaxed);
++	atomic_init(&reg_node->path_event_count, 0);
++	reg_node->path_signal_lock = OS_UNFAIR_LOCK_INIT;
+ 	reg_node->token = token;
+ 	_nc_table_insert_n(&globals->registration_table, &reg_node->token);
+ 
+@@ -1379,6 +1483,8 @@
+ #endif
+ 
+ 	os_atomic_store(&reg_node->refcount, 1, relaxed);
++	atomic_init(&reg_node->path_event_count, 0);
++	reg_node->path_signal_lock = OS_UNFAIR_LOCK_INIT;
+ 	reg_node->token = token;
+ 	reg_node->client_id = token;
+ 	reg_node->flags = flags | NOTIFY_FLAG_COALESCE_BASE;
+@@ -1435,12 +1541,16 @@
+ 	int new_slot = SLOT_NONE;
+ 	kern_return_t kstatus;
+ 	uint64_t new_nid = NID_UNSET;
+-	size_t pathlen;
++	mach_port_t port = MACH_PORT_NULL;
++	int server_fd = -1;
++	bool use_regenerate_v3;
+ 	char *name = r->name_node->name;
+ 
+ 	notify_globals_t globals = _notify_globals();
+ 
+-	if (r->flags & NOTIFY_FLAG_SELF) return;
++	/* Canceled nodes can still be in the table while a caller holds a ref.
++	 * Never recreate those clients on the replacement daemon. */
++	if (r->flags & (NOTIFY_FLAG_SELF | NOTIFY_FLAG_CANCELED)) return;
+ 	if ((r->flags & NOTIFY_FLAG_REGEN) == 0) return;
+ 
+ 	if(!check_name_access(name, geteuid()))
+@@ -1449,22 +1559,59 @@
+ 				    name, geteuid());
+ 	}
+ 
+-	pathlen = 0;
+-	if (r->path != NULL) pathlen = strlen(r->path) + 1;
+ 	type = r->flags & NOTIFY_TYPE_MASK;
++	use_regenerate_v3 = (type == NOTIFY_TYPE_FILE) || (type == NOTIFY_TYPE_PORT);
++	if (type == NOTIFY_TYPE_PORT) port = r->mp;
++	if (type == NOTIFY_TYPE_FILE)
++	{
++		for (uint32_t i = 0; i < globals->fd_count; i++)
++		{
++			if (globals->fd_clnt[i] == r->fd)
++			{
++				server_fd = globals->fd_srv[i];
++				break;
++			}
++		}
++		if (server_fd < 0)
++		{
++			REPORT_BAD_BEHAVIOR("Libnotify: cannot restore file-descriptor notification for %s", name);
++			return;
++		}
++	}
+ 
+ 	int remaining_retries = NOTIFY_SERVER_RETRY_NUMBER;
+ 	do {
++		fileport_t fileport = FILEPORT_NULL;
++		if ((type == NOTIFY_TYPE_FILE) && (fileport_makeport(server_fd, &fileport) < 0))
++		{
++			status = NOTIFY_STATUS_FILEPORT_MAKEPORT_FAILED;
++			kstatus = KERN_FAILURE;
++			break;
++		}
+ 		if (os_unlikely(client_opts(globals) & NOTIFY_OPT_FILTERED)) {
+-			kstatus = _filtered_notify_server_regenerate(globals->notify_server_port, (caddr_t)name, r->token, type,
+-				MACH_PORT_NULL, (type == NOTIFY_TYPE_SIGNAL) ? r->signal_or_xtra_mp : 0,
+-				r->slot, r->set_state_val, r->set_state_time, r->path, (mach_msg_type_number_t)pathlen,
+-				r->path_flags, &new_slot, &new_nid, &status);
++			if (use_regenerate_v3) {
++				kstatus = _filtered_notify_server_regenerate_3(globals->notify_server_port, (caddr_t)name, r->token, type,
++					port, fileport, (type == NOTIFY_TYPE_SIGNAL) ? r->signal_or_xtra_mp : 0,
++					r->slot, r->set_state_val, r->set_state_time, NULL, 0, 0,
++					&new_slot, &new_nid, &status);
++			} else {
++				kstatus = _filtered_notify_server_regenerate(globals->notify_server_port, (caddr_t)name, r->token, type,
++					port, (type == NOTIFY_TYPE_SIGNAL) ? r->signal_or_xtra_mp : 0,
++					r->slot, r->set_state_val, r->set_state_time, NULL, 0, 0,
++					&new_slot, &new_nid, &status);
++			}
+ 		} else {
+-			kstatus = _notify_server_regenerate(globals->notify_server_port, (caddr_t)name, r->token, type,
+-				MACH_PORT_NULL, (type == NOTIFY_TYPE_SIGNAL) ? r->signal_or_xtra_mp : 0,
+-				r->slot, r->set_state_val, r->set_state_time, r->path, (mach_msg_type_number_t)pathlen,
+-				r->path_flags, &new_slot, &new_nid, &status);
++			if (use_regenerate_v3) {
++				kstatus = _notify_server_regenerate_3(globals->notify_server_port, (caddr_t)name, r->token, type,
++					port, fileport, (type == NOTIFY_TYPE_SIGNAL) ? r->signal_or_xtra_mp : 0,
++					r->slot, r->set_state_val, r->set_state_time, NULL, 0, 0,
++					&new_slot, &new_nid, &status);
++			} else {
++				kstatus = _notify_server_regenerate(globals->notify_server_port, (caddr_t)name, r->token, type,
++					port, (type == NOTIFY_TYPE_SIGNAL) ? r->signal_or_xtra_mp : 0,
++					r->slot, r->set_state_val, r->set_state_time, NULL, 0, 0,
++					&new_slot, &new_nid, &status);
++			}
+ 		}
+ 		if (kstatus == KERN_SUCCESS) {
+ 			break;
+@@ -1483,6 +1630,14 @@
+ 
+ 	r->slot = new_slot;
+ 	r->name_node->name_id = new_nid;
++	if ((r->path_watch != NULL) && client_pathwatch_needs_server_relay(r) &&
++	    ((status == NOTIFY_STATUS_OK) || (status == NOTIFY_STATUS_DUP_CLIENT) ||
++	     (status == NOTIFY_STATUS_NO_REGEN_NEEDED)))
++	{
++		uint32_t path_status = client_pathwatch_register_relay(r, r->path_generation);
++		if (path_status != NOTIFY_STATUS_OK)
++			REPORT_BAD_BEHAVIOR("Libnotify: cannot restore path notification for %s", name);
++	}
+ }
+ 
+ /*
+@@ -2247,6 +2402,1087 @@
+ 	Block_release(detached_block);
+ }
+ 
++/* Vnode sources are process-local and always run on a per-watch serial queue. */
++static os_unfair_lock client_pathwatch_fd_lock = OS_UNFAIR_LOCK_INIT;
++static uint32_t client_pathwatch_fd_count;
++static os_unfair_lock client_pathwatch_generation_lock = OS_UNFAIR_LOCK_INIT;
++static uint64_t client_pathwatch_next_generation;
++
++enum {
++	CLIENT_PATH_DELETE = 0x0001,
++	CLIENT_PATH_WRITE = 0x0002,
++	CLIENT_PATH_EXTEND = 0x0004,
++	CLIENT_PATH_ATTRIB = 0x0008,
++	CLIENT_PATH_LINK = 0x0010,
++	CLIENT_PATH_RENAME = 0x0020,
++	CLIENT_PATH_REVOKE = 0x0040,
++	CLIENT_PATH_CREATE = 0x0080,
++	CLIENT_PATH_MTIME = 0x0100,
++	CLIENT_PATH_CTIME = 0x0200
++};
++
++static bool
++client_pathwatch_fd_reserve(void)
++{
++	bool result = false;
++	os_unfair_lock_lock(&client_pathwatch_fd_lock);
++	if (client_pathwatch_fd_count < CLIENT_PATHWATCH_MAX_FDS)
++	{
++		client_pathwatch_fd_count++;
++		result = true;
++	}
++	os_unfair_lock_unlock(&client_pathwatch_fd_lock);
++	return result;
++}
++
++static void
++client_pathwatch_fd_release(void)
++{
++	os_unfair_lock_lock(&client_pathwatch_fd_lock);
++	assert(client_pathwatch_fd_count > 0);
++	client_pathwatch_fd_count--;
++	os_unfair_lock_unlock(&client_pathwatch_fd_lock);
++}
++
++static uint64_t
++client_pathwatch_new_generation(void)
++{
++	uint64_t result;
++	os_unfair_lock_lock(&client_pathwatch_generation_lock);
++	result = ++client_pathwatch_next_generation;
++	if (result == 0) result = ++client_pathwatch_next_generation;
++	os_unfair_lock_unlock(&client_pathwatch_generation_lock);
++	return result;
++}
++
++static void
++client_pathwatch_retain(client_pathwatch_t *watch)
++{
++	if (watch != NULL) atomic_fetch_add_explicit(&watch->refcount, 1, memory_order_relaxed);
++}
++
++static void
++client_pathwatch_release(client_pathwatch_t *watch)
++{
++	if (watch == NULL) return;
++	if (atomic_fetch_sub_explicit(&watch->refcount, 1, memory_order_acq_rel) != 1) return;
++
++	registration_node_release(watch->registration);
++	free(watch->path);
++	if (watch->queue != NULL) dispatch_release(watch->queue);
++	if (watch->source_group != NULL) dispatch_release(watch->source_group);
++	free(watch);
++}
++
++/* One suspended timer lives for the whole watch. Its group entry begins before
++ * publication and lasts until the cancel handler has run, so cancel-and-drain
++ * cannot miss a timer being created at the same time. */
++static bool
++client_pathwatch_create_retry_timer(client_pathwatch_t *watch)
++{
++	client_pathwatch_retry_timer_t *entry;
++	dispatch_source_t source;
++
++	entry = calloc(1, sizeof(*entry));
++	if (entry == NULL)
++	{
++		errno = ENOMEM;
++		return false;
++	}
++
++	os_unfair_lock_lock(&watch->lock);
++	if (os_atomic_load(&watch->cancelled, relaxed))
++	{
++		os_unfair_lock_unlock(&watch->lock);
++		free(entry);
++		errno = ECANCELED;
++		return false;
++	}
++	dispatch_group_enter(watch->source_group);
++	os_unfair_lock_unlock(&watch->lock);
++
++	source = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, watch->queue);
++	if (source == NULL)
++	{
++		dispatch_group_leave(watch->source_group);
++		free(entry);
++		errno = ENOMEM;
++		return false;
++	}
++
++	entry->watch = watch;
++	entry->source = source;
++	client_pathwatch_retain(watch);
++	dispatch_set_context(source, entry);
++	dispatch_source_set_event_handler_f(source, client_pathwatch_retry_timer_event);
++	dispatch_source_set_cancel_handler_f(source, client_pathwatch_retry_timer_cancel);
++	dispatch_source_set_timer(source, DISPATCH_TIME_FOREVER, DISPATCH_TIME_FOREVER, 0);
++
++	/* If cancellation raced source creation, this unpublished source owns the
++	 * group entry and must resume itself so its cancel handler can release it. */
++	os_unfair_lock_lock(&watch->lock);
++	if (os_atomic_load(&watch->cancelled, relaxed) || (watch->retry_timer != NULL))
++	{
++		entry->resumed = true;
++		os_unfair_lock_unlock(&watch->lock);
++		dispatch_resume(source);
++		dispatch_source_cancel(source);
++		errno = ECANCELED;
++		return false;
++	}
++	watch->retry_timer = entry;
++	os_unfair_lock_unlock(&watch->lock);
++	return true;
++}
++
++static void
++client_pathwatch_resume_retry_timer(client_pathwatch_t *watch)
++{
++	os_unfair_lock_lock(&watch->lock);
++	if (!os_atomic_load(&watch->cancelled, relaxed) && (watch->retry_timer != NULL) &&
++	    !watch->retry_timer->resumed)
++	{
++		watch->retry_timer->resumed = true;
++		dispatch_resume(watch->retry_timer->source);
++	}
++	os_unfair_lock_unlock(&watch->lock);
++}
++
++static void
++client_pathwatch_schedule_retry_timer(client_pathwatch_t *watch, bool retry)
++{
++	client_pathwatch_retry_timer_t *entry;
++	dispatch_time_t deadline;
++
++	os_unfair_lock_lock(&watch->lock);
++	entry = watch->retry_timer;
++	if ((entry != NULL) && entry->resumed &&
++	    !os_atomic_load(&watch->cancelled, relaxed) && os_atomic_load(&watch->active, relaxed))
++	{
++		deadline = retry ? dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC) : DISPATCH_TIME_FOREVER;
++		dispatch_source_set_timer(entry->source, deadline, DISPATCH_TIME_FOREVER,
++				retry ? (100 * NSEC_PER_MSEC) : 0);
++	}
++	os_unfair_lock_unlock(&watch->lock);
++}
++
++static void
++client_pathwatch_retry_timer_cancel(void *context)
++{
++	client_pathwatch_retry_timer_t *entry = context;
++	client_pathwatch_t *watch = entry->watch;
++
++	dispatch_group_leave(watch->source_group);
++	dispatch_release(entry->source);
++	free(entry);
++	client_pathwatch_release(watch);
++}
++
++static void
++client_pathwatch_retry_timer_event(void *context)
++{
++	client_pathwatch_retry_timer_t *entry = context;
++	client_pathwatch_t *watch = entry->watch;
++
++	if (os_atomic_load(&watch->cancelled, relaxed) || !os_atomic_load(&watch->active, relaxed)) return;
++	/* This is one-shot. The rebuild completion arms the next retry only if
++	 * checking under the caller's current credentials is still denied. */
++	client_pathwatch_schedule_retry_timer(watch, false);
++	if (watch->access_blocked) client_pathwatch_rebuild(watch);
++}
++
++static bool
++client_pathwatch_stat_equal(const struct stat *a, const struct stat *b)
++{
++	return (a->st_dev == b->st_dev) && (a->st_ino == b->st_ino) &&
++		((a->st_mode & S_IFMT) == (b->st_mode & S_IFMT));
++}
++
++static bool
++client_pathwatch_timespec_equal(struct timespec a, struct timespec b)
++{
++	return (a.tv_sec == b.tv_sec) && (a.tv_nsec == b.tv_nsec);
++}
++
++/* Returns true only when both the link name and its target can be read. */
++static bool
++client_pathwatch_sample(client_pathwatch_t *watch, struct stat *link_stat,
++			struct stat *target_stat, int *sample_error)
++{
++	if (lstat(watch->path, link_stat) != 0)
++	{
++		*sample_error = errno;
++		if ((errno == EACCES) || (errno == EPERM)) watch->access_blocked = true;
++		return false;
++	}
++	if (stat(watch->path, target_stat) != 0)
++	{
++		*sample_error = errno;
++		if ((errno == EACCES) || (errno == EPERM)) watch->access_blocked = true;
++		return false;
++	}
++	*sample_error = 0;
++	return true;
++}
++
++static bool
++client_pathwatch_add_source(client_pathwatch_t *watch, const char *path, bool is_target,
++				bool follow_symlink, client_pathwatch_source_t **out_source)
++{
++	client_pathwatch_source_t *entry;
++	dispatch_source_t source;
++	struct stat sb;
++	int fd;
++	bool duplicate = false;
++
++	*out_source = NULL;
++	/* Count setup before opening anything. Cancel closes admission under the
++	 * same lock, then waits for both builders and published sources to retire. */
++	os_unfair_lock_lock(&watch->lock);
++	if (os_atomic_load(&watch->cancelled, relaxed))
++	{
++		os_unfair_lock_unlock(&watch->lock);
++		errno = ECANCELED;
++		return false;
++	}
++	dispatch_group_enter(watch->source_group);
++	os_unfair_lock_unlock(&watch->lock);
++
++	if (!client_pathwatch_fd_reserve())
++	{
++		errno = EMFILE;
++		dispatch_group_leave(watch->source_group);
++		return false;
++	}
++	struct stat path_stat;
++	bool is_symlink = !follow_symlink && (lstat(path, &path_stat) == 0) && S_ISLNK(path_stat.st_mode);
++	fd = open(path, O_EVTONLY | O_CLOEXEC | (is_symlink ? O_SYMLINK : 0));
++	if (fd < 0)
++	{
++		if ((errno == EACCES) || (errno == EPERM)) watch->access_blocked = true;
++		client_pathwatch_fd_release();
++		dispatch_group_leave(watch->source_group);
++		return false;
++	}
++
++	if (fstat(fd, &sb) != 0)
++	{
++		close(fd);
++		client_pathwatch_fd_release();
++		dispatch_group_leave(watch->source_group);
++		return false;
++	}
++
++	/* Check aliases and reserve a descriptor slot while cancellation is excluded. */
++	os_unfair_lock_lock(&watch->lock);
++	if (os_atomic_load(&watch->cancelled, relaxed))
++	{
++		os_unfair_lock_unlock(&watch->lock);
++		close(fd);
++		client_pathwatch_fd_release();
++		dispatch_group_leave(watch->source_group);
++		errno = ECANCELED;
++		return false;
++	}
++	for (uint32_t i = 0; i < watch->source_count; i++)
++	{
++		struct stat old_sb;
++		client_pathwatch_source_t *old = watch->sources[i];
++		if ((old != NULL) && (fstat(old->fd, &old_sb) == 0) &&
++		    (old_sb.st_dev == sb.st_dev) && (old_sb.st_ino == sb.st_ino))
++		{
++			if (is_target) old->is_target = true;
++			*out_source = old;
++			duplicate = true;
++			break;
++		}
++	}
++	if (duplicate)
++	{
++		os_unfair_lock_unlock(&watch->lock);
++		close(fd);
++		client_pathwatch_fd_release();
++		dispatch_group_leave(watch->source_group);
++		return true;
++	}
++	if (watch->source_count >= CLIENT_PATHWATCH_MAX_SOURCES)
++	{
++		os_unfair_lock_unlock(&watch->lock);
++		close(fd);
++		client_pathwatch_fd_release();
++		dispatch_group_leave(watch->source_group);
++		errno = EMFILE;
++		return false;
++	}
++	os_unfair_lock_unlock(&watch->lock);
++
++	entry = calloc(1, sizeof(*entry));
++	if (entry == NULL)
++	{
++		client_pathwatch_fd_release();
++		close(fd);
++		dispatch_group_leave(watch->source_group);
++		return false;
++	}
++	entry->watch = watch;
++	entry->fd = fd;
++	entry->is_target = is_target;
++	entry->is_symlink = is_symlink;
++	entry->counted = true;
++
++	source = dispatch_source_create(DISPATCH_SOURCE_TYPE_VNODE, (uintptr_t)fd,
++				CLIENT_PATHWATCH_EVENT_MASK, watch->queue);
++	if (source == NULL)
++	{
++		free(entry);
++		client_pathwatch_fd_release();
++		close(fd);
++		dispatch_group_leave(watch->source_group);
++		return false;
++	}
++
++	entry->source = source;
++	entry->source_group_entered = true;
++	client_pathwatch_retain(watch);
++	dispatch_set_context(source, entry);
++	dispatch_source_set_event_handler_f(source, client_pathwatch_source_event);
++	dispatch_source_set_cancel_handler_f(source, client_pathwatch_source_cancel);
++
++	/* Publish under the same lock used by cancellation and rebuild. */
++	os_unfair_lock_lock(&watch->lock);
++	if (os_atomic_load(&watch->cancelled, relaxed) ||
++	    (watch->source_count >= CLIENT_PATHWATCH_MAX_SOURCES))
++	{
++		os_unfair_lock_unlock(&watch->lock);
++		entry->resumed = true;
++		dispatch_resume(source);
++		dispatch_source_cancel(source);
++		errno = os_atomic_load(&watch->cancelled, relaxed) ? ECANCELED : EMFILE;
++		return false;
++	}
++	watch->sources[watch->source_count++] = entry;
++	os_unfair_lock_unlock(&watch->lock);
++	*out_source = entry;
++	return true;
++}
++
++static bool
++client_pathwatch_build_path_sources(client_pathwatch_t *watch, const char *path,
++					unsigned symlink_depth)
++{
++	char prefix[MAXPATHLEN + 1];
++	char *cursor;
++	client_pathwatch_source_t *entry;
++
++	if ((path == NULL) || (path[0] != '/') || os_atomic_load(&watch->cancelled, relaxed))
++	{
++		errno = (path == NULL || path[0] != '/') ? EINVAL : ECANCELED;
++		return false;
++	}
++	if (symlink_depth > CLIENT_PATHWATCH_MAX_SYMLINKS)
++	{
++		errno = ELOOP;
++		return false;
++	}
++
++	if (strcmp(path, "/") == 0)
++		return client_pathwatch_add_source(watch, "/", true, false, &entry);
++	if (strlcpy(prefix, path, sizeof(prefix)) >= sizeof(prefix))
++	{
++		errno = ENAMETOOLONG;
++		return false;
++	}
++
++	cursor = prefix + 1;
++	for (;;)
++	{
++		char *end = cursor;
++		bool last;
++		bool is_symlink;
++		while ((*end != '\0') && (*end != '/')) end++;
++		last = (*end == '\0');
++		if (!last) *end = '\0';
++		if (*prefix != '\0')
++		{
++			bool target = last;
++			if (!client_pathwatch_add_source(watch, prefix, target, false, &entry))
++			{
++				/* Keep only the nearest parent the registering process can open. */
++				if ((errno == ENOENT) || (errno == ENOTDIR) || (errno == EACCES) || (errno == EPERM))
++				{
++					if (cursor == prefix + 1 && watch->source_count == 0 &&
++					    !client_pathwatch_add_source(watch, "/", false, false, &entry)) return false;
++					return true;
++				}
++				return false;
++			}
++			is_symlink = (entry != NULL) && entry->is_symlink;
++			if (is_symlink)
++			{
++				char link_target[MAXPATHLEN + 1];
++				char resolved_path[MAXPATHLEN + 1];
++				const char *suffix = last ? "" : end + 1;
++				ssize_t link_length = readlink(prefix, link_target, sizeof(link_target) - 1);
++				size_t resolved_length;
++
++				/* Follow the link text too, including targets outside the named path's tree. */
++				if (link_length < 0)
++				{
++					if ((errno == EACCES) || (errno == EPERM)) watch->access_blocked = true;
++					if ((errno == ENOENT) || (errno == ENOTDIR) || (errno == EACCES) || (errno == EPERM)) return true;
++					return false;
++				}
++				if ((size_t)link_length >= sizeof(link_target) - 1)
++				{
++					errno = ENAMETOOLONG;
++					return false;
++				}
++				link_target[link_length] = '\0';
++
++				if (link_target[0] == '/')
++				{
++					if (strlcpy(resolved_path, link_target, sizeof(resolved_path)) >= sizeof(resolved_path))
++					{
++						errno = ENAMETOOLONG;
++						return false;
++					}
++				}
++				else
++				{
++					char *slash = strrchr(prefix, '/');
++					size_t parent_length = (slash == prefix) ? 1 : (size_t)(slash - prefix);
++					if (parent_length >= sizeof(resolved_path))
++					{
++						errno = ENAMETOOLONG;
++						return false;
++					}
++					memcpy(resolved_path, prefix, parent_length);
++					resolved_path[parent_length] = '\0';
++					if ((parent_length > 0) && (resolved_path[parent_length - 1] != '/'))
++					{
++						if (strlcat(resolved_path, "/", sizeof(resolved_path)) >= sizeof(resolved_path))
++						{
++							errno = ENAMETOOLONG;
++							return false;
++						}
++					}
++					if (strlcat(resolved_path, link_target, sizeof(resolved_path)) >= sizeof(resolved_path))
++					{
++						errno = ENAMETOOLONG;
++						return false;
++					}
++				}
++
++				if (*suffix != '\0')
++				{
++					while (*suffix == '/') suffix++;
++					resolved_length = strlen(resolved_path);
++					if ((resolved_length == 0) || (resolved_path[resolved_length - 1] != '/'))
++					{
++						if (strlcat(resolved_path, "/", sizeof(resolved_path)) >= sizeof(resolved_path))
++						{
++							errno = ENAMETOOLONG;
++							return false;
++						}
++					}
++					if (strlcat(resolved_path, suffix, sizeof(resolved_path)) >= sizeof(resolved_path))
++					{
++						errno = ENAMETOOLONG;
++						return false;
++					}
++				}
++
++				if (!last && (*end == '\0')) *end = '/';
++				return client_pathwatch_build_path_sources(watch, resolved_path, symlink_depth + 1);
++			}
++		}
++		if (last) break;
++		*end = '/';
++		cursor = end + 1;
++	}
++	return true;
++}
++
++static bool
++client_pathwatch_build_sources(client_pathwatch_t *watch)
++{
++	return client_pathwatch_build_path_sources(watch, watch->path, 0);
++}
++
++static void
++client_pathwatch_cancel_sources(client_pathwatch_t *watch)
++{
++	client_pathwatch_source_t *sources[CLIENT_PATHWATCH_MAX_SOURCES];
++	bool needs_resume[CLIENT_PATHWATCH_MAX_SOURCES];
++	uint32_t count;
++
++	os_unfair_lock_lock(&watch->lock);
++	count = watch->source_count;
++	memcpy(sources, watch->sources, count * sizeof(sources[0]));
++	for (uint32_t i = 0; i < count; i++)
++	{
++		needs_resume[i] = sources[i] != NULL && !sources[i]->resumed;
++		if (sources[i] != NULL) sources[i]->resumed = true;
++	}
++	memset(watch->sources, 0, sizeof(watch->sources));
++	watch->source_count = 0;
++	os_unfair_lock_unlock(&watch->lock);
++
++	for (uint32_t i = 0; i < count; i++)
++	{
++		if (sources[i] != NULL)
++		{
++			/* A canceled suspended source still needs one resume to run its cleanup. */
++			if (needs_resume[i]) dispatch_resume(sources[i]->source);
++			dispatch_source_cancel(sources[i]->source);
++		}
++	}
++}
++
++static void
++client_pathwatch_cancel(client_pathwatch_t *watch)
++{
++	client_pathwatch_retry_timer_t *retry_timer = NULL;
++	bool resume_timer = false;
++
++	if (watch == NULL) return;
++	os_unfair_lock_lock(&watch->lock);
++	os_atomic_store(&watch->cancelled, true, relaxed);
++	os_atomic_store(&watch->active, false, relaxed);
++	retry_timer = watch->retry_timer;
++	watch->retry_timer = NULL;
++	if ((retry_timer != NULL) && !retry_timer->resumed)
++	{
++		retry_timer->resumed = true;
++		resume_timer = true;
++	}
++	os_unfair_lock_unlock(&watch->lock);
++	client_pathwatch_cancel_sources(watch);
++	if (retry_timer != NULL)
++	{
++		/* A canceled suspended timer still needs one resume for its cleanup. */
++		if (resume_timer) dispatch_resume(retry_timer->source);
++		dispatch_source_cancel(retry_timer->source);
++	}
++}
++
++/* Stop delivery and wait for work already running on this watch's serial
++ * queue. A path-watch event can be sending a signal or relaying to notifyd.
++ * Do not wait from any path-watch queue: signal handlers may cancel another
++ * watch, and two such handlers must not wait on each other. */
++static void
++client_pathwatch_cancel_and_drain(client_pathwatch_t *watch)
++{
++	if (watch == NULL) return;
++	client_pathwatch_cancel(watch);
++	if (dispatch_get_specific(&client_pathwatch_queue_key) == NULL)
++	{
++		/* Group membership starts before source creation and ends only after its
++		 * cancel handler has closed the descriptor. This includes rebuild sources
++		 * that have already left the watch's active source array. */
++		dispatch_group_wait(watch->source_group, DISPATCH_TIME_FOREVER);
++		dispatch_sync(watch->queue, ^{});
++	}
++}
++
++static void
++client_pathwatch_resume_sources(client_pathwatch_t *watch)
++{
++	client_pathwatch_source_t *sources[CLIENT_PATHWATCH_MAX_SOURCES];
++	uint32_t count = 0;
++
++	os_unfair_lock_lock(&watch->lock);
++	if (!os_atomic_load(&watch->cancelled, relaxed) && os_atomic_load(&watch->active, relaxed))
++	{
++		for (uint32_t i = 0; i < watch->source_count; i++)
++		{
++			client_pathwatch_source_t *source = watch->sources[i];
++			if ((source != NULL) && !source->resumed)
++			{
++				source->resumed = true;
++				sources[count++] = source;
++			}
++		}
++	}
++	os_unfair_lock_unlock(&watch->lock);
++
++	for (uint32_t i = 0; i < count; i++) dispatch_resume(sources[i]->source);
++}
++
++static uint32_t
++client_pathwatch_create(registration_node_t *r, char *path, int flags,
++			uint64_t generation, client_pathwatch_t **out_watch)
++{
++	client_pathwatch_t *watch;
++	char absolute_path[MAXPATHLEN + 1];
++	struct stat link_stat, target_stat;
++	int error = 0;
++
++	*out_watch = NULL;
++	if (path == NULL) return NOTIFY_STATUS_INVALID_REQUEST;
++	if ((path[0] != '/') || (strnlen(path, MAXPATHLEN) >= MAXPATHLEN))
++		return NOTIFY_STATUS_INVALID_REQUEST;
++	if (strlcpy(absolute_path, path, sizeof(absolute_path)) >= sizeof(absolute_path))
++		return NOTIFY_STATUS_INVALID_REQUEST;
++
++	/* Match the old path parser: ignore trailing separators except for root. */
++	while ((strlen(absolute_path) > 1) && (absolute_path[strlen(absolute_path) - 1] == '/'))
++		absolute_path[strlen(absolute_path) - 1] = '\0';
++
++	watch = calloc(1, sizeof(*watch));
++	if (watch == NULL) return NOTIFY_STATUS_ALLOC_FAILED;
++	atomic_init(&watch->refcount, 1);
++	atomic_init(&watch->active, false);
++	atomic_init(&watch->cancelled, false);
++	watch->registration = r;
++	registration_node_retain(r);
++	watch->path = strdup(absolute_path);
++	watch->flags = (flags == 0) ? CLIENT_PATHWATCH_ALL_FLAGS : ((uint32_t)flags & CLIENT_PATHWATCH_ALL_FLAGS);
++	watch->generation = generation;
++	watch->lock = OS_UNFAIR_LOCK_INIT;
++	watch->queue = dispatch_queue_create("com.apple.libnotify.pathwatch", DISPATCH_QUEUE_SERIAL);
++	watch->source_group = dispatch_group_create();
++	if ((watch->path == NULL) || (watch->queue == NULL) || (watch->source_group == NULL))
++	{
++		client_pathwatch_release(watch);
++		return NOTIFY_STATUS_ALLOC_FAILED;
++	}
++	dispatch_queue_set_specific(watch->queue, &client_pathwatch_queue_key, watch, NULL);
++	if (!client_pathwatch_create_retry_timer(watch))
++	{
++		uint32_t status = (errno == ENOMEM) ? NOTIFY_STATUS_ALLOC_FAILED : NOTIFY_STATUS_PATH_NODE_CREATE_FAILED;
++		client_pathwatch_cancel_and_drain(watch);
++		client_pathwatch_release(watch);
++		return status;
++	}
++
++	watch->have_snapshot = true;
++	watch->present = client_pathwatch_sample(watch, &link_stat, &target_stat, &error);
++	if (watch->present)
++	{
++		watch->link_stat = link_stat;
++		watch->target_stat = target_stat;
++	}
++
++	/* The source-open pass is the authoritative access check for monitoring. */
++	watch->access_blocked = false;
++	if (!client_pathwatch_build_sources(watch))
++	{
++		int source_error = errno;
++		client_pathwatch_cancel_and_drain(watch);
++		client_pathwatch_release(watch);
++		return (source_error == ENOMEM) ? NOTIFY_STATUS_ALLOC_FAILED : NOTIFY_STATUS_PATH_NODE_CREATE_FAILED;
++	}
++	if (watch->source_count == 0)
++	{
++		client_pathwatch_cancel_and_drain(watch);
++		client_pathwatch_release(watch);
++		return NOTIFY_STATUS_PATH_NODE_CREATE_FAILED;
++	}
++
++	*out_watch = watch;
++	return NOTIFY_STATUS_OK;
++}
++
++static void
++client_pathwatch_start(client_pathwatch_t *watch)
++{
++	os_unfair_lock_lock(&watch->lock);
++	if (!os_atomic_load(&watch->cancelled, relaxed)) os_atomic_store(&watch->active, true, relaxed);
++	os_unfair_lock_unlock(&watch->lock);
++	client_pathwatch_resume_retry_timer(watch);
++	client_pathwatch_resume_sources(watch);
++
++	/* Sources must be live before the snapshot is refreshed, or a change in
++	 * the setup gap could be missed. Serialize the comparison with callbacks. */
++	dispatch_sync(watch->queue, ^{
++		if (client_pathwatch_reconcile_after_arm(watch, false))
++		{
++			client_pathwatch_rebuild(watch);
++		}
++		else
++		{
++			client_pathwatch_schedule_retry_timer(watch, watch->access_blocked);
++		}
++	});
++}
++
++static bool
++client_pathwatch_needs_server_relay(registration_node_t *r)
++{
++	if ((r == NULL) || (r->queue != NULL && r->block != NULL)) return false;
++	switch (r->flags & NOTIFY_TYPE_MASK)
++	{
++		case NOTIFY_TYPE_FILE:
++		case NOTIFY_TYPE_PORT:
++		case NOTIFY_TYPE_COMMON_PORT:
++		case NOTIFY_TYPE_XPC_EVENT:
++			return true;
++		default:
++			return false;
++	}
++}
++
++static bool
++client_pathwatch_needs_regeneration(registration_node_t *r)
++{
++	return client_pathwatch_needs_server_relay(r) ||
++		((r != NULL) && ((r->flags & NOTIFY_TYPE_MASK) == NOTIFY_TYPE_SIGNAL));
++}
++
++static void
++client_pathwatch_signal_suspend(registration_node_t *r, bool suspend)
++{
++	bool send_pending = false;
++	int sig;
++
++	if ((r == NULL) || ((r->flags & NOTIFY_TYPE_MASK) != NOTIFY_TYPE_SIGNAL)) return;
++	sig = r->signal_or_xtra_mp;
++	os_unfair_lock_lock(&r->path_signal_lock);
++	if (suspend)
++	{
++		if (r->path_signal_suspend_count < UINT32_MAX) r->path_signal_suspend_count++;
++	}
++	else if (r->path_signal_suspend_count > 0)
++	{
++		r->path_signal_suspend_count--;
++		if ((r->path_signal_suspend_count == 0) && r->path_signal_pending)
++		{
++			r->path_signal_pending = false;
++			send_pending = true;
++		}
++	}
++	os_unfair_lock_unlock(&r->path_signal_lock);
++
++	if (send_pending && (sig > 0)) (void)kill(getpid(), sig);
++}
++
++static void
++client_pathwatch_signal_deliver(registration_node_t *r)
++{
++	bool send_signal = false;
++	int sig;
++
++	if ((r == NULL) || ((r->flags & NOTIFY_TYPE_MASK) != NOTIFY_TYPE_SIGNAL)) return;
++	sig = r->signal_or_xtra_mp;
++	os_unfair_lock_lock(&r->path_signal_lock);
++	if (r->path_signal_suspend_count != 0) r->path_signal_pending = true;
++	else send_signal = true;
++	os_unfair_lock_unlock(&r->path_signal_lock);
++
++	if (send_signal && (sig > 0)) (void)kill(getpid(), sig);
++}
++
++static uint32_t
++client_pathwatch_register_relay(registration_node_t *r, uint64_t generation)
++{
++	notify_globals_t globals = _notify_globals();
++	int32_t status = NOTIFY_STATUS_OK;
++	kern_return_t kstatus;
++
++	if (!client_pathwatch_needs_server_relay(r)) return NOTIFY_STATUS_OK;
++	if (globals->notify_server_port == MACH_PORT_NULL) return NOTIFY_STATUS_SERVER_PORT_NULL;
++
++	kstatus = _notify_server_pathwatch_register_3(globals->notify_server_port,
++							      (int)r->token, generation, &status);
++	if ((kstatus != KERN_SUCCESS) || (status != NOTIFY_STATUS_OK))
++		return NOTIFY_STATUS_SERVER_MONITOR_FILE_2_FAILED;
++	return NOTIFY_STATUS_OK;
++}
++
++static uint32_t
++client_pathwatch_stat_changes(const struct stat *old_link, const struct stat *old_target,
++			      const struct stat *new_link, const struct stat *new_target)
++{
++	uint32_t result = 0;
++	if (!client_pathwatch_stat_equal(old_link, new_link) || !client_pathwatch_stat_equal(old_target, new_target))
++		return CLIENT_PATH_DELETE | CLIENT_PATH_CREATE;
++	if (!client_pathwatch_timespec_equal(old_link->st_ctimespec, new_link->st_ctimespec))
++		result |= CLIENT_PATH_CTIME | CLIENT_PATH_ATTRIB;
++	if (!client_pathwatch_timespec_equal(old_link->st_mtimespec, new_link->st_mtimespec) ||
++	    (old_link->st_size != new_link->st_size))
++		result |= CLIENT_PATH_MTIME | CLIENT_PATH_ATTRIB;
++	if (old_link->st_nlink != new_link->st_nlink) result |= CLIENT_PATH_LINK;
++	if (!client_pathwatch_timespec_equal(old_target->st_mtimespec, new_target->st_mtimespec))
++		result |= CLIENT_PATH_MTIME | CLIENT_PATH_ATTRIB;
++	if (!client_pathwatch_timespec_equal(old_target->st_ctimespec, new_target->st_ctimespec))
++		result |= CLIENT_PATH_CTIME | CLIENT_PATH_ATTRIB;
++	if (old_target->st_size != new_target->st_size)
++	{
++		result |= CLIENT_PATH_WRITE;
++		if (new_target->st_size > old_target->st_size) result |= CLIENT_PATH_EXTEND;
++	}
++	if (old_target->st_nlink != new_target->st_nlink) result |= CLIENT_PATH_LINK;
++	if ((old_target->st_mode != new_target->st_mode) || (old_target->st_uid != new_target->st_uid) ||
++	    (old_target->st_gid != new_target->st_gid)) result |= CLIENT_PATH_ATTRIB;
++	return result;
++}
++
++/* Compare the remembered name and target with the live path after sources
++ * are armed. This closes the setup/rebuild gap where an event can happen
++ * after the previous sample but before the vnode source is listening. */
++static uint32_t
++client_pathwatch_reconcile(client_pathwatch_t *watch)
++{
++	struct stat link_stat, target_stat;
++	int sample_error = 0;
++	bool present = client_pathwatch_sample(watch, &link_stat, &target_stat, &sample_error);
++	uint32_t data = 0;
++
++	if (present)
++	{
++		if (!watch->present) data |= CLIENT_PATH_CREATE;
++		else if (watch->have_snapshot)
++			data |= client_pathwatch_stat_changes(&watch->link_stat, &watch->target_stat,
++								 &link_stat, &target_stat);
++		watch->link_stat = link_stat;
++		watch->target_stat = target_stat;
++	}
++	else if (watch->present)
++	{
++		data |= CLIENT_PATH_DELETE;
++		if ((sample_error == EACCES) || (sample_error == EPERM) ||
++		    ((sample_error != ENOENT) && (sample_error != ENOTDIR))) data |= CLIENT_PATH_REVOKE;
++	}
++
++	watch->present = present;
++	watch->have_snapshot = true;
++	return data;
++}
++
++/* A missing endpoint may gain a new directory component while sources are
++ * being installed. Extend the watched prefix once more after arming, then
++ * sample again so both changes and the new endpoint are covered. */
++static bool
++client_pathwatch_reconcile_after_arm(client_pathwatch_t *watch, bool access_restored)
++{
++	uint32_t data = client_pathwatch_reconcile(watch);
++	const uint32_t rebuild_mask = CLIENT_PATH_DELETE | CLIENT_PATH_CREATE |
++		CLIENT_PATH_RENAME | CLIENT_PATH_REVOKE;
++	if (watch->access_blocked) return false;
++	if (access_restored && watch->present && ((data & CLIENT_PATH_CREATE) == 0))
++		data |= CLIENT_PATH_CREATE;
++	if (data != 0) client_pathwatch_deliver(watch, data);
++	if (data & rebuild_mask) return true;
++	if (watch->present) return false;
++
++	if (!client_pathwatch_build_sources(watch))
++	{
++		client_pathwatch_deliver(watch, CLIENT_PATH_DELETE | CLIENT_PATH_REVOKE);
++		return false;
++	}
++	client_pathwatch_resume_sources(watch);
++	data = client_pathwatch_reconcile(watch);
++	if (watch->access_blocked) return false;
++	if (data != 0) client_pathwatch_deliver(watch, data);
++	return (data & rebuild_mask) != 0;
++}
++
++static void
++client_pathwatch_relay(client_pathwatch_t *watch, uint64_t sequence, unsigned retries)
++{
++	registration_node_t *r = watch->registration;
++	notify_globals_t globals = _notify_globals();
++	uint32_t status = NOTIFY_STATUS_OK;
++	kern_return_t kstatus;
++
++	if (!os_atomic_load(&watch->active, relaxed)) return;
++	if (regenerate_check(globals) != NOTIFY_STATUS_OK) goto retry;
++	if (globals->notify_server_port == MACH_PORT_NULL) goto retry;
++	kstatus = _notify_server_pathwatch_event_3(globals->notify_server_port, (int)r->token,
++					watch->generation, sequence, (int32_t *)&status);
++	if ((kstatus == KERN_SUCCESS) && (status == NOTIFY_STATUS_OK)) return;
++
++retry:
++	if (retries == 0) return;
++	client_pathwatch_retain(watch);
++	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC), watch->queue, ^{
++		if (os_atomic_load(&watch->active, relaxed) && (watch->sequence == sequence))
++			client_pathwatch_relay(watch, sequence, retries - 1);
++		client_pathwatch_release(watch);
++	});
++}
++
++static void
++client_pathwatch_deliver(client_pathwatch_t *watch, uint32_t data)
++{
++	registration_node_t *r = watch->registration;
++	uint32_t type;
++
++	if ((data & watch->flags) == 0) return;
++	if (!os_atomic_load(&watch->active, relaxed)) return;
++	type = r->flags & NOTIFY_TYPE_MASK;
++	atomic_fetch_add_explicit(&r->path_event_count, 1, memory_order_relaxed);
++
++	if (r->queue != NULL && r->block != NULL)
++	{
++		_notify_dispatch_local_notification(r);
++	}
++	else if (type == NOTIFY_TYPE_SIGNAL)
++	{
++		/* Signal the registering process directly; this also works for a non-root daemon. */
++		client_pathwatch_signal_deliver(r);
++	}
++
++	if (client_pathwatch_needs_server_relay(r))
++	{
++		uint64_t sequence = ++watch->sequence;
++		if (sequence == 0) sequence = ++watch->sequence;
++		client_pathwatch_relay(watch, sequence, 5);
++	}
++}
++
++static void
++client_pathwatch_rebuild(client_pathwatch_t *watch)
++{
++	client_pathwatch_source_t *sources[CLIENT_PATHWATCH_MAX_SOURCES];
++	dispatch_group_t group;
++	uint32_t count;
++
++	os_unfair_lock_lock(&watch->lock);
++	if (!os_atomic_load(&watch->active, relaxed) || watch->rebuilding)
++	{
++		os_unfair_lock_unlock(&watch->lock);
++		return;
++	}
++	watch->rebuilding = true;
++	count = watch->source_count;
++	memcpy(sources, watch->sources, count * sizeof(sources[0]));
++	memset(watch->sources, 0, sizeof(watch->sources));
++	watch->source_count = 0;
++	os_unfair_lock_unlock(&watch->lock);
++
++	group = dispatch_group_create();
++	for (uint32_t i = 0; i < count; i++)
++	{
++		if (sources[i] == NULL) continue;
++		sources[i]->retired_group = group;
++		dispatch_retain(group);
++		dispatch_group_enter(group);
++		dispatch_source_cancel(sources[i]->source);
++	}
++
++	client_pathwatch_retain(watch);
++	dispatch_group_notify(group, watch->queue, ^{
++		bool rebuild_again = false;
++		bool access_restored = watch->access_blocked;
++		watch->access_blocked = false;
++		if (os_atomic_load(&watch->active, relaxed) && !client_pathwatch_build_sources(watch))
++		{
++			client_pathwatch_deliver(watch, CLIENT_PATH_DELETE | CLIENT_PATH_REVOKE);
++		}
++		if (os_atomic_load(&watch->active, relaxed))
++		{
++			/* Arm the rebuilt set before sampling so changes in the rebuild gap
++			 * become visible either here or in a queued vnode callback. */
++			client_pathwatch_resume_sources(watch);
++			rebuild_again = client_pathwatch_reconcile_after_arm(watch, access_restored);
++		}
++		os_unfair_lock_lock(&watch->lock);
++		watch->rebuilding = false;
++		os_unfair_lock_unlock(&watch->lock);
++		if (rebuild_again && os_atomic_load(&watch->active, relaxed))
++		{
++			client_pathwatch_retain(watch);
++			dispatch_async(watch->queue, ^{
++				client_pathwatch_rebuild(watch);
++				client_pathwatch_release(watch);
++			});
++		}
++		else
++		{
++			client_pathwatch_schedule_retry_timer(watch, watch->access_blocked);
++		}
++		client_pathwatch_release(watch);
++		dispatch_release(group);
++	});
++}
++
++static void
++client_pathwatch_source_event(void *context)
++{
++	client_pathwatch_source_t *entry = context;
++	client_pathwatch_t *watch = entry->watch;
++	struct stat link_stat, target_stat;
++	int sample_error = 0;
++	uint32_t data = 0;
++	bool present;
++
++	if (!os_atomic_load(&watch->active, relaxed) || watch->rebuilding) return;
++	present = client_pathwatch_sample(watch, &link_stat, &target_stat, &sample_error);
++	if (watch->access_blocked)
++	{
++		/* Do not relay file details while an open under the registering
++		 * process's credentials is denied. Rebuild on an ancestor event to see
++		 * whether access has returned; a quiet denied path may need polling. */
++		client_pathwatch_rebuild(watch);
++		return;
++	}
++	if (present)
++	{
++		if (!watch->present) data |= CLIENT_PATH_CREATE;
++		else data |= client_pathwatch_stat_changes(&watch->link_stat, &watch->target_stat, &link_stat, &target_stat);
++		watch->link_stat = link_stat;
++		watch->target_stat = target_stat;
++	}
++	else if (watch->present)
++	{
++		data |= CLIENT_PATH_DELETE;
++		if ((sample_error == EACCES) || (sample_error == EPERM) ||
++		    ((sample_error != ENOENT) && (sample_error != ENOTDIR))) data |= CLIENT_PATH_REVOKE;
++	}
++	else if (entry->is_target)
++	{
++		uint32_t event_data = (uint32_t)dispatch_source_get_data(entry->source);
++		if ((event_data & DISPATCH_VNODE_REVOKE) != 0) data |= CLIENT_PATH_DELETE | CLIENT_PATH_REVOKE;
++	}
++	watch->present = present;
++	watch->have_snapshot = true;
++	if (entry->is_target)
++	{
++		uint32_t event_data = (uint32_t)dispatch_source_get_data(entry->source);
++		if ((event_data & DISPATCH_VNODE_DELETE) != 0) data |= CLIENT_PATH_DELETE;
++		if ((event_data & DISPATCH_VNODE_WRITE) != 0) data |= CLIENT_PATH_WRITE;
++		if ((event_data & DISPATCH_VNODE_EXTEND) != 0) data |= CLIENT_PATH_EXTEND;
++		if ((event_data & DISPATCH_VNODE_ATTRIB) != 0) data |= CLIENT_PATH_ATTRIB;
++		if ((event_data & DISPATCH_VNODE_LINK) != 0) data |= CLIENT_PATH_LINK;
++		if ((event_data & DISPATCH_VNODE_RENAME) != 0) data |= CLIENT_PATH_RENAME | CLIENT_PATH_DELETE;
++		if ((event_data & DISPATCH_VNODE_REVOKE) != 0) data |= CLIENT_PATH_REVOKE | CLIENT_PATH_DELETE;
++	}
++	if (data != 0) client_pathwatch_deliver(watch, data);
++	if (data & (CLIENT_PATH_DELETE | CLIENT_PATH_CREATE | CLIENT_PATH_RENAME | CLIENT_PATH_REVOKE))
++	{
++		client_pathwatch_rebuild(watch);
++	}
++	else if (!present)
++	{
++		/* A directory can be created one component at a time. Keep extending
++		 * the watched prefix while the endpoint is still missing. */
++		if (client_pathwatch_build_sources(watch)) client_pathwatch_resume_sources(watch);
++	}
++}
++
++static void
++client_pathwatch_source_cancel(void *context)
++{
++	client_pathwatch_source_t *entry = context;
++	dispatch_source_t source = entry->source;
++	dispatch_group_t group = entry->retired_group;
++	client_pathwatch_t *watch = entry->watch;
++
++	close(entry->fd);
++	if (entry->counted) client_pathwatch_fd_release();
++	if (entry->source_group_entered) dispatch_group_leave(watch->source_group);
++	if (group != NULL)
++	{
++		dispatch_group_leave(group);
++		dispatch_release(group);
++	}
++	free(entry);
++	dispatch_release(source);
++	client_pathwatch_release(watch);
++}
++
+ static void
+ _notify_dispatch_handle(void *context)
+ {
+@@ -3795,10 +5031,12 @@
+ 		*check = 0;
+ 
+ 		mutex_lock("check_lock", &globals->check_lock, __func__, __LINE__);
+-		if (r->val != globals->shm_base[r->slot])
++		uint32_t value = globals->shm_base[r->slot] +
++			(uint32_t)atomic_load_explicit(&r->path_event_count, memory_order_relaxed);
++		if (r->val != value)
+ 		{
+ 			*check = 1;
+-			r->val = globals->shm_base[r->slot];
++			r->val = value;
+ 		}
+ 		mutex_unlock("check_lock", &globals->check_lock, __func__, __LINE__);
+ 
+@@ -3839,6 +5077,18 @@
+ #ifdef DEBUG
+ 		if (_libnotify_debug & DEBUG_USER) _notify_client_log(ASL_LEVEL_ERR, "notify_check token %d [non-memory] _notify_server_check failed kstatus=0x%08x status=%u\n", token, kstatus, status);
+ #endif
++	}
++	else if (status == NOTIFY_STATUS_OK)
++	{
++		uint32_t path_value;
++		mutex_lock("check_lock", &globals->check_lock, __func__, __LINE__);
++		path_value = (uint32_t)atomic_load_explicit(&r->path_event_count, memory_order_relaxed);
++		if (r->val != path_value)
++		{
++			*check = 1;
++			r->val = path_value;
++		}
++		mutex_unlock("check_lock", &globals->check_lock, __func__, __LINE__);
+ 	}
+ 
+ release_and_return:
+@@ -3913,7 +5163,8 @@
+ 			goto release_and_return;
+ 		}
+ 
+-		*val = globals->shm_base[r->slot];
++		*val = globals->shm_base[r->slot] +
++			(uint32_t)atomic_load_explicit(&r->path_event_count, memory_order_relaxed);
+ 		status = NOTIFY_STATUS_OK;
+ 	}
+ 
+@@ -3940,121 +5191,160 @@
+ 	if (_libnotify_debug & DEBUG_API) _notify_client_log(ASL_LEVEL_NOTICE, "-> %s\n", __func__);
+ #endif
+ 
+-	kern_return_t kstatus;
+ 	uint32_t status;
+ 	registration_node_t *r;
+-	char *dup;
++	client_pathwatch_t *watch = NULL;
++	char *saved_path = NULL;
++	size_t path_length;
++	uint64_t generation;
++	bool published = false;
+ 	notify_globals_t globals = _notify_globals();
+ 
+ 	status = regenerate_check(globals);
+ 	if (status != NOTIFY_STATUS_OK)
+ 	{
+-		if(IS_INTERNAL_ERROR(status))
++		if (IS_INTERNAL_ERROR(status))
+ 		{
+ 			REPORT_BAD_BEHAVIOR("Libnotify: %s failed with code %d on line %d", __func__, status, __LINE__);
+ 			status = NOTIFY_STATUS_FAILED;
+ 		}
+-#ifdef DEBUG
+-		if (_libnotify_debug & DEBUG_API) _notify_client_log(ASL_LEVEL_NOTICE, "<- %s [%d]\n", __func__, __LINE__ + 2);
+-#endif
+ 		return status;
+ 	}
+ 
+-	if (path == NULL)
+-	{
+-#ifdef DEBUG
+-		if (_libnotify_debug & DEBUG_API) _notify_client_log(ASL_LEVEL_NOTICE, "<- %s [%d]\n", __func__, __LINE__ + 2);
+-#endif
++	if (path == NULL) return NOTIFY_STATUS_INVALID_REQUEST;
++	path_length = strnlen(path, MAXPATHLEN);
++	if ((path[0] != '/') || (path_length >= MAXPATHLEN)) return NOTIFY_STATUS_INVALID_REQUEST;
++
++	r = registration_node_find(token);
++	if (r == NULL) return NOTIFY_STATUS_INVALID_TOKEN;
++	if (r->flags & NOTIFY_FLAG_SELF)
++	{
++		registration_node_release(r);
+ 		return NOTIFY_STATUS_INVALID_REQUEST;
+ 	}
+ 
+-	r = registration_node_find(token);
+-	if (r == NULL)
+-	{
+-#ifdef DEBUG
+-		if (_libnotify_debug & DEBUG_API) _notify_client_log(ASL_LEVEL_NOTICE, "<- %s [%d]\n", __func__, __LINE__ + 2);
+-#endif
+-		return NOTIFY_STATUS_INVALID_TOKEN;
+-	}
+-
+-	if (r->flags & NOTIFY_FLAG_SELF)
+-	{
++	assert_loopback_disabled();
++
++	/* Claim this token's one path slot before doing work outside the lock. */
++	mutex_lock("global", &globals->notify_lock, __func__, __LINE__);
++	if ((_nc_table_find_n(&globals->registration_table, token) != r) ||
++	    (r->flags & NOTIFY_FLAG_CANCELED) || (r->path != NULL) || r->path_setup)
++	{
++		mutex_unlock("global", &globals->notify_lock, __func__, __LINE__);
+ 		registration_node_release(r);
+-#ifdef DEBUG
+-		if (_libnotify_debug & DEBUG_API) _notify_client_log(ASL_LEVEL_NOTICE, "<- %s [%d]\n", __func__, __LINE__ + 2);
+-#endif
+ 		return NOTIFY_STATUS_INVALID_REQUEST;
+ 	}
+-
+-	assert_loopback_disabled();
+-
+-	/* can only monitor one path with a token */
+-	if (r->path != NULL)
+-	{
+-		registration_node_release(r);
+-#ifdef DEBUG
+-		if (_libnotify_debug & DEBUG_API) _notify_client_log(ASL_LEVEL_NOTICE, "<- %s [%d]\n", __func__, __LINE__ + 2);
+-#endif
+-		return NOTIFY_STATUS_INVALID_REQUEST;
+-	}
+-
++	r->path_setup = true;
++	mutex_unlock("global", &globals->notify_lock, __func__, __LINE__);
++
++	if (client_pathwatch_needs_regeneration(r)) notify_set_options(NOTIFY_OPT_REGEN);
+ 	if (globals->notify_server_port == MACH_PORT_NULL)
+ 	{
+ 		status = _notify_lib_init(globals, EVENT_INIT);
+-		if (status != NOTIFY_STATUS_OK)
+-		{
+-			registration_node_release(r);
+-
+-			if(IS_INTERNAL_ERROR(status))
+-			{
+-				REPORT_BAD_BEHAVIOR("Libnotify: %s failed with code %d on line %d", __func__, status, __LINE__);
+-				status = NOTIFY_STATUS_FAILED;
+-			}
+-#ifdef DEBUG
+-			if (_libnotify_debug & DEBUG_API) _notify_client_log(ASL_LEVEL_NOTICE, "<- %s [%d]\n", __func__, __LINE__ + 2);
+-#endif
+-			return status;
+-		}
+-	}
+-
+-	dup = strdup(path);
+-	if (dup == NULL)
+-	{
+-#ifdef DEBUG
+-		if (_libnotify_debug & DEBUG_API) _notify_client_log(ASL_LEVEL_NOTICE, "<- %s [%d]\n", __func__, __LINE__ + 2);
+-#endif
+-		REPORT_BAD_BEHAVIOR("Libnotify: %s failed with code %d on line %d", __func__,
+-				NOTIFY_STATUS_STRDUP_FAILED, __LINE__);
+-		return NOTIFY_STATUS_FAILED;
+-	}
+-
+-	{
+-		int xtoken = token;
+-		int len = (uint32_t)(strlen(path) + 1);
+-		if (r->flags & NOTIFY_FLAG_COALESCED) xtoken = r->name_node->coalesce_base_token;
+-
+-		kstatus = _notify_server_monitor_file_2(globals->notify_server_port, xtoken, path, len, flags);
+-	}
+-
+-	r->path = dup;
++		if (status != NOTIFY_STATUS_OK) goto failed;
++	}
++
++	saved_path = strdup(path);
++	if (saved_path == NULL)
++	{
++		status = NOTIFY_STATUS_ALLOC_FAILED;
++		goto failed;
++	}
++
++	generation = client_pathwatch_new_generation();
++	status = client_pathwatch_create(r, path, flags, generation, &watch);
++	if (status != NOTIFY_STATUS_OK) goto failed;
++
++	mutex_lock("global", &globals->notify_lock, __func__, __LINE__);
++	if ((_nc_table_find_n(&globals->registration_table, token) != r) ||
++	    (r->flags & NOTIFY_FLAG_CANCELED) || !r->path_setup || (r->path != NULL))
++	{
++		r->path_setup = false;
++		mutex_unlock("global", &globals->notify_lock, __func__, __LINE__);
++		status = NOTIFY_STATUS_INVALID_TOKEN;
++		goto failed_without_setup_lock;
++	}
++	r->path = saved_path;
++	saved_path = NULL;
+ 	r->path_flags = flags;
+-
++	r->path_generation = generation;
++	/* Keep the local start call alive if notify_cancel races after unlock. */
++	client_pathwatch_retain(watch);
++	r->path_watch = watch;
++	if (client_pathwatch_needs_regeneration(r)) r->flags |= NOTIFY_FLAG_REGEN;
++	r->path_setup = false;
++	published = true;
++	mutex_unlock("global", &globals->notify_lock, __func__, __LINE__);
++
++	/* Publish before the server marker. If cancellation races this call, it
++	 * can now see the watch and synchronously remove the server registration. */
++	status = client_pathwatch_register_relay(r, generation);
++	if (status != NOTIFY_STATUS_OK) goto published_failed;
++
++	mutex_lock("global", &globals->notify_lock, __func__, __LINE__);
++	bool still_published = (r->path_watch == watch) &&
++		((r->flags & NOTIFY_FLAG_CANCELED) == 0);
++	mutex_unlock("global", &globals->notify_lock, __func__, __LINE__);
++	if (!still_published)
++	{
++		status = NOTIFY_STATUS_INVALID_TOKEN;
++		goto published_failed;
++	}
++
++	client_pathwatch_start(watch);
++	client_pathwatch_release(watch);
+ 	registration_node_release(r);
+-
+-	if (kstatus != KERN_SUCCESS)
+-	{
+-#ifdef DEBUG
+-		if (_libnotify_debug & DEBUG_API) _notify_client_log(ASL_LEVEL_NOTICE, "<- %s [%d]\n", __func__, __LINE__ + 2);
+-#endif
+-		REPORT_BAD_BEHAVIOR("Libnotify: %s failed with code %d (%d) on line %d", __func__,
+-				    NOTIFY_STATUS_STRDUP_FAILED, kstatus, __LINE__);
+-		return NOTIFY_STATUS_SERVER_MONITOR_FILE_2_FAILED;
+-	}
+-
+ #ifdef DEBUG
+ 	if (_libnotify_debug & DEBUG_API) _notify_client_log(ASL_LEVEL_NOTICE, "<- %s [%d]\n", __func__, __LINE__ + 2);
+ #endif
+ 	return NOTIFY_STATUS_OK;
++
++failed:
++	mutex_lock("global", &globals->notify_lock, __func__, __LINE__);
++	r->path_setup = false;
++	mutex_unlock("global", &globals->notify_lock, __func__, __LINE__);
++failed_without_setup_lock:
++	if (watch != NULL)
++	{
++		client_pathwatch_cancel(watch);
++		client_pathwatch_release(watch);
++	}
++	free(saved_path);
++	registration_node_release(r);
++#ifdef DEBUG
++	if (_libnotify_debug & DEBUG_API) _notify_client_log(ASL_LEVEL_NOTICE, "<- %s [%d] status %u\n", __func__, __LINE__ + 2, status);
++#endif
++	return status;
++
++published_failed:
++	if (published)
++	{
++		bool detached = false;
++		mutex_lock("global", &globals->notify_lock, __func__, __LINE__);
++		if (r->path_watch == watch)
++		{
++			r->path_watch = NULL;
++			saved_path = r->path;
++			r->path = NULL;
++			r->path_flags = 0;
++			r->path_generation = 0;
++			detached = true;
++		}
++		mutex_unlock("global", &globals->notify_lock, __func__, __LINE__);
++		if (detached)
++		{
++			client_pathwatch_cancel_and_drain(watch);
++			client_pathwatch_release(watch); /* drop the registration's reference */
++		}
++	}
++	client_pathwatch_cancel(watch);
++	client_pathwatch_release(watch); /* drop the local setup reference */
++	free(saved_path);
++	registration_node_release(r);
++#ifdef DEBUG
++	if (_libnotify_debug & DEBUG_API) _notify_client_log(ASL_LEVEL_NOTICE, "<- %s [%d] status %u\n", __func__, __LINE__ + 2, status);
++#endif
++	return status;
+ }
+ 
+ /* Used by kext_tools without header declaration */
+@@ -4352,6 +5642,11 @@
+ #endif
+ 
+ 	registration_node_t *r;
++	client_pathwatch_t *watch = NULL;
++	mach_port_t cancel_port = MACH_PORT_NULL;
++	bool cancel_server = false;
++	kern_return_t cancel_kstatus = KERN_SUCCESS;
++	int cancel_remote_status = NOTIFY_STATUS_CLIENT_NOT_FOUND;
+ 	notify_globals_t globals = _notify_globals();
+ 	uint32_t status;
+ 
+@@ -4383,9 +5678,58 @@
+ 
+ 	if (!(r->flags & NOTIFY_FLAG_CANCELED)) {
+ 		r->flags |= NOTIFY_FLAG_CANCELED;
++		watch = r->path_watch;
++		r->path_watch = NULL;
++		if (watch != NULL)
++		{
++			os_atomic_store(&watch->cancelled, true, relaxed);
++			os_atomic_store(&watch->active, false, relaxed);
++			if ((r->flags & (NOTIFY_FLAG_SELF | NOTIFY_FLAG_COALESCED |
++					 NOTIFY_FLAG_COALESCE_BASE)) == 0)
++			{
++				mach_port_t current_port = globals->notify_server_port;
++				if ((current_port != MACH_PORT_NULL) &&
++				    (mach_port_mod_refs(mach_task_self(), current_port,
++							   MACH_PORT_RIGHT_SEND, 1) == KERN_SUCCESS))
++				{
++					/* Keep this exact send right alive across the unlocked call, so a
++					 * concurrent restart cannot reuse its port name. The single
++					 * acknowledged attempt replaces final cleanup's old one-way call. */
++					cancel_port = current_port;
++					r->server_cancelled = true;
++					cancel_server = true;
++				}
++			}
++		}
+ 		registration_node_release_locked(globals, r);
+ 	}
+ 	mutex_unlock("global", &globals->notify_lock, __func__, __LINE__);
++	if (watch != NULL)
++	{
++		client_pathwatch_cancel_and_drain(watch);
++		if (cancel_server && (cancel_port != MACH_PORT_NULL))
++		{
++			if (client_opts(globals) & NOTIFY_OPT_FILTERED)
++			{
++				cancel_kstatus = _filtered_notify_server_cancel_3(cancel_port, token,
++												 &cancel_remote_status);
++			}
++			else
++			{
++				cancel_kstatus = _notify_server_cancel_3(cancel_port, token,
++												 &cancel_remote_status);
++			}
++			/* Do not send the older one-way cancel on an error. The request was
++			 * already made once and may have reached the daemon even if its reply
++			 * was lost. Final node cleanup must not repeat it. A server restart
++			 * drops its old client table, while this process keeps rejecting the
++			 * canceled token locally. */
++			(void)cancel_kstatus;
++			(void)cancel_remote_status;
++			mach_port_deallocate(mach_task_self(), cancel_port);
++		}
++		client_pathwatch_release(watch);
++	}
+ 	// Always return OK here as there's nothing a client can do if the server call failed
+ 	return NOTIFY_STATUS_OK;
+ }
+@@ -4436,12 +5780,14 @@
+ 	}
+ 
+ 	assert_loopback_disabled();
++	client_pathwatch_signal_suspend(r, true);
+ 
+ 	if (globals->notify_server_port == MACH_PORT_NULL)
+ 	{
+ 		status = _notify_lib_init(globals, EVENT_INIT);
+ 		if (status != NOTIFY_STATUS_OK)
+ 		{
++			client_pathwatch_signal_suspend(r, false);
+ 			registration_node_release(r);
+ 
+ 			if(IS_INTERNAL_ERROR(status))
+@@ -4467,9 +5813,9 @@
+ 		kstatus = _notify_server_suspend(globals->notify_server_port, token, (int32_t *)&status);
+ 	}
+ 
++	if (kstatus != KERN_SUCCESS) status = NOTIFY_STATUS_SERVER_SUSPEND_FAILED;
++	if (status != NOTIFY_STATUS_OK) client_pathwatch_signal_suspend(r, false);
+ 	registration_node_release(r);
+-
+-	if (kstatus != KERN_SUCCESS) status = NOTIFY_STATUS_SERVER_SUSPEND_FAILED;
+ 
+ 	if(IS_INTERNAL_ERROR(status))
+ 	{
+@@ -4566,9 +5912,10 @@
+ 		kstatus = _notify_server_resume(globals->notify_server_port, token, (int32_t *)&status);
+ 	}
+ 
++	if (kstatus != KERN_SUCCESS) status = NOTIFY_STATUS_SERVER_RESUME_FAILED;
++	if ((kstatus == KERN_SUCCESS) && (status == NOTIFY_STATUS_OK))
++		client_pathwatch_signal_suspend(r, false);
+ 	registration_node_release(r);
+-
+-	if (kstatus != KERN_SUCCESS) status = NOTIFY_STATUS_SERVER_RESUME_FAILED;
+ 
+ 	if(IS_INTERNAL_ERROR(status))
+ 	{
+--- a/notify_ipc.defs
++++ b/notify_ipc.defs
+@@ -350,3 +350,81 @@
+ 	claim_root_access : boolean_t;
+ 	ServerAuditToken audit : audit_token_t
+ );
++
++/* New private path-watch methods are appended to preserve all existing IDs. */
++routine _notify_server_pathwatch_register_3
++(
++	server : mach_port_t;
++	token : int;
++	generation : uint64_t;
++	out status : int;
++	ServerAuditToken audit : audit_token_t
++);
++
++routine _notify_server_pathwatch_event_3
++(
++	server : mach_port_t;
++	token : int;
++	generation : uint64_t;
++	sequence : uint64_t;
++	out status : int;
++	ServerAuditToken audit : audit_token_t
++);
++
++/* Version 3 adds the writer fileport needed to restore file-descriptor tokens. */
++routine _notify_server_regenerate_3
++(
++	server : mach_port_t;
++	name : notify_name;
++	token : int;
++	reg_type : uint32_t;
++	port : mach_port_make_send_t;
++	fileport : mach_port_move_send_t;
++	sig: int;
++	prev_slot: int;
++	prev_state : uint64_t;
++	prev_time : uint64_t;
++	path : notify_path;
++	path_flags: int;
++	out new_slot : int;
++	out new_name_id : uint64_t;
++	out status : int;
++	ServerAuditToken audit : audit_token_t
++);
++
++routine _filtered_notify_server_regenerate_3
++(
++	server : mach_port_t;
++	name : notify_name;
++	token : int;
++	reg_type : uint32_t;
++	port : mach_port_make_send_t;
++	fileport : mach_port_move_send_t;
++	sig: int;
++	prev_slot: int;
++	prev_state : uint64_t;
++	prev_time : uint64_t;
++	path : notify_path;
++	path_flags: int;
++	out new_slot : int;
++	out new_name_id : uint64_t;
++	out status : int;
++	ServerAuditToken audit : audit_token_t
++);
++
++/* Acknowledged cancel for client path watches. Appended to keep existing IDs. */
++routine _notify_server_cancel_3
++(
++	server : mach_port_t;
++	token : int;
++	out status : int;
++	ServerAuditToken audit : audit_token_t
++);
++
++routine _filtered_notify_server_cancel_3
++(
++	server : mach_port_t;
++	token : int;
++	out status : int;
++	ServerAuditToken audit : audit_token_t
++);
+--- a/notifyd/notify_proc.c
++++ b/notifyd/notify_proc.c
+@@ -463,9 +463,10 @@
+ }
+ 
+ static proc_data_t *
+-register_proc(client_t *c, pid_t pid)
++register_proc(client_t *c, pid_t pid, audit_token_t audit)
+ {
+ 	if (pid <= 0) return NULL;
++	c->pidversion = audit_token_to_pidversion(audit);
+ 	proc_data_t *result = NULL;
+ 
+ 	if ((result = proc_register(&global.notify_state, c, pid)) != NULL) {
+@@ -790,7 +791,7 @@
+ 
+ 	if (!strncmp(name, SERVICE_PREFIX, SERVICE_PREFIX_LEN)) service_open(name, c, audit);
+ 
+-	register_proc(c, pid);
++	register_proc(c, pid, audit);
+ 
+ 	return NOTIFY_STATUS_OK;
+ }
+@@ -909,7 +910,7 @@
+ 
+ 	if (!strncmp(name, SERVICE_PREFIX, SERVICE_PREFIX_LEN)) service_open(name, c, audit);
+ 
+-	register_proc(c, pid);
++	register_proc(c, pid, audit);
+ 
+ 	return KERN_SUCCESS;
+ }
+@@ -946,7 +947,7 @@
+ 
+ 	if (!strncmp(name, SERVICE_PREFIX, SERVICE_PREFIX_LEN)) service_open(name, c, audit);
+ 
+-	register_proc(c, pid);
++	register_proc(c, pid, audit);
+ 
+ 	return NOTIFY_STATUS_OK;
+ }
+@@ -1017,7 +1018,7 @@
+ 
+ 	if (!strncmp(name, SERVICE_PREFIX, SERVICE_PREFIX_LEN)) service_open(name, c, audit);
+ 
+-	register_proc(c, pid);
++	register_proc(c, pid, audit);
+ 
+ 	return KERN_SUCCESS;
+ }
+@@ -1060,7 +1061,7 @@
+ 
+ 	if (!strncmp(name, SERVICE_PREFIX, SERVICE_PREFIX_LEN)) service_open(name, c, audit);
+ 
+-	register_proc(c, pid);
++	register_proc(c, pid, audit);
+ 	bool success = register_port(c, port);
+ 	if (!success) {
+ 		port_proc_cancel_client(c);
+@@ -1116,6 +1117,43 @@
+ 	}
+ 
+ 	return KERN_SUCCESS;
++}
++
++static kern_return_t
++_notify_server_cancel_common(int token, int *status, audit_token_t audit)
++{
++	client_t *c;
++	pid_t pid = (pid_t)-1;
++	int32_t pidversion = audit_token_to_pidversion(audit);
++
++	server_preflight(audit, -1, NULL, NULL, &pid, NULL);
++	call_statistics.cancel++;
++	*status = NOTIFY_STATUS_CLIENT_NOT_FOUND;
++	if (pid <= 0 || pidversion <= 0)
++	{
++		*status = NOTIFY_STATUS_INVALID_REQUEST;
++		return KERN_SUCCESS;
++	}
++
++	c = _nc_table_find_64(&global.notify_state.client_table, make_client_id(pid, token));
++	if ((c != NULL) && (c->pidversion == pidversion))
++	{
++		port_proc_cancel_client(c);
++		*status = NOTIFY_STATUS_OK;
++	}
++
++	return KERN_SUCCESS;
++}
++
++kern_return_t __notify_server_cancel_3
++(
++	__unused mach_port_t server,
++	int token,
++	int *status,
++	audit_token_t audit
++)
++{
++	return _notify_server_cancel_common(token, status, audit);
+ }
+ 
+ kern_return_t __notify_server_suspend
+@@ -1523,13 +1561,77 @@
+ 	return KERN_SUCCESS;
+ }
+ 
+-kern_return_t __notify_server_regenerate
++kern_return_t __notify_server_pathwatch_register_3
++(
++	__unused mach_port_t server,
++	int token,
++	uint64_t generation,
++	int *status,
++	audit_token_t audit
++)
++{
++	pid_t pid = audit_token_to_pid(audit);
++	int32_t pidversion = audit_token_to_pidversion(audit);
++	client_t *c;
++
++	*status = NOTIFY_STATUS_CLIENT_NOT_FOUND;
++	if (pid <= 0 || pidversion <= 0 || generation == 0) {
++		*status = NOTIFY_STATUS_INVALID_REQUEST;
++		return KERN_SUCCESS;
++	}
++
++	c = _nc_table_find_64(&global.notify_state.client_table, make_client_id(pid, token));
++	if (c == NULL || c->pidversion != pidversion) return KERN_SUCCESS;
++
++	if (c->pathwatch_generation != generation) {
++		c->pathwatch_generation = generation;
++		c->pathwatch_sequence = 0;
++	}
++	*status = NOTIFY_STATUS_OK;
++	return KERN_SUCCESS;
++}
++
++kern_return_t __notify_server_pathwatch_event_3
++(
++	__unused mach_port_t server,
++	int token,
++	uint64_t generation,
++	uint64_t sequence,
++	int *status,
++	audit_token_t audit
++)
++{
++	pid_t pid = audit_token_to_pid(audit);
++	int32_t pidversion = audit_token_to_pidversion(audit);
++	client_t *c;
++
++	*status = NOTIFY_STATUS_CLIENT_NOT_FOUND;
++	if (pid <= 0 || pidversion <= 0 || generation == 0 || sequence == 0) {
++		*status = NOTIFY_STATUS_INVALID_REQUEST;
++		return KERN_SUCCESS;
++	}
++
++	c = _nc_table_find_64(&global.notify_state.client_table, make_client_id(pid, token));
++	if (c == NULL || c->pidversion != pidversion || c->pathwatch_generation != generation) return KERN_SUCCESS;
++	if (sequence <= c->pathwatch_sequence) {
++		/* A newer event already covered this retry. */
++		*status = NOTIFY_STATUS_OK;
++		return KERN_SUCCESS;
++	}
++
++	*status = _notify_lib_post_client(&global.notify_state, c);
++	if (*status == NOTIFY_STATUS_OK) c->pathwatch_sequence = sequence;
++	return KERN_SUCCESS;
++}
++
++static kern_return_t _notify_server_regenerate_common
+ (
+ 	mach_port_t server,
+ 	caddr_t name,
+ 	int token,
+ 	uint32_t reg_type,
+ 	mach_port_t port,
++	fileport_t fileport,
+ 	int sig,
+ 	int prev_slot,
+ 	uint64_t prev_state,
+@@ -1566,6 +1668,7 @@
+ 	c = _nc_table_find_64(&global.notify_state.client_table, cid);
+ 	if (c != NULL)
+ 	{
++		if (fileport != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), fileport);
+ 		/* duplicate client - this means that a registration interleaved with regeneration; no need to regen */
+ 		*status = NOTIFY_STATUS_DUP_CLIENT;
+ 		return KERN_SUCCESS;
+@@ -1609,7 +1712,20 @@
+ 			break;
+ 		}
+ 		case NOTIFY_TYPE_PORT:
++		{
++			(void)__notify_server_register_mach_port_2(server, name, token, port, audit);
++			break;
++		}
+ 		case NOTIFY_TYPE_FILE: /* fall through */
++		{
++			if (fileport == FILEPORT_NULL)
++			{
++				*status = NOTIFY_STATUS_TYPE_ISSUE;
++				return KERN_SUCCESS;
++			}
++			(void)__notify_server_register_file_descriptor_2(server, name, token, fileport, audit);
++			break;
++		}
+ 		default:
+ 		{
+ 			/* can not regenerate this type */
+@@ -1639,6 +1755,57 @@
+ 	}
+ 
+ 	return KERN_SUCCESS;
++}
++
++kern_return_t __notify_server_regenerate
++(
++	mach_port_t server,
++	caddr_t name,
++	int token,
++	uint32_t reg_type,
++	mach_port_t port,
++	int sig,
++	int prev_slot,
++	uint64_t prev_state,
++	uint64_t prev_time,
++	caddr_t path,
++	mach_msg_type_number_t pathCnt,
++	int path_flags,
++	int *new_slot,
++	uint64_t *new_nid,
++	int *status,
++	audit_token_t audit
++)
++{
++	return _notify_server_regenerate_common(server, name, token, reg_type, port, FILEPORT_NULL,
++			sig, prev_slot, prev_state, prev_time, path, pathCnt, path_flags,
++			new_slot, new_nid, status, audit);
++}
++
++kern_return_t __notify_server_regenerate_3
++(
++	mach_port_t server,
++	caddr_t name,
++	int token,
++	uint32_t reg_type,
++	mach_port_t port,
++	fileport_t fileport,
++	int sig,
++	int prev_slot,
++	uint64_t prev_state,
++	uint64_t prev_time,
++	caddr_t path,
++	mach_msg_type_number_t pathCnt,
++	int path_flags,
++	int *new_slot,
++	uint64_t *new_nid,
++	int *status,
++	audit_token_t audit
++)
++{
++	return _notify_server_regenerate_common(server, name, token, reg_type, port, fileport,
++			sig, prev_slot, prev_state, prev_time, path, pathCnt, path_flags,
++			new_slot, new_nid, status, audit);
+ }
+ 
+ kern_return_t __notify_server_checkin
+@@ -1926,6 +2093,8 @@
+ 	if (c == NULL) {
+ 		return status;
+ 	}
++	/* The helper already added this client to the process and port lists. */
++	c->pidversion = audit_token_to_pidversion(audit);
+ 
+ 	if (!strncmp(name, SERVICE_PREFIX, SERVICE_PREFIX_LEN)) {
+ 		service_open(name, c, audit);
+@@ -2015,32 +2184,95 @@
+ 	return __notify_server_post_4(server, name, claim_root_access, audit);
+ }
+ 
+-
+-kern_return_t __filtered_notify_server_regenerate
+- (
+-	 mach_port_t server,
+-	 caddr_t name,
+-	 int token,
+-	 uint32_t reg_type,
+-	 mach_port_t port,
+-	 int sig,
+-	 int prev_slot,
+-	 uint64_t prev_state,
+-	 uint64_t prev_time,
+-	 caddr_t path,
+-	 mach_msg_type_number_t pathCnt,
+-	 int path_flags,
+-	 int *new_slot,
+-	 uint64_t *new_nid,
+-	 int *status,
+-	 audit_token_t audit
+- )
++kern_return_t __filtered_notify_server_cancel_3
++(
++	__unused mach_port_t server,
++	int token,
++	int *status,
++	audit_token_t audit
++)
++{
++	return _notify_server_cancel_common(token, status, audit);
++}
++
++
++static kern_return_t _filtered_notify_server_regenerate_common
++(
++	mach_port_t server,
++	caddr_t name,
++	int token,
++	uint32_t reg_type,
++	mach_port_t port,
++	fileport_t fileport,
++	int sig,
++	int prev_slot,
++	uint64_t prev_state,
++	uint64_t prev_time,
++	caddr_t path,
++	mach_msg_type_number_t pathCnt,
++	int path_flags,
++	int *new_slot,
++	uint64_t *new_nid,
++	int *status,
++	audit_token_t audit
++)
+ {
+ 	if (!check_access_to_post_name(name, audit)) {
+ 		// If caller can't post name - don't honor set_state
+-		return __notify_server_regenerate(server, name, token, reg_type, port, sig, prev_slot, 0, 0, path, pathCnt, path_flags, new_slot, new_nid, status, audit);
+-	}
+-	return __notify_server_regenerate(server, name, token, reg_type, port, sig, prev_slot, prev_state, prev_time, path, pathCnt, path_flags, new_slot, new_nid, status, audit);
++		return _notify_server_regenerate_common(server, name, token, reg_type, port, fileport, sig, prev_slot, 0, 0, path, pathCnt, path_flags, new_slot, new_nid, status, audit);
++	}
++	return _notify_server_regenerate_common(server, name, token, reg_type, port, fileport, sig, prev_slot, prev_state, prev_time, path, pathCnt, path_flags, new_slot, new_nid, status, audit);
++}
++
++kern_return_t __filtered_notify_server_regenerate
++(
++	mach_port_t server,
++	caddr_t name,
++	int token,
++	uint32_t reg_type,
++	mach_port_t port,
++	int sig,
++	int prev_slot,
++	uint64_t prev_state,
++	uint64_t prev_time,
++	caddr_t path,
++	mach_msg_type_number_t pathCnt,
++	int path_flags,
++	int *new_slot,
++	uint64_t *new_nid,
++	int *status,
++	audit_token_t audit
++)
++{
++	return _filtered_notify_server_regenerate_common(server, name, token, reg_type, port, FILEPORT_NULL,
++		sig, prev_slot, prev_state, prev_time, path, pathCnt, path_flags,
++		new_slot, new_nid, status, audit);
++}
++
++kern_return_t __filtered_notify_server_regenerate_3
++(
++	mach_port_t server,
++	caddr_t name,
++	int token,
++	uint32_t reg_type,
++	mach_port_t port,
++	fileport_t fileport,
++	int sig,
++	int prev_slot,
++	uint64_t prev_state,
++	uint64_t prev_time,
++	caddr_t path,
++	mach_msg_type_number_t pathCnt,
++	int path_flags,
++	int *new_slot,
++	uint64_t *new_nid,
++	int *status,
++	audit_token_t audit
++)
++{
++	return _filtered_notify_server_regenerate_common(server, name, token, reg_type, port, fileport,
++		sig, prev_slot, prev_state, prev_time, path, pathCnt, path_flags,
++		new_slot, new_nid, status, audit);
+ }
+ 
+ kern_return_t __filtered_notify_server_set_state_3
+--- /dev/null
++++ b/tests/notify_pathwatch_cancel.c
+@@ -0,0 +1,135 @@
++/* Focused regression test for canceling a queued client-side path event. */
++
++#include <darwintest.h>
++#include <dispatch/dispatch.h>
++#include <fcntl.h>
++#include <notify.h>
++#include <stdbool.h>
++#include <stdatomic.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <sys/param.h>
++#include <sys/stat.h>
++#include <unistd.h>
++#include "notify_private.h"
++
++static atomic_uint pathwatch_cancel_callback_count;
++
++static int
++pathwatch_test_open_file_count(dev_t device, ino_t inode)
++{
++	int max_fd = getdtablesize();
++	int count = 0;
++	for (int fd = 0; fd < max_fd; fd++)
++	{
++		struct stat sb;
++		if ((fstat(fd, &sb) == 0) && (sb.st_dev == device) && (sb.st_ino == inode)) count++;
++	}
++	return count;
++}
++
++T_DECL(notify_pathwatch_cancel_queued,
++       "cancel hides a token and drops a queued path callback",
++       T_META("owner", "Core Darwin Daemons & Tools"))
++{
++	char path[] = "/tmp/notify-pathwatch-cancel.XXXXXX";
++	char name[128];
++	int fd, token = NOTIFY_TOKEN_INVALID, check_token = NOTIFY_TOKEN_INVALID, check = 0;
++	uint32_t status;
++	uint32_t peek_value = 0;
++	uint64_t state = 0;
++	struct stat watched_stat;
++	dispatch_queue_t queue;
++	dispatch_semaphore_t blocked, release;
++
++	fd = mkstemp(path);
++	T_ASSERT_NE(fd, -1, "create a unique path-watch test file");
++	T_ASSERT_POSIX_ZERO(close(fd), "close the setup file");
++	T_ASSERT_POSIX_ZERO(stat(path, &watched_stat), "read the watched file identity");
++	snprintf(name, sizeof(name), "com.example.pathwatch.cancel.%d", getpid());
++	atomic_store_explicit(&pathwatch_cancel_callback_count, 0, memory_order_relaxed);
++	queue = dispatch_queue_create("com.apple.notify.pathwatch.cancel-test", DISPATCH_QUEUE_SERIAL);
++	blocked = dispatch_semaphore_create(0);
++	release = dispatch_semaphore_create(0);
++	T_ASSERT_NOTNULL(queue, "create the callback queue");
++	T_ASSERT_NOTNULL(blocked, "create the queue-start signal");
++	T_ASSERT_NOTNULL(release, "create the queue-release signal");
++
++	status = notify_register_dispatch(name, &token, queue, ^(__unused int delivered_token) {
++		atomic_fetch_add_explicit(&pathwatch_cancel_callback_count, 1, memory_order_relaxed);
++	});
++	T_ASSERT_EQ(status, (uint32_t)NOTIFY_STATUS_OK, "register dispatch callback");
++	dispatch_sync(queue, ^{});
++	atomic_store_explicit(&pathwatch_cancel_callback_count, 0, memory_order_relaxed);
++	status = notify_register_check(name, &check_token);
++	T_ASSERT_EQ(status, (uint32_t)NOTIFY_STATUS_OK, "register a check token for the same name");
++	status = notify_monitor_file(check_token, path, 0x3ff);
++	T_ASSERT_EQ(status, (uint32_t)NOTIFY_STATUS_OK, "watch the file with a check token");
++	status = notify_check(check_token, &check);
++	T_ASSERT_EQ(status, (uint32_t)NOTIFY_STATUS_OK, "clear the check token's initial state");
++
++	status = notify_monitor_file(token, path, 0x3ff);
++	T_ASSERT_EQ(status, (uint32_t)NOTIFY_STATUS_OK, "start watching the file");
++	int watched_fd_count = pathwatch_test_open_file_count(watched_stat.st_dev, watched_stat.st_ino);
++	T_ASSERT_EQ(watched_fd_count, 2, "both registrations hold their own watched file descriptor");
++	dispatch_async(queue, ^{
++		dispatch_semaphore_signal(blocked);
++		(void)dispatch_semaphore_wait(release, DISPATCH_TIME_FOREVER);
++	});
++	T_ASSERT_EQ(dispatch_semaphore_wait(blocked,
++							   dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)),
++			0l, "hold the callback queue before changing the file");
++
++	fd = open(path, O_WRONLY | O_APPEND);
++	T_ASSERT_NE(fd, -1, "open the watched file for writing");
++	T_ASSERT_EQ(write(fd, "x", 1), (ssize_t)1, "write the watched file");
++	T_ASSERT_POSIX_ZERO(close(fd), "close the changed file");
++
++	bool observed = false;
++	for (unsigned i = 0; i < 200; i++)
++	{
++		status = notify_check(check_token, &check);
++		T_ASSERT_EQ(status, (uint32_t)NOTIFY_STATUS_OK, "check the memory token for the file event");
++		if (check != 0)
++		{
++			observed = true;
++			break;
++		}
++		usleep(10000);
++	}
++	T_ASSERT_TRUE(observed, "the file change reached the token before cancel");
++	/* Let the watcher queue hand its callback to the intentionally blocked queue. */
++	usleep(100000);
++
++	status = notify_cancel(token);
++	T_ASSERT_EQ(status, (uint32_t)NOTIFY_STATUS_OK, "cancel the watched token");
++	T_ASSERT_EQ(pathwatch_test_open_file_count(watched_stat.st_dev, watched_stat.st_ino), 1,
++			"close this watch's file descriptor before external cancel returns");
++	T_ASSERT_FALSE(notify_is_valid_token(token), "canceled tokens are invalid at once");
++	T_ASSERT_EQ(notify_check(token, &check), (uint32_t)NOTIFY_STATUS_INVALID_TOKEN,
++			"notify_check rejects a canceled token");
++	T_ASSERT_EQ(notify_peek(token, &peek_value), (uint32_t)NOTIFY_STATUS_INVALID_TOKEN,
++			"notify_peek rejects a canceled token");
++	T_ASSERT_EQ(notify_get_state(token, &state), (uint32_t)NOTIFY_STATUS_INVALID_TOKEN,
++			"notify_get_state rejects a canceled token");
++	T_ASSERT_EQ(notify_set_state(token, 1), (uint32_t)NOTIFY_STATUS_INVALID_TOKEN,
++			"notify_set_state rejects a canceled token");
++	T_ASSERT_EQ(notify_suspend(token), (uint32_t)NOTIFY_STATUS_INVALID_TOKEN,
++			"notify_suspend rejects a canceled token");
++	T_ASSERT_EQ(notify_resume(token), (uint32_t)NOTIFY_STATUS_INVALID_TOKEN,
++			"notify_resume rejects a canceled token");
++
++	dispatch_semaphore_signal(release);
++	dispatch_sync(queue, ^{});
++	T_ASSERT_EQ(atomic_load_explicit(&pathwatch_cancel_callback_count, memory_order_relaxed),
++			0u, "the callback queued before cancel is dropped");
++
++	T_ASSERT_EQ(notify_cancel(check_token), (uint32_t)NOTIFY_STATUS_OK,
++			"cancel the check token");
++	T_ASSERT_EQ(pathwatch_test_open_file_count(watched_stat.st_dev, watched_stat.st_ino), 0,
++			"close the last path-watch file descriptor before external cancel returns");
++	T_ASSERT_POSIX_ZERO(unlink(path), "remove the watched file");
++	dispatch_release(release);
++	dispatch_release(blocked);
++	dispatch_release(queue);
++}

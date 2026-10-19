@@ -22,6 +22,11 @@ all: $(OUT)/finch-libsandbox-test
 all: $(OUT)/finch-sandbox-enforcement-proof-test
 all: $(OUT)/finch-notify-access-test $(OUT)/finch-sandbox-request-test
 all: $(OUT)/finch-notify-path-access-test
+all: $(OUT)/finch-notify-restart-test
+all: $(OUT)/finch-notify-path-lifecycle-test
+all: $(OUT)/finch-notify-path-direct-test
+all: $(OUT)/finch-notify-path-cancel-test
+all: $(OUT)/finch-notify-path-permission-test
 all: $(OUT)/finch-bootstrap-failure-test
 all: $(OUT)/finch-cryptotokenkit-test $(OUT)/finch-cryptotokenkit-empty-test
 all: $(OUT)/finch-widgetkit-test
@@ -171,6 +176,26 @@ $(OUT)/finch-notify-access-test: notify-access-test.c
 $(OUT)/finch-notify-path-access-test: notify-path-access-test.c
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fblocks -o $@ $<
+
+$(OUT)/finch-notify-restart-test: notify-restart-test.c ../../kernel/include/finch_sandbox_abi.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fblocks -idirafter ../../build/sdk/include -o $@ $<
+
+$(OUT)/finch-notify-path-lifecycle-test: notify-path-lifecycle-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fblocks -o $@ $<
+
+$(OUT)/finch-notify-path-direct-test: notify-path-direct-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fblocks -Wno-deprecated-declarations -idirafter ../../build/sdk/include -o $@ $<
+
+$(OUT)/finch-notify-path-cancel-test: notify-path-cancel-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fblocks -Wno-deprecated-declarations -idirafter ../../build/sdk/include -o $@ $<
+
+$(OUT)/finch-notify-path-permission-test: notify-path-permission-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fblocks -Wno-deprecated-declarations -idirafter ../../build/sdk/include -o $@ $<
 
 # Local application lookup, Apple event values and filesystem services.
 $(OUT)/finch-coreservices-test: coreservices-test.m coreservices-uttypes.inc

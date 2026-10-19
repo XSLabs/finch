@@ -1,0 +1,169 @@
+--- a/notifyd/notifyd.c
++++ b/notifyd/notifyd.c
+@@ -1236,53 +1236,101 @@
+ static int32_t
+ open_shared_memory(const char *name)
+ {
+-	int32_t shmfd, isnew;
+-	uint32_t size;
+-
+-	size = global.nslots * sizeof(uint32_t);
+-
+-	isnew = 1;
+-	shmfd = shm_open(name, O_RDWR, 0644);
+-	if (shmfd != -1)
+-	{
+-		isnew = 0;
+-	}
+-	else
+-	{
+-		shmfd = shm_open(name, O_RDWR | O_CREAT, 0644);
+-	}
+-
+-	if (shmfd == -1)
++	int shmfd = -1, isnew = 0, empty = 0, saved_error;
++	size_t size = 0;
++	struct stat info;
++	uint32_t *base = MAP_FAILED, *previous = NULL, *references = NULL;
++
++	if (global.nslots == 0 || global.nslots > UINT32_MAX / sizeof(uint32_t))
++	{
++		errno = EINVAL;
++		goto fail;
++	}
++	size = (size_t)global.nslots * sizeof(uint32_t);
++
++	/* Exclusive creation distinguishes a fresh object from a restart. */
++	shmfd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0644);
++	if (shmfd >= 0) isnew = 1;
++	else if (errno == EEXIST) shmfd = shm_open(name, O_RDWR, 0644);
++	if (shmfd < 0) goto fail;
++
++	/* Never resize or write a pre-created object belonging to another user. */
++	if (fstat(shmfd, &info) != 0) goto fail;
++	if (info.st_uid != geteuid() || (info.st_mode & 07777) != 0644)
++	{
++		errno = EPERM;
++		goto fail;
++	}
++	/* A crash before the first truncate leaves an empty object. It cannot
++	 * have client mappings, so it is safe to finish its initialization.
++	 * Never resize a nonempty object held by existing clients. */
++	empty = info.st_size == 0;
++	if (!isnew && !empty && info.st_size != (off_t)size)
++	{
++		errno = EINVAL;
++		goto fail;
++	}
++	if ((isnew || empty) && ftruncate(shmfd, (off_t)size) != 0) goto fail;
++
++	base = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0);
++	if (base == MAP_FAILED) goto fail;
++	references = calloc(global.nslots, sizeof(uint32_t));
++	if (references == NULL) goto fail;
++	if (!isnew && !empty)
++	{
++		previous = malloc(size);
++		if (previous == NULL) goto fail;
++		memcpy(previous, base, size);
++	}
++
++	/* Publish only after every operation that can fail has succeeded. */
++	memset(base, 0, size);
++	base[0] = getpid();
++	references[0] = 1;
++	global.shared_memory_base = base;
++	global.last_shm_base = previous;
++	global.shared_memory_refcount = references;
++	global.slot_id = 0;
++	close(shmfd);
++	return 0;
++
++fail:
++	saved_error = errno;
++	free(previous);
++	free(references);
++	if (base != MAP_FAILED) munmap(base, size);
++	if (shmfd >= 0) close(shmfd);
++	/* Leave existing objects and their clients untouched after a failed start. */
++	if (isnew && shm_unlink(name) != 0)
++	{
++		log_message(ASL_LEVEL_NOTICE,
++		    "new shared memory %s could not be removed after failed setup: %s; object left for validation on the next start\n",
++		    name, strerror(errno));
++	}
+ 	{
+ 		char error_message[1024];
+-		snprintf(error_message, sizeof(error_message), "shm_open %s failed: %s\n", name, strerror(errno));
+-
++		snprintf(error_message, sizeof(error_message),
++		    "shared memory %s setup failed: %s\n", name, strerror(saved_error));
+ 		CRSetCrashLogMessage(error_message);
+ 		log_message(ASL_LEVEL_NOTICE, "%s", error_message);
+-		return -1;
+-	}
+-
+-	ftruncate(shmfd, size);
+-	global.shared_memory_base = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0);
+-	close(shmfd);
+-
+-	if (isnew == 0)
+-	{
+-		global.last_shm_base = malloc(size);
+-		if (global.last_shm_base != NULL) memcpy(global.last_shm_base, global.shared_memory_base, size);
+-	}
+-
+-	memset(global.shared_memory_base, 0, size);
+-	global.shared_memory_refcount = (uint32_t *)malloc(size);
+-	if (global.shared_memory_refcount == NULL) return -1;
+-
+-	memset(global.shared_memory_refcount, 0, size);
+-
+-	/* slot 0 is notifyd's pid */
+-	global.shared_memory_base[0] = getpid();
+-	global.shared_memory_refcount[0] = 1;
+-	global.slot_id = 0;
+-
++	}
++	errno = saved_error;
++	return -1;
++}
++
++static int
++parse_shm_pages(const char *text, uint32_t *slots)
++{
++	char *end;
++	unsigned long long pages;
++	int page_size = getpagesize();
++
++	if (text == NULL || text[0] < '0' || text[0] > '9' || page_size <= 0 ||
++	    page_size % sizeof(uint32_t) != 0) return -1;
++	errno = 0;
++	pages = strtoull(text, &end, 10);
++	if (errno != 0 || *end != '\0' || pages > UINT32_MAX / (unsigned)page_size) return -1;
++	*slots = (uint32_t)(pages * ((unsigned)page_size / sizeof(uint32_t)));
+ 	return 0;
+ }
+ 
+@@ -1361,7 +1409,11 @@
+ 		}
+ 		else if (!strcmp(argv[i], "-shm_pages"))
+ 		{
+-			global.nslots = atoi(argv[++i]) * (getpagesize() / sizeof(uint32_t));
++			if (i + 1 >= argc || parse_shm_pages(argv[++i], &global.nslots) != 0)
++			{
++				fprintf(stderr, "notifyd: invalid shared-memory page count\n");
++				return EXIT_FAILURE;
++			}
+ 		}
+ 	}
+ 
+@@ -1374,7 +1426,7 @@
+ 	if (global.nslots > 0)
+ 	{
+ 		status = open_shared_memory(shm_name);
+-		assert(status == 0);
++		if (status != 0) return EXIT_FAILURE;
+ 	}
+ 
+ 	global.workloop = dispatch_workloop_create_inactive("com.apple.notifyd.main");

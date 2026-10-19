@@ -1,0 +1,24 @@
+--- a/notifyd/pathwatch.c
++++ b/notifyd/pathwatch.c
+@@ -781,6 +781,10 @@ _path_node_init(const char *path)
+ 	if (path == NULL) path = "/";
+ 	if (path[0] != '/') return NULL;
+ 
++	/* Keep raw and normalized paths within the pathwatch buffers. */
++	len = strnlen(path, MAXPATHLEN);
++	if (len == MAXPATHLEN) return NULL;
++
+ 	pnode = (path_node_t *)calloc(1, sizeof(path_node_t));
+ 	assert(pnode != NULL);
+ 
+@@ -931,8 +935,8 @@ _path_node_update(path_node_t *pnode, uint32_t flags, vnode_t *vnode)
+ 	}
+ 
+ 	buf = NULL;
+-	if (pnode->plen > MAXPATHLEN) buf = fixed;
+-	else buf = malloc(pnode->plen);
++	if (pnode->plen > sizeof(fixed)) buf = malloc(pnode->plen);
++	else buf = fixed;
+ 	assert(buf != NULL);
+ 
+ 	/* "autorelease" current sources (_vnode_sweep() will delete those with zero refcount) */

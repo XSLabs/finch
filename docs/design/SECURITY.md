@@ -108,6 +108,19 @@ compiler. Replacing it requires more than accepting its profile name:
 
 - Start the service as a dedicated non-root user. Check shared memory,
   bootstrap check-in, logging, and client access under that identity.
+- Keep signal delivery working for other users. The older signal path calls
+  `kill` from notifyd, which a dedicated account cannot use on arbitrary client
+  processes. The newer dispatch path sends the signal from the client itself;
+  passing that path alone does not prove the older path still works.
+  Starting dispatch threads for every older client would also change when it
+  can safely fork. Keep that behavior, or provide a separate, narrowly limited
+  way for the service to deliver a signal the receiving client requested.
+  `proc_signal_with_audittoken` checks that the receiving process has not been
+  replaced, but still checks the sender's user permissions. It does not give
+  the dedicated account permission to signal another user's process. Any
+  separate delivery service must accept a right created by the receiving
+  client for one fixed signal, rather than an arbitrary process and signal
+  chosen by notifyd. That delivery path has not been implemented or tested.
 - Give it only the fixed log files it needs. Identify allowed files by kernel
   object labels set through trusted setup. A pathname prefix alone is unsafe
   because links and renames can change what a name refers to. Cover creation,
@@ -134,6 +147,50 @@ timezone folder boundaries. These checks pass on 2026-10-18. The guest's
 `notify-path-access-test` also observes creation of a new file in an allowed
 folder while receiving no events from a changed root-only file. Neither check
 proves that the full file-watch service works under a dedicated non-root account.
+
+The old file-watch parser also rejects paths that exceed its fixed buffer limit
+before allocating a watch. Its scratch buffer now uses heap storage when the
+requested size will not fit on the stack. The boundary tests run the patched
+source with memory-error checks enabled; they cover the limit, oversized input,
+and the scratch-buffer choice. These tests pass on 2026-10-18.
+
+Shared-memory startup now checks ownership, permissions and size before touching
+an existing object. It checks mapping and allocation failures before clearing
+old data, and exits explicitly when setup fails. New-object cleanup failures
+are logged. An owned, empty object left by an interrupted first start can be
+initialized on retry; a nonempty object with the wrong size is left untouched
+and requires cleanup. The page count option rejects malformed or overflowing
+values. The source-based fault test passes 243 checks. In the development guest,
+`notify-restart-test` stops the verified service and confirms that its replacement
+keeps the original check and callback registrations and their stored state.
+It also checks that a waiting notification survives the restart, can be consumed
+once, and leaves an unrelated quiet registration unchanged (2026-10-18).
+
+The old file-watch code notifies unrelated listeners with the same name when a
+watched file changes. A client-owned replacement is now under test. Its first
+guest run exposed a crash caused by adding one common-port client to the same
+tracking list twice. After fixing that, CoreFoundation notifications, cross-user
+access, path access and restart checks pass with no logged service exits.
+Cancellation now waits for source cleanup before returning to an ordinary
+caller, rejects canceled tokens, and keeps them out of restart recovery.
+The corrected lifecycle test, direct-delivery test, and queued-callback
+cancellation test all pass alongside the four checks above, with no logged
+service exits (2026-10-18). This covers seven guest tests, not every file-watch
+case. A new `notify-path-permission-test` found a real failure: a watch created
+without directory access stayed silent after access returned, including later
+file writes. A one-second retry now reopens blocked paths under the caller's
+credentials. Its timer stays idle while access is allowed and joins the same
+cleanup group as file watches. The new test confirms recovery after initial
+denial and later loss of access, quiet hidden writes, and cancellation while
+access is blocked. Cancel closes the parent folder before returning and leaves
+no late callbacks or reopened folder. All eight checks passed together with no
+logged service exits on October 18. The before/after records are saved under
+`build/continuation-20261018/permission-baseline*` and `permission-retry-*`.
+Cancellation from a file-watch queue avoids waiting on that queue and may
+defer cleanup; the API does not promise safe use inside a signal handler.
+The replacement is not ready to support moving the service to a non-root account.
+These runs still use the base image's sandbox library and do not prove
+release-image confinement.
 
 The cross-user notification test is separate from these sandbox requirements.
 It checks notifyd's own `user.uid.*` access rules and an allowed post as a
@@ -203,11 +260,14 @@ it does not mean those missing system services are available.
 
 ## Console access
 
-Normal `finch-init` boots now start `/usr/bin/login`. A missing or failed login
-program does not open a root shell. The development VM opts in to its root
-console with the exact boot argument `finch_dev_console=1`; duplicate or malformed
-values do not enable it. Set `FINCH_DEV_CONSOLE=0` when testing normal login with
-`tools/vm/run.sh`.
+Normal `finch-init` boots require `/etc/finch/rc` to exist and finish successfully
+before services and login start. A missing or failed startup script skips both.
+Init opens the recovery root shell only when
+the exact development boot argument `finch_dev_console=1` was already set;
+duplicate or malformed values do not enable it. Without that opt-in, init stays
+stopped without an interactive login and reports that repair needs a development
+boot. A missing or failed login program still does not open a root shell. Set
+`FINCH_DEV_CONSOLE=0` when testing normal login with `tools/vm/run.sh`.
 
 The parser checks and both QEMU boot paths passed on 2026-10-11. The login check
 proved that an unknown account returns to the login prompt. On 2026-10-13,

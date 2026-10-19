@@ -77,6 +77,11 @@ EXIT_CHECKS = {
     'diskarbitration-session-test',
     'sandbox-enforcement-proof-test',
     'sandbox-request-test', 'notify-access-test', 'notify-path-access-test',
+    'notify-restart-test',
+    'notify-path-lifecycle-test',
+    'notify-path-direct-test',
+    'notify-path-cancel-test',
+    'notify-path-permission-test',
     'bootstrap-failure-test',
     # This is only a crash check for a process with hardened-process entitlements.
     'hardened-test',
@@ -628,6 +633,17 @@ def borrowed_components(text):
     return set(re.findall(r'^VMTBORROWED\|([a-z0-9-]+)\r*$', text, re.M))
 
 
+def notifyd_exit_messages(text):
+    """Return logged crashes and nonzero exits of the supervised notifyd job."""
+    # notify-restart-test stops notifyd with SIGKILL, but finch-init suppresses
+    # SIGKILL and SIGTERM messages. Any notifyd exit that is logged is unexpected,
+    # even when the restart test ran; do not excuse one based on test selection.
+    pattern = (r'finch-init: com\.apple\.notifyd: '
+               r'(?:killed by signal \d+|exited with status [1-9]\d*)')
+    text = re.sub(r'\x1b\[[0-9;?]*[A-Za-z]', '', text)
+    return re.findall(pattern, text)
+
+
 def main():
     parser = argparse.ArgumentParser(description='Run and check Finch tests in the VM.')
     parser.add_argument('--scripts', action='store_true', help='also run separate VM test scripts')
@@ -690,6 +706,9 @@ def main():
         'tests': [{'name': name, 'check': check} for name, check, _, _ in tests],
         'scriptsRequested': scripts_requested,
         'scriptPlan': script_plan,
+        'unexpectedServiceExits': [],
+        # Guest marker declarations only; this is not a full component audit.
+        'mainGuestDeclaredBorrowedComponents': None,
         'inputsBefore': vm_input_record(vm_inputs, hashes_before),
         'inputsAfter': None,
         'inputsUnchanged': None,
@@ -785,7 +804,12 @@ def main():
         print('the VM stopped before its shell started; booting it again', flush=True)
     log.close()
     text = re.sub(r'\x1b\[[0-9;?]*[A-Za-z]', '', text)
+    service_exits = notifyd_exit_messages(text)
+    run_record['unexpectedServiceExits'] = [
+        {'source': 'vm-tests', 'message': message} for message in service_exits
+    ]
     borrowed = borrowed_components(text)
+    run_record['mainGuestDeclaredBorrowedComponents'] = sorted(borrowed)
     if borrowed:
         print('Development image: uses the base image sandbox library; this is not release evidence.')
     results = {}
@@ -847,6 +871,11 @@ def main():
         if name not in {t[0] for t in tests} and not selected:
             print('%-36s %s' % (name, 'exception for a test not in the image: remove it'))
             failed += 1
+    if service_exits:
+        print('notifyd exited unexpectedly during this VM run:')
+        for message in service_exits:
+            print('  ' + message)
+        failed += 1
     if status not in (0, 4):
         print('### the VM run itself failed (smoke.exp exit %d)' % status)
         failed += 1
@@ -856,12 +885,22 @@ def main():
         for script in SCRIPTS:
             run, script_record = run_test_script(script, run_env, vm_inputs)
             name = ', '.join(SCRIPTS[script]) or script.split('/')[-1]
+            script_service_exits = notifyd_exit_messages(run.stdout)
+            script_record['unexpectedServiceExits'] = script_service_exits
+            run_record['unexpectedServiceExits'].extend(
+                {'source': script, 'message': message} for message in script_service_exits
+            )
             script_records.append(script_record)
-            if run.returncode == 0:
+            if run.returncode == 0 and not script_service_exits:
                 print('%-36s ok (%s)' % (name, script))
                 passed += 1
             else:
-                print('%-36s FAILED (%s exit %d)' % (name, script, run.returncode))
+                reasons = []
+                if run.returncode != 0:
+                    reasons.append('exit %d' % run.returncode)
+                if script_service_exits:
+                    reasons.append('unexpected notifyd exit')
+                print('%-36s FAILED (%s: %s)' % (name, script, ', '.join(reasons)))
                 sys.stdout.write(run.stdout[-2000:])
                 failed += 1
             for input_name, item in script_record['imageOverrides'].items():

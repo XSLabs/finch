@@ -315,4 +315,9 @@ build/userland/finch-sandbox-enforcement-proof-test /usr/local/bin/finch-sandbox
 build/userland/finch-sandbox-request-test /usr/local/bin/finch-sandbox-request-test
 build/userland/finch-notify-access-test /usr/local/bin/finch-notify-access-test
 build/userland/finch-notify-path-access-test /usr/local/bin/finch-notify-path-access-test
+build/userland/finch-notify-restart-test /usr/local/bin/finch-notify-restart-test
+build/userland/finch-notify-path-lifecycle-test /usr/local/bin/finch-notify-path-lifecycle-test
+build/userland/finch-notify-path-direct-test /usr/local/bin/finch-notify-path-direct-test
+build/userland/finch-notify-path-cancel-test /usr/local/bin/finch-notify-path-cancel-test
+build/userland/finch-notify-path-permission-test /usr/local/bin/finch-notify-path-permission-test
 build/userland/finch-bootstrap-failure-test /usr/local/bin/finch-bootstrap-failure-test
