@@ -1,6 +1,18 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Finch boot script, run once by finch-init before the console shell starts.
+set -e
+
+# A configured image must mount and check its data volume before looking up
+# account names or starting services. Account links also mark such an image:
+# losing its volume setting must not silently send user data back into RAM.
+persistent_data=0
+if [ -e /private/etc/finch/data-volume ] || [ -L /private/etc/finch/data-volume ] ||
+   [ -L /private/etc/master.passwd ] || [ -L /private/etc/passwd ] ||
+   [ -L /private/etc/group ]; then
+    /usr/sbin/finch-data-volume
+    persistent_data=1
+fi
 
 # The VM's root is a read-only APFS ramdisk (APFS refuses to remount it
 # read-write). As in macOS recovery, the writable directories get tmpfs. The
@@ -8,10 +20,13 @@
 # /private/var itself and over /private/var/db, so each other writable /var
 # subdirectory gets its own. Mount points are created at image build time
 # (tools/vm/mkramdisk.sh).
-for dir in /private/tmp /private/var/tmp /private/var/run /private/var/log \
-           /private/var/root /private/var/rw; do
-    mount_tmpfs "$dir" || echo "rc: warning: tmpfs on $dir failed"
+for dir in /private/tmp /private/var/tmp /private/var/run /private/var/log; do
+    mount_tmpfs "$dir"
 done
+if [ "$persistent_data" = 0 ]; then
+    mount_tmpfs /private/var/root
+    mount_tmpfs /private/var/rw
+fi
 chown root:wheel /private/tmp /private/var/tmp /private/var/run /private/var/log \
     /private/var/root /private/var/rw
 chmod 1777 /private/tmp /private/var/tmp
@@ -50,8 +65,10 @@ make_home() {   # make_home DIR OWNER
     done
     chown -R "$2" "$1"
 }
-make_home /private/var/root root:wheel
-make_home /private/var/rw/Users/finchtest finchtest:staff
-chmod 750 /private/var/rw/Users/finchtest
+if [ "$persistent_data" = 0 ]; then
+    make_home /private/var/root root:wheel
+    make_home /private/var/rw/Users/finchtest finchtest:staff
+    chmod 750 /private/var/rw/Users/finchtest
+fi
 
 echo "rc: Finch userland coming up"

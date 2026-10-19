@@ -6,6 +6,14 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+
+enum finch_startup_path {
+	FINCH_STARTUP_NORMAL,
+	FINCH_STARTUP_RECOVERY,
+	FINCH_STARTUP_BLOCKED,
+};
 
 /* A root console is a development opt-in, never a fallback for failed login.
  * Duplicate or malformed settings fail closed rather than depending on order. */
@@ -27,6 +35,22 @@ finch_development_console(const char *args)
 		args = end;
 	}
 	return found;
+}
+
+static inline bool
+finch_rc_startup_succeeded(bool script_present, pid_t child_pid, int wait_status)
+{
+	return script_present && child_pid > 0 && wait_status >= 0 &&
+	    WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0;
+}
+
+/* A failed rc must not start services or login. Only the existing explicit
+ * development-console opt-in may turn that failure into a root recovery shell. */
+static inline enum finch_startup_path
+finch_startup_path_for_rc(bool rc_succeeded, bool development_console)
+{
+	if (rc_succeeded) return FINCH_STARTUP_NORMAL;
+	return development_console ? FINCH_STARTUP_RECOVERY : FINCH_STARTUP_BLOCKED;
 }
 
 #endif

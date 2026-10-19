@@ -299,7 +299,7 @@ reap_children(void)
 	}
 }
 
-static void
+static int
 run_rc_script(void)
 {
 	char *argv[] = { "sh", RC_SCRIPT, NULL };
@@ -308,16 +308,25 @@ run_rc_script(void)
 	int status;
 
 	if (stat(RC_SCRIPT, &st) != 0) {
-		return;
+		logmsg("required startup script %s is unavailable: %s", RC_SCRIPT,
+		    strerror(errno));
+		return -1;
 	}
 	logmsg("running %s", RC_SCRIPT);
 	pid = spawn_on_console("/bin/sh", argv);
-	if (pid > 0) {
-		status = wait_for(pid);
-		if (status != 0) {
+	if (pid <= 0) {
+		return -1;
+	}
+	status = wait_for(pid);
+	if (!finch_rc_startup_succeeded(true, pid, status)) {
+		if (status < 0) {
+			logmsg("could not wait for %s: %s", RC_SCRIPT, strerror(errno));
+		} else {
 			describe_exit(RC_SCRIPT, status);
 		}
+		return -1;
 	}
+	return 0;
 }
 
 /*
@@ -466,6 +475,8 @@ int
 main(void)
 {
 	dispatch_source_t sigchld;
+	enum finch_startup_path startup_path;
+	int rc_status;
 	char boot_args[1024] = {0};
 	size_t boot_args_length = sizeof(boot_args);
 	if (sysctlbyname("kern.bootargs", boot_args, &boot_args_length, NULL, 0) == 0) {
@@ -495,7 +506,17 @@ main(void)
 	}
 
 	start_bootstrap_server();
-	run_rc_script();   /* synchronous: services start after it */
+	rc_status = run_rc_script();   /* synchronous: services start after it */
+	startup_path = finch_startup_path_for_rc(rc_status == 0,
+	    development_console);
+	if (startup_path != FINCH_STARTUP_NORMAL) {
+		logmsg("%s failed; normal services and login will not start", RC_SCRIPT);
+		if (startup_path == FINCH_STARTUP_RECOVERY) {
+			logmsg("starting recovery shell; finch_dev_console=1 was explicitly enabled");
+		} else {
+			logmsg("recovery shell is disabled; boot a development system with finch_dev_console=1 to repair startup");
+		}
+	}
 
 	/* From here on everything happens on init_queue. SIGCHLD keeps its
 	 * default disposition (SIG_IGN would auto-reap and lose exit statuses). */
@@ -503,10 +524,17 @@ main(void)
 	dispatch_source_set_event_handler(sigchld, ^{ reap_children(); });
 	dispatch_resume(sigchld);
 
-	load_jobs();
-	dispatch_async(init_queue, ^{
-		start_console_shell();
-		reap_children();   /* anything that exited before the source was armed */
-	});
+	if (startup_path == FINCH_STARTUP_NORMAL) {
+		load_jobs();
+		dispatch_async(init_queue, ^{
+			start_console_shell();
+			reap_children();   /* anything that exited before the source was armed */
+		});
+	} else if (startup_path == FINCH_STARTUP_RECOVERY) {
+		dispatch_async(init_queue, ^{
+			start_console_shell();
+			reap_children();
+		});
+	}
 	dispatch_main();
 }

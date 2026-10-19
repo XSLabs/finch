@@ -23,9 +23,11 @@ static void
 usage(FILE *stream)
 {
 	fputs("Usage:\n"
-	    "  accountctl -d ACCOUNT_FOLDER [-R TARGET_ROOT] create NAME UID GID GECOS HOME SHELL\n"
-	    "  accountctl -d ACCOUNT_FOLDER change NAME\n"
+	    "  accountctl [-d ACCOUNT_FOLDER] [-R TARGET_ROOT] create NAME UID GID GECOS HOME SHELL\n"
+	    "  accountctl [-d ACCOUNT_FOLDER] change NAME\n"
 	    "\nACCOUNT_FOLDER must contain master.passwd, passwd, and group.\n"
+	    "Without -d, account files use /etc/finch/account-store when it is set,\n"
+	    "or /private/etc on older images.\n"
 	    "With -R, HOME is created inside TARGET_ROOT. Without -R, create only\n"
 	    "updates the account files. An existing HOME must be empty.\n",
 	    stream);
@@ -101,14 +103,17 @@ main(int argc, char **argv)
 		default: usage(stderr); return 2;
 		}
 	}
-	if (!directory || optind >= argc) {
+	if (optind >= argc) {
 		usage(stderr);
 		return 2;
 	}
 	const char *action = argv[optind++];
 	struct at_store store = {.directory_fd = -1};
 	char error[256] = {0};
-	if (at_store_open(&store, directory, error, sizeof(error)) != 0) {
+	int open_status = directory ?
+	    at_store_open(&store, directory, error, sizeof(error)) :
+	    at_store_open_default(&store, error, sizeof(error));
+	if (open_status != 0) {
 		fprintf(stderr, "accountctl: %s\n", error);
 		return 1;
 	}

@@ -221,7 +221,7 @@ bool ODRecordChangePassword(ODRecordRef record, CFStringRef oldPassword, CFStrin
         goto done;
     }
     struct at_store store = { .directory_fd = -1 };
-    if (at_store_open(&store, "/private/etc", message, sizeof(message)) != 0) {
+    if (at_store_open_default(&store, message, sizeof(message)) != 0) {
         set_error(error, kODErrorCredentialsServerError, CFSTR("The account files could not be opened"));
         goto done;
     }

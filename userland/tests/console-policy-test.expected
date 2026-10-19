@@ -1,1 +1,1 @@
-console policy: login by default; root shell requires explicit development opt-in
+console policy: success opens normal startup; every rc failure skips services and login

@@ -1,0 +1,114 @@
+diff --git a/hw/arm/darwin.c b/hw/arm/darwin.c
+index cd0223d..bd9725b 100644
+--- a/hw/arm/darwin.c
++++ b/hw/arm/darwin.c
+@@ -16,6 +16,8 @@
+ #include "system/system.h"
+ #include "hw/core/sysbus.h"
+ #include "hw/core/platform-bus.h"
++#include "hw/core/qdev-properties.h"
++#include "hw/pci-host/gpex.h"
+ #include "xnu/boot/xnuboot.h"
+ #include "xnu/apple_dtree.h"
+ #include "xnu/apple_regs.h"
+@@ -45,12 +47,19 @@ OBJECT_DECLARE_SIMPLE_TYPE(DarwinState, DARWIN_MACHINE)
+ #define NUM_TUNNEL_DEVICES          4
+ 
+ #define DARWIN_MACHINE_NUM_IRQS     NUM_TUNNEL_DEVICES
++#define FINCH_PCIE_NUM_IRQS         16
++#define FINCH_PCIE_IRQ_BASE         0x20
++#define FINCH_PCIE_ECAM_BASE        0x40000000ULL
++#define FINCH_PCIE_ECAM_SIZE        0x10000000ULL
++#define FINCH_PCIE_MMIO_BASE        0x50000000ULL
++#define FINCH_PCIE_MMIO_SIZE        0x1fff0000ULL
+ 
+ struct DarwinState {
+     MachineState           parent_obj;
+     ARMCPU                *cpu;
+     AMCCState             *amcc;
+     DeviceState           *aic;
++    bool                   finch_pcie;
+     struct xnu_boot_info   bootinfo;
+     qemu_irq               irqs[DARWIN_MACHINE_NUM_IRQS];
+ };
+@@ -63,6 +72,14 @@ MACHINE_CLASS_ARG(txm);
+ MACHINE_CLASS_ARG(tc);
+ MACHINE_CLASS_ARG(ramdisk);
+ 
++static bool darwin_get_finch_pcie(Object *obj, Error **errp) {
++    return DARWIN_MACHINE(obj)->finch_pcie;
++}
++
++static void darwin_set_finch_pcie(Object *obj, bool value, Error **errp) {
++    DARWIN_MACHINE(obj)->finch_pcie = value;
++}
++
+ static void alloc_zeroed(const char *name, hwaddr pa, size_t len) {
+     if (0 == len) {
+         fprintf(stderr, "error: alloc_ram called with len=0 for region %s\n", name);
+@@ -155,6 +172,44 @@ static void init_sep(struct dtree_node *dt_root) {
+     alloc_zeroed("sep", sep_reg[0].base, sep_reg[0].len);
+ }
+ 
++static void init_finch_pcie(DarwinState *s) {
++    DeviceState *dev = qdev_new(TYPE_GPEX_HOST);
++    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
++    MemoryRegion *ecam_alias = g_new0(MemoryRegion, 1);
++    MemoryRegion *mmio_alias = g_new0(MemoryRegion, 1);
++    MemoryRegion *ecam_reg;
++    MemoryRegion *mmio_reg;
++    PCIHostState *pci;
++
++    qdev_prop_set_uint32(dev, "num-irqs", FINCH_PCIE_NUM_IRQS);
++    sysbus_realize_and_unref(sbd, &error_fatal);
++
++    ecam_reg = sysbus_mmio_get_region(sbd, 0);
++    memory_region_init_alias(ecam_alias, OBJECT(dev), "finch-pcie-ecam",
++                             ecam_reg, 0, FINCH_PCIE_ECAM_SIZE);
++    memory_region_add_subregion(get_system_memory(), FINCH_PCIE_ECAM_BASE,
++                                ecam_alias);
++
++    mmio_reg = sysbus_mmio_get_region(sbd, 1);
++    memory_region_init_alias(mmio_alias, OBJECT(dev), "finch-pcie-mmio",
++                             mmio_reg, FINCH_PCIE_MMIO_BASE,
++                             FINCH_PCIE_MMIO_SIZE);
++    memory_region_add_subregion(get_system_memory(), FINCH_PCIE_MMIO_BASE,
++                                mmio_alias);
++
++    for (int i = 0; i < FINCH_PCIE_NUM_IRQS; i++) {
++        int irq = FINCH_PCIE_IRQ_BASE + i;
++        int rc;
++
++        sysbus_connect_irq(sbd, i, qdev_get_gpio_in(s->aic, irq));
++        rc = gpex_set_irq_num(GPEX_HOST(dev), i, irq);
++        assert(0 == rc);
++    }
++
++    pci = PCI_HOST_BRIDGE(dev);
++    assert(pci->bus);
++}
++
+ static void setup_mte(Object *cpuobj, MachineState *machine, struct xnu_boot_info *info) {
+     MemoryRegion *tag_sysmem = NULL;
+ 
+@@ -260,6 +315,8 @@ static void darwin_init(MachineState *ms) {
+ 
+     s->aic = apple_aic_create(adt_find_node(dt_root, "arm-io/aic"), iobase);
+ 
++    if (s->finch_pcie) init_finch_pcie(s);
++
+     struct dtree_node *uart0 = adt_find_node(dt_root, "arm-io/uart0");
+     if (!uart0) {
+         fprintf(stderr, "error: no uart0 in device tree\n");
+@@ -320,6 +377,11 @@ static void darwin_machine_class_init(ObjectClass *oc, const void *data) {
+     object_class_property_add_str(oc, "txm", txm_darwin_class_get, txm_darwin_class_set);
+     object_class_property_add_str(oc, "tc", tc_darwin_class_get, tc_darwin_class_set);
+     object_class_property_add_str(oc, "ramdisk", ramdisk_darwin_class_get, ramdisk_darwin_class_set);
++    object_class_property_add_bool(oc, "finch-pcie",
++                                   darwin_get_finch_pcie,
++                                   darwin_set_finch_pcie);
++    object_class_property_set_description(oc, "finch-pcie",
++                                          "Enable Finch's empty virtual PCIe bridge");
+ 
+     darwin_machine_init(mc);
+ }

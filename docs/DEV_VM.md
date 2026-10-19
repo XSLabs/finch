@@ -106,6 +106,31 @@ link into the `/private/var/rw` tmpfs, as `/var/db` is.
 not root. Everything runs as root there, so this rarely matters. The exception is setuid
 tools used by another user, e.g. `su` run from `nobody` reports "not running setuid".
 
+### Finalize account-file owners in the dev image
+
+`mkramdisk.sh` does not set the owner bits that a mounted disk image would need to show
+root-owned account files. The normal build stays unprivileged. If a test needs those owners,
+first build the small account helper as your usual user, then run the optional finalizer in a
+real terminal:
+
+```sh
+make -C userland/system-accounts
+sudo tools/vm/finalize-system-accounts.sh
+```
+
+The finalizer only accepts `build/vm/ramdisk.dmg`. It refuses a running or attached copy,
+uses the VM lock without waiting, and changes a private copy of the image first. It enables
+ownership on that temporary mount, fixes only `master.passwd`, `passwd`, and `group`, adds
+the locked `_notifyd` entry from `userland/release/etc`, and checks the result before replacing
+the original file. If a check fails, the original image stays in place. If the copy cannot be
+detached, the tool keeps the temporary files so they can be inspected.
+
+The finalizer prints the old and new SHA-256 hashes. Account changes alter the ramdisk hash;
+they do not change `ramdisk.tc`. Any saved VM test run record that names the old ramdisk hash
+no longer describes the image on disk. This is a local development repair, not a release
+install step. The recovery logic can be checked without an image by running
+`tools/vm/tests/finalize-system-accounts-cleanup-test.sh`.
+
 ## The VM test suite
 
 `tools/vm/vm-tests.py` runs every test program in the image (`tools/vm/overlay.txt`) in one
@@ -199,6 +224,16 @@ before building QEMU:
 - 0001: clear FEAT_LVA (`ID_AA64MMFR2_EL1.VARange`). Apple Silicon doesn't have it, and
   DEVELOPMENT kernels assert on it (`vm_sanitize.c`). This bug panicked the first
   `ps` run under finch-init. Reported upstream: https://github.com/jprx/darwin-vm/issues/14
+- 0002: opt-in `finch-pcie=on` machine property. Adds one GPEX host (ECAM `0x40000000`,
+  MMIO `0x50000000`, AIC lines `0x20`-`0x2f`) so `tools/vm/run.sh` can attach a VirtIO data
+  disk (`FINCH_DATA_IMAGE`, `docs/design/PERSISTENT_VM_STORAGE.md`). Off by default.
+- 0003: AIC v3 keeps level-triggered lines pending. The model only latched a rising edge, so a
+  PCI device still holding its line high when the guest re-enabled the vector was lost, and
+  mounting a full APFS disk stalled waiting for a completed read. Claiming a V3 vector now
+  masks it, and re-enabling a vector whose line is still high makes it pending again
+  (matching `AppleInterruptControllerV3::handleInterrupt`).
+
+0002 and 0003 are Finch-local and stay out of upstream (the QEMU code-provenance policy).
 
 ## Booting the Finch kernel
 

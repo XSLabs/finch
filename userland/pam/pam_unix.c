@@ -249,7 +249,7 @@ pam_sm_chauthtok(pam_handle_t *pamh, int flags,
 	}
 	at_secure_clear(confirmation, strlen(confirmation) + 1);
 	free(confirmation);
-	if (at_store_open(&store, "/private/etc", error, sizeof(error)) != 0)
+	if (at_store_open_default(&store, error, sizeof(error)) != 0)
 		return PAM_AUTHTOK_ERR;
 	int changed = at_store_change_password(&store, user, getuid(),
 	    root_override, root_override ? NULL : old_password, new_password,

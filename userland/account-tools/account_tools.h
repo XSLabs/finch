@@ -23,7 +23,18 @@ void at_secure_clear(void *value, size_t size);
 /* directory must be an absolute, non-symlink path owned by the caller. */
 int at_store_open(struct at_store *store, const char *directory,
 	char *error, size_t error_size);
+/* Uses the root-owned /etc/finch/account-store setting when present. An absent
+ * setting keeps older images on /private/etc. */
+int at_store_open_default(struct at_store *store, char *error,
+	size_t error_size);
 void at_store_close(struct at_store *store);
+
+#if defined(AT_ACCOUNT_TOOLS_TESTING)
+/* Lets host tests exercise the same selector without touching /private/etc. */
+int at_test_store_open_default(struct at_store *store, const char *config_path,
+	const char *fallback_directory, uid_t config_owner, char *error,
+	size_t error_size);
+#endif
 
 /* New accounts must use an existing group and a non-system uid (500+).
  * This legacy helper only updates account files; it does not touch HOME. */

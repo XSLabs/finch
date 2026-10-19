@@ -1,0 +1,48 @@
+diff --git a/hw/intc/apple_aic.c b/hw/intc/apple_aic.c
+index ec7a3af..ce3033f 100644
+--- a/hw/intc/apple_aic.c
++++ b/hw/intc/apple_aic.c
+@@ -83,6 +83,7 @@ struct AppleAICState {
+     qemu_irq       irq_out;
+     bool          *enable;
+     bool          *pending;
++    bool          *level;
+     aic_version_t  version;
+     bool           has_ack_region;
+     size_t         r_iack;
+@@ -112,6 +113,8 @@ static u64 aic_handle_eoi(AppleAICState *aic) {
+     for (size_t i = 0; i < aic->num_irqs; i++) {
+         if (aic->pending[i] && aic->enable[i]) {
+             if (!aic->has_ack_region) aic->pending[i] = false;
++            /* V3 masks a claimed line until the guest enables it again. */
++            if (aic->version == AIC_V3) aic->enable[i] = false;
+             aic_log("aic: EOI for int num %zu\n", i);
+             return i | AIC_EOI_FLAG_VALID_INT;
+         }
+@@ -153,6 +156,10 @@ static void apple_aic_write(void *opaque, hwaddr offset, uint64_t value, unsigne
+         if (1 & (value >> i)) {
+             aic_log("aic: enabling IRQ %ld\n", irqnum);
+             aic->enable[irqnum] = true;
++            /* A PCI device can keep its signal high while being serviced. */
++            if (aic->version == AIC_V3 && aic->level[irqnum]) {
++                aic->pending[irqnum] = true;
++            }
+         }
+     }
+ 
+@@ -171,6 +178,7 @@ static void apple_aic_write(void *opaque, hwaddr offset, uint64_t value, unsigne
+ static void apple_aic_irq_request(void *opaque, int n, int level) {
+     AppleAICState *aic = opaque;
+     aic_log("aic: interrupt %d taken (level %d)\n", n, level);
++    aic->level[n] = level != 0;
+     if (level) aic->pending[n] = true;
+     apple_aic_update_irqs(aic);
+ }
+@@ -188,6 +196,7 @@ static void apple_aic_realize(DeviceState *dev, Error **errp) {
+ 
+     aic->enable  = g_new0(bool, aic->num_irqs);
+     aic->pending = g_new0(bool, aic->num_irqs);
++    aic->level   = g_new0(bool, aic->num_irqs);
+ 
+     qdev_init_gpio_in(DEVICE(aic), apple_aic_irq_request, aic->num_irqs);
+     qdev_init_gpio_out(DEVICE(aic), &aic->irq_out, 1);

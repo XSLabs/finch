@@ -30,6 +30,9 @@
 #define HASH_FIELD_MAX 256
 #define GECOS_MAX 256
 #define PATH_FIELD_MAX 1024
+#define STORE_CONFIG_PATH "/private/etc/finch/account-store"
+#define LEGACY_STORE_PATH "/private/etc"
+#define STORE_CONFIG_MAX 1024
 #define FIELD_COUNT 10
 
 #if defined(AT_ACCOUNT_TOOLS_TESTING)
@@ -184,6 +187,155 @@ fail:
 	return -1;
 }
 
+static bool
+is_canonical_absolute_path(const char *path)
+{
+	const char *component;
+	if (!path || path[0] != '/' || path[1] == '\0')
+		return false;
+	component = path + 1;
+	for (const char *p = component;; ++p) {
+		if (*p == '/' || *p == '\0') {
+			size_t length = (size_t)(p - component);
+			if (length == 0 || (length == 1 && component[0] == '.') ||
+			    (length == 2 && component[0] == '.' && component[1] == '.'))
+				return false;
+			if (*p == '\0')
+				return true;
+			component = p + 1;
+		}
+	}
+}
+
+/* Open a single trusted config file without following any part of its path. */
+static int
+open_store_config(const char *path, uid_t expected_owner, char *error,
+	size_t error_size)
+{
+	char *copy = NULL, *slash, *leaf = NULL;
+	int directory_fd = -1, fd = -1;
+	struct stat st;
+
+	if (!path || path[0] != '/') {
+		set_error(error, error_size, "account store setting path is invalid");
+		errno = EINVAL;
+		return -1;
+	}
+	copy = strdup(path);
+	if (!copy) {
+		set_error(error, error_size, "not enough memory to read account store setting");
+		return -1;
+	}
+	slash = strrchr(copy, '/');
+	if (!slash || slash[1] == '\0') {
+		set_error(error, error_size, "account store setting path is invalid");
+		errno = EINVAL;
+		goto done;
+	}
+	leaf = slash + 1;
+	leaf = strdup(leaf);
+	if (!leaf) {
+		set_error(error, error_size, "not enough memory to read account store setting");
+		goto done;
+	}
+	if (slash == copy) {
+		copy[1] = '\0';
+	} else {
+		*slash = '\0';
+	}
+	directory_fd = open_directory_path(copy, expected_owner, error, error_size);
+	if (directory_fd < 0)
+		goto done;
+	fd = openat(directory_fd, leaf,
+	    O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+	if (fd < 0) {
+		set_error(error, error_size, "cannot safely open account store setting: %s",
+		    strerror(errno));
+		goto done;
+	}
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_nlink != 1 ||
+	    st.st_uid != expected_owner || (st.st_mode & 0022) != 0) {
+		set_error(error, error_size,
+		    "account store setting has unsafe owner, type, link count, or mode");
+		close(fd);
+		fd = -1;
+		errno = EPERM;
+	}
+done:
+	if (directory_fd >= 0)
+		close(directory_fd);
+	free(leaf);
+	free(copy);
+	return fd;
+}
+
+static int
+store_open_default_at(struct at_store *store, const char *config_path,
+	const char *fallback_directory, uid_t config_owner, char *error,
+	size_t error_size)
+{
+	char configured_path[STORE_CONFIG_MAX + 1];
+	size_t used = 0;
+	int fd;
+
+	if (!store) {
+		set_error(error, error_size, "missing account store");
+		errno = EINVAL;
+		return -1;
+	}
+	store->directory_fd = -1;
+	store->owner = geteuid();
+	fd = open_store_config(config_path, config_owner, error, error_size);
+	if (fd < 0) {
+		if (errno == ENOENT) {
+			int fallback_status = at_store_open(store, fallback_directory, error,
+			    error_size);
+			if (fallback_status == 0 && error && error_size > 0)
+				error[0] = '\0';
+			return fallback_status;
+		}
+		return -1;
+	}
+	for (;;) {
+		ssize_t amount = read(fd, configured_path + used,
+		    sizeof(configured_path) - used);
+		if (amount < 0) {
+			if (errno == EINTR)
+				continue;
+			set_error(error, error_size, "cannot read account store setting: %s",
+			    strerror(errno));
+			close(fd);
+			return -1;
+		}
+		if (amount == 0)
+			break;
+		used += (size_t)amount;
+		if (used == sizeof(configured_path)) {
+			set_error(error, error_size, "account store setting is too long");
+			close(fd);
+			errno = EINVAL;
+			return -1;
+		}
+	}
+	close(fd);
+	if (used < 2 || configured_path[used - 1] != '\n' ||
+	    memchr(configured_path, '\0', used) != NULL ||
+	    memchr(configured_path, '\n', used - 1) != NULL) {
+		set_error(error, error_size,
+		    "account store setting must contain one absolute path ending in a newline");
+		errno = EINVAL;
+		return -1;
+	}
+	configured_path[used - 1] = '\0';
+	if (!is_canonical_absolute_path(configured_path)) {
+		set_error(error, error_size,
+		    "account store setting must name a canonical absolute directory");
+		errno = EINVAL;
+		return -1;
+	}
+	return at_store_open(store, configured_path, error, error_size);
+}
+
 int
 at_store_open(struct at_store *store, const char *directory, char *error,
 	size_t error_size)
@@ -199,6 +351,24 @@ at_store_open(struct at_store *store, const char *directory, char *error,
 	    error_size);
 	return store->directory_fd < 0 ? -1 : 0;
 }
+
+int
+at_store_open_default(struct at_store *store, char *error, size_t error_size)
+{
+	return store_open_default_at(store, STORE_CONFIG_PATH, LEGACY_STORE_PATH, 0,
+	    error, error_size);
+}
+
+#if defined(AT_ACCOUNT_TOOLS_TESTING)
+int
+at_test_store_open_default(struct at_store *store, const char *config_path,
+	const char *fallback_directory, uid_t config_owner, char *error,
+	size_t error_size)
+{
+	return store_open_default_at(store, config_path, fallback_directory,
+	    config_owner, error, error_size);
+}
+#endif
 
 void
 at_store_close(struct at_store *store)

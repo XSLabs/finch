@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -370,6 +371,151 @@ test_hashes(void)
 	at_secure_clear(hash, sizeof(hash));
 }
 
+static void
+test_default_store_selection(void)
+{
+	char parent[] = "/private/tmp/finch-account-default.XXXXXX";
+	char configured[1024], legacy[1024], settings[1024], setting[1024];
+	char writable_settings[1024], writable_setting[1024];
+	char linked_setting[1024], linked_settings[1024], missing_setting[1024];
+	char error[256] = {0};
+	assert(mkdtemp(parent) != NULL);
+	assert(snprintf(configured, sizeof(configured), "%s/configured", parent) <
+	    (int)sizeof(configured));
+	assert(snprintf(legacy, sizeof(legacy), "%s/legacy", parent) <
+	    (int)sizeof(legacy));
+	assert(snprintf(settings, sizeof(settings), "%s/settings", parent) <
+	    (int)sizeof(settings));
+	assert(snprintf(writable_settings, sizeof(writable_settings),
+	    "%s/writable-settings", parent) < (int)sizeof(writable_settings));
+	assert(snprintf(setting, sizeof(setting), "%s/account-store", settings) <
+	    (int)sizeof(setting));
+	assert(snprintf(writable_setting, sizeof(writable_setting),
+	    "%s/account-store", writable_settings) < (int)sizeof(writable_setting));
+	assert(snprintf(linked_setting, sizeof(linked_setting), "%s/setting-link", parent) <
+	    (int)sizeof(linked_setting));
+	assert(snprintf(linked_settings, sizeof(linked_settings), "%s/settings-link", parent) <
+	    (int)sizeof(linked_settings));
+	assert(snprintf(missing_setting, sizeof(missing_setting),
+	    "%s/missing/settings/account-store", parent) < (int)sizeof(missing_setting));
+	assert(mkdir(configured, 0700) == 0);
+	assert(mkdir(legacy, 0700) == 0);
+	assert(mkdir(settings, 0700) == 0);
+	assert(mkdir(writable_settings, 0700) == 0);
+	write_home_store(configured, getegid());
+	write_home_store(legacy, getegid());
+
+	char configured_setting[1100];
+	assert(snprintf(configured_setting, sizeof(configured_setting), "%s\n", configured) <
+	    (int)sizeof(configured_setting));
+	write_file(setting, configured_setting, 0644);
+	struct at_store store = {.directory_fd = -1};
+	assert(at_test_store_open_default(&store, setting, legacy, geteuid(), error,
+	    sizeof(error)) == 0);
+	assert(at_store_create_user(&store, "durableuser", 503, (gid_t)getegid(),
+	    "Durable User", "/Users/durableuser", "/bin/sh", TEST_PASSWORD,
+	    error, sizeof(error)) == 0);
+	at_store_close(&store);
+	char path[1200];
+	assert(snprintf(path, sizeof(path), "%s/master.passwd", configured) <
+	    (int)sizeof(path));
+	char *master = read_file(path);
+	assert(strstr(master, "durableuser:") != NULL);
+	free(master);
+	assert(snprintf(path, sizeof(path), "%s/master.passwd", legacy) <
+	    (int)sizeof(path));
+	master = read_file(path);
+	assert(strstr(master, "durableuser:") == NULL);
+	free(master);
+
+	/* A missing setting parent and a missing setting file both keep old images working. */
+	assert(at_test_store_open_default(&store, missing_setting, legacy, geteuid(),
+	    error, sizeof(error)) == 0);
+	assert(error[0] == '\0');
+	assert(at_store_create_user(&store, "legacyuser", 504, (gid_t)getegid(),
+	    "Legacy User", "/Users/legacyuser", "/bin/sh", TEST_PASSWORD,
+	    error, sizeof(error)) == 0);
+	at_store_close(&store);
+	assert(unlink(setting) == 0);
+	memset(error, 0, sizeof(error));
+	assert(at_test_store_open_default(&store, setting, legacy, geteuid(), error,
+	    sizeof(error)) == 0);
+	at_store_close(&store);
+
+	/* A present but unsafe setting never falls back to the legacy files. */
+	write_file(setting, configured_setting, 0664);
+	memset(error, 0, sizeof(error));
+	assert(at_test_store_open_default(&store, setting, legacy, geteuid(), error,
+	    sizeof(error)) != 0);
+	assert(error[0] != '\0');
+	assert(unlink(setting) == 0);
+
+	/* FIFO settings are rejected quickly instead of blocking on open. */
+	assert(mkfifo(setting, 0644) == 0);
+	pid_t child = fork();
+	assert(child >= 0);
+	if (child == 0) {
+		alarm(2);
+		struct at_store fifo_store = {.directory_fd = -1};
+		char child_error[256] = {0};
+		int status = at_test_store_open_default(&fifo_store, setting, legacy,
+		    geteuid(), child_error, sizeof(child_error));
+		if (status == 0)
+			at_store_close(&fifo_store);
+		_exit(status == 0 ? 1 : 0);
+	}
+	int child_status = 0;
+	pid_t waited;
+	do {
+		waited = waitpid(child, &child_status, 0);
+	} while (waited < 0 && errno == EINTR);
+	assert(waited == child);
+	assert(WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0);
+	assert(unlink(setting) == 0);
+
+	/* An unsafe parent is an error even when a usable legacy folder exists. */
+	assert(chmod(writable_settings, 0777) == 0);
+	write_file(writable_setting, configured_setting, 0644);
+	memset(error, 0, sizeof(error));
+	assert(at_test_store_open_default(&store, writable_setting, legacy,
+	    geteuid(), error, sizeof(error)) != 0);
+	assert(error[0] != '\0');
+	assert(unlink(writable_setting) == 0);
+	assert(chmod(writable_settings, 0700) == 0);
+	assert(rmdir(writable_settings) == 0);
+
+	assert(symlink(configured, linked_setting) == 0);
+	memset(error, 0, sizeof(error));
+	assert(at_test_store_open_default(&store, linked_setting, legacy, geteuid(),
+	    error, sizeof(error)) != 0);
+	assert(error[0] != '\0');
+	assert(unlink(linked_setting) == 0);
+	assert(symlink(settings, linked_settings) == 0);
+	char linked_parent_setting[1100];
+	assert(snprintf(linked_parent_setting, sizeof(linked_parent_setting),
+	    "%s/account-store", linked_settings) < (int)sizeof(linked_parent_setting));
+	memset(error, 0, sizeof(error));
+	assert(at_test_store_open_default(&store, linked_parent_setting, legacy,
+	    geteuid(), error, sizeof(error)) != 0);
+	assert(error[0] != '\0');
+	assert(unlink(linked_settings) == 0);
+
+	/* Traversal components in the configured destination are rejected. */
+	assert(snprintf(configured_setting, sizeof(configured_setting), "%s/../legacy\n",
+	    configured) < (int)sizeof(configured_setting));
+	write_file(setting, configured_setting, 0644);
+	memset(error, 0, sizeof(error));
+	assert(at_test_store_open_default(&store, setting, legacy, geteuid(), error,
+	    sizeof(error)) != 0);
+	assert(error[0] != '\0');
+	assert(unlink(setting) == 0);
+
+	remove_home_store(configured);
+	remove_home_store(legacy);
+	assert(rmdir(settings) == 0);
+	assert(rmdir(parent) == 0);
+}
+
 int
 main(void)
 {
@@ -392,6 +538,7 @@ main(void)
 
 	test_hashes();
 	test_home_provisioning();
+	test_default_store_selection();
 
 	char error[256] = {0};
 	char parent[] = "/private/tmp/finch-account-tools.XXXXXX";
