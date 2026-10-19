@@ -49,10 +49,22 @@ awk '/^canvas:/ { if ($2 >= 200 && $2 > 2 * $3 && $2 > 2 * $4) found = 1 } END {
         exit 1
     }
 
+run canvas-stroke sample:150,182,canvas
+awk '/^canvas:/ { if ($4 >= 200 && $4 > 2 * $2 && $4 > 2 * $3) found = 1 } END { exit !found }' \
+    "${TMP}/canvas-stroke.out" || {
+        cat "${TMP}/canvas-stroke.out"
+        echo "canvas-stroke: sampled pixel was not blue" >&2
+        exit 1
+    }
+
 run stepper click:180,176 click:180,186 output
 has stepper "stepper: 1"
 has stepper "stepper: 0"
 has stepper "editing: true"
+
+run task-id click:120,182 wait:250 output
+has task-id "task-id: 0"
+has task-id "task-id: 1"
 
 run checkbox click:118,182 output
 has checkbox "checkbox: true"
@@ -103,6 +115,12 @@ has shape-style-gradients "shape-style-gradients: 80x20"
 run shape-style-types output
 has shape-style-types "shape-style-types: 180x24"
 
+run any-shape output
+has any-shape "any-shape: 80x32"
+
+run shape-operations output
+has shape-operations "shape-operations: pass"
+
 run font-size output
 grep -Fq 'font-size:' "${TMP}/font-size.out" || {
     cat "${TMP}/font-size.out"
@@ -125,8 +143,50 @@ has localized-accessibility "localized-accessibility: ready"
 run editor click:60,150 type:Finch output
 has editor "editor: FinchEdit me"
 
+run secure-field click:120,180 type:Secret output
+has secure-field "secure-field: received 6 characters"
+
+run help-link click:150,149 output
+has help-link "help-link: activated"
+
+run accessory-bar click:120,182 output
+has accessory-bar "accessory-bar: activated"
+
+run toolbar-spacer output
+has toolbar-spacer "toolbar-spacer: ready"
+
+run toolbar-spacer-fixed output
+has toolbar-spacer-fixed "toolbar-spacer: ready"
+
 run scroll scroll:150,166,0,-90 output
 has scroll "scroll: false -> true"
+
+run scroll-position wait:250 output
+awk '/^scroll-position:/ { if ($2 >= 120) found = 1 } END { exit !found }' \
+    "${TMP}/scroll-position.out" || {
+        cat "${TMP}/scroll-position.out"
+        echo "scroll-position: binding did not move to the requested target" >&2
+        exit 1
+    }
+
+run scroll-default-anchor wait:250 scroll:150,166,0,90 wait:200 scroll:150,166,0,-90 wait:250 output
+awk '/^scroll-default-anchor:/ { if ($2 >= 200) found = 1 } END { exit !found }' \
+    "${TMP}/scroll-default-anchor.out" || {
+        cat "${TMP}/scroll-default-anchor.out"
+        echo "scroll-default-anchor: the initial bottom anchor was not applied" >&2
+        exit 1
+    }
+
+run scroll-anchor-role wait:250 scroll:150,166,0,90 wait:200 scroll:150,166,0,-90 wait:250 output
+awk '/^scroll-anchor-role:/ { if ($2 >= 200) found = 1 } END { exit !found }' \
+    "${TMP}/scroll-anchor-role.out" || {
+        cat "${TMP}/scroll-anchor-role.out"
+        echo "scroll-anchor-role: the initial-offset role did not override the default" >&2
+        exit 1
+    }
+
+run scroll-paging scroll:150,166,0,-40 wait:250 output
+has scroll-paging "scroll-paging: 60"
 
 run bounce-default scroll:150,166,0,90 wait:250 output
 if grep -Fq 'bounce:' "${TMP}/bounce-default.out"; then
@@ -159,4 +219,4 @@ active_count="$(grep -Fc 'hover: active' "${TMP}/hover.out" || true)"
     exit 1
 }
 
-echo "SwiftUI gaps: Canvas fill, Stepper, TextEditor, file importer, exit command, date picker, image rendering, button repeat and toggle styles, table and control group styles, Gauge, scroll geometry and bounce, collection move, and continuous hover passed"
+echo "SwiftUI gaps: Canvas fill and stroke, AnyShape, Stepper, TextEditor, file importer, exit command, date picker, image rendering, button repeat and toggle styles, table and control group styles, Gauge, HelpLink, toolbar spacers, scroll position, default anchor and anchor roles, paging, scroll geometry and bounce, collection move, and continuous hover passed"

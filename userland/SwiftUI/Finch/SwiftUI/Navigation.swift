@@ -142,11 +142,44 @@ extension EnvironmentValues {
     }
 }
 
+private struct _FinchNavigationBackButtonHiddenPreferenceKey: PreferenceKey {
+    static var defaultValue: Bool? { nil }
+    static func reduce(value: inout Bool?, nextValue: () -> Bool?) {
+        if let next = nextValue() { value = next }
+    }
+}
+
+private struct _FinchNavigationBackButtonReporter: ViewModifier {
+    var isTop: Bool
+    @Environment(\._finchNavigationBackButtonHidden) private var hidden
+
+    func body(content: Content) -> some View {
+        content.preference(key: _FinchNavigationBackButtonHiddenPreferenceKey.self, value: isTop ? hidden : nil)
+    }
+}
+
 /// A stack's path, read and changed: its own state or the app's binding.
 struct _FinchPathAccess {
     var get: () -> [AnyHashable]
     var append: (AnyHashable) -> Void
     var removeLast: () -> Void
+}
+
+private struct _FinchNavigationBackButtonHiddenKey: EnvironmentKey {
+    static var defaultValue = false
+}
+
+extension EnvironmentValues {
+    var _finchNavigationBackButtonHidden: Bool {
+        get { self[_FinchNavigationBackButtonHiddenKey.self] }
+        set { self[_FinchNavigationBackButtonHiddenKey.self] = newValue }
+    }
+}
+
+extension View {
+    nonisolated public func navigationBarBackButtonHidden(_ hidden: Bool = true) -> some View {
+        environment(\._finchNavigationBackButtonHidden, hidden)
+    }
 }
 
 /// A stack: the root and the pages pushed on it, the top one showing.
@@ -156,6 +189,7 @@ struct _FinchNavigationStackView<Root: View>: View {
     @State private var own: [AnyHashable] = []
     @State private var views: [AnyView] = []
     @State private var destinations = _FinchDestinations()
+    @State private var topPageHidesBackButton = false
     @Environment(\._finchNavigationCovered) private var covered
 
     var body: some View {
@@ -173,9 +207,12 @@ struct _FinchNavigationStackView<Root: View>: View {
             destinations.views[ObjectIdentifier(type(of: value.base))]?(value.base) ?? AnyView(EmptyView())
         } + views.wrappedValue
         return _FinchPages(root: AnyView(root), pages: pages, covered: covered)
+            .onPreferenceChange(_FinchNavigationBackButtonHiddenPreferenceKey.self) { hidden in
+                topPageHidesBackButton = hidden ?? false
+            }
             .environment(\._finchNavigator, navigator)
             .toolbar {
-                if !pages.isEmpty && !covered {
+                if !pages.isEmpty && !covered && !topPageHidesBackButton {
                     ToolbarItem(placement: .navigation) {
                         Button { navigator.pop() } label: {
                             Text(verbatim: "\u{2039}").font(.system(size: 22)).frame(width: 24, height: 24)
@@ -206,6 +243,7 @@ struct _FinchPages: View {
 
     private func page(_ view: AnyView, top: Bool) -> some View {
         view
+            .modifier(_FinchNavigationBackButtonReporter(isTop: top))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: pageAlignment)
             .opacity(top ? 1 : 0)
             .allowsHitTesting(top)

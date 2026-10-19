@@ -28,6 +28,9 @@ REPLACED = [
 # (a conformance's witness table is exported only from the protocol's own module)
 MOVED = [
     ('SwiftUI/Layout/Alignment/AlignmentWritingModifier.swift', 'SwiftUICore/Layout/Alignment/AlignmentWritingModifier.swift'),
+    # _PositionLayout conforms to SwiftUICore.ViewModifier; keep that conformance in the
+    # module that defines the protocol so its witness table is exported to app binaries.
+    ('SwiftUI/Layout/Modifier/PositionLayout.swift', 'SwiftUICore/Layout/Modifier/PositionLayout.swift'),
 ]
 
 # (file, upstream declaration, Apple's): the kind and frozenness of Apple's declarations, which
@@ -41,6 +44,20 @@ KINDS = [
 
 # (file, upstream code, Finch's): fixes to upstream code
 FIXES = [
+    # export the task(value:) constructor for compiled apps; its body remains in this module,
+    # but an inlinable-only entry has no dynamic symbol for apps that reference it directly
+    ('SwiftUI/Modifier/ViewModifier/TaskModifier.swift',
+     '''    @inlinable
+    public init(
+        value: Value,
+        priority: TaskPriority,
+        action: @escaping @Sendable () async -> Void
+    )''',
+     '''    public init(
+        value: Value,
+        priority: TaskPriority,
+        action: @escaping @Sendable () async -> Void
+    )'''),
     # an optional view can be none: its count of views is known only when its wrapped
     # view's is zero (ForEach took one per element, and showed an option for a nil one)
     ('SwiftUICore/View/OptionalView.swift',
@@ -538,6 +555,33 @@ private func conditionalStorageType(_ t: any Any.Type, _ f: any Any.Type) -> any
 }
 
 extension Optional {'''),
+    ('SwiftUICore/View/Scroll/ScrollPosition.swift',
+     'public struct ScrollPosition {}',
+     '''public import CoreGraphics
+
+@available(macOS 15.0, *)
+@_originallyDefinedIn(module: "SwiftUI", macOS 15.0)
+public struct ScrollPosition: Sendable {
+    package var _viewID: AnyHashable?
+    package var _idType: ObjectIdentifier?
+    package var _edge: Edge?
+    package var _point: CGPoint?
+    package var _x: CGFloat?
+    package var _y: CGFloat?
+    package var _anchor: UnitPoint?
+    package var _isPositionedByUser: Bool
+
+    package init() {
+        _viewID = nil
+        _idType = nil
+        _edge = nil
+        _point = nil
+        _x = nil
+        _y = nil
+        _anchor = nil
+        _isPositionedByUser = false
+    }
+}'''),
     # GraphicsContext's storage: Finch's draws into a CoreGraphics context (Canvas,
     # withCGContext; Finch/SwiftUICore/Canvas.swift)
     ('SwiftUICore/Graphic/GraphicsContext.swift',

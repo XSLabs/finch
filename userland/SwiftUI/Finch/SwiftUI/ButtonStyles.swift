@@ -254,11 +254,13 @@ struct _FinchBorderedButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
+        let prominence: Prominence = isProminent ? .increased : .standard
+        let prominent = prominence == .increased
         configuration.label
-            .foregroundStyle(isProminent ? Color.white : Color.primary)
+            .foregroundStyle(prominent ? Color.white : Color.primary)
             .padding(.horizontal, 10)
             .frame(minWidth: 32, minHeight: 22)
-            .background(_FinchBezel(isPressed: configuration.isPressed, isProminent: isProminent, isEnabled: isEnabled))
+            .background(_FinchBezel(isPressed: configuration.isPressed, isProminent: prominent, isEnabled: isEnabled))
     }
 }
 
@@ -330,12 +332,34 @@ public struct LinkButtonStyle: PrimitiveButtonStyle {
     }
 }
 
+/// A compact, bezel-free style for buttons in accessory bars.
+@available(OpenSwiftUI_v4_0, *)
+public struct AccessoryBarButtonStyle: PrimitiveButtonStyle {
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        _FinchButtonStyleHost(style: _FinchUnborderedButtonStyle(isLink: false), configuration: configuration)
+    }
+}
+
+/// A bordered style for extra actions beside accessory toolbar controls.
+@available(OpenSwiftUI_v4_0, *)
+public struct AccessoryBarActionButtonStyle: PrimitiveButtonStyle {
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        _FinchButtonStyleHost(style: _FinchBorderedButtonStyle(isProminent: false), configuration: configuration)
+    }
+}
+
 @available(*, unavailable) extension DefaultButtonStyle: Sendable {}
 @available(*, unavailable) extension BorderedButtonStyle: Sendable {}
 @available(*, unavailable) extension BorderedProminentButtonStyle: Sendable {}
 @available(*, unavailable) extension BorderlessButtonStyle: Sendable {}
 @available(*, unavailable) extension PlainButtonStyle: Sendable {}
 @available(*, unavailable) extension LinkButtonStyle: Sendable {}
+@available(*, unavailable) extension AccessoryBarButtonStyle: Sendable {}
+@available(*, unavailable) extension AccessoryBarActionButtonStyle: Sendable {}
 
 extension PrimitiveButtonStyle where Self == DefaultButtonStyle {
     public static var automatic: DefaultButtonStyle { .init() }
@@ -359,4 +383,12 @@ extension PrimitiveButtonStyle where Self == PlainButtonStyle {
 
 extension PrimitiveButtonStyle where Self == LinkButtonStyle {
     public static var link: LinkButtonStyle { .init() }
+}
+
+extension PrimitiveButtonStyle where Self == AccessoryBarButtonStyle {
+    public static var accessoryBar: AccessoryBarButtonStyle { .init() }
+}
+
+extension PrimitiveButtonStyle where Self == AccessoryBarActionButtonStyle {
+    public static var accessoryBarAction: AccessoryBarActionButtonStyle { .init() }
 }

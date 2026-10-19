@@ -183,6 +183,94 @@ extension Optional: CustomizableToolbarContent where Wrapped: CustomizableToolba
 
 // MARK: - Placement
 
+enum _FinchToolbarSpace: Sendable {
+    case flexible, fixed
+
+    var identifier: NSToolbarItem.Identifier {
+        switch self {
+        case .flexible: .flexibleSpace
+        case .fixed: .space
+        }
+    }
+}
+
+/// How much room a toolbar spacer can take.
+@available(macOS 26.0, *)
+public struct SpacerSizing {
+    private enum Kind: Sendable { case flexible, fixed }
+    private var kind: Kind
+
+    private init(_ kind: Kind) { self.kind = kind }
+
+    public static let flexible = Self(.flexible)
+    public static let fixed = Self(.fixed)
+
+    fileprivate var toolbarSpace: _FinchToolbarSpace {
+        switch kind {
+        case .flexible: .flexible
+        case .fixed: .fixed
+        }
+    }
+}
+
+@available(macOS 26.0, *)
+extension SpacerSizing: Sendable {}
+
+/// A flexible or fixed space between toolbar items.
+@available(macOS 26.0, *)
+public struct ToolbarSpacer: ToolbarContent, CustomizableToolbarContent {
+    var sizing: SpacerSizing
+    var placement: ToolbarItemPlacement
+
+    public init(_ sizing: SpacerSizing = .flexible, placement: ToolbarItemPlacement = .automatic) {
+        self.sizing = sizing
+        self.placement = placement
+    }
+
+    public typealias Body = Never
+}
+
+@available(OpenSwiftUI_v4_0, *)
+public struct ToolbarPlacement {
+    private enum Kind: Equatable, Sendable { case automatic, windowToolbar }
+    private var kind: Kind
+
+    private init(_ kind: Kind) { self.kind = kind }
+
+    public static var automatic: Self { .init(.automatic) }
+
+    @available(macOS 13.0, *)
+    public static var windowToolbar: Self { .init(.windowToolbar) }
+
+    var isWindowToolbar: Bool { kind == .windowToolbar || kind == .automatic }
+}
+
+extension ToolbarPlacement: Sendable {}
+
+@available(OpenSwiftUI_v4_0, *)
+private struct _FinchWindowToolbarVisibilityKey: EnvironmentKey {
+    static var defaultValue: Visibility? { nil }
+}
+
+@available(OpenSwiftUI_v4_0, *)
+extension EnvironmentValues {
+    var _finchWindowToolbarVisibility: Visibility? {
+        get { self[_FinchWindowToolbarVisibilityKey.self] }
+        set { self[_FinchWindowToolbarVisibilityKey.self] = newValue }
+    }
+}
+
+@available(OpenSwiftUI_v4_0, *)
+extension View {
+    nonisolated public func toolbar(_ visibility: Visibility, for bars: ToolbarPlacement...) -> some View {
+        environment(\._finchWindowToolbarVisibility, bars.contains(where: { $0.isWindowToolbar }) ? visibility : nil)
+    }
+
+    nonisolated public func toolbarVisibility(_ visibility: Visibility, for bars: ToolbarPlacement...) -> some View {
+        environment(\._finchWindowToolbarVisibility, bars.contains(where: { $0.isWindowToolbar }) ? visibility : nil)
+    }
+}
+
 @available(OpenSwiftUI_v2_0, *)
 public struct ToolbarItemPlacement {
     enum Kind {
@@ -310,6 +398,13 @@ public struct LabeledToolbarItemGroupContent<Content, Label>: View where Content
 struct _FinchToolbarItem {
     var placement: ToolbarItemPlacement
     var content: AnyView
+    var toolbarSpace: _FinchToolbarSpace?
+
+    init(placement: ToolbarItemPlacement, content: AnyView, toolbarSpace: _FinchToolbarSpace? = nil) {
+        self.placement = placement
+        self.content = content
+        self.toolbarSpace = toolbarSpace
+    }
 }
 
 /// Toolbar content that is items (not content with a body).
@@ -348,6 +443,13 @@ extension ToolbarItemGroup: _FinchToolbarItems {
         _finchItemViews(content).compactMap { view in
             (view as? any View).map { _FinchToolbarItem(placement: placement, content: AnyView($0)) }
         }
+    }
+}
+
+@available(macOS 26.0, *)
+extension ToolbarSpacer: _FinchToolbarItems {
+    var _finchToolbarItems: [_FinchToolbarItem] {
+        [_FinchToolbarItem(placement: placement, content: AnyView(EmptyView()), toolbarSpace: sizing.toolbarSpace)]
     }
 }
 
@@ -412,6 +514,9 @@ final class _FinchWindowToolbar: NSObject, NSToolbarDelegate {
             sections.append((owner, items))
         }
         update()
+        if let visibility = environment._finchWindowToolbarVisibility {
+            window?.toolbar?.isVisible = visibility != .hidden
+        }
     }
 
     func remove(_ owner: ObjectIdentifier) {
@@ -425,7 +530,8 @@ final class _FinchWindowToolbar: NSObject, NSToolbarDelegate {
         let labelStyle = _FinchWindowOptions.current.toolbarLabelStyle
         var regions: [[(NSToolbarItem.Identifier, _FinchToolbarItem)]] = [[], [], []]
         for (index, item) in all.enumerated() {
-            let identifier = NSToolbarItem.Identifier("org.finch.SwiftUI.toolbar.\(index)")
+            let identifier = item.toolbarSpace?.identifier
+                ?? NSToolbarItem.Identifier("org.finch.SwiftUI.toolbar.\(index)")
             regions[item.placement.region].append((identifier, item))
         }
         var order = regions[0].map(\.0)
@@ -440,6 +546,7 @@ final class _FinchWindowToolbar: NSObject, NSToolbarDelegate {
             controllers = [:]
         }
         for (identifier, item) in regions.joined() {
+            if item.toolbarSpace != nil { continue }
             // toolbar buttons are drawn bare, as Apple's are until the pointer is over them
             // and controls as Apple's are there: labels hidden, toggles as buttons
             let content = AnyView(item.content.buttonStyle(.borderless).labelsHidden()

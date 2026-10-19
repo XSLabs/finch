@@ -27,8 +27,28 @@ public struct DismissAction {
     }
 }
 
+@available(macOS 10.15, *)
+public struct PresentationMode {
+    private var dismissAction: (() -> Void)?
+    public private(set) var isPresented: Bool
+
+    init(isPresented: Bool, dismissAction: (() -> Void)?) {
+        self.isPresented = isPresented
+        self.dismissAction = dismissAction
+    }
+
+    public mutating func dismiss() {
+        isPresented = false
+        dismissAction?()
+    }
+}
+
 private struct _FinchDismissKey: EnvironmentKey {
     static var defaultValue: (() -> Void)? { nil }
+}
+
+private struct _FinchIsSheetKey: EnvironmentKey {
+    static var defaultValue = false
 }
 
 @available(OpenSwiftUI_v3_0, *)
@@ -43,9 +63,29 @@ extension EnvironmentValues {
         _finchDismiss != nil
     }
 
+    @available(macOS, deprecated: 100000.0, message: "Use isPresented or dismiss")
+    public var presentationMode: Binding<PresentationMode> {
+        let action = _finchDismiss
+        let presented = action != nil
+        return Binding(get: { PresentationMode(isPresented: presented, dismissAction: action) }, set: { mode in
+            var mode = mode
+            if !mode.isPresented { mode.dismiss() }
+        })
+    }
+
+    @available(macOS 26.0, *)
+    public var isSheetPresented: Bool {
+        _finchIsSheet
+    }
+
     var _finchDismiss: (() -> Void)? {
         get { self[_FinchDismissKey.self] }
         set { self[_FinchDismissKey.self] = newValue }
+    }
+
+    var _finchIsSheet: Bool {
+        get { self[_FinchIsSheetKey.self] }
+        set { self[_FinchIsSheetKey.self] = newValue }
     }
 }
 
@@ -163,10 +203,11 @@ struct _FinchPresenter: NSViewRepresentable {
 
     /// The content as presented: the presenter's environment values, and a `dismiss` that
     /// clears the binding.
-    private func hosted(_ content: AnyView, environment: EnvironmentValues) -> AnyView {
+    private func hosted(_ content: AnyView, environment: EnvironmentValues, isSheet: Bool = false) -> AnyView {
         let isPresented = isPresented
         return AnyView(content
             ._finchInheriting(environment)
+            .environment(\._finchIsSheet, isSheet)
             .environment(\._finchDismiss, { isPresented.wrappedValue = false }))
     }
 
@@ -185,8 +226,8 @@ struct _FinchPresenter: NSViewRepresentable {
         }
         switch presentation() {
         case let .sheet(content):
-            let controller = NSHostingController(rootView: hosted(content(), environment: environment))
-            let size = controller.host.sizeThatFits(_ProposedSize(width: nil, height: nil))
+            let controller = NSHostingController(rootView: hosted(content(), environment: environment, isSheet: true))
+            let size = presentationSize(of: controller, sizing: environment._finchPresentationSizing)
             let sheet = SheetWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless],
                                     backing: .buffered, defer: false)
             sheet.contentViewController = controller
@@ -200,7 +241,7 @@ struct _FinchPresenter: NSViewRepresentable {
             }
         case let .popover(content, arrowEdges):
             let controller = NSHostingController(rootView: hosted(content(), environment: environment))
-            let size = controller.host.sizeThatFits(_ProposedSize(width: nil, height: nil))
+            let size = presentationSize(of: controller, sizing: environment._finchPresentationSizing)
             let popover = NSPopover()
             popover.behavior = .transient
             popover.contentViewController = controller
@@ -237,12 +278,27 @@ struct _FinchPresenter: NSViewRepresentable {
     private func refresh(_ coordinator: Coordinator, environment: EnvironmentValues) {
         switch presentation() {
         case let .sheet(content):
-            coordinator.sheetController?.rootView = hosted(content(), environment: environment)
+            if let controller = coordinator.sheetController {
+                controller.rootView = hosted(content(), environment: environment, isSheet: true)
+                coordinator.sheet?.setContentSize(presentationSize(of: controller, sizing: environment._finchPresentationSizing))
+            }
         case let .popover(content, _):
-            coordinator.popoverController?.rootView = hosted(content(), environment: environment)
+            if let controller = coordinator.popoverController {
+                controller.rootView = hosted(content(), environment: environment)
+                coordinator.popover?.contentSize = presentationSize(of: controller, sizing: environment._finchPresentationSizing)
+            }
         case .alert:
             break
         }
+    }
+
+    /// Applies the view's sizing policy to the hosted presentation content. A missing
+    /// dimension keeps the content's natural size on that axis.
+    private func presentationSize(of controller: NSHostingController<AnyView>, sizing: _FinchPresentationSizingPolicy?) -> NSSize {
+        let measure: (ProposedViewSize) -> CGSize = { proposal in
+            controller.host.sizeThatFits(_ProposedSize(width: proposal.width, height: proposal.height))
+        }
+        return sizing?.sizeThatFits(measure) ?? measure(ProposedViewSize(width: nil, height: nil))
     }
 
     private func dismiss(_ coordinator: Coordinator) {

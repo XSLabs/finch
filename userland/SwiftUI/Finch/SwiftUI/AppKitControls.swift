@@ -209,6 +209,7 @@ struct _FinchTextFieldModel {
     var onEditingChanged: (Bool) -> Void = { _ in }
     var onCommit: () -> Void = {}
     var multiline = false
+    var secure = false
 }
 
 /// An editable text field over NSTextField.
@@ -222,7 +223,7 @@ struct _FinchTextField: NSViewRepresentable {
     var border: Border = .square
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField(string: model.get())
+        let field: NSTextField = model.secure ? NSSecureTextField(string: model.get()) : NSTextField(string: model.get())
         field.delegate = context.coordinator
         field.target = context.coordinator
         field.action = #selector(Coordinator.commit(_:))

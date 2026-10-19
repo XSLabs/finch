@@ -374,3 +374,40 @@ QuartzCore draws layers through CoreGraphics, and AppKit is Finch's own.
     App Store, Calculator, Font Book, Mail, Music, QuickTime Player, iPhone Mirroring,
     Magnifier, System Information, and Numbers Creator Studio import all their listed symbols.
 
+- 2026-10-17: second pass for SwiftUI symbols imported by current Mac apps. Added
+  `AnyShape`, offset and rotated shapes, and solid-color `GraphicsContext.stroke` overloads.
+  Scroll views now take a default anchor, role-specific anchors, positions, target behavior,
+  and view-alignment requests into account. Buttons accept prominence and accessory-bar
+  styles. Toolbars gain flexible or fixed spacers, search presentation behavior, and help
+  links. Added edit-action sets, sidebar row sizing, secure-field labels, `undoManager`,
+  `Link` URL titles, list separator alignment, and fitted presentation sizing. Sheet and
+  popover hosts now use a sizing rule to pick their size and apply it again when their
+  content changes.
+  - `_TaskValueModifier` now exports the sendable async initializer apps import. The
+    sample app compiles examples for the new scrolling, toolbar, shape, task, and
+    presentation APIs.
+  - `Shape.size`, `Shape.offset`, shape transforms and shape boolean operations now export
+    SwiftUI's ABI names. Path intersection, union, subtraction and symmetric difference call
+    Finch Core Graphics path operations. The line-only intersection and subtraction APIs
+    remain out because Finch's path engine cannot compute them.
+  - The SwiftUI framework build, `SwiftUIMore` build and every stage in
+    `swiftui-gaps-test.sh` pass. The five requested host comparisons pass:
+    `swift-overlay-test`, `swift-runtime-test`, `combine-test`,
+    `appintents-swiftui-test` and `calculate-test`. An SDK-built probe and `nm` confirm the
+    new shape and path symbols use the names Finch exports.
+  - The latest app sweep finds 551 unique SwiftUI symbols missing across 24 apps (785
+    imports). From the task's starting 684, 133 are now present; the target of 400 is short
+    by 267. API coverage is 5,301 of 8,816 items, up 214 from the 5,087 starting point; the
+    requested gain of 800 is short by 586. The app sweep reports 19 of 101 checked apps
+    ready. Many others also need frameworks Finch does not provide, led by WebKit (32 apps),
+    MediaPlayer (15) and UIKit (14).
+  - Remaining imported gaps include indefinite symbol effects (Claude Usage, CotEditor,
+    Freeform, Numbers Creator Studio); overlay preference modifiers (Developer, Freeform,
+    Numbers Creator Studio, cmux); `OnMoveTraitKey` (CotEditor, Freeform, Reminders, Xcode);
+    `MeshGradient` and `VisualEffect` (Freeform, Numbers Creator Studio);
+    `TabBarOnlyTabViewStyle` (CotEditor, Games); scene restoration (Developer, Games,
+    iPhone Mirroring); search suggestion placement (Freeform, Numbers Creator Studio, System
+    Settings); and toolbar default-item removal (Gemini, Tips, iPhone Mirroring). These need
+    behavior the current view graph or renderer does not provide, so they remain unsupported.
+    `python3 tools/app-sweep.py --symbols` prints the full missing symbol and app list.
+

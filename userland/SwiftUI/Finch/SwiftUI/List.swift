@@ -13,16 +13,23 @@ import SwiftUICore
 struct _FinchListSelection<Value: Hashable> {
     var isSelected: (Value) -> Bool
     var select: (Value) -> Void
+    var selectedValues: () -> [Value] = { [] }
+    var selectForContextMenu: (Value) -> Void = { _ in }
 
     static var none: Self { Self(isSelected: { _ in false }, select: { _ in }) }
 
-    init(isSelected: @escaping (Value) -> Bool, select: @escaping (Value) -> Void) {
+    init(isSelected: @escaping (Value) -> Bool, select: @escaping (Value) -> Void,
+         selectedValues: @escaping () -> [Value] = { [] },
+         selectForContextMenu: @escaping (Value) -> Void = { _ in }) {
         self.isSelected = isSelected
         self.select = select
+        self.selectedValues = selectedValues
+        self.selectForContextMenu = selectForContextMenu
     }
 
     init(_ binding: Binding<Value>) {
-        self.init(isSelected: { binding.wrappedValue == $0 }, select: { binding.wrappedValue = $0 })
+        self.init(isSelected: { binding.wrappedValue == $0 }, select: { binding.wrappedValue = $0 },
+                  selectedValues: { [binding.wrappedValue] }, selectForContextMenu: { binding.wrappedValue = $0 })
     }
 
     init(_ binding: Binding<Value?>?) {
@@ -30,7 +37,9 @@ struct _FinchListSelection<Value: Hashable> {
             self = .none
             return
         }
-        self.init(isSelected: { binding.wrappedValue == $0 }, select: { binding.wrappedValue = $0 })
+        self.init(isSelected: { binding.wrappedValue == $0 }, select: { binding.wrappedValue = $0 },
+                  selectedValues: { binding.wrappedValue.map { [$0] } ?? [] },
+                  selectForContextMenu: { binding.wrappedValue = $0 })
     }
 
     init(_ binding: Binding<Set<Value>>?) {
@@ -49,7 +58,26 @@ struct _FinchListSelection<Value: Hashable> {
             } else {
                 binding.wrappedValue = [value]
             }
-        })
+        }, selectedValues: { Array(binding.wrappedValue) },
+        selectForContextMenu: { binding.wrappedValue = [$0] })
+    }
+}
+
+struct _FinchListSelectionSnapshot {
+    var typeID: ObjectIdentifier
+    var values: () -> [AnyHashable]
+    var rowValue: AnyHashable?
+    var selectRow: (AnyHashable) -> Void
+}
+
+private struct _FinchListSelectionSnapshotKey: EnvironmentKey {
+    static var defaultValue: _FinchListSelectionSnapshot? { nil }
+}
+
+extension EnvironmentValues {
+    var _finchListSelectionSnapshot: _FinchListSelectionSnapshot? {
+        get { self[_FinchListSelectionSnapshotKey.self] }
+        set { self[_FinchListSelectionSnapshotKey.self] = newValue }
     }
 }
 
@@ -112,6 +140,7 @@ struct _FinchListRows<Value: Hashable>: View {
     var selection: _FinchListSelection<Value>
     @Environment(\._finchListStyle) private var style
     @Environment(\.defaultMinListRowHeight) private var minRowHeight
+    @Environment(\.sidebarRowSize) private var sidebarRowSize
     @Environment(\._finchScrollContentBackground) private var contentBackground
 
     var body: some View {
@@ -143,12 +172,19 @@ struct _FinchListRows<Value: Hashable>: View {
     private func row(_ child: _VariadicView.Children.Element, index: Int, inset: CGFloat, radius: CGFloat) -> some View {
                 let value = _finchTag(of: child, as: Value.self)
                 let selected = value.map(selection.isSelected) ?? false
+                let selectionSnapshot = _FinchListSelectionSnapshot(
+                    typeID: ObjectIdentifier(Value.self),
+                    values: { selection.selectedValues().map(AnyHashable.init) },
+                    rowValue: value.map(AnyHashable.init),
+                    selectRow: { row in
+                        if let value = row.base as? Value { selection.selectForContextMenu(value) }
+                    })
                 let alternate = style.alternatesRowBackgrounds && index % 2 == 1
                 let insets = child[ListRowInsetsTraitKey.self]
                 let rowBackground = child[ListRowBackgroundTraitKey.self]
                 child
                     .foregroundStyle(selected ? Color.white : Color.primary)
-                    .frame(maxWidth: .infinity, minHeight: minRowHeight, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: rowMinimumHeight, alignment: .leading)
                     .padding(insets ?? EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
                     .background(
                         ZStack {
@@ -160,6 +196,7 @@ struct _FinchListRows<Value: Hashable>: View {
                     )
                     .padding(.horizontal, inset)
                     .contentShape(Rectangle())
+                    .environment(\._finchListSelectionSnapshot, selectionSnapshot)
                     .onTapGesture {
                         if let value { selection.select(value) }
                     }
@@ -174,6 +211,16 @@ struct _FinchListRows<Value: Hashable>: View {
         case .sidebar: Color(nsColor: .underPageBackgroundColor)
         case .inset, .bordered: Color(nsColor: .controlBackgroundColor)
         }
+    }
+
+    private var rowMinimumHeight: CGFloat {
+        guard style.kind == .sidebar else { return minRowHeight }
+        let sidebarHeight: CGFloat = switch sidebarRowSize {
+        case .small: 17
+        case .medium: 22
+        case .large: 30
+        }
+        return max(minRowHeight, sidebarHeight)
     }
 }
 

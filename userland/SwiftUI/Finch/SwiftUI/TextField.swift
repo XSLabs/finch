@@ -161,9 +161,9 @@ extension TextField: Sendable {}
 
 func textModel(_ text: Binding<String>, placeholder: Text?, multiline: Bool = false,
                        onEditingChanged: @escaping (Bool) -> Void = { _ in },
-                       onCommit: @escaping () -> Void = {}) -> _FinchTextFieldModel {
+                       onCommit: @escaping () -> Void = {}, secure: Bool = false) -> _FinchTextFieldModel {
     _FinchTextFieldModel(get: { text.wrappedValue }, set: { text.wrappedValue = $0 }, placeholder: placeholder,
-                         onEditingChanged: onEditingChanged, onCommit: onCommit, multiline: multiline)
+                         onEditingChanged: onEditingChanged, onCommit: onCommit, multiline: multiline, secure: secure)
 }
 
 @available(OpenSwiftUI_v1_0, *)

@@ -1,0 +1,135 @@
+--- a/Sources/SwiftUICore/Shape/Path.swift
++++ b/Sources/SwiftUICore/Shape/Path.swift
+@@ -763,19 +763,34 @@
+ 
+ @available(OpenSwiftUI_v1_0, *)
+ extension Path {
++    private mutating func withMutableCGPath(_ update: (CGMutablePath) -> Void) {
++        #if canImport(CoreGraphics) || !OPENSWIFTUI_CF_CGTYPES
++        let path: CGMutablePath
++        if case .empty = storage {
++            path = CGMutablePath()
++        } else {
++            path = cgPath.mutableCopy()!
++        }
++        update(path)
++        self = Path(path)
++        #else
++        _openSwiftUIPlatformUnimplementedFailure()
++        #endif
++    }
++
+     public mutating func move(to end: CGPoint) {
+-        _openSwiftUIUnimplementedFailure()
++        withMutableCGPath { $0.move(to: end) }
+     }
+ 
+     public mutating func addLine(to end: CGPoint) {
+-        _openSwiftUIUnimplementedFailure()
++        withMutableCGPath { $0.addLine(to: end) }
+     }
+ 
+     public mutating func addQuadCurve(
+         to end: CGPoint,
+         control: CGPoint
+     ) {
+-        _openSwiftUIUnimplementedFailure()
++        withMutableCGPath { $0.addQuadCurve(to: end, control: control) }
+     }
+ 
+     public mutating func addCurve(
+@@ -783,18 +798,18 @@
+         control1: CGPoint,
+         control2: CGPoint
+     ) {
+-        _openSwiftUIUnimplementedFailure()
++        withMutableCGPath { $0.addCurve(to: end, control1: control1, control2: control2) }
+     }
+ 
+     public mutating func closeSubpath() {
+-        _openSwiftUIUnimplementedFailure()
++        withMutableCGPath { $0.closeSubpath() }
+     }
+ 
+     public mutating func addRect(
+         _ rect: CGRect,
+         transform: CGAffineTransform = .identity
+     ) {
+-        _openSwiftUIUnimplementedFailure()
++        withMutableCGPath { $0.addRect(rect, transform: transform) }
+     }
+ 
+     public mutating func addRoundedRect(
+@@ -803,7 +818,9 @@
+         style: RoundedCornerStyle = .continuous,
+         transform: CGAffineTransform = .identity
+     ) {
+-        _openSwiftUIUnimplementedFailure()
++        let roundedRect = Path(roundedRect: rect, cornerSize: cornerSize, style: style)
++        let source = roundedRect.applying(transform).cgPath
++        withMutableCGPath { $0.addPath(source) }
+     }
+ 
+     @available(OpenSwiftUI_v4_0, *)
+@@ -820,18 +837,22 @@
+         in rect: CGRect,
+         transform: CGAffineTransform = .identity
+     ) {
+-        _openSwiftUIUnimplementedFailure()
++        withMutableCGPath { $0.addEllipse(in: rect, transform: transform) }
+     }
+ 
+     public mutating func addRects(
+         _ rects: [CGRect],
+         transform: CGAffineTransform = .identity
+     ) {
+-        _openSwiftUIUnimplementedFailure()
++        withMutableCGPath { path in
++            for rect in rects {
++                path.addRect(rect, transform: transform)
++            }
++        }
+     }
+ 
+     public mutating func addLines(_ lines: [CGPoint]) {
+-        _openSwiftUIUnimplementedFailure()
++        withMutableCGPath { $0.addLines(between: lines) }
+     }
+ 
+     public mutating func addRelativeArc(
+@@ -841,7 +862,10 @@
+         delta: Angle,
+         transform: CGAffineTransform = .identity
+     ) {
+-        _openSwiftUIUnimplementedFailure()
++        withMutableCGPath {
++            $0.addRelativeArc(center: center, radius: radius, startAngle: startAngle.radians,
++                              delta: delta.radians, transform: transform)
++        }
+     }
+ 
+     public mutating func addArc(
+@@ -852,7 +876,10 @@
+         clockwise: Bool,
+         transform: CGAffineTransform = .identity
+     ) {
+-        _openSwiftUIUnimplementedFailure()
++        withMutableCGPath {
++            $0.addArc(center: center, radius: radius, startAngle: startAngle.radians,
++                      endAngle: endAngle.radians, clockwise: clockwise, transform: transform)
++        }
+     }
+ 
+     public mutating func addArc(
+@@ -861,7 +888,10 @@
+         radius: CGFloat,
+         transform: CGAffineTransform = .identity
+     ) {
+-        _openSwiftUIUnimplementedFailure()
++        withMutableCGPath {
++            $0.addArc(tangent1End: tangent1End, tangent2End: tangent2End,
++                      radius: radius, transform: transform)
++        }
+     }
+ 
+     public mutating func addPath(

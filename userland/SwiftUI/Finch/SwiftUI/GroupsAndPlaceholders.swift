@@ -19,6 +19,7 @@ public struct DisclosureGroup<Label, Content>: View where Label: View, Content: 
     var content: () -> Content
     var isExpanded: Binding<Bool>?
     @State private var expanded = false
+    @Environment(\._finchDisclosureGroupStyles) private var styles
 
     public init(@ViewBuilder content: @escaping () -> Content, @ViewBuilder label: () -> Label) {
         self.label = label()
@@ -36,19 +37,12 @@ public struct DisclosureGroup<Label, Content>: View where Label: View, Content: 
     @preconcurrency
     public var body: some View {
         let open = isExpanded ?? $expanded
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 4) {
-                Text(verbatim: open.wrappedValue ? "\u{25BE}" : "\u{25B8}")
-                    .foregroundStyle(.secondary)
-                    .frame(width: 12)
-                label
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { open.wrappedValue.toggle() }
-            if open.wrappedValue {
-                content().padding(.leading, 16)
-            }
-        }
+        let configuration = DisclosureGroupStyleConfiguration(isExpanded: open)
+        let style = styles.last ?? _FinchAnyDisclosureGroupStyle(AutomaticDisclosureGroupStyle())
+        return style.makeBody(configuration)
+            .environment(\._finchDisclosureGroupStyles, Array(styles.dropLast()))
+            .viewAlias(DisclosureGroupStyleConfiguration.Label.self) { label }
+            .viewAlias(DisclosureGroupStyleConfiguration.Content.self) { content() }
     }
 }
 

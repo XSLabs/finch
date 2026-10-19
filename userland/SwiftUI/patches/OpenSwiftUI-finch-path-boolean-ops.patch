@@ -1,0 +1,77 @@
+--- a/Sources/SwiftUICore/Shape/Path.swift
++++ b/Sources/SwiftUICore/Shape/Path.swift
+@@ -11,6 +11,21 @@
+ package import OpenRenderBoxShims
+ import OpenSwiftUI_SPI
+ public import OpenCoreGraphicsShims
++
++@_silgen_name("CGPathCreateCopyByNormalizing")
++private func finchPathCreateCopyByNormalizing(_ path: CGPath, _ evenOdd: Bool) -> CGPath?
++
++@_silgen_name("CGPathCreateCopyByUnioningPath")
++private func finchPathCreateCopyByUnioningPath(_ path: CGPath, _ other: CGPath, _ evenOdd: Bool) -> CGPath?
++
++@_silgen_name("CGPathCreateCopyByIntersectingPath")
++private func finchPathCreateCopyByIntersectingPath(_ path: CGPath, _ other: CGPath, _ evenOdd: Bool) -> CGPath?
++
++@_silgen_name("CGPathCreateCopyBySubtractingPath")
++private func finchPathCreateCopyBySubtractingPath(_ path: CGPath, _ other: CGPath, _ evenOdd: Bool) -> CGPath?
++
++@_silgen_name("CGPathCreateCopyBySymmetricDifferenceOfPath")
++private func finchPathCreateCopyBySymmetricDifferenceOfPath(_ path: CGPath, _ other: CGPath, _ evenOdd: Bool) -> CGPath?
+ 
+ // MARK: - Path [WIP]
+ 
+@@ -883,7 +898,8 @@
+ 
+     @available(OpenSwiftUI_v5_0, *)
+     public func normalized(eoFill: Bool = true) -> Path {
+-        _openSwiftUIUnimplementedFailure()
++        guard !isEmpty else { return self }
++        return Path(finchPathCreateCopyByNormalizing(cgPath, eoFill)!)
+     }
+ 
+     @available(OpenSwiftUI_v5_0, *)
+@@ -891,7 +907,8 @@
+         _ other: Path,
+         eoFill: Bool = false
+     ) -> Path {
+-        _openSwiftUIUnimplementedFailure()
++        guard !isEmpty, !other.isEmpty else { return Path() }
++        return Path(finchPathCreateCopyByIntersectingPath(cgPath, other.cgPath, eoFill)!)
+     }
+ 
+     @available(OpenSwiftUI_v5_0, *)
+@@ -899,7 +916,9 @@
+         _ other: Path,
+         eoFill: Bool = false
+     ) -> Path {
+-        _openSwiftUIUnimplementedFailure()
++        guard !isEmpty else { return other }
++        guard !other.isEmpty else { return self }
++        return Path(finchPathCreateCopyByUnioningPath(cgPath, other.cgPath, eoFill)!)
+     }
+ 
+     @available(OpenSwiftUI_v5_0, *)
+@@ -907,7 +926,9 @@
+         _ other: Path,
+         eoFill: Bool = false
+     ) -> Path {
+-        _openSwiftUIUnimplementedFailure()
++        guard !isEmpty else { return Path() }
++        guard !other.isEmpty else { return self }
++        return Path(finchPathCreateCopyBySubtractingPath(cgPath, other.cgPath, eoFill)!)
+     }
+ 
+     @available(OpenSwiftUI_v5_0, *)
+@@ -915,7 +936,9 @@
+         _ other: Path,
+         eoFill: Bool = false
+     ) -> Path {
+-        _openSwiftUIUnimplementedFailure()
++        guard !isEmpty else { return other }
++        guard !other.isEmpty else { return self }
++        return Path(finchPathCreateCopyBySymmetricDifferenceOfPath(cgPath, other.cgPath, eoFill)!)
+     }
+ 
+     @available(OpenSwiftUI_v5_0, *)

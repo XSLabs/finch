@@ -31,6 +31,36 @@ struct _FinchMenuItem {
     var shortcut: KeyboardShortcut?
 }
 
+@available(OpenSwiftUI_v3_0, *)
+public struct MenuOrder: Hashable, Sendable {
+    var isPriority: Bool
+
+    private init(priority: Bool) { isPriority = priority }
+
+    public static var fixed: Self { .init(priority: false) }
+    public static var priority: Self { .init(priority: true) }
+}
+
+@available(OpenSwiftUI_v3_0, *)
+private struct _FinchMenuOrderKey: EnvironmentKey {
+    static let defaultValue = MenuOrder.fixed
+}
+
+@available(OpenSwiftUI_v3_0, *)
+extension EnvironmentValues {
+    var _finchMenuOrder: MenuOrder {
+        get { self[_FinchMenuOrderKey.self] }
+        set { self[_FinchMenuOrderKey.self] = newValue }
+    }
+}
+
+@available(OpenSwiftUI_v3_0, *)
+extension View {
+    nonisolated public func menuOrder(_ order: MenuOrder) -> some View {
+        environment(\._finchMenuOrder, order)
+    }
+}
+
 /// A view given a picker style (pickerStyle(_:) writes it into the environment).
 protocol _FinchPickerStyleCarrier {
     var _finchPickerKind: _FinchPickerKind? { get }
@@ -240,6 +270,7 @@ extension _TraitWritingModifier: _FinchTraitWriting {
 func _finchMenu(_ items: [_FinchMenuItem], environment: EnvironmentValues) -> NSMenu {
     let menu = NSMenu()
     var lastWasSeparator = true
+    let items = environment._finchMenuOrder.isPriority ? _finchPriorityOrder(items) : items
     for item in items {
         let title = item.title?._resolveText(in: environment) ?? item.fallback
         switch item.kind {
@@ -277,6 +308,36 @@ func _finchMenu(_ items: [_FinchMenuItem], environment: EnvironmentValues) -> NS
     }
     while let last = menu.items.last, last.isSeparatorItem { menu.removeItem(last) }
     return menu
+}
+
+private func _finchPriorityOrder(_ items: [_FinchMenuItem]) -> [_FinchMenuItem] {
+    func priority(_ item: _FinchMenuItem) -> Int {
+        if item.isCancel { return 2 }
+        if item.isDestructive { return 1 }
+        return 0
+    }
+
+    var result: [_FinchMenuItem] = []
+    var section: [_FinchMenuItem] = []
+    func appendSection() {
+        result += section.enumerated().sorted { lhs, rhs in
+            let lhsPriority = priority(lhs.element)
+            let rhsPriority = priority(rhs.element)
+            return lhsPriority == rhsPriority ? lhs.offset < rhs.offset : lhsPriority < rhsPriority
+        }.map(\.element)
+        section.removeAll(keepingCapacity: true)
+    }
+
+    for item in items {
+        if case .separator = item.kind {
+            appendSection()
+            result.append(item)
+        } else {
+            section.append(item)
+        }
+    }
+    appendSection()
+    return result
 }
 
 /// A menu item that runs a closure.
@@ -483,30 +544,53 @@ extension MenuStyle where Self == BorderlessButtonMenuStyle {
 extension View {
     nonisolated public func contextMenu<MenuItems>(@ViewBuilder menuItems: () -> MenuItems) -> some View where MenuItems: View {
         let items = menuItems()
-        return overlay(_FinchContextMenuRegion(items: { _finchMenuItemsOf(items) }))
+        return overlay(_FinchContextMenuRegion(items: { _ in _finchMenuItemsOf(items) }))
     }
 
     @available(OpenSwiftUI_v4_0, *)
     nonisolated public func contextMenu<M, P>(@ViewBuilder menuItems: () -> M, @ViewBuilder preview: () -> P) -> some View
         where M: View, P: View {
         let items = menuItems()
-        return overlay(_FinchContextMenuRegion(items: { _finchMenuItemsOf(items) }))
+        return overlay(_FinchContextMenuRegion(items: { _ in _finchMenuItemsOf(items) }))
+    }
+
+    @available(macOS 13.0, *)
+    nonisolated public func contextMenu<Item, MenuItems>(forSelectionType itemType: Item.Type = Item.self,
+        @ViewBuilder menu: @escaping (Set<Item>) -> MenuItems,
+        primaryAction: ((Set<Item>) -> Void)? = nil) -> some View where Item: Hashable, MenuItems: View {
+        let typeID = ObjectIdentifier(itemType)
+        func selection(in environment: EnvironmentValues) -> Set<Item> {
+            guard let snapshot = environment._finchListSelectionSnapshot, snapshot.typeID == typeID else { return [] }
+            if let row = snapshot.rowValue, !snapshot.values().contains(row) {
+                snapshot.selectRow(row)
+            }
+            return Set(snapshot.values().compactMap { $0.base as? Item })
+        }
+        let action = primaryAction.map { action in
+            { environment in action(selection(in: environment)) }
+        }
+        return overlay(_FinchContextMenuRegion(items: { environment in
+            _finchMenuItemsOf(menu(selection(in: environment)))
+        }, primaryAction: action))
     }
 }
 
 /// An AppKit view over a SwiftUI view that takes right-clicks (and Control-clicks) and shows
 /// a menu; other events go through to the view.
 struct _FinchContextMenuRegion: NSViewRepresentable {
-    var items: () -> [_FinchMenuItem]
+    var items: (EnvironmentValues) -> [_FinchMenuItem]
+    var primaryAction: ((EnvironmentValues) -> Void)? = nil
 
     final class RegionView: NSView {
         var makeMenu: () -> NSMenu? = { nil }
+        var runPrimaryAction: (() -> Void)?
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard frame.contains(point), let event = NSApp.currentEvent else { return nil }
             let contextClick = event.type == .rightMouseDown || event.type == .rightMouseUp ||
                 (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
-            return contextClick ? self : nil
+            let primaryClick = event.type == .leftMouseDown && event.clickCount == 2 && runPrimaryAction != nil
+            return contextClick || primaryClick ? self : nil
         }
 
         override func menu(for event: NSEvent) -> NSMenu? { makeMenu() }
@@ -516,6 +600,10 @@ struct _FinchContextMenuRegion: NSViewRepresentable {
         }
 
         override func mouseDown(with event: NSEvent) {
+            if event.clickCount == 2, let runPrimaryAction {
+                runPrimaryAction()
+                return
+            }
             if let menu = makeMenu() { NSMenu.popUpContextMenu(menu, with: event, for: self) }
         }
     }
@@ -525,6 +613,10 @@ struct _FinchContextMenuRegion: NSViewRepresentable {
     func updateNSView(_ view: RegionView, context: Context) {
         let items = items
         let environment = context.environment
-        view.makeMenu = { MainActor.assumeIsolated { _finchMenu(items(), environment: environment) } }
+        let primaryAction = primaryAction
+        view.makeMenu = { MainActor.assumeIsolated { _finchMenu(items(environment), environment: environment) } }
+        view.runPrimaryAction = primaryAction.map { action in
+            { MainActor.assumeIsolated { action(environment) } }
+        }
     }
 }

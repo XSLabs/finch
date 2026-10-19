@@ -21,6 +21,17 @@ public struct SearchFieldPlacement: Sendable {
     public static var sidebar: SearchFieldPlacement { .init(kind: .sidebar) }
 }
 
+@available(macOS 14.1, *)
+public struct SearchPresentationToolbarBehavior {
+    private enum Kind { case automatic, avoidHidingContent }
+    private var kind: Kind
+
+    private init(_ kind: Kind) { self.kind = kind }
+
+    public static var automatic: Self { .init(.automatic) }
+    public static var avoidHidingContent: Self { .init(.avoidHidingContent) }
+}
+
 /// The search field: an NSSearchField whose text is the binding's.
 struct _FinchSearchField: NSViewRepresentable {
     var text: Binding<String>
@@ -91,6 +102,14 @@ extension View {
     nonisolated public func searchSuggestions<S>(@ViewBuilder _ suggestions: () -> S) -> some View where S: View { self }
 
     nonisolated public func searchCompletion(_ completion: String) -> some View { self }
+}
+
+@available(macOS 14.1, *)
+extension View {
+    /// Finch keeps search in the window toolbar, where it does not cover the page content.
+    nonisolated public func searchPresentationToolbarBehavior(_ behavior: SearchPresentationToolbarBehavior) -> some View {
+        self
+    }
 }
 
 @available(OpenSwiftUI_v4_0, *)

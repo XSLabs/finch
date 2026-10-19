@@ -4,6 +4,7 @@
 // a colour picker), built against Apple's SDK as Xcode would.
 import SwiftUI
 import Observation
+import CoreGraphics
 
 struct Node: Identifiable {
     let id = UUID()
@@ -190,13 +191,24 @@ private func gapLog(_ message: String) {
     fputs(message + "\n", stderr)
 }
 
+struct LegacyPresentationModeControl: View {
+    @Environment(\.presentationMode) private var presentationMode
+
+    var body: some View {
+        Button("Dismiss") { presentationMode.wrappedValue.dismiss() }
+    }
+}
+
 /// A small headless test surface for the views and drawing APIs added by Finch.
 struct SwiftUIGapsView: View {
     @State private var count = 0
     @State private var text = "Edit me"
+    @State private var secret = ""
     @State private var checked = false
     @State private var buttonToggle = false
     @State private var importerPresented = false
+    @State private var sizingPresented = false
+    @State private var scrollSelection: Int? = 0
     @State private var date = Date(timeIntervalSince1970: 1_700_000_000)
     @State private var objectSortOrder = [SortDescriptor<GapObjectRow>(\.name)]
     @FocusState private var exitCommandFocused: Bool
@@ -209,6 +221,11 @@ struct SwiftUIGapsView: View {
                     Text("Count: \(count)")
                 }
                 .onChange(of: count) { _, value in gapLog("stepper: \(value)") }
+            }
+
+            if stage == "task-id" {
+                Button("Start task") { count += 1 }
+                    .task(id: count) { gapLog("task-id: \(count)") }
             }
 
             if stage == "checkbox" {
@@ -377,6 +394,73 @@ struct SwiftUIGapsView: View {
                 }
             }
 
+            if stage == "any-shape" {
+                AnyShape(Capsule())
+                    .fill(.red)
+                    .frame(width: 80, height: 32)
+                    .onAppear {
+                        let rendered = ImageRenderer(content: AnyShape(Capsule()).fill(.red)
+                            .frame(width: 80, height: 32))
+                        let size = rendered.cgImage.map { "\($0.width)x\($0.height)" } ?? "nil"
+                        gapLog("any-shape: \(size)")
+                    }
+            }
+
+            if stage == "shape-operations" {
+                Text("Shape operations")
+                    .onAppear {
+                        func contains(_ path: Path, _ point: CGPoint) -> Bool {
+                            path.cgPath.contains(point)
+                        }
+                        let left = Path(CGRect(x: 0, y: 0, width: 20, height: 20))
+                        let right = Path(CGRect(x: 10, y: 0, width: 20, height: 20))
+                        let intersection = left.intersection(right)
+                        let union = left.union(right)
+                        let subtraction = left.subtracting(right)
+                        let symmetricDifference = left.symmetricDifference(right)
+                        let normalized = union.normalized()
+                        let transformed = Rectangle()
+                            .transform(CGAffineTransform(translationX: 10, y: 0))
+                            .path(in: CGRect(x: 0, y: 0, width: 20, height: 20))
+                        let offset = Rectangle().offset(CGPoint(x: 10, y: 0))
+                            .path(in: CGRect(x: 0, y: 0, width: 20, height: 20))
+                        let sized = Rectangle().size(width: 10, height: 5)
+                            .path(in: CGRect(x: 0, y: 0, width: 30, height: 20))
+                        let anchored = Rectangle().size(width: 10, height: 5, anchor: .topLeading)
+                            .path(in: CGRect(x: 0, y: 0, width: 30, height: 20))
+                        let shapeIntersection = Rectangle().intersection(Rectangle().offset(CGPoint(x: 10, y: 0)))
+                            .path(in: CGRect(x: 0, y: 0, width: 20, height: 20))
+                        let shapeUnion = Rectangle().union(Rectangle().offset(CGPoint(x: 10, y: 0)))
+                            .path(in: CGRect(x: 0, y: 0, width: 20, height: 20))
+                        let shapeSubtraction = Rectangle().subtracting(Rectangle().offset(CGPoint(x: 10, y: 0)))
+                            .path(in: CGRect(x: 0, y: 0, width: 20, height: 20))
+                        let shapeXor = Rectangle().symmetricDifference(Rectangle().offset(CGPoint(x: 10, y: 0)))
+                            .path(in: CGRect(x: 0, y: 0, width: 20, height: 20))
+                        let inside = CGPoint(x: 15, y: 10)
+                        let leftOnly = CGPoint(x: 5, y: 10)
+                        let rightOnly = CGPoint(x: 25, y: 10)
+                        let checks: [(String, Bool)] = [
+                            ("path intersection", contains(intersection, inside) && !contains(intersection, leftOnly)),
+                            ("path union", contains(union, leftOnly) && contains(union, rightOnly)),
+                            ("path subtraction", contains(subtraction, leftOnly) && !contains(subtraction, inside)),
+                            ("path symmetric difference", contains(symmetricDifference, leftOnly)
+                                && contains(symmetricDifference, rightOnly) && !contains(symmetricDifference, inside)),
+                            ("path normalization", contains(normalized, leftOnly) && contains(normalized, rightOnly)),
+                            ("shape transform", contains(transformed, rightOnly)),
+                            ("shape point offset", contains(offset, rightOnly)),
+                            ("shape size", contains(sized, inside) && !contains(sized, leftOnly)),
+                            ("anchored shape size", contains(anchored, CGPoint(x: 5, y: 2)) && !contains(anchored, inside)),
+                            ("shape intersection", contains(shapeIntersection, inside) && !contains(shapeIntersection, leftOnly)),
+                            ("shape union", contains(shapeUnion, leftOnly) && contains(shapeUnion, rightOnly)),
+                            ("shape subtraction", contains(shapeSubtraction, leftOnly) && !contains(shapeSubtraction, inside)),
+                            ("shape symmetric difference", contains(shapeXor, leftOnly)
+                                && contains(shapeXor, rightOnly) && !contains(shapeXor, inside)),
+                        ]
+                        for (name, passed) in checks where !passed { gapLog("shape-operations failed: \(name)") }
+                        gapLog("shape-operations: \(checks.allSatisfy { $0.1 } ? "pass" : "fail")")
+                    }
+            }
+
             if stage == "font-size" {
                 Text("Font size")
                     .font(Font.system(size: 12).bold(true).scaled(by: 2).pointSize(18).italic(false))
@@ -412,6 +496,47 @@ struct SwiftUIGapsView: View {
                     .onChange(of: text) { _, value in gapLog("editor: \(value)") }
             }
 
+            if stage == "secure-field" {
+                SecureField("Password", text: $secret, prompt: Text("Password"))
+                    .frame(width: 180)
+                    .onChange(of: secret) { _, value in
+                        gapLog("secure-field: \(value.isEmpty ? "empty" : "received \(value.count) characters")")
+                    }
+            }
+
+            if stage == "help-link" {
+                VStack(alignment: .leading, spacing: 4) {
+                    HelpLink(action: { gapLog("help-link: activated") })
+                    HelpLink(destination: URL(string: "https://example.com/help")!)
+                    HelpLink(anchor: "guide")
+                    HelpLink(anchor: "guide", book: "HelpBook")
+                }
+            }
+
+            if stage == "accessory-bar" {
+                Button("Accessory action") { gapLog("accessory-bar: activated") }
+                    .buttonStyle(.accessoryBar)
+            }
+
+            if stage == "presentation-mode" {
+                LegacyPresentationModeControl()
+            }
+
+            if #available(macOS 15.0, *), stage == "presentation-sizing" {
+                Button("Show fitted sheet") { sizingPresented = true }
+                    .sheet(isPresented: $sizingPresented) {
+                        Text("Fitted sheet").presentationSizing(.fitted)
+                    }
+            }
+
+            if #available(macOS 26.0, *), stage.hasPrefix("toolbar-spacer") {
+                Text("Toolbar spacer")
+                    .onAppear { gapLog("toolbar-spacer: ready") }
+                    .toolbar {
+                        ToolbarSpacer(stage.hasSuffix("fixed") ? .fixed : .flexible)
+                    }
+            }
+
             if stage == "all" || stage.hasPrefix("canvas") {
                 Canvas { context, _ in
                     switch stage {
@@ -426,6 +551,11 @@ struct SwiftUIGapsView: View {
                             cg.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
                             cg.fill(CGRect(x: 0, y: 0, width: 48, height: 20))
                         }
+                    case "canvas-stroke":
+                        var path = Path()
+                        path.move(to: CGPoint(x: 4, y: 10))
+                        path.addLine(to: CGPoint(x: 44, y: 10))
+                        context.stroke(path, with: .color(.blue), style: StrokeStyle(lineWidth: 4))
                     default:
                         context.fill(Path(CGRect(x: 0, y: 0, width: 48, height: 20)), with: .color(.red))
                     }
@@ -445,6 +575,87 @@ struct SwiftUIGapsView: View {
                 .scrollBounceBehavior(.basedOnSize)
                 .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 5 } action: { old, new in
                     gapLog("scroll: \(old) -> \(new)")
+                }
+            }
+
+            if stage == "shape-transform" {
+                HStack {
+                    Circle().offset(x: 4, y: 2).stroke(.blue)
+                    RoundedRectangle(cornerRadius: 4).rotation(.degrees(15)).stroke(.red)
+                }
+                .frame(width: 100, height: 40)
+            }
+
+            if stage == "position-layout" {
+                Text("Positioned").position(x: 50, y: 20)
+            }
+
+            if stage == "edit-actions" {
+                let actions: EditActions<[String]> = .move
+                Text(actions.contains(.move) ? "Move enabled" : "Move disabled")
+            }
+
+            if stage == "scroll-position" {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(0..<10) { index in
+                            Text("Target \(index)").frame(height: 30).id(index)
+                        }
+                    }
+                }
+                .frame(height: 60)
+                .scrollPosition(id: $scrollSelection, anchor: .top)
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { scrollSelection = 5 }
+                }
+                .onScrollGeometryChange(for: Int.self) { Int($0.contentOffset.y) } action: { _, offset in
+                    if scrollSelection == 5 { gapLog("scroll-position: \(offset)") }
+                }
+            }
+
+            if stage == "scroll-default-anchor" {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(0..<10) { index in
+                            Text("Anchor \(index)").frame(height: 30)
+                        }
+                    }
+                }
+                .frame(height: 60)
+                .defaultScrollAnchor(.bottom)
+                .onScrollGeometryChange(for: Int.self) { Int($0.contentOffset.y) } action: { _, offset in
+                    gapLog("scroll-default-anchor: \(offset)")
+                }
+            }
+
+            if stage == "scroll-anchor-role" {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(0..<10) { index in
+                            Text("Role \(index)").frame(height: 30)
+                        }
+                    }
+                }
+                .frame(height: 60)
+                .defaultScrollAnchor(.top)
+                .defaultScrollAnchor(.bottom, for: .initialOffset)
+                .onScrollGeometryChange(for: Int.self) { Int($0.contentOffset.y) } action: { _, offset in
+                    gapLog("scroll-anchor-role: \(offset)")
+                }
+            }
+
+            if stage == "scroll-paging" {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(0..<6) { index in
+                            Text("Page \(index)").frame(height: 60)
+                        }
+                    }
+                }
+                .frame(height: 60)
+                .scrollTargetBehavior(.paging)
+                .onScrollGeometryChange(for: Int.self) { Int($0.contentOffset.y) } action: { _, offset in
+                    gapLog("scroll-paging: \(offset)")
                 }
             }
 
