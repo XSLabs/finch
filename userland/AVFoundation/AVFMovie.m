@@ -411,10 +411,21 @@ read_sample_table(AVFTrack *t, Span stbl, bool quickTime)
         uint32_t last = e + 1 < entries && (size_t)(row + 12 - stsc.p) + 12 <= stsc.n ? be32(row + 12) - 1 : chunks;
         for (uint32_t c = first; c <= last && c >= 1 && c <= chunks && sample < count; c++) {
             uint64_t offset = haveCo64 ? be64(stco.p + 8 + (c - 1) * 8) : be32(stco.p + 8 + (c - 1) * 4);
-            for (uint32_t k = 0; k < perChunk && sample < count; k++, sample++) {
+            uint64_t chunkOffset = offset;
+            size_t chunkFirstSample = sample;
+            uint32_t inChunk = 0;
+            for (uint32_t k = 0; k < perChunk && sample < count; k++, sample++, inChunk++) {
                 t->samples[sample].offset = offset;
                 t->samples[sample].description = desc ? desc - 1 : 0;
+                t->samples[sample].chunkIndex = c;
+                t->samples[sample].chunkSampleIndex = k;
+                t->samples[sample].chunkHasUniformSampleSizes = uniform != 0;
                 offset += t->samples[sample].size;
+            }
+            for (size_t i = chunkFirstSample; i < sample; i++) {
+                t->samples[i].chunkOffset = chunkOffset;
+                t->samples[i].chunkLength = offset - chunkOffset;
+                t->samples[i].chunkSampleCount = inChunk;
             }
         }
     }
@@ -461,7 +472,26 @@ read_track(Span trak, bool quickTime)
     t->matrix = CGAffineTransformIdentity;
     t->language = @"und";
     t->selfContained = YES;
-    Span tkhd, mdia, edts, udta;
+    Span tkhd, mdia, edts, udta, tref;
+    t->trackAssociationTypes = [NSMutableArray array];
+    t->trackReferences = [NSMutableDictionary dictionary];
+    if (find_box(trak, 'tref', &tref)) {
+        Span references = tref, reference;
+        uint32_t type;
+        while (next_box(&references, &type, &reference)) {
+            char name[5] = {(char)(type >> 24), (char)(type >> 16), (char)(type >> 8), (char)type, 0};
+            NSString *association = [NSString stringWithCString:name encoding:NSASCIIStringEncoding];
+            if (!association || reference.n % sizeof(uint32_t))
+                continue;
+            NSMutableArray<NSNumber *> *ids = [NSMutableArray arrayWithCapacity:reference.n / sizeof(uint32_t)];
+            for (size_t offset = 0; offset + sizeof(uint32_t) <= reference.n; offset += sizeof(uint32_t))
+                [ids addObject:@(be32(reference.p + offset))];
+            if (ids.count) {
+                t->trackReferences[association] = ids;
+                [t->trackAssociationTypes addObject:association];
+            }
+        }
+    }
     if (find_box(trak, 'tkhd', &tkhd) && tkhd.n >= 84) {
         uint32_t version = tkhd.p[0];
         t->flags = be32(tkhd.p) & 0xFFFFFF;
@@ -567,18 +597,24 @@ read_track(Span trak, bool quickTime)
         return nil;
     }
     Span mvhd, udta, meta;
-    if (find_box(moov, 'mvhd', &mvhd) && mvhd.n >= 96) {
+    if (find_box(moov, 'mvhd', &mvhd) && mvhd.n >= 100) {
         const uint8_t *p = mvhd.p + 4;
-        if (mvhd.p[0] == 1 && mvhd.n >= 108) {
+        if (mvhd.p[0] == 1 && mvhd.n >= 112) {
             m->creationTime = be64(p);
             m->timescale = be32(p + 16);
             m->duration = be64(p + 20);
+            m->nextTrackID = be32(mvhd.p + 108);
             p += 28;
-        } else {
+        } else if (mvhd.p[0] == 0) {
             m->creationTime = be32(p);
             m->timescale = be32(p + 8);
             m->duration = be32(p + 12);
+            m->nextTrackID = be32(mvhd.p + 96);
             p += 16;
+        } else {
+            if (error)
+                *error = not_a_movie();
+            return nil;
         }
         m->rate = fixed1616(be32(p));
         m->volume = (float)(int16_t)be16(p + 4) / 256;

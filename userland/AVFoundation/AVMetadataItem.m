@@ -106,6 +106,7 @@ AVFCommonMetadata(NSArray<AVMetadataItem *> *items)
     return self;
 }
 
+
 + (instancetype)_finchItemWithEntry:(AVFMetadataEntry *)entry
 {
     AVMetadataItem *m = [[AVMetadataItem alloc] init];

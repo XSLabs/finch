@@ -139,18 +139,18 @@ audio stored in memory and files; hardware playback and recording remain open.
 
 ## The order from here
 
-1. **AudioToolbox**: `AudioFormat` properties (format info, channel layouts and their
-   names) and `AudioFile` are started as described above. Remaining file work includes
-   MP3 and MPEG-4 audio reads. Finish compressed `AudioConverter` formats and the remaining properties,
-   then the remaining `ExtAudioFile`, `AudioUnit` and `AudioQueue` operations.
-   Offline rendering can work without a device. Hardware playback and recording
-   must report that no device is available until the driver exists.
-2. **AVFAudio**: finish `AUAudioUnit`, the environment node, sequencer, MIDI player and recorder.
+1. **AudioToolbox**: continue the remaining audio-file component calls, codec plug-ins
+   and hardware-backed services. MP3 and MPEG-4 audio reads need the open decoders
+   listed below. Keep reporting no device for hardware playback and recording.
+2. **AVFAudio**: the sequencer, MIDI player and recorder now have stateful paths. Add
+   `AUAudioUnit` and the environment node when their processing and device behavior
+   can be matched.
 3. **VideoToolbox**: the first software codec path is in place. Add HEVC and wider
    public API coverage after the owner decides whether Finch should distribute its
    source-built H.264 implementation.
-4. **AVFoundation**: add composition, media selection and capture as their real data
-   models and required hardware or services become available.
+4. **AVFoundation**: composition, media selection and no-device capture behavior are
+   in place. The main open services are downloads, asset collections, FairPlay keys,
+   mutable movie files and network access logs.
 5. **AVKit**: the first playback views are in place. Add more controls only when their
    player state or system service can be matched honestly.
 
@@ -233,3 +233,52 @@ Finch has no audio device, so the new AudioHardwareService calls report the same
 device view as the underlying HAL. AudioToolbox still lacks 63 public C entries,
 including codec plug-ins, many audio-file component calls, and hardware or daemon-backed
 services.
+
+## 2026-10-17: AVFoundation, AVFAudio and CoreAudio app imports
+
+CoreAudio now exports the app-used HAL calls for starting and stopping devices, creating
+and destroying I/O procedures, aggregate devices and process taps, legacy device property
+queries and writes, ducking, and host-time conversion. `CATapDescription` stores the
+process and tap settings it receives. With Finch's current device-less audio path, the
+HAL calls return Apple's errors for unknown devices and processes. The host comparison
+uses only bogus IDs and other device-independent calls. The app sweep went from 13 apps,
+76 imports and 15 missing symbols to no missing CoreAudio app imports.
+
+AVFoundation now models capture on a Mac with no camera or microphone: discovery is
+empty, there is no default device, authorization follows Apple's no-device result, and
+sessions accept outputs and report their start/stop state. Photo settings remain real
+value objects; with no camera, the only supported flash mode is Off. `AVCaptureSession`
+errors and callbacks are limited to cases Apple produces on the same no-device path.
+
+The media work adds editable compositions with real QuickTime track timing, audio volume
+ramps applied to supported PCM in reader and export paths, mutable video-composition
+values and ramps, media selection, timed metadata, writer input groups, asset variants,
+sample cursors and sample-reference buffers, sample generation, display-layer state,
+render synchronization, caption conversion and rendering, and `AVTimeFormatter`.
+`AVSampleBufferAudioRenderer` reports the missing audio device instead of claiming to
+play sound. Video-composition reading supports one track with an identity transform;
+unsupported multi-track or non-identity work returns an error. Movie reading is present,
+but the separate mutable-movie editing API is not.
+
+The AVFoundation API audit now reports 2,440 of 2,681 entries and AVFAudio reports 638
+of 670. That is 300 more entries than the starting audit, which had 573 missing between
+the two frameworks. The audit records 107 AVFAudio behaviors verified; it records no
+AVFoundation behaviors, even though the host comparison suite checks the paths listed
+above. These counts measure different things and are both kept here.
+
+The final app sweep has 9 AVFoundation symbols left across 7 apps and 13 imports, down
+from 57 symbols across 25 apps and 192 imports. The Swift AVFoundation overlay now has
+all 5 imported symbols. The remaining Objective-C symbols are `AVAssetDownloadURLSession`,
+`AVAssetDownloadTask` and `AVAggregateAssetDownloadTask` (no session-backed download task
+or HLS offline writer); `AVAssetCollection` (no collection catalog model);
+`AVContentKeySession` and `AVContentKeyResponse` (FairPlay key delivery is unavailable);
+`AVMutableMovie` and `AVMutableMovieTrack` (no in-place movie editing and rewrite model);
+and `AVPlayerItemAccessLogEvent` (the local player has no network playback statistics).
+Plain HTTP(S) asset-download tasks are not implemented yet. The download value and
+configuration objects are present, but do not write downloaded assets.
+
+The AudioToolbox, AVFAudio, AVFoundation and CoreAudio build scripts passed. The host
+suite then passed all 61 selected AV, audio, CoreAudio and constants comparisons. The
+Swift overlay build and its async-property and flash-mode comparison also passed. The Mac
+has camera and audio hardware, so the capture and HAL comparison tests only assert
+device-independent values and bogus-device error paths.

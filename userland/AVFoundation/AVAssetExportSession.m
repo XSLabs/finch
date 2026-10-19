@@ -195,10 +195,19 @@
         [writer startSessionAtSourceTime:start];
         NSUInteger totalTracks = inputs.count;
         NSUInteger trackIndex = 0;
-        for (AVAssetReaderTrackOutput *output in outputs) {
-            AVAssetWriterInput *input = inputs[trackIndex++];
+        for (NSUInteger outputIndex = 0; outputIndex < outputs.count; outputIndex++) {
+            AVAssetReaderTrackOutput *output = outputs[outputIndex];
+            AVAssetWriterInput *input = inputs[outputIndex];
+            AVAssetTrack *sourceTrack = tracks[outputIndex];
+            trackIndex++;
             CMSampleBufferRef sample;
             while (!_fcancelled && (sample = [output copyNextSampleBuffer])) {
+                if (_faudioMix && [sourceTrack.mediaType isEqualToString:AVMediaTypeAudio] &&
+                    !AVFAudioMixProcessSampleBuffer(_faudioMix, sourceTrack.trackID, sample)) {
+                    CFRelease(sample);
+                    error = AVFError(AVErrorOperationNotSupportedForAsset, nil);
+                    break;
+                }
                 if (![input appendSampleBuffer:sample]) {
                     CFRelease(sample);
                     error = writer.error ?: AVFError(AVErrorExportFailed, nil);

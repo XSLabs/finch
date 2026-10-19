@@ -30,6 +30,7 @@ all: $(OUT)/finch-notify-path-permission-test
 all: $(OUT)/finch-bootstrap-failure-test
 all: $(OUT)/finch-cryptotokenkit-test $(OUT)/finch-cryptotokenkit-empty-test
 all: $(OUT)/finch-widgetkit-test
+all: $(OUT)/finch-avcapture-test $(OUT)/finch-coreaudio-hal-test $(OUT)/finch-avcomposition-test $(OUT)/finch-avaudiomix-test $(OUT)/finch-avmetadata-group-test $(OUT)/finch-avaudiomix-output-test $(OUT)/finch-avvideocomposition-test $(OUT)/finch-avmedia-selection-test $(OUT)/finch-avwriter-media-test $(OUT)/finch-avmovie-test $(OUT)/finch-avrender-sync-test $(OUT)/finch-avasset-compat-test $(OUT)/finch-avvariant-test $(OUT)/finch-avmusic-event-test $(OUT)/finch-avaudio-recorder-test $(OUT)/finch-avaudio-sequencer-test $(OUT)/finch-avaudio-midi-player-test $(OUT)/finch-avcaption-test $(OUT)/finch-avcaption-group-test $(OUT)/finch-avcaption-conformer-test $(OUT)/finch-avcaption-validator-test $(OUT)/finch-avcaption-renderer-test $(OUT)/finch-avsample-cursor-test $(OUT)/finch-avsample-buffer-generator-test $(OUT)/finch-avsample-buffer-layer-test $(OUT)/finch-avsample-reference-test $(OUT)/finch-avvideo-composition-reader-test $(OUT)/finch-avtext-style-test $(OUT)/finch-avdownload-values-test $(OUT)/finch-avtimeformatter-test $(OUT)/finch-avmedia-data-collector-test $(OUT)/finch-avcontent-auth-test $(OUT)/finch-avaudio-renderer-test
 
 $(OUT)/finch-constants-test: constants-test.m ../../tools/constants/frameworks.mk
 	@mkdir -p $(OUT)
@@ -1222,6 +1223,109 @@ $(OUT)/finch-sounddesc-test: sounddesc-test.c
 $(OUT)/finch-avasset-test: avasset-test.m avmovie.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-deprecated-declarations -Wno-four-char-constants -Wno-multichar -o $@ $< -framework AVFoundation -framework CoreMedia -framework ImageIO -framework UniformTypeIdentifiers -framework AppKit
+$(OUT)/finch-avcapture-test: avcapture-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework AVFoundation -framework CoreMedia -framework CoreVideo
+$(OUT)/finch-coreaudio-hal-test: coreaudio-hal-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework CoreAudio -framework Foundation
+$(OUT)/finch-avcomposition-test: avcomposition-test.m avmovie.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-four-char-constants -o $@ $< -framework AVFoundation -framework CoreMedia
+$(OUT)/finch-avaudiomix-test: avaudiomix-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework AVFoundation -framework CoreMedia
+$(OUT)/finch-avmetadata-group-test: avmetadata-group-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework AVFoundation -framework CoreMedia
+$(OUT)/finch-avaudiomix-output-test: avaudiomix-output-test.m avmovie.h avframes.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-four-char-constants -o $@ $< -framework AVFoundation -framework CoreMedia -framework AudioToolbox
+$(OUT)/finch-avvideocomposition-test: avvideocomposition-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework AVFoundation -framework CoreMedia -framework CoreGraphics
+$(OUT)/finch-avmedia-selection-test: avmedia-selection-test.m avmovie.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-four-char-constants -o $@ $< -framework AVFoundation -framework CoreMedia
+$(OUT)/finch-avwriter-media-test: avwriter-media-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework AVFoundation -framework CoreMedia
+
+$(OUT)/finch-avmovie-test: avmovie-test.m avmovie.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -Wno-four-char-constants -o $@ $< -framework AVFoundation -framework CoreMedia
+
+$(OUT)/finch-avrender-sync-test: avrender-sync-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -o $@ $< -framework AVFoundation -framework CoreMedia
+
+$(OUT)/finch-avasset-compat-test: avasset-compat-test.m avmovie.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-four-char-constants -o $@ $< -framework AVFoundation -framework CoreMedia
+
+$(OUT)/finch-avvariant-test: avvariant-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -o $@ $< -framework AVFoundation -framework CoreMedia
+$(OUT)/finch-avmusic-event-test: avmusic-event-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -o $@ $< -framework AVFAudio
+$(OUT)/finch-avaudio-recorder-test: avaudio-recorder-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -o $@ $< -framework AVFAudio
+$(OUT)/finch-avaudio-sequencer-test: avaudio-sequencer-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -o $@ $< -framework AVFAudio -framework AudioToolbox
+$(OUT)/finch-avaudio-midi-player-test: avaudio-midi-player-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -o $@ $< -framework AVFAudio -framework AudioToolbox
+$(OUT)/finch-avcaption-test: avcaption-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -o $@ $< -framework AVFoundation -framework CoreMedia -framework CoreGraphics
+$(OUT)/finch-avcaption-group-test: avcaption-group-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -o $@ $< -framework AVFoundation -framework CoreMedia
+$(OUT)/finch-avcaption-conformer-test: avcaption-conformer-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -o $@ $< -framework AVFoundation -framework CoreMedia
+$(OUT)/finch-avcaption-validator-test: avcaption-validator-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -o $@ $< -framework AVFoundation -framework CoreMedia
+$(OUT)/finch-avcaption-renderer-test: avcaption-renderer-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -o $@ $< -framework AVFoundation -framework CoreMedia -framework CoreGraphics -framework CoreText
+$(OUT)/finch-avsample-cursor-test: avsample-cursor-test.m avmovie.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -Wno-four-char-constants -o $@ $< -framework AVFoundation -framework CoreMedia
+$(OUT)/finch-avsample-buffer-generator-test: avsample-buffer-generator-test.m avmovie.h avframes.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -Wno-four-char-constants -Wno-multichar -o $@ $< -framework AVFoundation -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers -framework AppKit
+$(OUT)/finch-avsample-buffer-layer-test: avsample-buffer-layer-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -o $@ $< -framework AVFoundation -framework CoreMedia -framework CoreVideo -framework QuartzCore
+$(OUT)/finch-avsample-reference-test: avsample-reference-test.m avmovie.h avframes.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -Wno-four-char-constants -Wno-multichar -o $@ $< -framework AVFoundation -framework CoreMedia -framework ImageIO -framework UniformTypeIdentifiers -framework AppKit
+$(OUT)/finch-avvideo-composition-reader-test: avvideo-composition-reader-test.m avmovie.h avframes.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -Wno-four-char-constants -Wno-multichar -o $@ $< -framework AVFoundation -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers -framework AppKit
+$(OUT)/finch-avtext-style-test: avtext-style-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -o $@ $< -framework AVFoundation -framework CoreMedia
+$(OUT)/finch-avdownload-values-test: avdownload-values-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -o $@ $< -framework AVFoundation -framework CoreMedia
+$(OUT)/finch-avtimeformatter-test: avtimeformatter-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -o $@ $< -framework AVFoundation -framework CoreMedia
+$(OUT)/finch-avmedia-data-collector-test: avmedia-data-collector-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -o $@ $< -framework AVFoundation -framework CoreMedia
+$(OUT)/finch-avcontent-auth-test: avcontent-auth-test.m avmovie.h avframes.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -Wno-four-char-constants -o $@ $< -framework AVFoundation -framework CoreMedia
+$(OUT)/finch-avaudio-renderer-test: avaudio-renderer-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-unused-parameter -Wno-availability -o $@ $< -framework AVFoundation -framework CoreMedia
 $(OUT)/finch-avexport-test: avexport-test.m avmovie.h avframes.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-unused-parameter -Wno-deprecated-declarations -Wno-four-char-constants -Wno-multichar -o $@ $< -framework AVFoundation -framework CoreMedia

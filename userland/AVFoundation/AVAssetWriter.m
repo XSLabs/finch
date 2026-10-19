@@ -61,6 +61,18 @@ w64(NSMutableData *d, uint64_t v)
     w32(d, (uint32_t)v);
 }
 
+static uint16_t
+writer_language_code(NSString *language)
+{
+    if (language.length != 3) return 0x55C4; /* und */
+    unichar a = [language characterAtIndex:0], b = [language characterAtIndex:1], c = [language characterAtIndex:2];
+    if (a >= 'A' && a <= 'Z') a += 'a' - 'A';
+    if (b >= 'A' && b <= 'Z') b += 'a' - 'A';
+    if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+    if (a < 'a' || a > 'z' || b < 'a' || b > 'z' || c < 'a' || c > 'z') return 0x55C4;
+    return (uint16_t)(((a - 0x60) << 10) | ((b - 0x60) << 5) | (c - 0x60));
+}
+
 static NSData *
 box(uint32_t type, NSData *body)
 {
@@ -109,14 +121,23 @@ typedef struct {
 
 @interface AVAssetWriterInput ()
 - (void)_finchStartWithWriter:(AVAssetWriter *)writer;
+- (void)_finchAttachWriter:(AVAssetWriter *)writer;
 - (BOOL)_finchFinished;
-- (NSData *)_finchTrackWithID:(uint32_t)trackID movieTimescale:(uint32_t)movieTimescale sessionStart:(CMTime)start
-                    sessionEnd:(CMTime)end quickTime:(BOOL)quickTime duration:(int64_t *)durationOut;
+- (AVAssetWriter *)_finchWriter;
+- (BOOL)_finchHasSamples;
+- (NSDictionary<NSString *, NSArray<AVAssetWriterInput *> *> *)_finchTrackAssociations;
+- (NSData *)_finchTrackWithID:(uint32_t)trackID alternateGroup:(int16_t)alternateGroup movieTimescale:(uint32_t)movieTimescale sessionStart:(CMTime)start
+                    sessionEnd:(CMTime)end quickTime:(BOOL)quickTime trackReferences:(NSDictionary<NSString *, NSArray<NSNumber *> *> *)trackReferences
+                     duration:(int64_t *)durationOut;
 @end
 
 @interface AVAssetWriter ()
 - (BOOL)_finchWriteBytes:(const void *)bytes length:(size_t)length offset:(uint64_t *)offsetOut;
 - (void)_finchFailWithError:(NSError *)error;
+- (BOOL)_finchQuickTime;
+- (int16_t)_finchAlternateGroupForInput:(AVAssetWriterInput *)input;
+- (NSDictionary<NSString *, NSArray<NSNumber *> *> *)_finchTrackReferencesForInput:(AVAssetWriterInput *)input
+                                                                          trackIDs:(NSDictionary<NSValue *, NSNumber *> *)trackIDs;
 @end
 
 @implementation AVAssetWriterInput {
@@ -129,10 +150,13 @@ typedef struct {
     CGAffineTransform _transform;
     float _volume;
     NSString *_language;
+    NSString *_fextendedLanguageTag;
+    BOOL _fenabled;
     NSMutableData *_samples; /* AVFWrittenSample */
     AudioConverterRef _converter;
     AudioStreamBasicDescription _outFormat, _inFormat;
     NSArray *_metadata;
+    NSMutableDictionary<NSString *, NSMutableArray<AVAssetWriterInput *> *> *_fassociations;
 }
 
 + (instancetype)assetWriterInputWithMediaType:(AVMediaType)mediaType outputSettings:(NSDictionary<NSString *, id> *)outputSettings
@@ -163,7 +187,9 @@ typedef struct {
             _hint = (CMFormatDescriptionRef)CFRetain(sourceFormatHint);
         _transform = CGAffineTransformIdentity;
         _volume = [mediaType isEqualToString:AVMediaTypeAudio] ? 1 : 0;
+        _fenabled = YES;
         _samples = [NSMutableData data];
+        _fassociations = [NSMutableDictionary dictionary];
     }
     return self;
 }
@@ -194,10 +220,24 @@ typedef struct {
 - (void)setLanguageCode:(NSString *)languageCode { _language = [languageCode copy]; }
 - (NSArray<AVMetadataItem *> *)metadata { return _metadata ?: @[]; }
 - (void)setMetadata:(NSArray<AVMetadataItem *> *)metadata { _metadata = [metadata copy]; }
-- (BOOL)marksOutputTrackAsEnabled { return YES; }
+- (void)setMarksOutputTrackAsEnabled:(BOOL)enabled { _fenabled = enabled; }
+- (BOOL)marksOutputTrackAsEnabled { return _fenabled; }
+- (NSString *)extendedLanguageTag { return _fextendedLanguageTag; }
+- (void)setExtendedLanguageTag:(NSString *)tag { _fextendedLanguageTag = [tag copy]; }
 - (BOOL)performsMultiPassEncodingIfSupported { return NO; }
 - (BOOL)canPerformMultiplePasses { return NO; }
 - (BOOL)_finchFinished { return _finished; }
+- (AVAssetWriter *)_finchWriter { return _fwriter; }
+- (void)_finchAttachWriter:(AVAssetWriter *)writer { _fwriter = writer; }
+- (BOOL)_finchHasSamples { return _samples.length != 0; }
+- (NSDictionary<NSString *,NSArray<AVAssetWriterInput *> *> *)_finchTrackAssociations
+{
+    NSMutableDictionary *out = [NSMutableDictionary dictionary];
+    [_fassociations enumerateKeysAndObjectsUsingBlock:^(NSString *type, NSMutableArray *inputs, BOOL *stop) {
+        out[type] = [inputs copy];
+    }];
+    return out;
+}
 
 - (void)_finchStartWithWriter:(AVAssetWriter *)writer
 {
@@ -626,8 +666,9 @@ hdlr_box(BOOL quickTime, uint32_t component, uint32_t subtype, NSString *name)
     });
 }
 
-- (NSData *)_finchTrackWithID:(uint32_t)trackID movieTimescale:(uint32_t)movieTimescale sessionStart:(CMTime)start
-                    sessionEnd:(CMTime)end quickTime:(BOOL)quickTime duration:(int64_t *)durationOut
+- (NSData *)_finchTrackWithID:(uint32_t)trackID alternateGroup:(int16_t)alternateGroup movieTimescale:(uint32_t)movieTimescale sessionStart:(CMTime)start
+                    sessionEnd:(CMTime)end quickTime:(BOOL)quickTime trackReferences:(NSDictionary<NSString *,NSArray<NSNumber *> *> *)trackReferences
+                     duration:(int64_t *)durationOut
 {
     const AVFWrittenSample *s = _samples.bytes;
     size_t n = _samples.length / sizeof *s;
@@ -666,7 +707,7 @@ hdlr_box(BOOL quickTime, uint32_t component, uint32_t subtype, NSString *name)
         w32(d, trackID), w32(d, 0);
         w32(d, (uint32_t)trackDuration);
         w32(d, 0), w32(d, 0);
-        w16(d, 0), w16(d, 0);
+        w16(d, 0), w16(d, (uint16_t)alternateGroup);
         w16(d, (uint32_t)lround(self->_volume * 256)), w16(d, 0);
         matrix(d, self->_transform);
         if (video && self->_written) {
@@ -686,7 +727,7 @@ hdlr_box(BOOL quickTime, uint32_t component, uint32_t subtype, NSString *name)
         uint32_t now = (uint32_t)([[NSDate date] timeIntervalSince1970] + 2082844800.0);
         w32(d, now), w32(d, now);
         w32(d, (uint32_t)ts), w32(d, (uint32_t)mediaDuration);
-        w16(d, 0x55c4), w16(d, 0);
+        w16(d, writer_language_code(self->_language)), w16(d, 0);
     });
     NSData *mediaHeader = video ? full_box('vmhd', 1, ^(NSMutableData *d) {
         w16(d, 0x40), w16(d, 0x8000), w16(d, 0x8000), w16(d, 0x8000);
@@ -707,7 +748,67 @@ hdlr_box(BOOL quickTime, uint32_t component, uint32_t subtype, NSString *name)
         mdhd, hdlr_box(quickTime, 'mhlr', video ? 'vide' : 'soun', video ? @"Core Media Video" : @"Core Media Audio"),
         boxes('minf', minf)
     ]);
-    return boxes('trak', @[ tkhd, boxes('edts', @[ elst ]), mdia ]);
+    NSMutableArray *trak = [NSMutableArray arrayWithObjects:tkhd, boxes('edts', @[ elst ]), mdia, nil];
+    NSMutableArray *references = [NSMutableArray array];
+    [trackReferences enumerateKeysAndObjectsUsingBlock:^(NSString *type, NSArray<NSNumber *> *ids, BOOL *stop) {
+        if (type.length != 4 || !ids.count)
+            return;
+        uint32_t code = (uint32_t)[type characterAtIndex:0] << 24 | (uint32_t)[type characterAtIndex:1] << 16 |
+                        (uint32_t)[type characterAtIndex:2] << 8 | (uint32_t)[type characterAtIndex:3];
+        NSMutableData *body = [NSMutableData data];
+        for (NSNumber *referenceID in ids)
+            w32(body, referenceID.unsignedIntValue);
+        [references addObject:box(code, body)];
+    }];
+    if (references.count)
+        [trak addObject:boxes('tref', references)];
+    return boxes('trak', trak);
+}
+
+- (BOOL)canAddTrackAssociationWithTrackOfInput:(AVAssetWriterInput *)input type:(NSString *)type
+{
+    AVAssetWriter *writer = _fwriter;
+    if (!input || input == self || !type.length || !writer || writer != input._finchWriter ||
+        writer.status != AVAssetWriterStatusUnknown || ![writer _finchQuickTime])
+        return NO;
+    static NSSet<NSString *> *supported;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        supported = [NSSet setWithArray:@[ AVTrackAssociationTypeAudioFallback, AVTrackAssociationTypeChapterList,
+            AVTrackAssociationTypeForcedSubtitlesOnly, AVTrackAssociationTypeMetadataReferent,
+            AVTrackAssociationTypeRenderMetadataSource, AVTrackAssociationTypeSelectionFollower,
+            AVTrackAssociationTypeTimecode ]];
+    });
+    if (![supported containsObject:type])
+        return NO;
+    if ([type isEqualToString:AVTrackAssociationTypeAudioFallback])
+        return [self.mediaType isEqualToString:AVMediaTypeAudio] && [input.mediaType isEqualToString:AVMediaTypeAudio];
+    if ([type isEqualToString:AVTrackAssociationTypeForcedSubtitlesOnly])
+        return [self.mediaType isEqualToString:AVMediaTypeSubtitle] && [input.mediaType isEqualToString:AVMediaTypeSubtitle];
+    if ([type isEqualToString:AVTrackAssociationTypeChapterList])
+        return ![self.mediaType isEqualToString:AVMediaTypeMetadata] &&
+               ([input.mediaType isEqualToString:AVMediaTypeText] || [input.mediaType isEqualToString:AVMediaTypeSubtitle] ||
+                [input.mediaType isEqualToString:AVMediaTypeClosedCaption] || [input.mediaType isEqualToString:AVMediaTypeMetadata]);
+    if ([type isEqualToString:AVTrackAssociationTypeMetadataReferent])
+        return [self.mediaType isEqualToString:AVMediaTypeMetadata];
+    if ([type isEqualToString:AVTrackAssociationTypeRenderMetadataSource])
+        return [self.mediaType isEqualToString:AVMediaTypeMetadata] && [input.mediaType isEqualToString:AVMediaTypeVideo];
+    if ([type isEqualToString:AVTrackAssociationTypeTimecode])
+        return [input.mediaType isEqualToString:AVMediaTypeTimecode];
+    return YES;
+}
+
+- (void)addTrackAssociationWithTrackOfInput:(AVAssetWriterInput *)input type:(NSString *)type
+{
+    if (![self canAddTrackAssociationWithTrackOfInput:input type:type])
+        [NSException raise:NSInvalidArgumentException format:@"The track association cannot be added to this writer"];
+    NSMutableArray *inputs = _fassociations[type];
+    if (!inputs) {
+        inputs = [NSMutableArray array];
+        _fassociations[type] = inputs;
+    }
+    if (![inputs containsObject:input])
+        [inputs addObject:input];
 }
 
 @end
@@ -781,6 +882,7 @@ hdlr_box(BOOL quickTime, uint32_t component, uint32_t subtype, NSString *name)
     NSURL *_furl;
     AVFileType _ffileType;
     NSMutableArray *_finputs;
+    NSMutableArray<AVAssetWriterInputGroup *> *_finputGroups;
     AVAssetWriterStatus _fstatus;
     NSError *_ferror;
     NSArray *_fmetadata;
@@ -803,6 +905,7 @@ hdlr_box(BOOL quickTime, uint32_t component, uint32_t subtype, NSString *name)
         _furl = [outputURL copy];
         _ffileType = [outputFileType copy];
         _finputs = [NSMutableArray array];
+        _finputGroups = [NSMutableArray array];
         _fstart = kCMTimeInvalid;
         _fend = kCMTimeInvalid;
         _fmovieFragmentInterval = kCMTimeInvalid;
@@ -816,6 +919,7 @@ hdlr_box(BOOL quickTime, uint32_t component, uint32_t subtype, NSString *name)
     if ((self = [super init])) {
         _ffileType = [outputContentType.identifier copy];
         _finputs = [NSMutableArray array];
+        _finputGroups = [NSMutableArray array];
         _fstart = kCMTimeInvalid;
         _fend = kCMTimeInvalid;
         _fmovieFragmentInterval = kCMTimeInvalid;
@@ -871,13 +975,60 @@ hdlr_box(BOOL quickTime, uint32_t component, uint32_t subtype, NSString *name)
 {
     if (_fstatus != AVAssetWriterStatusUnknown)
         [NSException raise:NSInternalInconsistencyException format:@"*** -[AVAssetWriter addInput:] Cannot call method when status is %ld", (long)_fstatus];
-    if (input && ![_finputs containsObject:input])
+    if (input && ![_finputs containsObject:input]) {
         [_finputs addObject:input];
+        [input _finchAttachWriter:self];
+    }
 }
 
-- (BOOL)canAddInputGroup:(AVAssetWriterInputGroup *)inputGroup { return NO; }
-- (void)addInputGroup:(AVAssetWriterInputGroup *)inputGroup {}
-- (NSArray<AVAssetWriterInputGroup *> *)inputGroups { return @[]; }
+- (BOOL)canAddInputGroup:(AVAssetWriterInputGroup *)inputGroup
+{
+    if (_fstatus != AVAssetWriterStatusUnknown || ![self _finchQuickTime] ||
+        ![inputGroup isKindOfClass:AVAssetWriterInputGroup.class] || inputGroup.inputs.count < 2)
+        return NO;
+    AVMediaType type = inputGroup.inputs.firstObject.mediaType;
+    for (AVAssetWriterInput *input in inputGroup.inputs) {
+        if (![_finputs containsObject:input] || ![input.mediaType isEqualToString:type]) return NO;
+        for (AVAssetWriterInputGroup *existing in _finputGroups)
+            if ([existing.inputs containsObject:input]) return NO;
+    }
+    return YES;
+}
+- (void)addInputGroup:(AVAssetWriterInputGroup *)inputGroup
+{
+    if (_fstatus != AVAssetWriterStatusUnknown)
+        [NSException raise:NSInternalInconsistencyException format:@"Cannot add an input group after writing starts"];
+    if (![self canAddInputGroup:inputGroup])
+        [NSException raise:NSInvalidArgumentException format:@"The input group cannot be added to this writer"];
+    [_finputGroups addObject:inputGroup];
+    for (AVAssetWriterInput *input in inputGroup.inputs)
+        input.marksOutputTrackAsEnabled = input == inputGroup.defaultInput;
+}
+- (NSArray<AVAssetWriterInputGroup *> *)inputGroups { return [_finputGroups copy]; }
+- (int16_t)_finchAlternateGroupForInput:(AVAssetWriterInput *)input
+{
+    for (NSUInteger index = 0; index < _finputGroups.count; index++)
+        if ([_finputGroups[index].inputs containsObject:input])
+            return (int16_t)MIN(index + 1, INT16_MAX);
+    return 0;
+}
+
+- (NSDictionary<NSString *, NSArray<NSNumber *> *> *)_finchTrackReferencesForInput:(AVAssetWriterInput *)input
+                                                                          trackIDs:(NSDictionary<NSValue *, NSNumber *> *)trackIDs
+{
+    NSMutableDictionary *references = [NSMutableDictionary dictionary];
+    [[input _finchTrackAssociations] enumerateKeysAndObjectsUsingBlock:^(NSString *type, NSArray<AVAssetWriterInput *> *inputs, BOOL *stop) {
+        NSMutableArray *ids = [NSMutableArray array];
+        for (AVAssetWriterInput *other in inputs) {
+            NSNumber *trackID = trackIDs[[NSValue valueWithNonretainedObject:other]];
+            if (trackID)
+                [ids addObject:trackID];
+        }
+        if (ids.count)
+            references[type] = [ids copy];
+    }];
+    return references;
+}
 
 - (BOOL)_finchQuickTime { return ![_ffileType isEqualToString:AVFileTypeMPEG4] && ![_ffileType isEqualToString:AVFileTypeAppleM4V] && ![_ffileType isEqualToString:AVFileTypeAppleM4A]; }
 
@@ -1012,16 +1163,26 @@ hdlr_box(BOOL quickTime, uint32_t component, uint32_t subtype, NSString *name)
     uint32_t movieTimescale = _fmovieTimeScale ? (uint32_t)_fmovieTimeScale : 600;
     NSMutableArray *traks = [NSMutableArray array];
     int64_t movieDuration = 0;
-    uint32_t trackID = 1;
+    NSMutableDictionary<NSValue *, NSNumber *> *trackIDs = [NSMutableDictionary dictionary];
+    uint32_t nextTrackID = 1;
+    for (AVAssetWriterInput *input in _finputs)
+        if ([input _finchHasSamples])
+            trackIDs[[NSValue valueWithNonretainedObject:input]] = @(nextTrackID++);
     for (AVAssetWriterInput *i in _finputs) {
+        NSNumber *number = trackIDs[[NSValue valueWithNonretainedObject:i]];
+        if (!number)
+            continue;
         int64_t d = 0;
-        NSData *t = [i _finchTrackWithID:trackID movieTimescale:movieTimescale sessionStart:_fstart sessionEnd:_fend quickTime:qt duration:&d];
+        NSDictionary *references = [self _finchTrackReferencesForInput:i trackIDs:trackIDs];
+        NSData *t = [i _finchTrackWithID:number.unsignedIntValue alternateGroup:[self _finchAlternateGroupForInput:i]
+            movieTimescale:movieTimescale sessionStart:_fstart sessionEnd:_fend quickTime:qt
+            trackReferences:references duration:&d];
         if (t) {
             [traks addObject:t];
             movieDuration = MAX(movieDuration, d);
-            trackID++;
         }
     }
+    uint32_t trackID = nextTrackID;
     NSData *mvhd = full_box('mvhd', 0, ^(NSMutableData *d) {
         uint32_t now = (uint32_t)([[NSDate date] timeIntervalSince1970] + 2082844800.0);
         w32(d, now), w32(d, now);

@@ -29,9 +29,18 @@ NSString *AVFCommonKeyFor(id key, NSString *keySpace);
    Apple's order of common keys. */
 NSArray<AVMetadataItem *> *AVFCommonMetadata(NSArray<AVMetadataItem *> *items);
 
+/* Apply an AVAudioMix's volume ramps to a writable, interleaved linear-PCM sample buffer. */
+BOOL AVFAudioMixProcessSampleBuffer(AVAudioMix *mix, CMPersistentTrackID trackID, CMSampleBufferRef sampleBuffer);
+
 /* The types and MIME types AVURLAsset opens (AVFTypes.m). */
 NSArray<NSString *> *AVFAudiovisualTypes(void);
 NSArray<NSString *> *AVFAudiovisualMIMETypes(void);
+
+/* Alternate-track choices read from an asset's movie tracks. */
+NSArray<AVMediaCharacteristic> *AVFMediaSelectionAvailableCharacteristics(AVAsset *asset);
+AVMediaSelectionGroup *AVFMediaSelectionGroupForCharacteristic(AVAsset *asset, AVMediaCharacteristic characteristic);
+AVMediaSelection *AVFMediaSelectionForAsset(AVAsset *asset);
+NSArray<AVMediaSelection *> *AVFMediaSelectionsForAsset(AVAsset *asset);
 
 /* A video sample decoded (JPEG, through ImageIO), or NULL (AVAssetReader.m). */
 CGImageRef AVFCopySampleImage(AVFTrack *track, NSData *file, size_t index);

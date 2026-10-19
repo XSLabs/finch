@@ -16,5 +16,10 @@ exec "${FINCH_ROOT}/tools/build-small-framework.sh" \
     "${FINCH_ROOT}/userland/AVFAudio/AVAudioPlayer.m" \
     "${FINCH_ROOT}/userland/AVFAudio/AVFConstants.m" \
     "${FINCH_ROOT}/userland/AVFAudio/AVAudioSession.m" \
+    "${FINCH_ROOT}/userland/AVFAudio/AVAudioRecorder.m" \
     "${FINCH_ROOT}/userland/AVFAudio/AVSpeechSynthesis.m" \
+    "${FINCH_ROOT}/userland/AVFAudio/AVMusicEvents.m" \
+    "${FINCH_ROOT}/userland/AVFAudio/AVAudioSequencer.m" \
+    "${FINCH_ROOT}/userland/AVFAudio/AVMIDIPlayer.m" \
+    "${FINCH_ROOT}/userland/AVFAudio/AVProtocolReferences.m" \
     -- -framework Foundation -framework AudioToolbox -framework CoreMedia

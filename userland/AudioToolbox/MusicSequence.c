@@ -323,6 +323,32 @@ MusicSequenceDisposeTrack(MusicSequence sequence, MusicTrack track)
     return noErr;
 }
 
+/* Keep a removed AVMusicTrack alive so callers can still reuse it as a source track. */
+OSStatus
+FinchMusicSequenceDetachTrack(MusicSequence sequence, MusicTrack track)
+{
+    if (!sequence || !track || track->sequence != sequence || track->isTempo)
+        return kAudio_ParamError;
+    size_t index = 0;
+    while (index < sequence->count && sequence->tracks[index] != track)
+        index++;
+    if (index == sequence->count)
+        return kAudioToolboxErr_TrackNotFound;
+    if (sequence->derivedCount == sequence->derivedCapacity) {
+        size_t capacity = sequence->derivedCapacity ? sequence->derivedCapacity * 2 : 4;
+        MusicTrack *tracks = realloc(sequence->derivedTracks, capacity * sizeof(*tracks));
+        if (!tracks)
+            return kFinchMemoryFullError;
+        sequence->derivedTracks = tracks;
+        sequence->derivedCapacity = capacity;
+    }
+    memmove(&sequence->tracks[index], &sequence->tracks[index + 1],
+        (sequence->count - index - 1) * sizeof(*sequence->tracks));
+    sequence->count--;
+    sequence->derivedTracks[sequence->derivedCount++] = track;
+    return noErr;
+}
+
 OSStatus
 MusicSequenceGetTrackCount(MusicSequence sequence, UInt32 *count)
 {

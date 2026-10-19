@@ -17,6 +17,8 @@
  */
 #import "AVFInternal.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#include <float.h>
+#include <math.h>
 
 NSError *
 AVFError(NSInteger code, NSError *underlying)
@@ -60,17 +62,28 @@ asset_keys(void)
 
 #pragma mark - Tracks
 
+@interface AVAsset (FinchMovie)
+- (AVFMovie *)_finchMovie;
+@end
+
 @interface AVAssetTrack ()
 - (instancetype)initWithFinchTrack:(AVFTrack *)track movie:(AVFMovie *)movie asset:(AVAsset *)asset;
+- (AVFTrack *)_finchTrack;
+@end
+
+@interface AVAssetTrackGroup (FinchTrackGroup)
+- (instancetype)initWithFinchTrackIDs:(NSArray<NSNumber *> *)trackIDs;
 @end
 
 @interface AVAssetTrackSegment ()
 - (instancetype)initWithFinchMapping:(CMTimeMapping)mapping empty:(BOOL)empty;
+- (instancetype)_finchInit;
 @end
 
 @implementation AVAssetTrackSegment {
     BOOL _empty;
 }
+- (instancetype)_finchInit { return [super init]; }
 - (instancetype)initWithFinchMapping:(CMTimeMapping)mapping empty:(BOOL)empty
 {
     if ((self = [super init])) {
@@ -83,12 +96,27 @@ asset_keys(void)
 - (BOOL)isEmpty { return _empty; }
 @end
 
+@implementation AVAssetTrackGroup {
+    NSArray<NSNumber *> *_finchTrackIDs;
+}
+- (instancetype)initWithFinchTrackIDs:(NSArray<NSNumber *> *)trackIDs
+{
+    if ((self = [super init]))
+        _finchTrackIDs = [trackIDs copy];
+    return self;
+}
+- (NSArray<NSNumber *> *)trackIDs { return _finchTrackIDs ?: @[]; }
+- (id)copyWithZone:(NSZone *)zone { return self; }
+@end
+
 @implementation AVAssetTrack {
     AVFTrack *_ftrack;
     AVFMovie *_fmovie;
     __weak AVAsset *_fasset;
     NSArray *_fmetadata;
 }
+
+- (instancetype)_finchInit { return [super init]; }
 
 - (instancetype)initWithFinchTrack:(AVFTrack *)track movie:(AVFMovie *)movie asset:(AVAsset *)asset
 {
@@ -227,13 +255,61 @@ asset_keys(void)
 
 - (AVAssetTrackSegment *)segmentForTrackTime:(CMTime)trackTime
 {
-    for (AVAssetTrackSegment *s in [self segments])
+    if (!CMTIME_IS_NUMERIC(trackTime))
+        return nil;
+    AVAssetTrackSegment *closest = nil;
+    double closestDistance = DBL_MAX;
+    for (AVAssetTrackSegment *s in [self segments]) {
         if (CMTimeRangeContainsTime(s.timeMapping.target, trackTime))
             return s;
-    return nil;
+        CMTime start = s.timeMapping.target.start;
+        CMTime end = CMTimeRangeGetEnd(s.timeMapping.target);
+        double distance = CMTimeCompare(trackTime, start) < 0 ? fabs(CMTimeGetSeconds(CMTimeSubtract(start, trackTime)))
+                         : CMTimeCompare(trackTime, end) >= 0 ? fabs(CMTimeGetSeconds(CMTimeSubtract(trackTime, end)))
+                                                              : 0;
+        if (distance < closestDistance) {
+            closest = s;
+            closestDistance = distance;
+        }
+    }
+    return closest;
 }
 
-- (CMTime)samplePresentationTimeForTrackTime:(CMTime)trackTime { return trackTime; }
+- (CMTime)samplePresentationTimeForTrackTime:(CMTime)trackTime
+{
+    AVAssetTrackSegment *segment = [self segmentForTrackTime:trackTime];
+    if (!segment || segment.empty || !CMTIME_IS_NUMERIC(segment.timeMapping.source.start) ||
+        !CMTIME_IS_NUMERIC(segment.timeMapping.target.start))
+        return kCMTimeInvalid;
+    if (CMTimeCompare(segment.timeMapping.source.start, segment.timeMapping.target.start) == 0 &&
+        CMTimeCompare(segment.timeMapping.source.duration, segment.timeMapping.target.duration) == 0)
+        return trackTime;
+    return CMTimeMapTimeFromRangeToRange(trackTime, segment.timeMapping.target, segment.timeMapping.source);
+}
+
+- (void)loadSegmentForTrackTime:(CMTime)trackTime completionHandler:(void (^)(AVAssetTrackSegment *, NSError *))handler
+{
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+        if (handler)
+            handler([self segmentForTrackTime:trackTime], nil);
+    });
+}
+
+- (void)loadSamplePresentationTimeForTrackTime:(CMTime)trackTime completionHandler:(void (^)(CMTime, NSError *))handler
+{
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+        if (handler)
+            handler([self samplePresentationTimeForTrackTime:trackTime], nil);
+    });
+}
+
+- (void)loadMetadataForFormat:(AVMetadataFormat)format completionHandler:(void (^)(NSArray<AVMetadataItem *> *, NSError *))handler
+{
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+        if (handler)
+            handler([self metadataForFormat:format], nil);
+    });
+}
 
 - (BOOL)hasMediaCharacteristic:(AVMediaCharacteristic)characteristic
 {
@@ -259,9 +335,28 @@ asset_keys(void)
 {
     return [format isEqualToString:AVMetadataFormatQuickTimeUserData] ? _fmetadata : @[];
 }
-- (NSArray<AVTrackAssociationType> *)availableTrackAssociationTypes { return @[]; }
-- (NSArray<AVAssetTrack *> *)associatedTracksOfType:(AVTrackAssociationType)trackAssociationType { return @[]; }
-- (BOOL)canProvideSampleCursors { return YES; }
+- (NSArray<AVTrackAssociationType> *)availableTrackAssociationTypes { return [_ftrack->trackAssociationTypes copy]; }
+- (NSArray<AVAssetTrack *> *)associatedTracksOfType:(AVTrackAssociationType)trackAssociationType
+{
+    AVAsset *asset = self.asset;
+    if (!asset)
+        return @[];
+    NSMutableArray *tracks = [NSMutableArray array];
+    for (NSNumber *trackID in _ftrack->trackReferences[trackAssociationType]) {
+        AVAssetTrack *track = [asset trackWithTrackID:trackID.intValue];
+        if (track)
+            [tracks addObject:track];
+    }
+    return tracks;
+}
+- (void)loadAssociatedTracksOfType:(AVTrackAssociationType)trackAssociationType completionHandler:(void (^)(NSArray<AVAssetTrack *> *, NSError *))handler
+{
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+        if (handler)
+            handler([self associatedTracksOfType:trackAssociationType], nil);
+    });
+}
+- (BOOL)canProvideSampleCursors { return _ftrack->sampleCount > 0 && _ftrack->timescale > 0; }
 - (BOOL)hasAudioSampleDependencies { return NO; }
 
 - (AVKeyValueStatus)statusOfValueForKey:(NSString *)key error:(NSError **)outError { return AVKeyValueStatusLoaded; }
@@ -305,7 +400,28 @@ asset_keys(void)
 - (CMTime)overallDurationHint { return kCMTimeInvalid; }
 - (CMTime)minimumTimeOffsetFromLive { return kCMTimeInvalid; }
 - (AVAssetReferenceRestrictions)referenceRestrictions { return AVAssetReferenceRestrictionForbidLocalReferenceToRemote; }
-- (NSArray *)trackGroups { return @[]; }
+- (NSArray *)trackGroups
+{
+    NSMutableArray *orderedIDs = [NSMutableArray array];
+    NSMutableDictionary *groupedIDs = [NSMutableDictionary dictionary];
+    for (AVAssetTrack *track in [self tracks]) {
+        int16_t alternateGroup = track._finchTrack->alternateGroup;
+        if (alternateGroup <= 0)
+            continue;
+        NSNumber *key = @(alternateGroup);
+        NSMutableArray *trackIDs = groupedIDs[key];
+        if (!trackIDs) {
+            trackIDs = [NSMutableArray array];
+            groupedIDs[key] = trackIDs;
+            [orderedIDs addObject:key];
+        }
+        [trackIDs addObject:@(track.trackID)];
+    }
+    NSMutableArray *groups = [NSMutableArray arrayWithCapacity:orderedIDs.count];
+    for (NSNumber *key in orderedIDs)
+        [groups addObject:[[AVAssetTrackGroup alloc] initWithFinchTrackIDs:groupedIDs[key]]];
+    return groups;
+}
 - (NSArray<AVMetadataItem *> *)metadata { return @[]; }
 - (NSArray<AVMetadataItem *> *)commonMetadata { return AVFCommonMetadata([self metadata]); }
 - (NSArray<AVMetadataFormat> *)availableMetadataFormats { return @[]; }
@@ -322,10 +438,72 @@ asset_keys(void)
 {
     return @[];
 }
-- (NSArray<AVMediaCharacteristic> *)availableMediaCharacteristicsWithMediaSelectionOptions { return @[]; }
-- (AVMediaSelectionGroup *)mediaSelectionGroupForMediaCharacteristic:(AVMediaCharacteristic)mediaCharacteristic { return nil; }
-- (NSArray<AVMediaSelection *> *)allMediaSelections { return @[]; }
-- (AVMediaSelection *)preferredMediaSelection { return nil; }
+- (void)loadChapterMetadataGroupsWithTitleLocale:(NSLocale *)locale
+                  containingItemsWithCommonKeys:(NSArray<AVMetadataKey> *)commonKeys
+                               completionHandler:(void (^)(NSArray<AVTimedMetadataGroup *> *, NSError *))handler
+{
+    [self loadValuesAsynchronouslyForKeys:@[@"tracks"] completionHandler:^{
+        NSError *error = nil;
+        [self statusOfValueForKey:@"tracks" error:&error];
+        NSArray *groups = error ? nil : [self chapterMetadataGroupsWithTitleLocale:locale containingItemsWithCommonKeys:commonKeys];
+        if (handler)
+            handler(groups, error);
+    }];
+}
+- (void)loadChapterMetadataGroupsBestMatchingPreferredLanguages:(NSArray<NSString *> *)preferredLanguages
+                                              completionHandler:(void (^)(NSArray<AVTimedMetadataGroup *> *, NSError *))handler
+{
+    [self loadValuesAsynchronouslyForKeys:@[@"tracks"] completionHandler:^{
+        NSError *error = nil;
+        [self statusOfValueForKey:@"tracks" error:&error];
+        NSArray *groups = error ? nil : [self chapterMetadataGroupsBestMatchingPreferredLanguages:preferredLanguages];
+        if (handler)
+            handler(groups, error);
+    }];
+}
+- (NSArray<AVMediaCharacteristic> *)availableMediaCharacteristicsWithMediaSelectionOptions { return AVFMediaSelectionAvailableCharacteristics(self); }
+- (AVMediaSelectionGroup *)mediaSelectionGroupForMediaCharacteristic:(AVMediaCharacteristic)mediaCharacteristic
+{
+    return AVFMediaSelectionGroupForCharacteristic(self, mediaCharacteristic);
+}
+- (void)loadMediaSelectionGroupForMediaCharacteristic:(AVMediaCharacteristic)mediaCharacteristic completionHandler:(void (^)(AVMediaSelectionGroup *, NSError *))handler
+{
+    if (handler) handler([self mediaSelectionGroupForMediaCharacteristic:mediaCharacteristic], nil);
+}
+- (NSArray<AVMediaSelection *> *)allMediaSelections
+{
+    return AVFMediaSelectionsForAsset(self);
+}
+- (AVMediaSelection *)preferredMediaSelection { return AVFMediaSelectionForAsset(self); }
+
+- (CMPersistentTrackID)unusedTrackID
+{
+    NSMutableSet *used = [NSMutableSet set];
+    uint32_t next = 1;
+    for (AVAssetTrack *track in self.tracks)
+        if (track.trackID > 0) {
+            uint32_t trackID = (uint32_t)track.trackID;
+            [used addObject:@(trackID)];
+            if (trackID >= next && trackID < INT32_MAX)
+                next = trackID + 1;
+        }
+    AVFMovie *movie = [self _finchMovie];
+    if (movie && movie->nextTrackID > next)
+        next = movie->nextTrackID;
+    while ([used containsObject:@(next)] && next < INT32_MAX)
+        next++;
+    return next < INT32_MAX ? (CMPersistentTrackID)(next + 1) : INT32_MAX;
+}
+
+- (void)findUnusedTrackIDWithCompletionHandler:(void (^)(CMPersistentTrackID, NSError *))handler
+{
+    [self loadValuesAsynchronouslyForKeys:@[@"tracks"] completionHandler:^{
+        NSError *error = nil;
+        [self statusOfValueForKey:@"tracks" error:&error];
+        if (handler)
+            handler(error ? kCMPersistentTrackID_Invalid : self.unusedTrackID, error);
+    }];
+}
 
 - (AVAssetTrack *)trackWithTrackID:(CMPersistentTrackID)trackID
 {
@@ -518,6 +696,30 @@ asset_keys(void)
 {
     [self _finchRead];
     return _error;
+}
+
+- (NSArray<AVAssetVariant *> *)variants { return @[]; }
+
+- (AVAssetTrack *)compatibleTrackForCompositionTrack:(AVCompositionTrack *)compositionTrack
+{
+    if (!compositionTrack)
+        return nil;
+    for (AVAssetTrack *track in self.tracks)
+        if ([track.mediaType isEqualToString:compositionTrack.mediaType] && track.playable)
+            return track;
+    return nil;
+}
+
+- (void)findCompatibleTrackForCompositionTrack:(AVCompositionTrack *)compositionTrack
+                             completionHandler:(void (^)(AVAssetTrack *, NSError *))handler
+{
+    [self loadValuesAsynchronouslyForKeys:@[@"tracks"] completionHandler:^{
+        NSError *error = nil;
+        [self statusOfValueForKey:@"tracks" error:&error];
+        AVAssetTrack *track = error ? nil : [self compatibleTrackForCompositionTrack:compositionTrack];
+        if (handler)
+            handler(track, error);
+    }];
 }
 
 - (CMTime)duration

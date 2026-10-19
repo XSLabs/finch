@@ -7,4 +7,5 @@ set -euo pipefail
 FINCH_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 exec "${FINCH_ROOT}/tools/build-small-framework.sh" \
     /System/Library/Frameworks/CoreAudio.framework/Versions/A/CoreAudio 1 1 com.apple.audio.CoreAudio 5.0 \
-    "${FINCH_ROOT}/userland/CoreAudio/AudioHardware.c" -- -framework CoreFoundation
+    "${FINCH_ROOT}/userland/CoreAudio/AudioHardware.c" \
+    "${FINCH_ROOT}/userland/CoreAudio/CATapDescription.m" -- -framework Foundation -framework CoreFoundation

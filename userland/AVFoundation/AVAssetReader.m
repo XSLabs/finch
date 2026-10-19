@@ -21,6 +21,7 @@
 #import <AudioToolbox/AudioToolbox.h>
 #import <CoreVideo/CoreVideo.h>
 #import <ImageIO/ImageIO.h>
+#import <math.h>
 
 @interface AVURLAsset (FinchReading)
 - (AVFMovie *)_finchMovie;
@@ -34,6 +35,9 @@
 @interface AVAssetReaderOutput ()
 - (void)_finchStartWithReader:(AVAssetReader *)reader movie:(AVFMovie *)movie range:(CMTimeRange)range;
 - (BOOL)_finchFinished;
+- (BOOL)_finchHasStarted;
+- (AVAssetReader *)_finchReader;
+- (void)_finchQueueSampleBuffer:(CMSampleBufferRef)sampleBuffer;
 @end
 
 #pragma mark - Sample buffers
@@ -85,6 +89,13 @@ block_of(NSData *file, uint64_t offset, size_t size)
 - (void)resetForReadingTimeRanges:(NSArray<NSValue *> *)timeRanges {}
 - (void)markConfigurationAsFinal {}
 - (BOOL)_finchFinished { return _finished || !_started; }
+- (BOOL)_finchHasStarted { return _started; }
+- (AVAssetReader *)_finchReader { return _reader; }
+- (void)_finchQueueSampleBuffer:(CMSampleBufferRef)sampleBuffer
+{
+    if (sampleBuffer)
+        [_queue addObject:(__bridge id)sampleBuffer];
+}
 
 - (void)_finchStartWithReader:(AVAssetReader *)reader movie:(AVFMovie *)movie range:(CMTimeRange)range
 {
@@ -370,12 +381,79 @@ AVFCopySampleImage(AVFTrack *track, NSData *file, size_t index)
     switch (format) {
     case kCVPixelFormatType_32ARGB: info = (uint32_t)kCGImageAlphaPremultipliedFirst | (uint32_t)kCGBitmapByteOrder32Big; break;
     case kCVPixelFormatType_32RGBA: info = (uint32_t)kCGImageAlphaPremultipliedLast | (uint32_t)kCGBitmapByteOrder32Big; break;
+    case kCVPixelFormatType_420YpCbCr8BiPlanarFullRange: info = 0; break;
     default:
         format = kCVPixelFormatType_32BGRA;
         info = (uint32_t)kCGImageAlphaPremultipliedFirst | (uint32_t)kCGBitmapByteOrder32Little;
         break;
     }
     size_t w = CGImageGetWidth(im), h = CGImageGetHeight(im);
+    if (format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) {
+        CVPixelBufferRef rgb = NULL, yuv = NULL;
+        NSDictionary *attrs = @{(id)kCVPixelBufferIOSurfacePropertiesKey : @{}, (id)kCVPixelBufferCGImageCompatibilityKey : @YES};
+        if (CVPixelBufferCreate(NULL, w, h, kCVPixelFormatType_32BGRA, (__bridge CFDictionaryRef)attrs, &rgb)) {
+            CGImageRelease(im);
+            return NULL;
+        }
+        CVPixelBufferLockBaseAddress(rgb, 0);
+        CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+        CGContextRef c = CGBitmapContextCreate(CVPixelBufferGetBaseAddress(rgb), w, h, 8, CVPixelBufferGetBytesPerRow(rgb), cs,
+                                               (uint32_t)kCGImageAlphaPremultipliedFirst | (uint32_t)kCGBitmapByteOrder32Little);
+        CGColorSpaceRelease(cs);
+        if (c) {
+            CGContextSetBlendMode(c, kCGBlendModeCopy);
+            CGContextDrawImage(c, CGRectMake(0, 0, w, h), im);
+            CGContextRelease(c);
+        }
+        CVPixelBufferUnlockBaseAddress(rgb, 0);
+        CGImageRelease(im);
+        if (!c || CVPixelBufferCreate(NULL, w, h, format, (__bridge CFDictionaryRef)attrs, &yuv) ||
+            CVPixelBufferLockBaseAddress(rgb, kCVPixelBufferLock_ReadOnly) || CVPixelBufferLockBaseAddress(yuv, 0)) {
+            if (rgb) CVPixelBufferRelease(rgb);
+            if (yuv) CVPixelBufferRelease(yuv);
+            return NULL;
+        }
+        const uint8_t *src = CVPixelBufferGetBaseAddress(rgb);
+        size_t srcStride = CVPixelBufferGetBytesPerRow(rgb);
+        uint8_t *yPlane = CVPixelBufferGetBaseAddressOfPlane(yuv, 0);
+        uint8_t *uvPlane = CVPixelBufferGetBaseAddressOfPlane(yuv, 1);
+        size_t yStride = CVPixelBufferGetBytesPerRowOfPlane(yuv, 0);
+        size_t uvStride = CVPixelBufferGetBytesPerRowOfPlane(yuv, 1);
+        size_t uvHeight = (h + 1) / 2, uvWidth = (w + 1) / 2;
+        for (size_t y = 0; y < h; y++) {
+            const uint8_t *row = src + y * srcStride;
+            for (size_t x = 0; x < w; x++) {
+                double b = row[x * 4], g = row[x * 4 + 1], r = row[x * 4 + 2];
+                yPlane[y * yStride + x] = (uint8_t)lrint(fmin(255.0, fmax(0.0, 0.114 * b + 0.587 * g + 0.299 * r)));
+            }
+        }
+        for (size_t cy = 0; cy < uvHeight; cy++) {
+            uint8_t *row = uvPlane + cy * uvStride;
+            for (size_t cx = 0; cx < uvWidth; cx++) {
+                double cb = 0, cr = 0;
+                size_t n = 0;
+                for (size_t dy = 0; dy < 2; dy++) for (size_t dx = 0; dx < 2; dx++) {
+                    size_t x = cx * 2 + dx, y = cy * 2 + dy;
+                    if (x >= w || y >= h) continue;
+                    const uint8_t *p = src + y * srcStride + x * 4;
+                    double b = p[0], g = p[1], r = p[2];
+                    double luma = 0.114 * b + 0.587 * g + 0.299 * r;
+                    cb += 128.0 + (b - luma) / 1.772;
+                    cr += 128.0 + (r - luma) / 1.402;
+                    n++;
+                }
+                row[cx * 2] = (uint8_t)lrint(fmin(255.0, fmax(0.0, cb / n)));
+                row[cx * 2 + 1] = (uint8_t)lrint(fmin(255.0, fmax(0.0, cr / n)));
+            }
+        }
+        CVPixelBufferUnlockBaseAddress(yuv, 0);
+        CVPixelBufferUnlockBaseAddress(rgb, kCVPixelBufferLock_ReadOnly);
+        CVPixelBufferRelease(rgb);
+        CVBufferSetAttachment(yuv, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_SMPTE_C, kCVAttachmentMode_ShouldPropagate);
+        CVBufferSetAttachment(yuv, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_ITU_R_709_2, kCVAttachmentMode_ShouldPropagate);
+        CVBufferSetAttachment(yuv, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_601_4, kCVAttachmentMode_ShouldPropagate);
+        return yuv;
+    }
     CVPixelBufferRef pb = NULL;
     NSDictionary *attrs = @{(id)kCVPixelBufferIOSurfacePropertiesKey : @{}};
     if (CVPixelBufferCreate(NULL, w, h, format, (__bridge CFDictionaryRef)attrs, &pb)) {
@@ -529,6 +607,209 @@ supply(AudioConverterRef c, UInt32 *packets, AudioBufferList *io, AudioStreamPac
     if (!sb)
         return NO;
     [_queue addObject:(__bridge_transfer id)sb];
+    return YES;
+}
+
+@end
+
+@implementation AVAssetReaderSampleReferenceOutput {
+    AVAssetTrack *_ftrack;
+    AVFTrack *_t;
+    AVAssetReaderTrackOutput *_storedOutput;
+}
+
++ (instancetype)assetReaderSampleReferenceOutputWithTrack:(AVAssetTrack *)track
+{
+    return [[self alloc] initWithTrack:track];
+}
+
+- (instancetype)initWithTrack:(AVAssetTrack *)track
+{
+    if ((self = [super init]))
+        _ftrack = track;
+    return self;
+}
+
+- (AVAssetTrack *)track { return _ftrack; }
+- (NSString *)mediaType { return _ftrack.mediaType; }
+
+- (void)_finchStartWithReader:(AVAssetReader *)reader movie:(AVFMovie *)movie range:(CMTimeRange)range
+{
+    [super _finchStartWithReader:reader movie:movie range:range];
+    _t = [_ftrack _finchTrack];
+    _storedOutput = [[AVAssetReaderTrackOutput alloc] initWithTrack:_ftrack outputSettings:nil];
+    [_storedOutput _finchStartWithReader:reader movie:movie range:range];
+}
+
+- (BOOL)_finchFill
+{
+    CMSampleBufferRef stored = [_storedOutput copyNextSampleBuffer];
+    if (!stored)
+        return NO;
+
+    CMItemCount sampleCount = CMSampleBufferGetNumSamples(stored);
+    if (!sampleCount) {
+        [_queue addObject:(__bridge_transfer id)stored];
+        return YES;
+    }
+
+    AVURLAsset *asset = (AVURLAsset *)_reader.asset;
+    NSURL *url = [asset isKindOfClass:[AVURLAsset class]] ? asset.URL : nil;
+    if (!url || !url.isFileURL || !_t) {
+        CFRelease(stored);
+        [_reader performSelector:@selector(_finchFailWithError:) withObject:AVFError(AVErrorOperationNotSupportedForAsset, nil)];
+        return NO;
+    }
+
+    CMTime pts = CMSampleBufferGetPresentationTimeStamp(stored);
+    CMTime dts = CMSampleBufferGetDecodeTimeStamp(stored);
+    CMTime firstTime = CMTIME_IS_VALID(dts) ? dts : pts;
+    int64_t target = CMTimeConvertScale(firstTime, (int32_t)_t->timescale, kCMTimeRoundingMethod_RoundHalfAwayFromZero).value;
+    size_t first = 0;
+    for (; first < _t->sampleCount; first++) {
+        AVFSample sample = _t->samples[first];
+        int64_t time = CMTIME_IS_VALID(dts) ? sample.decodeTime : sample.decodeTime + sample.compositionOffset;
+        if (time == target)
+            break;
+    }
+    if (first == _t->sampleCount || _t->samples[first].offset > INT64_MAX) {
+        CFRelease(stored);
+        [_reader performSelector:@selector(_finchFailWithError:) withObject:AVFError(AVErrorOperationNotSupportedForAsset, nil)];
+        return NO;
+    }
+
+    CMItemCount timingCount = 0;
+    CMSampleBufferGetSampleTimingInfoArray(stored, 0, NULL, &timingCount);
+    CMSampleTimingInfo *timings = timingCount ? calloc((size_t)timingCount, sizeof(*timings)) : NULL;
+    if (timingCount && (!timings || CMSampleBufferGetSampleTimingInfoArray(stored, timingCount, timings, NULL))) {
+        free(timings);
+        CFRelease(stored);
+        [_reader performSelector:@selector(_finchFailWithError:) withObject:AVFError(AVErrorOperationNotSupportedForAsset, nil)];
+        return NO;
+    }
+    if (timingCount == 1)
+        timings[0].decodeTimeStamp = CMTimeMake(_t->samples[first].decodeTime, (int32_t)_t->timescale);
+    else if (timingCount == sampleCount)
+        for (CMItemCount i = 0; i < timingCount && first + (size_t)i < _t->sampleCount; i++)
+            timings[i].decodeTimeStamp = CMTimeMake(_t->samples[first + (size_t)i].decodeTime, (int32_t)_t->timescale);
+
+    size_t size = CMSampleBufferGetSampleSize(stored, 0);
+    CMSampleBufferRef sampleReference = NULL;
+    OSStatus status = CMSampleBufferCreate(NULL, NULL, true, NULL, NULL, CMSampleBufferGetFormatDescription(stored), sampleCount,
+                                           timingCount, timings, size ? 1 : 0, size ? &size : NULL, &sampleReference);
+    free(timings);
+    if (status || !sampleReference) {
+        CFRelease(stored);
+        [_reader performSelector:@selector(_finchFailWithError:) withObject:AVFError(AVErrorOperationNotSupportedForAsset, nil)];
+        return NO;
+    }
+    CMSetAttachment(sampleReference, kCMSampleBufferAttachmentKey_SampleReferenceURL, (__bridge CFURLRef)url,
+                    kCMAttachmentMode_ShouldPropagate);
+    NSNumber *offset = @(_t->samples[first].offset);
+    CMSetAttachment(sampleReference, kCMSampleBufferAttachmentKey_SampleReferenceByteOffset, (__bridge CFNumberRef)offset,
+                    kCMAttachmentMode_ShouldPropagate);
+    CFRelease(stored);
+    [_queue addObject:(__bridge_transfer id)sampleReference];
+    return YES;
+}
+
+@end
+
+@implementation AVAssetReaderVideoCompositionOutput {
+    NSArray<AVAssetTrack *> *_videoTracks;
+    NSDictionary *_videoSettings;
+    AVVideoComposition *_videoComposition;
+    AVAssetReaderTrackOutput *_decodedOutput;
+}
+
++ (instancetype)assetReaderVideoCompositionOutputWithVideoTracks:(NSArray<AVAssetTrack *> *)videoTracks
+                                                   videoSettings:(NSDictionary<NSString *, id> *)videoSettings
+{
+    return [[self alloc] initWithVideoTracks:videoTracks videoSettings:videoSettings];
+}
+
+- (instancetype)initWithVideoTracks:(NSArray<AVAssetTrack *> *)videoTracks videoSettings:(NSDictionary<NSString *, id> *)videoSettings
+{
+    if (!videoTracks.count)
+        [NSException raise:NSInvalidArgumentException format:@"AVAssetReaderVideoCompositionOutput requires at least one video track"];
+    for (AVAssetTrack *track in videoTracks)
+        if (![track.mediaType isEqualToString:AVMediaTypeVideo])
+            [NSException raise:NSInvalidArgumentException format:@"AVAssetReaderVideoCompositionOutput tracks must be video tracks"];
+    if (videoSettings[AVVideoCodecKey])
+        [NSException raise:NSInvalidArgumentException format:@"AVAssetReaderVideoCompositionOutput does not support compressed video settings"];
+    if ((self = [super init])) {
+        _videoTracks = [videoTracks copy];
+        _videoSettings = [videoSettings copy];
+    }
+    return self;
+}
+
+- (NSArray<AVAssetTrack *> *)videoTracks { return _videoTracks; }
+- (NSDictionary<NSString *, id> *)videoSettings { return _videoSettings; }
+- (AVVideoComposition *)videoComposition { return _videoComposition; }
+- (void)setVideoComposition:(AVVideoComposition *)videoComposition
+{
+    if ([self _finchHasStarted])
+        [NSException raise:NSInternalInconsistencyException format:@"-[AVAssetReaderVideoCompositionOutput setVideoComposition:] cannot be called after reading has started"];
+    _videoComposition = [videoComposition copy];
+}
+- (id<AVVideoCompositing>)customVideoCompositor { return nil; }
+
+- (BOOL)_finchCanPassThroughComposition
+{
+    if (!_videoComposition)
+        return YES;
+    NSArray<id<AVVideoCompositionInstruction>> *instructions = _videoComposition.instructions;
+    if (!instructions.count)
+        return NO;
+    CGSize size = _videoComposition.renderSize;
+    CGSize sourceSize = _videoTracks[0].naturalSize;
+    if (size.width != sourceSize.width || size.height != sourceSize.height || _videoComposition.renderScale != 1.0)
+        return NO;
+    for (id<AVVideoCompositionInstruction> instruction in instructions) {
+        AVVideoCompositionInstruction *concrete = (AVVideoCompositionInstruction *)instruction;
+        if (concrete.layerInstructions.count != 1 || concrete.backgroundColor)
+            return NO;
+        AVVideoCompositionLayerInstruction *layer = concrete.layerInstructions[0];
+        if (layer.trackID != _videoTracks[0].trackID)
+            return NO;
+        CGAffineTransform startTransform, endTransform;
+        if ([layer getTransformRampForTime:instruction.timeRange.start startTransform:&startTransform endTransform:&endTransform timeRange:NULL] &&
+            (!CGAffineTransformEqualToTransform(startTransform, CGAffineTransformIdentity) ||
+             !CGAffineTransformEqualToTransform(endTransform, CGAffineTransformIdentity)))
+            return NO;
+        float startOpacity, endOpacity;
+        if ([layer getOpacityRampForTime:instruction.timeRange.start startOpacity:&startOpacity endOpacity:&endOpacity timeRange:NULL] &&
+            (startOpacity != 1.0f || endOpacity != 1.0f))
+            return NO;
+        CGRect startCrop, endCrop;
+        if ([layer getCropRectangleRampForTime:instruction.timeRange.start startCropRectangle:&startCrop endCropRectangle:&endCrop timeRange:NULL] &&
+            (!CGRectIsInfinite(startCrop) || !CGRectIsInfinite(endCrop)))
+            return NO;
+    }
+    return YES;
+}
+
+- (void)_finchStartWithReader:(AVAssetReader *)reader movie:(AVFMovie *)movie range:(CMTimeRange)range
+{
+    [super _finchStartWithReader:reader movie:movie range:range];
+    if (_videoTracks.count != 1 || ![self _finchCanPassThroughComposition]) {
+        [reader performSelector:@selector(_finchFailWithError:) withObject:AVFError(AVErrorOperationNotSupportedForAsset, nil)];
+        return;
+    }
+    NSDictionary *settings = _videoSettings ?: @{(id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange)};
+    _decodedOutput = [[AVAssetReaderTrackOutput alloc] initWithTrack:_videoTracks[0] outputSettings:settings];
+    [_decodedOutput _finchStartWithReader:reader movie:movie range:range];
+}
+
+- (BOOL)_finchFill
+{
+    if (!_decodedOutput)
+        return NO;
+    CMSampleBufferRef sample = [_decodedOutput copyNextSampleBuffer];
+    if (!sample)
+        return NO;
+    [_queue addObject:(__bridge_transfer id)sample];
     return YES;
 }
 

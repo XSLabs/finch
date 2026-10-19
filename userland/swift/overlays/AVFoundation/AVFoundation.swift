@@ -61,10 +61,34 @@ extension AVPartialAsyncProperty where Root: AVAsset {
         property("availableMediaCharacteristicsWithMediaSelectionOptions") { $0.availableMediaCharacteristicsWithMediaSelectionOptions }
     }
     public static var metadata: AVAsyncProperty<Root, [AVMetadataItem]> { property("metadata") { $0.metadata } }
+    public static var preferredMediaSelection: AVAsyncProperty<Root, AVMediaSelection> {
+        property("preferredMediaSelection") { $0.preferredMediaSelection }
+    }
 }
 
 extension AVPartialAsyncProperty where Root: AVURLAsset {
     public static var tracks: AVAsyncProperty<Root, [AVAssetTrack]> { property("tracks") { $0.tracks } }
+    public static var variants: AVAsyncProperty<Root, [AVAssetVariant]> { property("variants") { $0.variants } }
+}
+
+public extension AVAssetVariant {
+    var averageBitRate: Double? {
+        guard let value = value(forKey: "averageBitRate") as? NSNumber, value.doubleValue >= 0 else { return nil }
+        return value.doubleValue
+    }
+
+    var peakBitRate: Double? {
+        guard let value = value(forKey: "peakBitRate") as? NSNumber, value.doubleValue >= 0 else { return nil }
+        return value.doubleValue
+    }
+}
+
+extension AVCapturePhotoOutput {
+    @_silgen_name("$sSo20AVCapturePhotoOutputC12AVFoundationE19supportedFlashModesSaySo0aF4ModeVGvg")
+    public func finchSupportedFlashModes() -> [AVCaptureDevice.FlashMode] {
+        let numbers = value(forKey: "supportedFlashModes") as? [NSNumber] ?? []
+        return numbers.compactMap { AVCaptureDevice.FlashMode(rawValue: $0.intValue) }
+    }
 }
 
 extension AVPartialAsyncProperty where Root: AVAssetTrack {

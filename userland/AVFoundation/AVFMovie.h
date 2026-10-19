@@ -16,6 +16,12 @@ typedef struct {
     int64_t decodeTime;    /* media timescale */
     int32_t compositionOffset;
     uint32_t description;  /* index into formatDescriptions */
+    uint64_t chunkOffset;
+    uint64_t chunkLength;
+    uint32_t chunkIndex;
+    uint32_t chunkSampleIndex;
+    uint32_t chunkSampleCount;
+    bool chunkHasUniformSampleSizes;
     bool sync;
 } AVFSample;
 
@@ -57,6 +63,8 @@ typedef struct {
     AVFEdit *edits;
     size_t editCount;
     NSMutableArray<AVFMetadataEntry *> *userData;
+    NSMutableArray<NSString *> *trackAssociationTypes;
+    NSMutableDictionary<NSString *, NSArray<NSNumber *> *> *trackReferences;
     BOOL selfContained;
 }
 @end
@@ -66,6 +74,7 @@ typedef struct {
     NSData *data;
     FourCharCode majorBrand;
     BOOL quickTime;        /* QuickTime ('qt  ' or no 'ftyp') rather than ISO */
+    uint32_t nextTrackID;  /* 'mvhd' reservation used by AVAsset's ID picker */
     uint32_t timescale;
     uint64_t duration;
     uint64_t creationTime; /* seconds since 1904 */

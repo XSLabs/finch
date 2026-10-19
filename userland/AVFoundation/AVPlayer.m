@@ -24,6 +24,9 @@
 #pragma clang diagnostic ignored "-Wobjc-designated-initializers"
 #import <CoreVideo/CoreVideo.h>
 #import <QuartzCore/QuartzCore.h>
+#import <AVFoundation/AVPlayerMediaSelectionCriteria.h>
+#import <AVFoundation/AVMediaSelectionGroup.h>
+#import <AVFoundation/AVPlayerItemProtectedContentAdditions.h>
 
 @interface AVURLAsset (FinchPlayback)
 - (AVFMovie *)_finchMovie;
@@ -40,8 +43,52 @@
 - (CGImageRef)_finchCopyImageAtTime:(CMTime)time sampleIndex:(size_t *)indexOut;
 @end
 
+@interface AVPlayerItemMediaDataCollector (FinchAssociation)
+- (AVPlayerItem *)_finchAttachedItem;
+- (void)_finchSetAttachedItem:(AVPlayerItem *)item;
+@end
+
 @interface AVPlayerItemOutput ()
 - (void)_finchItemTimeMoved;
+@end
+
+@interface AVPlayer (FinchMediaSelection)
+- (void)_finchApplyMediaSelectionCriteriaToItem:(AVPlayerItem *)item characteristic:(AVMediaCharacteristic)characteristic;
+@end
+
+@interface AVMutableMediaSelection (FinchAutomaticSelection)
+- (void)_finchSetOption:(AVMediaSelectionOption *)option inGroup:(AVMediaSelectionGroup *)group automatic:(BOOL)automatic;
+@end
+
+@interface AVMediaSelectionGroup (FinchCustomMediaSelection)
+- (AVCustomMediaSelectionScheme *)customMediaSelectionScheme;
+@end
+
+@implementation AVPlayerMediaSelectionCriteria {
+    NSArray<NSString *> *_fpreferredLanguages;
+    NSArray<AVMediaCharacteristic> *_fpreferredCharacteristics;
+    NSArray<AVMediaCharacteristic> *_fprincipalCharacteristics;
+}
+
+- (instancetype)initWithPreferredLanguages:(NSArray<NSString *> *)languages preferredMediaCharacteristics:(NSArray<AVMediaCharacteristic> *)characteristics
+{
+    return [self initWithPrincipalMediaCharacteristics:nil preferredLanguages:languages preferredMediaCharacteristics:characteristics];
+}
+
+- (instancetype)initWithPrincipalMediaCharacteristics:(NSArray<AVMediaCharacteristic> *)principal preferredLanguages:(NSArray<NSString *> *)languages preferredMediaCharacteristics:(NSArray<AVMediaCharacteristic> *)characteristics
+{
+    if ((self = [super init])) {
+        _fprincipalCharacteristics = [principal copy];
+        _fpreferredLanguages = [languages copy];
+        _fpreferredCharacteristics = [characteristics copy];
+    }
+    return self;
+}
+
+- (NSArray<NSString *> *)preferredLanguages { return _fpreferredLanguages; }
+- (NSArray<AVMediaCharacteristic> *)preferredMediaCharacteristics { return _fpreferredCharacteristics; }
+- (NSArray<AVMediaCharacteristic> *)principalMediaCharacteristics { return _fprincipalCharacteristics; }
+
 @end
 
 #pragma mark - Item tracks
@@ -75,11 +122,17 @@
     NSError *_ferror;
     NSArray *_ftracks;
     NSMutableArray *_foutputs;
+    NSMutableArray *_fmediaDataCollectors;
     __weak AVPlayer *_fplayer;
     CMTime _ftime, _fforwardEnd, _freverseEnd;
     BOOL _floaded;
+    AVContentAuthorizationStatus _fcontentAuthorizationStatus;
     AVAudioMix *_faudioMix;
     AVVideoComposition *_fvideoComposition;
+    AVMediaSelection *_fmediaSelection;
+    NSArray<AVCustomMediaSelectionScheme *> *_fpreferredCustomSchemes;
+    NSMutableDictionary<NSValue *, id> *_fselectedLanguages;
+    NSMutableDictionary<NSValue *, id> *_fselectedPresentationSettings;
     NSTimeInterval _fbufferDuration;
     double _fpeakBitRate;
     CGSize _fmaxResolution;
@@ -103,7 +156,11 @@
         _fforwardEnd = kCMTimeInvalid;
         _freverseEnd = kCMTimeInvalid;
         _foutputs = [NSMutableArray array];
+        _fmediaDataCollectors = [NSMutableArray array];
         _ftracks = @[];
+        _fpreferredCustomSchemes = @[];
+        _fselectedLanguages = [NSMutableDictionary dictionary];
+        _fselectedPresentationSettings = [NSMutableDictionary dictionary];
         __weak AVPlayerItem *weakSelf = self;
         [asset loadValuesAsynchronouslyForKeys:@[ @"tracks", @"duration", @"playable" ] completionHandler:^{
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -129,6 +186,8 @@
     [self willChangeValueForKey:@"duration"];
     [self willChangeValueForKey:@"presentationSize"];
     _ftracks = tracks;
+    if (!_fmediaSelection)
+        _fmediaSelection = [_fasset.preferredMediaSelection mutableCopy];
     _floaded = YES;
     [self didChangeValueForKey:@"presentationSize"];
     [self didChangeValueForKey:@"duration"];
@@ -145,6 +204,24 @@
 }
 
 - (AVAsset *)asset { return _fasset; }
+- (BOOL)isAuthorizationRequiredForPlayback { return _fasset.hasProtectedContent; }
+- (BOOL)isApplicationAuthorizedForPlayback { return !_fasset.hasProtectedContent; }
+- (BOOL)isContentAuthorizedForPlayback { return !_fasset.hasProtectedContent; }
+- (AVContentAuthorizationStatus)contentAuthorizationRequestStatus { return _fcontentAuthorizationStatus; }
+
+- (void)requestContentAuthorizationAsynchronouslyWithTimeoutInterval:(NSTimeInterval)timeoutInterval
+                                                   completionHandler:(void (^)(void))handler
+{
+    /* Finch has no protected-content authorization service. */
+    _fcontentAuthorizationStatus = AVContentAuthorizationNotAvailable;
+    if (handler)
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), handler);
+}
+
+- (void)cancelContentAuthorizationRequest
+{
+}
+
 - (AVPlayerItemStatus)status { return _fstatus; }
 - (NSError *)error { return _ferror; }
 - (NSArray<AVPlayerItemTrack *> *)tracks { return _ftracks; }
@@ -216,6 +293,104 @@
 - (NSArray<AVTimedMetadataGroup *> *)navigationMarkerGroups { return @[]; }
 - (void)setNavigationMarkerGroups:(NSArray<AVTimedMetadataGroup *> *)g {}
 
+- (AVMediaSelection *)currentMediaSelection { return _fmediaSelection; }
+
+- (AVMediaSelectionOption *)selectedMediaOptionInMediaSelectionGroup:(AVMediaSelectionGroup *)group
+{
+    return [_fmediaSelection selectedMediaOptionInMediaSelectionGroup:group];
+}
+
+- (void)selectMediaOption:(AVMediaSelectionOption *)option inMediaSelectionGroup:(AVMediaSelectionGroup *)group
+{
+    if (!group || !_fmediaSelection)
+        return;
+    [(AVMutableMediaSelection *)_fmediaSelection selectMediaOption:option inMediaSelectionGroup:group];
+}
+
+- (void)selectMediaOptionAutomaticallyInMediaSelectionGroup:(AVMediaSelectionGroup *)group
+{
+    if (!_fmediaSelection || !_fplayer.appliesMediaSelectionCriteriaAutomatically)
+        return;
+    for (AVMediaCharacteristic characteristic in @[AVMediaCharacteristicAudible, AVMediaCharacteristicLegible, AVMediaCharacteristicVisual]) {
+        if ([self.asset mediaSelectionGroupForMediaCharacteristic:characteristic] == group) {
+            [_fplayer _finchApplyMediaSelectionCriteriaToItem:self characteristic:characteristic];
+            return;
+        }
+    }
+}
+
+- (NSArray<AVCustomMediaSelectionScheme *> *)preferredCustomMediaSelectionSchemes { return _fpreferredCustomSchemes; }
+- (void)setPreferredCustomMediaSelectionSchemes:(NSArray<AVCustomMediaSelectionScheme *> *)schemes
+{
+    _fpreferredCustomSchemes = [schemes copy] ?: @[];
+}
+
+- (NSValue *)_finchKeyForSelectionGroup:(AVMediaSelectionGroup *)group
+{
+    return [NSValue valueWithNonretainedObject:group];
+}
+
+- (void)selectMediaPresentationLanguage:(NSString *)language forMediaSelectionGroup:(AVMediaSelectionGroup *)group
+{
+    AVCustomMediaSelectionScheme *scheme = group.customMediaSelectionScheme;
+    if (!language || ![scheme.availableLanguages containsObject:language])
+        return;
+    NSValue *key = [self _finchKeyForSelectionGroup:group];
+    _fselectedLanguages[key] = language;
+    for (AVMediaSelectionOption *option in group.options) {
+        if ([option.extendedLanguageTag caseInsensitiveCompare:language] == NSOrderedSame) {
+            [self selectMediaOption:option inMediaSelectionGroup:group];
+            break;
+        }
+    }
+}
+
+- (NSString *)selectedMediaPresentationLanguageForMediaSelectionGroup:(AVMediaSelectionGroup *)group
+{
+    return _fselectedLanguages[[self _finchKeyForSelectionGroup:group]];
+}
+
+- (void)selectMediaPresentationSetting:(AVMediaPresentationSetting *)setting forMediaSelectionGroup:(AVMediaSelectionGroup *)group
+{
+    AVCustomMediaSelectionScheme *scheme = group.customMediaSelectionScheme;
+    BOOL offered = NO;
+    for (AVMediaPresentationSelector *selector in scheme.selectors)
+        if ([selector.settings containsObject:setting]) { offered = YES; break; }
+    if (!offered)
+        return;
+    NSValue *key = [self _finchKeyForSelectionGroup:group];
+    NSMutableDictionary *selected = _fselectedPresentationSettings[key];
+    if (!selected) {
+        selected = [NSMutableDictionary dictionary];
+        _fselectedPresentationSettings[key] = selected;
+    }
+    for (AVMediaPresentationSelector *selector in scheme.selectors)
+        if ([selector.settings containsObject:setting]) { selected[selector] = setting; break; }
+    for (AVMediaSelectionOption *option in group.options) {
+        if ([option hasMediaCharacteristic:setting.mediaCharacteristic]) {
+            [self selectMediaOption:option inMediaSelectionGroup:group];
+            break;
+        }
+    }
+}
+
+- (NSDictionary<AVMediaPresentationSelector *,id> *)selectedMediaPresentationSettingsForMediaSelectionGroup:(AVMediaSelectionGroup *)group
+{
+    return [_fselectedPresentationSettings[[self _finchKeyForSelectionGroup:group]] copy] ?: @{};
+}
+
+- (NSDictionary<AVMediaPresentationSelector *,id> *)effectiveMediaPresentationSettingsForMediaSelectionGroup:(AVMediaSelectionGroup *)group
+{
+    NSMutableDictionary *effective = [NSMutableDictionary dictionary];
+    AVMediaSelectionOption *selected = [_fmediaSelection selectedMediaOptionInMediaSelectionGroup:group];
+    NSDictionary *choices = _fselectedPresentationSettings[[self _finchKeyForSelectionGroup:group]];
+    for (AVMediaPresentationSelector *selector in group.customMediaSelectionScheme.selectors) {
+        AVMediaPresentationSetting *setting = choices[selector];
+        effective[selector] = setting && [selected hasMediaCharacteristic:setting.mediaCharacteristic] ? setting : NSNull.null;
+    }
+    return effective;
+}
+
 - (NSArray<NSValue *> *)loadedTimeRanges
 {
     return _floaded ? @[ [NSValue valueWithCMTimeRange:CMTimeRangeMake(kCMTimeZero, _fasset.duration)] ] : @[];
@@ -227,6 +402,26 @@
 }
 
 - (NSArray<AVPlayerItemOutput *> *)outputs { return [_foutputs copy]; }
+
+- (NSArray<AVPlayerItemMediaDataCollector *> *)mediaDataCollectors { return [_fmediaDataCollectors copy]; }
+
+- (void)addMediaDataCollector:(AVPlayerItemMediaDataCollector *)collector
+{
+    if (!collector)
+        return;
+    if ([_fmediaDataCollectors containsObject:collector] || [collector _finchAttachedItem])
+        [NSException raise:NSInvalidArgumentException format:@"Cannot attach a collector that is already attached"];
+    [collector _finchSetAttachedItem:self];
+    [_fmediaDataCollectors addObject:collector];
+}
+
+- (void)removeMediaDataCollector:(AVPlayerItemMediaDataCollector *)collector
+{
+    if (collector && [_fmediaDataCollectors containsObject:collector]) {
+        [collector _finchSetAttachedItem:nil];
+        [_fmediaDataCollectors removeObjectIdenticalTo:collector];
+    }
+}
 
 - (void)addOutput:(AVPlayerItemOutput *)output
 {
@@ -444,6 +639,8 @@
     AVPlayerStatus _fstatus;
     AVPlayerTimeControlStatus _fcontrol;
     AVPlayerActionAtItemEnd _faction;
+    BOOL _fappliesMediaSelectionCriteriaAutomatically;
+    NSMutableDictionary<AVMediaCharacteristic, AVPlayerMediaSelectionCriteria *> *_fmediaSelectionCriteria;
     NSMutableArray<AVFTimeObserver *> *_fobservers;
     NSTimer *_ftimer;
     CMTime _fanchorTime;   /* item time when the clock started */
@@ -461,6 +658,8 @@
         _fvolume = 1;
         _fdefaultRate = 1;
         _fwaits = YES;
+        _fappliesMediaSelectionCriteriaAutomatically = YES;
+        _fmediaSelectionCriteria = [NSMutableDictionary dictionary];
         _faction = AVPlayerActionAtItemEndPause;
         _fobservers = [NSMutableArray array];
         [self _finchSetItem:item];
@@ -497,6 +696,9 @@ host_seconds(void)
     }
     if (_frate > 0 && item.status == AVPlayerItemStatusReadyToPlay)
         [self _finchStartClock];
+    if (_fappliesMediaSelectionCriteriaAutomatically)
+        for (AVMediaCharacteristic characteristic in item.asset.availableMediaCharacteristicsWithMediaSelectionOptions)
+            [self _finchApplyMediaSelectionCriteriaToItem:item characteristic:characteristic];
 }
 
 - (AVPlayerStatus)status { return _fstatus; }
@@ -525,9 +727,63 @@ host_seconds(void)
 - (void)setAllowsExternalPlayback:(BOOL)a {}
 - (NSString *)audioOutputDeviceUniqueID { return nil; }
 - (void)setAudioOutputDeviceUniqueID:(NSString *)uid {}
-- (BOOL)appliesMediaSelectionCriteriaAutomatically { return YES; }
-- (void)setAppliesMediaSelectionCriteriaAutomatically:(BOOL)flag {}
+- (BOOL)appliesMediaSelectionCriteriaAutomatically { return _fappliesMediaSelectionCriteriaAutomatically; }
+- (void)setAppliesMediaSelectionCriteriaAutomatically:(BOOL)flag
+{
+    _fappliesMediaSelectionCriteriaAutomatically = flag;
+}
 + (BOOL)eligibleForHDRPlayback { return NO; }
+
+- (void)setMediaSelectionCriteria:(AVPlayerMediaSelectionCriteria *)criteria forMediaCharacteristic:(AVMediaCharacteristic)characteristic
+{
+    if (criteria)
+        _fmediaSelectionCriteria[characteristic] = criteria;
+    else
+        [_fmediaSelectionCriteria removeObjectForKey:characteristic];
+    if (self.appliesMediaSelectionCriteriaAutomatically && _fitem)
+        [self _finchApplyMediaSelectionCriteriaToItem:_fitem characteristic:characteristic];
+}
+
+- (AVPlayerMediaSelectionCriteria *)mediaSelectionCriteriaForMediaCharacteristic:(AVMediaCharacteristic)characteristic
+{
+    return _fmediaSelectionCriteria[characteristic];
+}
+
+- (void)_finchApplyMediaSelectionCriteriaToItem:(AVPlayerItem *)item characteristic:(AVMediaCharacteristic)characteristic
+{
+    if (!_fappliesMediaSelectionCriteriaAutomatically || !item.currentMediaSelection)
+        return;
+    AVMediaSelectionGroup *group = [item.asset mediaSelectionGroupForMediaCharacteristic:characteristic];
+    if (!group || !group.options.count)
+        return;
+    AVPlayerMediaSelectionCriteria *criteria = _fmediaSelectionCriteria[characteristic];
+    AVMediaSelectionOption *best = nil;
+    NSArray *options = group.options;
+    if (criteria.principalMediaCharacteristics.count) {
+        for (AVMediaSelectionOption *option in options) {
+            BOOL matches = YES;
+            for (AVMediaCharacteristic required in criteria.principalMediaCharacteristics)
+                if (![option hasMediaCharacteristic:required]) { matches = NO; break; }
+            if (matches) { best = option; break; }
+        }
+    }
+    if (!best && criteria.preferredLanguages.count) {
+        NSArray *ranked = [AVMediaSelectionGroup mediaSelectionOptionsFromArray:options
+            filteredAndSortedAccordingToPreferredLanguages:criteria.preferredLanguages];
+        best = ranked.firstObject;
+    }
+    if (!best && criteria.preferredMediaCharacteristics.count) {
+        for (AVMediaCharacteristic preferred in criteria.preferredMediaCharacteristics) {
+            for (AVMediaSelectionOption *option in options)
+                if ([option hasMediaCharacteristic:preferred]) { best = option; break; }
+            if (best) break;
+        }
+    }
+    if (!best)
+        best = group.defaultOption;
+    if (best)
+        [(AVMutableMediaSelection *)item.currentMediaSelection _finchSetOption:best inGroup:group automatic:YES];
+}
 
 - (void)_finchSetControl:(AVPlayerTimeControlStatus)c
 {

@@ -8,7 +8,12 @@
  * never called: nothing changes).
  */
 #include <CoreAudio/AudioHardware.h>
+#include <CoreAudio/AudioHardwareDeprecated.h>
+#include <CoreAudio/AudioHardwareTapping.h>
+#include <CoreAudio/HostTime.h>
 #include <dispatch/dispatch.h>
+#include <mach/mach_time.h>
+#include <math.h>
 #include <string.h>
 
 /* The system object's properties, and their sizes (0: a variable list, empty). */
@@ -175,3 +180,158 @@ AudioObjectRemovePropertyListenerBlock(AudioObjectID inObjectID, const AudioObje
 
 void AudioObjectShow(AudioObjectID inObjectID) {}
 OSStatus AudioHardwareUnload(void) { return kAudioHardwareNoError; }
+
+/* Finch has no audio device driver yet. Every device ID is therefore invalid. */
+OSStatus
+AudioDeviceCreateIOProcID(AudioObjectID device, AudioDeviceIOProc proc, void *clientData,
+                          AudioDeviceIOProcID *outProcID)
+{
+    (void)proc;
+    (void)clientData;
+    if (outProcID)
+        *outProcID = NULL;
+    return kAudioHardwareBadDeviceError;
+}
+
+OSStatus
+AudioDeviceCreateIOProcIDWithBlock(AudioDeviceIOProcID *outProcID, AudioObjectID device,
+                                   dispatch_queue_t queue, AudioDeviceIOBlock block)
+{
+    (void)queue;
+    (void)block;
+    if (outProcID)
+        *outProcID = NULL;
+    return kAudioHardwareBadDeviceError;
+}
+
+OSStatus
+AudioDeviceDestroyIOProcID(AudioObjectID device, AudioDeviceIOProcID procID)
+{
+    (void)procID;
+    return kAudioHardwareBadDeviceError;
+}
+
+OSStatus AudioDeviceStart(AudioObjectID device, AudioDeviceIOProcID procID)
+{
+    (void)procID;
+    return kAudioHardwareBadDeviceError;
+}
+
+OSStatus AudioDeviceStop(AudioObjectID device, AudioDeviceIOProcID procID)
+{
+    (void)procID;
+    return kAudioHardwareBadDeviceError;
+}
+
+OSStatus
+AudioHardwareCreateAggregateDevice(CFDictionaryRef description, AudioObjectID *outDeviceID)
+{
+    (void)description;
+    if (outDeviceID)
+        *outDeviceID = kAudioObjectUnknown;
+    return kAudioHardwareIllegalOperationError;
+}
+
+OSStatus AudioHardwareDestroyAggregateDevice(AudioObjectID device)
+{
+    (void)device;
+    return kAudioHardwareNoError;
+}
+
+OSStatus AudioHardwareCreateProcessTap(void *description, AudioObjectID *outTapID)
+{
+    (void)description;
+    if (outTapID)
+        *outTapID = kAudioObjectUnknown;
+    return kAudioHardwareBadObjectError;
+}
+
+OSStatus AudioHardwareDestroyProcessTap(AudioObjectID tapID)
+{
+    (void)tapID;
+    return kAudioHardwareNoError;
+}
+
+OSStatus
+AudioDeviceGetPropertyInfo(AudioDeviceID device, UInt32 channel, Boolean isInput,
+                           AudioDevicePropertyID propertyID, UInt32 *outSize,
+                           Boolean *outWritable)
+{
+    (void)channel;
+    (void)isInput;
+    (void)propertyID;
+    if (outSize)
+        *outSize = 0;
+    if (outWritable)
+        *outWritable = false;
+    return kAudioHardwareBadDeviceError;
+}
+
+OSStatus
+AudioDeviceGetProperty(AudioDeviceID device, UInt32 channel, Boolean isInput,
+                       AudioDevicePropertyID propertyID, UInt32 *ioSize, void *outData)
+{
+    (void)channel;
+    (void)isInput;
+    (void)propertyID;
+    if (ioSize)
+        *ioSize = 0;
+    (void)outData;
+    return kAudioHardwareBadDeviceError;
+}
+
+OSStatus
+AudioHardwareSetProperty(AudioHardwarePropertyID propertyID, UInt32 dataSize,
+                          const void *data)
+{
+    AudioObjectPropertyAddress address = {
+        .mSelector = propertyID,
+        .mScope = kAudioObjectPropertyScopeGlobal,
+        .mElement = kAudioObjectPropertyElementMain,
+    };
+    return AudioObjectSetPropertyData(kAudioObjectSystemObject, &address, 0, NULL,
+                                      dataSize, data);
+}
+
+/* Older applications still use this four-argument CoreAudio SPI. */
+OSStatus
+AudioDeviceDuck(AudioDeviceID device, Float32 duckedLevel,
+                const AudioTimeStamp *startTime, Float32 rampDuration)
+{
+    (void)duckedLevel;
+    (void)startTime;
+    (void)rampDuration;
+    return kAudioHardwareBadDeviceError;
+}
+
+UInt64 AudioGetCurrentHostTime(void) { return mach_absolute_time(); }
+
+static mach_timebase_info_data_t
+host_timebase(void)
+{
+    mach_timebase_info_data_t info = {1, 1};
+    mach_timebase_info(&info);
+    return info;
+}
+
+Float64 AudioGetHostClockFrequency(void)
+{
+    mach_timebase_info_data_t info = host_timebase();
+    return 1000000000.0 * (Float64)info.denom / (Float64)info.numer;
+}
+
+UInt32 AudioGetHostClockMinimumTimeDelta(void) { return 1; }
+
+UInt64 AudioConvertHostTimeToNanos(UInt64 hostTime)
+{
+    mach_timebase_info_data_t info = host_timebase();
+    __uint128_t value = (__uint128_t)hostTime * info.numer / info.denom;
+    return value > UINT64_MAX ? UINT64_MAX : (UInt64)value;
+}
+
+UInt64 AudioConvertNanosToHostTime(UInt64 nanos)
+{
+    mach_timebase_info_data_t info = host_timebase();
+    __uint128_t value = (__uint128_t)nanos * info.denom / info.numer;
+    return value > UINT64_MAX ? UINT64_MAX : (UInt64)value;
+}

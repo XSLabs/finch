@@ -20,6 +20,12 @@ struct AVFoundationOverlayTest {
         let durationProperty: AVAsyncProperty<AVURLAsset, CMTime> = .duration
         print("property: \(durationProperty.description)")
 
+        let variants = try await asset.load(.variants)
+        let preferredSelection = try await asset.load(.preferredMediaSelection)
+        print("media: variants=\(variants.count) preferred=\(type(of: preferredSelection))")
+        let photoOutput = AVCapturePhotoOutput()
+        print("flash-modes: \(photoOutput.supportedFlashModes.map(\.rawValue))")
+
         let (duration, tracks, metadata) = try await asset.load(.duration, .tracks, .metadata)
         print("loaded: duration=\(duration.value)/\(duration.timescale) tracks=\(tracks.count) metadata=\(metadata.count)")
         print("status: \(asset.status(of: durationProperty))")
