@@ -371,6 +371,8 @@ test_hashes(void)
 	at_secure_clear(hash, sizeof(hash));
 }
 
+#ifdef AT_ACCOUNT_TOOLS_TESTING
+/* Needs the testing library's selector hook. */
 static void
 test_default_store_selection(void)
 {
@@ -515,6 +517,7 @@ test_default_store_selection(void)
 	assert(rmdir(settings) == 0);
 	assert(rmdir(parent) == 0);
 }
+#endif
 
 int
 main(void)
@@ -538,7 +541,9 @@ main(void)
 
 	test_hashes();
 	test_home_provisioning();
+#ifdef AT_ACCOUNT_TOOLS_TESTING
 	test_default_store_selection();
+#endif
 
 	char error[256] = {0};
 	char parent[] = "/private/tmp/finch-account-tools.XXXXXX";
