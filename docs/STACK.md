@@ -213,6 +213,13 @@ the base image's sandbox compiler; this check does not prove standalone boot.
 Changed-model migrations, history tracking, Spotlight indexing, and several
 other store features remain unavailable (`docs/design/COREDATA.md`).
 
+Vision runs CPU image requests for rectangles, small QR codes, simple contours,
+horizon-like lines, and image translation. Requests that need models Finch does not ship
+return unsupported-request errors. Its API audit finds 603 of 2,674 items; the focused
+host comparison checks 51 API behaviors across geometry and these limited image cases.
+Vision no longer appears as a missing framework in the app sweep; it blocked 13 apps before
+the framework was added (`docs/design/VISION.md`).
+
 ```mermaid
 block-beta
     columns 1
@@ -228,6 +235,7 @@ block-beta
         t6["App frameworks"]
         appkit["AppKit<br/>apps, windows, views, events,<br/>title bars, nib-loaded toolbars,<br/>drawing, nibs, storyboards,<br/>Auto Layout, stack views, text views and<br/>scrolling, tables, outlines and<br/>collection views (flow, grid and<br/>compositional layouts), menus and a menu bar,<br/>alerts, sheets, open and save panels,<br/>NSWorkspace (on the window server);<br/>Cocoa bindings and controllers,<br/>font and color panels, search/token/date controls,<br/>grids, popovers, drawers and rule editors;<br/>rulers, the find bar, text tables;<br/>animation groups and Touch Bar state;<br/>toolbar items, titlebar accessories,<br/>row actions, scrubbers, NSPreferences,<br/>file promises, glass views (slate);<br/>drag and drop (between apps<br/>through the window server);<br/>system and symbol images<br/>(Finch's own art);<br/>Fieldwork theme (Classic for Aqua compatibility);<br/>UIFoundation: fonts, string drawing,<br/>TextKit 1 and 2; Cocoa and<br/>ApplicationServices umbrellas"]
         gamecontroller["GameController<br/>snapshot gamepad profiles and state;<br/>keyboard and mouse from AppKit events;<br/>no physical controllers until Finch IOKit<br/>can enumerate HID devices"]
+        vision["Vision<br/>CPU rectangles, version 1 QR,<br/>simple contours and translation;<br/>no image models"]
         pdfkit["PDFKit<br/>pages, text and search,<br/>outlines, URL links, PDFView;<br/>docs/design/PDFKIT.md"]
         avkit["AVKit<br/>AVPlayerView, basic controls<br/>and full-screen mode;<br/>no routes or PiP service"]
         mediaplayer["MediaPlayer<br/>now-playing state, remote commands,<br/>artwork; no media-key route"]
@@ -349,7 +357,7 @@ block-beta
     class kexts,metal planned
     class apps testapp
     class finchsandbox finch
-    class opengl,later,mediaaddons,coreimage,videotoolbox,services,contacts,intents,contactui,corespotlight,linkpresentation,cfnetwork,appsupport,shell,uti,appkit,gamecontroller,pdfkit,avkit,mediaplayer,mediaaccessibility,corebluetooth,cryptotokenkit,widgetkit,libsandbox,cloudkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
+    class opengl,later,mediaaddons,coreimage,videotoolbox,services,contacts,intents,contactui,corespotlight,linkpresentation,cfnetwork,appsupport,shell,uti,appkit,gamecontroller,vision,pdfkit,avkit,mediaplayer,mediaaccessibility,corebluetooth,cryptotokenkit,widgetkit,libsandbox,cloudkit,securityui,authservices,quartzcore,coreservices,coreui,security,sysconfig,imagecap,desktop,cg,imageio,ctio,cf,autolayout,foundation,od,comp,pamunix,ess,xpc,cc,stubs,init,logd,cryptokit,coredata,accelerate finch
     class icu,objc,iokit,gcore,osslibs,pam,libc,kernlib,dyld,daemons,cmds,xnu apple
     class swift,codecs,cxx,qemu,tz,skia,mesa,fonts,swiftui,cmark,sqlite upstream
     class vz firmware
@@ -386,6 +394,7 @@ flowchart LR
     gcore["GCoreFramework"]:::apple
     appkit["AppKit"]:::finch
     gamecontroller["GameController"]:::finch
+    vision["Vision<br/>(CPU image requests; no ML models)"]:::finch
     pdfkit["PDFKit"]:::finch
     avkit["AVKit"]:::finch
     mediaplayer["MediaPlayer"]:::finch
@@ -507,6 +516,12 @@ flowchart LR
     gamecontroller --> appkit
     gamecontroller --> iokit
     gamecontroller --> ffound
+    vision --> cgfw
+    vision --> imageio
+    vision --> coreimagefw
+    vision --> corevideofw
+    vision --> coremediafw
+    vision --> ffound
     pdfkit --> appkit
     pdfkit --> cgfw
     pdfkit --> ctfw

@@ -124,11 +124,18 @@ $(OUT)/finch-intents-test: intents-test.m
 	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -Wno-availability -o $@ $< -framework Intents -framework Foundation
 
 all: $(OUT)/finch-gamecontroller-test
+all: $(OUT)/finch-vision-test
 
 # GameController snapshot profiles and the framework image loaded by each run.
 $(OUT)/finch-gamecontroller-test: gamecontroller-test.m
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -fno-objc-arc -Wno-deprecated-declarations -o $@ $< -framework GameController -framework Foundation
+
+# Vision's deterministic geometry, barcode, horizon, registration and model errors.
+$(OUT)/finch-vision-test: vision-test.m
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fno-objc-arc -Wno-deprecated-declarations -Wno-availability -o $@ $< \
+	    -framework Vision -framework CoreImage -framework CoreGraphics -framework CoreMedia -framework CoreVideo -framework ImageIO -framework Foundation
 
 # CloudKit's offline record, sharing, subscription and sync data models.
 $(OUT)/finch-cloudkit-test: cloudkit-test.m

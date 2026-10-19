@@ -47,6 +47,9 @@ VM. Bare metal comes after the GUI stack.
   - Finch's own **AppKit** ([design](docs/design/APPKIT.md)) with UIFoundation under it:
     applications, windows, views, events, drawing, nibs, documents, controls, menus and a
     menu bar, text views, scrolling, printing to PDF.
+  - **Vision** ([design](docs/design/VISION.md)) runs CPU image requests, with rectangle,
+    small QR, contour, horizon-line, and image-translation support. Requests that need
+    missing ML models return clear errors.
   - **A Cocoa app runs:** `userland/tests/apps/Hello`, built the usual way (a nib from
     ibtool, `NSApplicationMain`), puts up its menu bar and window on Finch's window server
     and answers clicks and typing, on the host (`tools/run-app.sh`) and in the VM.

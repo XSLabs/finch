@@ -219,6 +219,8 @@ steps=(
     "IOSurface|userland/IOSurface/build.sh"
     "GSS|userland/GSS/build.sh"
     "CoreMedia|userland/CoreMedia/build.sh"
+    # Vision's CPU image requests use CoreGraphics, ImageIO, CoreImage and CoreMedia.
+    "Vision|userland/Vision/build.sh"
     "VideoToolbox|userland/VideoToolbox/build.sh"
     "AVFAudio|userland/AVFAudio/build.sh"
     "AVFoundation|userland/AVFoundation/build.sh"

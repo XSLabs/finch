@@ -43,7 +43,7 @@ LIBS="build/root/usr/lib/swift:${TMP}/lib:${R}/Frameworks/OpenGL.framework/Versi
 # name|arguments: comparison tests (arguments are relative to the repo root)
 COMPARE=(
     "appkit-misc2-test|" "forward-test|" "runtime-test|"
-    "iokit-test|" "pdfkit-test|" "avkit-test|" "intents-test|" "gamecontroller-test|" "cloudkit-test|"
+    "iokit-test|" "pdfkit-test|" "avkit-test|" "intents-test|" "gamecontroller-test|" "vision-test|" "cloudkit-test|"
     "media-player-test|" "media-accessibility-test|" "corebluetooth-test|" "libsandbox-test|" "cryptotokenkit-test|" "widgetkit-test|"
     "constants-test|" "calculate-test|" "swiftdata-test|" "tipkit-test|" "avaudio-file-test|" "avaudio-compressed-buffer-test|" "avaudio-converter-test|" "avaudio-engine-test|" "avaudio-player-test|" "avaudio-unit-test|" "audiounit-effects-test|" "itemprovider-test|" "formatters2-test|" "urlcache-test|" "appkit-small3-test|" "compositional-test|" "filepromise-test|" "appkit-swift2-test|" "private-calls-test|" "mobilegestalt-test|" "utilities-test|" "foundation-audit-test|" "tree-test|" "outline-bindings-test|" "typeselect-test|" "screencapturekit-test|" "appkit-compat-test|" "pdf-image-rep-test|" "sounddesc-test|" "avasset-test|" "avexport-test|" "avfoundation-overlay-test|" "avreader-test|" "avwriter-test|" "avimage-test|" "avplayer-test|" "opengl-test|" "appkit-typedstream-test|" "system-images-test|" "quartzfilters-test|" "printcore-test|" "symbols-test|" "xml-test|" "document-more-test|" "textview-more-test|" "windowing-more-test|" "contacts-search-links-test|" "contacts-search-links-swift-test|"
     "cf-test|" "foundation-test|" "foundation-gaps-test|" "intl-test|" "misc-test|" "data-test|" "collections-test|" "kvc-test|" "typedstream-test|" "tiff-test|" "colorsync-test|" "colorsync-devices-test|" "iconservices-test|" "smallprivate-test|" "quicklook-test|" "exports-test|" "cookies-test|" "foundation-more-test|" "appkit-values-test|" "hiservices-test|" "scripting-test|" "cfnetwork-test|" "coreimage-test|" "cgevent-test|" "keylayout-test|" "contacts-test|" "accounts-test|" "opendirectory-objects-test|" "metal-test|" "metalkit-test|" "audiounit-framework-test|" "coremidi-test|" "iosurface-test|" "gss-test|" "cfurl-test|" "pasteboard-test|" "coremedia-test|" "corevideo-test|" "audiotoolbox-test|" "audioconverter-test|" "extaudiofile-test|" "extaudiofile-test|--src-check" "applescript-test|" "fileversion-test|" "textformats-test|" "worddoc-test|" "network-test|" "coredata-test|" "cfxml-test|" "cf-bundle-arch-test|" "cf-preferences-container-test|" "videotoolbox-test|" "appintents-test|" "appintents-local-test|" "appintents-swiftui-test|"
@@ -142,6 +142,7 @@ fail=0
 skip=0
 known=0
 excused=""  # set by report: what the last failure is known for
+if want vision-test; then rm -f build/compat-results/Vision.json; fi
 report() {
     local why
     excused=""
@@ -236,6 +237,42 @@ for entry in "${COMPARE[@]}"; do
         python3 tools/video_comparison.py "${TMP}/a.masked" "${TMP}/f.masked"
         d=$?
         [[ "${d}" -eq 0 ]] && d=0 || d=1
+    elif [[ "${name}" == vision-test ]]; then
+        # Rectangle and QR coordinates vary slightly between the two CPU paths;
+        # every other Vision field must match exactly.
+        python3 - "${TMP}/a.masked" "${TMP}/f.masked" <<'PY'
+import re, sys
+from pathlib import Path
+
+apple = Path(sys.argv[1]).read_text().splitlines()
+finch = Path(sys.argv[2]).read_text().splitlines()
+if len(apple) != len(finch):
+    raise SystemExit(f"Vision output line counts differ: {len(apple)} / {len(finch)}")
+
+rect = re.compile(r"^rectangles\.box=")
+barcode = re.compile(r"^barcode\.value=(\S+) symbology=(\S+) confidence=([0-9.]+) box=([0-9.,-]+)$")
+for line_number, (left, right) in enumerate(zip(apple, finch), 1):
+    if rect.match(left) and rect.match(right):
+        a, f = [float(value) for value in re.findall(r"-?[0-9]+\.[0-9]+", left)], \
+               [float(value) for value in re.findall(r"-?[0-9]+\.[0-9]+", right)]
+        if len(a) != 13 or len(f) != 13 or any(abs(x - y) > (0.03 if i == 12 else 0.015)
+                                               for i, (x, y) in enumerate(zip(a, f))):
+            raise SystemExit(f"rectangle observation differs beyond its documented tolerance at line {line_number}: {left} / {right}")
+    elif left.startswith("barcode.value=") and right.startswith("barcode.value="):
+        a, f = barcode.fullmatch(left), barcode.fullmatch(right)
+        if not a or not f or a.group(1, 2) != f.group(1, 2):
+            raise SystemExit(f"barcode payload or symbology differs at line {line_number}: {left} / {right}")
+        av = [float(a.group(3)), *[float(value) for value in a.group(4).split(",")]]
+        fv = [float(f.group(3)), *[float(value) for value in f.group(4).split(",")]]
+        if len(av) != 5 or len(fv) != 5 or abs(av[0] - fv[0]) > 0.005 or any(
+            abs(x - y) > 0.005 for x, y in zip(av[1:], fv[1:])
+        ):
+            raise SystemExit(f"barcode observation differs beyond its documented tolerance at line {line_number}: {left} / {right}")
+    elif left != right:
+        raise SystemExit(f"Vision output differs at line {line_number}: {left} / {right}")
+PY
+        d=$?
+        [[ "${d}" -eq 0 ]] && d=0 || d=1
     else
         d=$(diff "${TMP}/a.masked" "${TMP}/f.masked" | grep -c '^[<>]')
     fi
@@ -249,6 +286,10 @@ for entry in "${COMPARE[@]}"; do
     elif [[ "${d}" -eq 0 ]]; then
         report "${name}" "ok (${n} lines)"
         count_pass
+        if [[ "${name}" == vision-test && "${excused}" != "pass" ]]; then
+            mkdir -p build/compat-results
+            cp userland/tests/vision-api-verified.json build/compat-results/Vision.json
+        fi
     else
         report "${name}" "DIFFERS (${d} lines of ${n})"
         diff -u "${TMP}/a.masked" "${TMP}/f.masked" | head -80

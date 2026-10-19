@@ -1,0 +1,210 @@
+{
+  "framework": "Vision",
+  "source": "tools/host-tests.sh vision-test",
+  "results": [
+    {
+      "id": "objc-class:VNBarcodeObservation",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNBarcodeObservation:payloadStringValue",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNBarcodeObservation:symbology",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class:VNCircle",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-method:VNCircle:-initWithCenter:radius:",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNCircle:diameter",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class:VNContoursObservation",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNContoursObservation:contourCount",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNContoursObservation:topLevelContourCount",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class:VNDetectBarcodesRequest",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNDetectBarcodesRequest:results",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class:VNDetectContoursRequest",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNDetectContoursRequest:maximumImageDimension",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNDetectContoursRequest:results",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class:VNDetectHorizonRequest",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNDetectHorizonRequest:results",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class:VNDetectRectanglesRequest",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNDetectRectanglesRequest:results",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNDetectedObjectObservation:boundingBox",
+      "status": "verified"
+    },
+    {
+      "id": "c:_VNErrorDomain",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class:VNImageRequestHandler",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-method:VNImageRequestHandler:-initWithCGImage:options:",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-method:VNImageRequestHandler:-performRequests:error:",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class:VNImageTranslationAlignmentObservation",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNImageTranslationAlignmentObservation:alignmentTransform",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNObservation:confidence",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class:VNPoint",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-method:VNPoint:-distanceToPoint:",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-method:VNPoint:-initWithX:y:",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNPoint:x",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNPoint:y",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNPoint:zeroPoint",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class:VNRectangleObservation",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNRectangleObservation:bottomLeft",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNRectangleObservation:bottomRight",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNRectangleObservation:topLeft",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNRectangleObservation:topRight",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-method:VNRequest:-init",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNRequest:results",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class:VNSequenceRequestHandler",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-method:VNSequenceRequestHandler:-init",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-method:VNSequenceRequestHandler:-performRequests:onCGImage:error:",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class:VNTrackTranslationalImageRegistrationRequest",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-method:VNTrackTranslationalImageRegistrationRequest:-init",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNTrackTranslationalImageRegistrationRequest:results",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class:VNTranslationalImageRegistrationRequest",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNTranslationalImageRegistrationRequest:results",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class:VNVector",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-method:VNVector:-initWithR:theta:",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNVector:x",
+      "status": "verified"
+    },
+    {
+      "id": "objc-class-property:VNVector:y",
+      "status": "verified"
+    }
+  ]
+}
