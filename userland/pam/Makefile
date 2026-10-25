@@ -18,7 +18,11 @@ KEYCHAIN_MOD := $(ROOT)/usr/lib/pam/pam_keychain.so.2
 KEYCHAIN_OBJ := $(FINCH)/build/obj/pam/pam_keychain.o
 CONFS := $(notdir $(wildcard pam.d/*))
 
-all: $(MOD) $(addprefix $(ROOT)/private/etc/pam.d/,$(CONFS))
+all: $(MOD) policy
+
+# shell_cmds and system_cmds install Apple's su and passwd stacks too, so
+# tools/build-system.sh runs this again after the commands.
+policy: $(addprefix $(ROOT)/private/etc/pam.d/,$(CONFS))
 
 # Security is built after PAM. The login hook is built in a later stage.
 keychain: $(KEYCHAIN_MOD)
@@ -57,4 +61,4 @@ $(ROOT)/private/etc/pam.d/%: pam.d/% FORCE
 	install -m 644 $< $@
 
 FORCE:
-.PHONY: all keychain FORCE
+.PHONY: all keychain policy FORCE

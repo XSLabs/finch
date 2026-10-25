@@ -24,5 +24,8 @@ mkdir -p "${PROFILES}" "${FINCH_ROOT}/build/obj/colorsync"
 # (built against the SDK, run against this ColorSync: the install names match)
 xcrun clang -O2 "${HERE}/write-profiles.c" -framework ColorSync \
     -framework CoreFoundation -o "${FINCH_ROOT}/build/obj/colorsync/write-profiles"
+# (Finch's frameworks reach its standalone libraries, such as OpenDirectory's
+# libfinchaccount; the fallback path finds only libraries the host doesn't have)
 DYLD_FRAMEWORK_PATH="${FINCH_ROOT}/build/root/System/Library/Frameworks:${FINCH_ROOT}/build/root/System/Library/PrivateFrameworks" \
+DYLD_FALLBACK_LIBRARY_PATH="${FINCH_ROOT}/build/root/usr/lib/system:/usr/local/lib:/usr/lib" \
     "${FINCH_ROOT}/build/obj/colorsync/write-profiles" "${PROFILES}"

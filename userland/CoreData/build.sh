@@ -16,7 +16,6 @@ for dependency in \
     [[ -f "${dependency}" ]] || { echo "build CoreFoundation, Foundation, Combine and libsqlite3 first" >&2; exit 1; }
 done
 
-FINCH_SWIFT_FLAGS="-F${ROOT}/System/Library/Frameworks" \
 FINCH_OBJC_FLAGS="-Wno-deprecated-declarations" \
     "${FINCH_ROOT}/tools/build-swift-framework.sh" CoreData 1526 \
     "${HERE}/CoreDataOverlay.swift" \

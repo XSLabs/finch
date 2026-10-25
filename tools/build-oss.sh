@@ -229,7 +229,8 @@ fi
 # Source directories (≈ targets) with errors; errors in SDK headers they include
 # count against the project directory that included them.
 # Apple's test targets (darwintest, Apple-internal) aren't shipped; their failures don't count.
-failed=$(grep -E '^\S+: (fatal )?error:' "${LOG}" | grep "/build/src/${project}/" | grep -v '/tests\?/' \
+# xcrun's own messages name SDK lookups, not sources (ICU asks for macosx.internal).
+failed=$(grep -E '^\S+: (fatal )?error:' "${LOG}" | grep -v '^xcrun: ' | grep "/build/src/${project}/" | grep -v '/tests\?/' \
     | sed -E 's|^.*/build/src/'"${project}"'/([^/:]+)[/:].*|\1|' | sort -u | tr '\n' ' ')
 # (and the targets Xcode lists as failed, for errors it reports in headers outside the
 # project; a target is named for its directory in Apple's command projects)

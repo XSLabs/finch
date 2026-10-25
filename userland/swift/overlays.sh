@@ -231,8 +231,10 @@ overlay CoreImage 2.2 1 "${HERE}/CoreImage/CoreImage.swift"
 
 # AVFoundation's public Swift async properties and convenience methods. The
 # source in overlays/AVFoundation is Finch-written and calls Finch's ObjC APIs.
+# (Finch's frameworks are on the link path only: their headerless runtime
+# images would hide the SDK headers the compile imports.)
 overlay AVFoundation 2410.24.5.1 1 "${HERE}/AVFoundation/AVFoundation.swift" \
-    -F "${ROOT}/System/Library/Frameworks" -framework AVFoundation -framework Foundation \
+    -Xlinker -F"${ROOT}/System/Library/Frameworks" -framework AVFoundation -framework Foundation \
     -framework CoreMedia -framework CoreGraphics "${WEAK_FOUNDATION[@]}"
 
 # --- Darwin: libswiftDarwin and the _DarwinFoundation1-3 libraries it

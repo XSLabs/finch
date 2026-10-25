@@ -296,6 +296,8 @@ steps=(
     "sounds|make -s -C userland/sounds"
     # finch-update (signed updates, checked with Finch's Security)
     "update|make -s -C userland/update"
+    # finch-data-volume (rc mounts the configured data volume with it)
+    "data-volume|make -s -C userland/data-volume"
     # screencapture and its service (Apple's Screenshot app asks the service)
     "screencapture|make -s -C userland/screencapture"
     # Commands (userland/INVENTORY.md lists the deferred ones that don't build yet)
@@ -311,6 +313,8 @@ steps=(
     # Finch's own, after the commands so they're what the image gets
     "sh|make -s -C userland/sh"
     "mount_tmpfs|make -s -C userland/mount_tmpfs"
+    # Finch's login rules again: shell_cmds and system_cmds install Apple's su and passwd
+    "pam-policy|make -s -C userland/pam policy"
 )
 
 selected="$*"

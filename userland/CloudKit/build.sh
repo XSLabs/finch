@@ -19,12 +19,9 @@ done
 
 python3 "${HERE}/generate-properties.py" "${HEADERS}" "${GENERATED}"
 # Import CloudKit and Foundation's public SDK modules while compiling the overlay.
-# Put the Finch frameworks after the SDK so their incomplete header sets do not
-# hide the SDK headers needed by CloudKit's module map.
-# The Swift search path loads the SDK's CloudKit overlay declarations. Clang
-# needs its own framework path too, so SDK headers win over Finch's headerless
-# runtime libraries when those declarations import Foundation.
-FINCH_SWIFT_FLAGS="-F${SDKROOT}/System/Library/Frameworks -Xcc -F${SDKROOT}/System/Library/Frameworks -F${ROOT}/System/Library/Frameworks" \
+# Finch's frameworks stay off the compile's search path: their runtime images have
+# no headers and would hide the SDK's (linking still finds them).
+FINCH_SWIFT_FLAGS="-F${SDKROOT}/System/Library/Frameworks -Xcc -F${SDKROOT}/System/Library/Frameworks" \
 FINCH_OBJC_FLAGS="-fobjc-weak -Wno-deprecated-declarations -Wno-incomplete-implementation -Wno-protocol -Wno-nullability -Wno-objc-protocol-method-implementation" \
     "${FINCH_ROOT}/tools/build-swift-framework.sh" CloudKit 2350.34 \
     "${HERE}/CloudKitOverlay.swift" \
