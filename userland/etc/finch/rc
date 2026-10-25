@@ -59,10 +59,16 @@ fi
 # expect ~/Library and the rest to be there (Stickies makes ~/Library/Stickies,
 # not its parents).
 make_home() {   # make_home DIR OWNER
-    for sub in Desktop Documents Downloads Movies Music Pictures Public \
+    # macOS's modes: the folders are private to their owner, except Public and
+    # its Drop Box (others may look in Public and drop files into the box).
+    for sub in Desktop Documents Downloads Movies Music Pictures \
                Library "Library/Application Support" Library/Caches Library/Preferences; do
         mkdir -p "$1/$sub"
+        chmod 700 "$1/$sub"
     done
+    mkdir -p "$1/Public/Drop Box"
+    chmod 755 "$1/Public"
+    chmod 733 "$1/Public/Drop Box"
     chown -R "$2" "$1"
 }
 if [ "$persistent_data" = 0 ]; then

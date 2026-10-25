@@ -14,6 +14,9 @@
 #   FINCH_DATA_IMAGE  attach an existing raw data image through the experimental
 #                    PCI bridge. Requires the bridge-enabled kernel collection
 #                    and a system image configured to mount its data volume.
+#   FINCH_SETUP_IMAGE a second disk image, beside FINCH_DATA_IMAGE (tools/vm/mkpersistent.sh)
+#   FINCH_PERSISTENT=1  boot build/vm-persistent: its system image as the ramdisk,
+#                    with its data disk (tools/vm/mkpersistent.sh builds them)
 #   DEBUG=1          expose a GDB stub on :1234 and wait for the debugger
 #   GDB=1            expose a GDB stub on :1234 without waiting (to attach to a running VM,
 #                    as tools/vm/catch-stall.exp does)
@@ -33,6 +36,15 @@ DVM="${FINCH_ROOT}/third_party/darwin-vm"
 FW="${DVM}/firmware"
 QEMU="${DVM}/qemu-sptm/build/qemu-system-aarch64"
 
+if [[ "${FINCH_PERSISTENT:-0}" == 1 ]]; then
+    persistent="${FINCH_ROOT}/build/vm-persistent"
+    [[ -f "${persistent}/system.dmg" && -f "${persistent}/data.img" ]] \
+        || { echo "no persistent image; run tools/vm/mkpersistent.sh" >&2; exit 2; }
+    : "${FINCH_INIT:=1}"
+    : "${RAMDISK:=${persistent}/system.dmg}"
+    : "${TC:=${persistent}/ramdisk.tc}"
+    : "${FINCH_DATA_IMAGE:=${persistent}/data.img}"
+fi
 if [[ -f "${FINCH_ROOT}/build/vm/ramdisk.dmg" ]]; then
     : "${FINCH_INIT:=1}"   # Finch's image: finch-init is PID 1
     : "${RAMDISK:=${FINCH_ROOT}/build/vm/ramdisk.dmg}"
@@ -51,32 +63,38 @@ fi
 
 machine=darwin
 data_args=()
-if [[ -n "${FINCH_DATA_IMAGE:-}" ]]; then
+images=()
+[[ -n "${FINCH_DATA_IMAGE:-}" ]] && images+=("${FINCH_DATA_IMAGE}")
+[[ -n "${FINCH_SETUP_IMAGE:-}" ]] && images+=("${FINCH_SETUP_IMAGE}")
+if [[ ${#images[@]} -gt 0 ]]; then
     # Only image files are accepted. Never interpret a device node or create a
     # missing image as a side effect of starting the VM.
-    python3 - "$FINCH_DATA_IMAGE" <<'PY'
+    python3 - "${images[@]}" <<'PY'
 import os
 import stat
 import sys
 
-path = sys.argv[1]
-if not os.path.isabs(path):
-    raise SystemExit("FINCH_DATA_IMAGE must be an absolute image path")
-try:
-    info = os.lstat(path)
-except OSError as error:
-    raise SystemExit(f"cannot open data image: {error}")
-if not stat.S_ISREG(info.st_mode) or info.st_size == 0:
-    raise SystemExit("FINCH_DATA_IMAGE must be an existing, nonempty regular file, not a link or device")
+for path in sys.argv[1:]:
+    if not os.path.isabs(path):
+        raise SystemExit("VM disk images must be absolute image paths")
+    try:
+        info = os.lstat(path)
+    except OSError as error:
+        raise SystemExit(f"cannot open disk image: {error}")
+    if not stat.S_ISREG(info.st_mode) or info.st_size == 0:
+        raise SystemExit("VM disk images must be existing, nonempty regular files, not links or devices")
 PY
     pcie_tree="${FINCH_ROOT}/build/vm/dtree-pcie"
     python3 "${FINCH_ROOT}/tools/vm/dtree-virtual-pcie.py" "$DTREE" "$pcie_tree"
     DTREE="$pcie_tree"
     machine=darwin,finch-pcie=on
-    # QEMU uses commas as separators, even within one shell argument.
-    data_path="${FINCH_DATA_IMAGE//,/,,}"
-    data_args=(-drive "file=${data_path},if=none,format=raw,id=finchdata"
-               -device virtio-blk-pci,drive=finchdata,disable-legacy=on)
+    n=0
+    for image in "${images[@]}"; do
+        # QEMU uses commas as separators, even within one shell argument.
+        data_args+=(-drive "file=${image//,/,,},if=none,format=raw,id=finchdisk${n}"
+                    -device "virtio-blk-pci,drive=finchdisk${n},disable-legacy=on")
+        n=$((n + 1))
+    done
 fi
 
 boot_args="rd=md0 serial=3 -v -noprogress wdt=-1 wlan-olyhal-abort"

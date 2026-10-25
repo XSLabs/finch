@@ -733,6 +733,11 @@ validate_group(const char *bytes, size_t length, gid_t wanted_gid)
 			}
 		if (count != 4 || !field[0][0] || !field[1][0])
 			return -1;
+		/* macOS's nogroup is -1, which no account can have as its group. */
+		if (strcmp(field[2], "-1") == 0) {
+			start = end < length ? end + 1 : end;
+			continue;
+		}
 		uint64_t gid;
 		if (parse_uid_gid(field[2], UINT32_MAX - 1U, &gid) != 0)
 			return -1;
@@ -1087,6 +1092,9 @@ prepare_home_directory(const char *target_root, const char *home,
 			errno = ESTALE;
 			goto done;
 		}
+		directory->device = opened.st_dev;
+		directory->inode = opened.st_ino;
+		directory->identity_valid = true;
 		int empty = home_directory_is_empty(home_fd);
 		if (empty <= 0) {
 			if (empty == 0) {
@@ -1145,6 +1153,66 @@ done:
 		close(home_fd);
 	if (root_fd >= 0)
 		close(root_fd);
+	return result;
+}
+
+/* The folders a new macOS home starts with (its User Template), as rc gives a
+ * home on a RAM disk. */
+static const struct {
+	const char *path;
+	mode_t mode;
+} home_folders[] = {
+	{"Desktop", 0700}, {"Documents", 0700}, {"Downloads", 0700},
+	{"Library", 0700}, {"Library/Application Support", 0700},
+	{"Library/Caches", 0700}, {"Library/Preferences", 0700},
+	{"Movies", 0700}, {"Music", 0700},
+	{"Pictures", 0700}, {"Public", 0755}, {"Public/Drop Box", 0733},
+};
+
+/* Lay out a new, empty home after its account is saved, so a failed save still
+ * removes only the empty folder prepare_home_directory made. */
+static int
+populate_home_directory(const struct home_directory *directory, uid_t uid,
+	gid_t gid, char *error, size_t error_size)
+{
+	struct stat st;
+	int home_fd = -1, result = -1;
+
+	home_fd = openat(directory->parent_fd, directory->leaf,
+	    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+	if (home_fd < 0 || fstat(home_fd, &st) != 0 || !directory->identity_valid ||
+	    st.st_dev != directory->device || st.st_ino != directory->inode ||
+	    st.st_uid != uid || st.st_gid != gid) {
+		set_error(error, error_size,
+		    "the account was saved, but its home changed before its folders were made");
+		errno = ESTALE;
+		goto done;
+	}
+	for (size_t i = 0; i < sizeof(home_folders) / sizeof(home_folders[0]); i++) {
+		const char *path = home_folders[i].path;
+		int fd;
+		if (mkdirat(home_fd, path, 0700) != 0 && errno != EEXIST)
+			goto failed;
+		fd = openat(home_fd, path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+		if (fd < 0)
+			goto failed;
+		if (fchown(fd, uid, gid) != 0 || fchmod(fd, home_folders[i].mode) != 0) {
+			close(fd);
+			goto failed;
+		}
+		close(fd);
+	}
+	if (fsync(home_fd) != 0)
+		goto failed;
+	result = 0;
+	goto done;
+failed:
+	set_error(error, error_size,
+	    "the account was saved, but its home folders could not be made: %s",
+	    strerror(errno));
+done:
+	if (home_fd >= 0)
+		close(home_fd);
 	return result;
 }
 
@@ -1266,6 +1334,9 @@ at_store_create_user_internal(struct at_store *store, const char *name,
 			    original_error);
 		goto done;
 	}
+	if (target_root && populate_home_directory(&home_directory, uid, gid,
+	    error, error_size) != 0)
+		goto done;
 	result = 0;
 done:
 	if (result != 0 && home_directory.created) {

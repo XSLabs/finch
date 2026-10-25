@@ -1,0 +1,190 @@
+#!/usr/bin/expect -f
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# One boot of the stored-data check (tools/vm/test-persistence.sh runs three):
+#   persistence.exp first     make a user, log in, save files, change the password
+#   persistence.exp again N   log in with the changed password, read everything back
+# Each boot checks the data volume is mounted and the system files are root's, and
+# ends with a real halt (finch-init's shutdown, which syncs the disks).
+# Run under tools/vm/with-vm-lock.sh with FINCH_PERSISTENT=1 and FINCH_DATA_IMAGE set.
+# Login and passwd each run several 600,000-round PBKDF2 derivations (the account
+# hash and the login keychain); emulated, on a busy host, one step can take minutes.
+set timeout 900
+log_user 1
+set send_slow {8 0.03}
+set root [file normalize [file dirname [info script]]/../..]
+set env(FINCH_INIT) 1
+set env(FINCH_DEV_CONSOLE) 1
+set env(FINCH_PERSISTENT) 1
+unset -nocomplain env(BOOT_ARGS_EXTRA)
+
+set phase [lindex $argv 0]
+set boot [expr {$phase eq "first" ? 1 : [lindex $argv 1]}]
+set boot_prompt {[#$] (?:\x1b\[[0-9;?]*[A-Za-z])*$}
+set root_prompt {FINCH_ROOT_SETUP# (?:\x1b\[[0-9;?]*[A-Za-z])*$}
+set login_prompt {(?:^|\r\n)login: }
+set password_prompt {Password:[[:blank:]]*$}
+set user_prompt {FINCH_PERSIST_USER> }
+set username persist
+set first_password "Finch persistence test 2026"
+set changed_password "Finch persistence changed 2026"
+
+proc fail {message} {
+    puts "\n### $message"
+    catch {send -- "\x01x"}
+    catch {expect eof}
+    exit 1
+}
+
+# A command in PROMPT's shell that must exit 0.
+proc checked {command label prompt} {
+    set status_pattern [format {FINCH_STATUS_%s=([0-9]+)} $label]
+    send -s -- "$command; printf '\\nFINCH_STATUS_${label}=%d\\n' \$?\r"
+    expect {
+        -re $status_pattern {
+            if {$expect_out(1,string) != 0} { fail "$label failed with exit status $expect_out(1,string)" }
+        }
+        eof { fail "VM exited while running $label" }
+        timeout { fail "timed out while running $label" }
+    }
+    expect {
+        -re $prompt {}
+        eof { fail "VM exited after $label" }
+        timeout { fail "the shell did not return after $label" }
+    }
+}
+proc as_root {command label} { global root_prompt; checked $command $label $root_prompt }
+proc as_user {command label} { global user_prompt; checked $command $label $user_prompt }
+
+proc login {password label} {
+    global login_prompt password_prompt username user_prompt
+    send -s -- "/usr/bin/login\r"
+    expect {
+        -re $login_prompt {}
+        timeout { fail "login did not show its prompt for $label" }
+    }
+    send -s -- "$username\r"
+    expect {
+        -re $password_prompt {}
+        timeout { fail "login did not ask for the password for $label" }
+    }
+    send -s -- "$password\r"
+    expect {
+        -exact "FINCH_PERSIST_PROFILE" {}
+        "Login incorrect" { fail "login refused the password for $label" }
+        timeout { fail "the login for $label did not start the user's shell" }
+    }
+    expect {
+        -exact $user_prompt {}
+        timeout { fail "user prompt did not appear for $label" }
+    }
+}
+
+proc logout {} {
+    global root_prompt
+    send -s -- "exit\r"
+    expect {
+        -re $root_prompt {}
+        timeout { fail "logout did not return to the setup shell" }
+    }
+}
+
+spawn $root/tools/vm/run.sh
+expect {
+    -exact "development root console enabled by boot argument" {}
+    "panic" { fail "guest panicked during boot" }
+    eof { fail "guest exited before the root console started" }
+    timeout { fail "development root console did not start" }
+}
+expect {
+    -re $boot_prompt {}
+    "normal services and login will not start" { fail "startup failed (the data volume did not mount?)" }
+    "panic" { fail "guest panicked before the root console started" }
+    eof { fail "guest exited before the root console started" }
+    timeout { fail "root console shell did not appear" }
+}
+send -s -- "stty -echo; PS1='FINCH_ROOT_'\"SETUP# \"; export PS1\r"
+expect {
+    -re $root_prompt {}
+    timeout { fail "root setup prompt did not appear" }
+}
+
+# The data volume holds accounts and homes; the system image's files are root's.
+as_root {mount | grep -q '^/dev/disk[0-9]*s1 on /private/var/rw (apfs, local, nodev, nosuid, journaled, nobrowse)$'} data-volume-mounted
+as_root {test "$(readlink /private/etc/master.passwd)" = /private/var/rw/accounts/master.passwd && test "$(stat -f %u:%g:%Lp /private/var/rw/accounts/master.passwd)" = 0:0:600} accounts-on-data-volume
+as_root {test "$(stat -f %u:%g:%Mp%Lp /usr/bin/passwd)" = 0:0:4555 && test "$(stat -f %u:%g /usr/lib/dyld)" = 0:0 && test "$(stat -f %u:%g:%Lp /bin/sh)" = 0:0:755 && test "$(stat -f %u:%g:%Lp /private/etc/finch/data-volume)" = 0:0:644} system-files-root-owned
+as_root {pgrep -x notifyd >/dev/null && pgrep -x configd >/dev/null && pgrep -x syslogd >/dev/null} services-running
+
+if {$phase eq "first"} {
+    as_root {! grep -q '^persist:' /private/etc/master.passwd} fresh-data-volume
+    send -s -- "/usr/sbin/accountctl -R /private/var/rw create $username 6001 20 'Persistence Test' /Users/$username /bin/sh; printf '\\nFINCH_STATUS_accountctl=%d\\n' \$?\r"
+    expect {
+        -exact "New password: " { send -s -- "$first_password\r"; exp_continue }
+        -exact "Repeat new password: " { send -s -- "$first_password\r"; exp_continue }
+        -re {FINCH_STATUS_accountctl=([0-9]+)} {
+            if {$expect_out(1,string) != 0} { fail "accountctl failed with exit status $expect_out(1,string)" }
+        }
+        timeout { fail "accountctl did not finish" }
+    }
+    expect -brace { -re $root_prompt {} timeout { fail "setup shell did not return after accountctl" } }
+    as_root "test \"\$(stat -f %u:%g:%Lp /private/var/rw/Users/$username)\" = 6001:20:700" home-on-data-volume
+    as_root "printf '%s\\n' 'echo FINCH_PERSIST_PROFILE' \"PS1='FINCH_PERSIST_USER> '\" 'export PS1' > /Users/$username/.profile && chown 6001:20 /Users/$username/.profile && chmod 600 /Users/$username/.profile" user-profile
+    as_root {stty echo} restore-echo
+    login $first_password "the first login"
+    as_user {test "$(id -u)" = 6001 && test "$(pwd -P)" = /private/var/rw/Users/persist} user-identity
+    as_user {printf 'saved on boot 1\n' > Documents/note.txt && chmod 600 Documents/note.txt && mkdir -p Library/Preferences && printf 'colour=green\n' > Library/Preferences/org.finch.test.txt} save-files
+    # Another user's private folders stay private (their home itself is 0750 for
+    # group staff, as on macOS), and system files stay root's.
+    as_user {! ls /Users/finchtest/Documents >/dev/null 2>&1 && ! touch /Users/finchtest/intruder 2>/dev/null && ! printf x > /private/var/rw/accounts/master.passwd 2>/dev/null && ! printf x > /usr/bin/passwd 2>/dev/null} isolation
+    send -s -- "/usr/bin/passwd; printf '\\nFINCH_STATUS_passwd=%d\\n' \$?\r"
+    expect {
+        -re {(New|new|Retype|Repeat)[^\r\n]*assword:[[:blank:]]*$} { send -s -- "$changed_password\r"; exp_continue }
+        -re {assword:[[:blank:]]*$} { send -s -- "$first_password\r"; exp_continue }
+        -re {FINCH_STATUS_passwd=([0-9]+)} {
+            if {$expect_out(1,string) != 0} { fail "passwd failed with exit status $expect_out(1,string)" }
+        }
+        timeout { fail "passwd did not finish" }
+    }
+    expect -brace { -exact $user_prompt {} timeout { fail "user shell did not return after passwd" } }
+    logout
+} else {
+    as_root {stty echo} restore-echo
+    send -s -- "/usr/bin/login\r"
+    expect -brace { -re $login_prompt {} timeout { fail "login did not show its prompt" } }
+    send -s -- "$username\r"
+    expect -brace { -re $password_prompt {} timeout { fail "login did not ask for the password" } }
+    send -s -- "$first_password\r"
+    expect {
+        "Login incorrect" {}
+        "FINCH_PERSIST_PROFILE" { fail "the old password still logs in after boot $boot" }
+        timeout { fail "login did not answer the old password" }
+    }
+    # login asks again; the changed password opens the shell.
+    expect -brace { -re $login_prompt {} timeout { fail "login did not ask again" } }
+    send -s -- "$username\r"
+    expect -brace { -re $password_prompt {} timeout { fail "login did not ask for the password again" } }
+    send -s -- "$changed_password\r"
+    expect {
+        -exact "FINCH_PERSIST_PROFILE" {}
+        "Login incorrect" { fail "login refused the changed password after boot $boot" }
+        timeout { fail "the changed password did not start the user's shell" }
+    }
+    expect -brace { -exact $user_prompt {} timeout { fail "user prompt did not appear" } }
+    as_user {test "$(cat Documents/note.txt)" = "saved on boot 1" && test "$(stat -f %u:%g:%Lp Documents/note.txt)" = 6001:20:600 && test "$(cat Library/Preferences/org.finch.test.txt)" = colour=green} read-back
+    as_user "printf 'boot $boot\\n' >> Documents/boots.txt && test \$(wc -l < Documents/boots.txt) -eq [expr {$boot - 1}]" boot-count
+    as_user {! ls /Users/finchtest/Documents >/dev/null 2>&1 && ! touch /Users/finchtest/intruder 2>/dev/null} isolation
+    logout
+}
+
+# A real shutdown, then the VM stops.
+send -s -- "/sbin/halt\r"
+expect {
+    "halting" {}
+    eof { fail "VM exited before finch-init's shutdown" }
+    timeout { fail "halt did not reach finch-init's shutdown" }
+}
+expect {
+    -timeout 60
+    eof {}
+    timeout { send -- "\x01x"; expect eof }
+}
+puts "\npersistence: boot $boot ($phase) passed"

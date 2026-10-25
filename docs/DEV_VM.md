@@ -227,6 +227,8 @@ before building QEMU:
 - 0002: opt-in `finch-pcie=on` machine property. Adds one GPEX host (ECAM `0x40000000`,
   MMIO `0x50000000`, AIC lines `0x20`-`0x2f`) so `tools/vm/run.sh` can attach a VirtIO data
   disk (`FINCH_DATA_IMAGE`, `docs/design/PERSISTENT_VM_STORAGE.md`). Off by default.
+  `tools/vm/mkpersistent.sh` builds a VM that uses it for accounts and homes;
+  `FINCH_PERSISTENT=1 tools/vm/run.sh` boots it.
 - 0003: AIC v3 keeps level-triggered lines pending. The model only latched a rising edge, so a
   PCI device still holding its line high when the guest re-enabled the vector was lost, and
   mounting a full APFS disk stalled waiting for a completed read. Claiming a V3 vector now

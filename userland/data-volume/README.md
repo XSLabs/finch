@@ -36,3 +36,10 @@ Build the helper with `make -C userland/data-volume`. Run its policy checks
 with `make -C userland/data-volume test`. The build places the signed helper in
 `build/root/usr/sbin/finch-data-volume`; the boot image must include it and
 trust its code hash before Finch calls `/usr/sbin/finch-data-volume`.
+
+`finch-volume-setup` (built to `build/userland`, development VM only, not in a
+release) is that image-preparation step for `tools/vm/mkpersistent.sh`. Run as
+root in the guest, it applies an image's owner manifest to its system volume
+and lays out a new data volume, refusing one that already has accounts. It
+finds volumes by UUID on a VirtIO disk with the same registry code as
+`finch-data-volume` (`data-volume-registry.c`).

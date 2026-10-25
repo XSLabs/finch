@@ -13,7 +13,7 @@ The fresh VM also exposes a sandbox compiler gap: notifyd cannot start with
 Finch's incomplete replacement. Development images can explicitly retain the
 base compiler; that borrowed component must still be replaced for 1.0.
 
-**As of 2026-10-18:** A small `FinchSandbox` kernel policy can deny file reads or
+**As of 2026-10-25:** A small `FinchSandbox` kernel policy can deny file reads or
 writes. Its QEMU test covers already-open files, new opens, new file mappings, child processes,
 program changes, and attempts to clear the restriction. Asynchronous requests
 submitted after applying it are denied with both tested worker modes. It has no profile
@@ -21,10 +21,14 @@ compiler and is not a complete app sandbox (`docs/design/SECURITY.md`).
 Its versioned request interface also passes guest checks for invalid requests,
 stale process identities, query permissions, and restriction inheritance.
 The notification-service profile remains unavailable and fails explicitly.
-An experimental VM data disk now holds accounts and `/private/var/rw` across
-restarts: `rc` mounts it through `finch-data-volume` before services start, and
-a missing disk stops startup (`docs/design/PERSISTENT_VM_STORAGE.md`). The
-normal VM image still boots from RAM.
+A persistent development VM (`tools/vm/mkpersistent.sh`) keeps accounts,
+passwords, home folders and `/private/var/db` on a VirtIO data disk: `rc` mounts
+it through `finch-data-volume` before services start, and a missing disk stops
+startup. A new user, a changed password and saved files survived a shutdown
+and two restarts (`tools/vm/test-persistence.sh`, 2026-10-25). The disk needs
+Apple's AppleVirtualPlatform PCIe bridge kext, now linked into the kernel
+collection, and the system image still loads into RAM
+(`docs/design/PERSISTENT_VM_STORAGE.md`). The normal VM image boots from RAM.
 
 Intents supplies SDK-declared data objects, typed initializers and
 resolution results. It stores donated interactions in
@@ -323,7 +327,7 @@ block-beta
         columns 4
         t2["Processes"]
         init["finch-init (PID 1)<br/>bootstrap server,<br/>system + user domains"]
-        logd["finch-logd, finch-pboardd<br/>(pasteboards), pbcopy and pbpaste,<br/>finch-update (signed,<br/>resumable updates, keeps<br/>system accounts),<br/>finch-data-volume (checks and<br/>mounts the data disk),<br/>screencapture and its service,<br/>launchctl, sh, mount_tmpfs, devtools"]
+        logd["finch-logd, finch-pboardd<br/>(pasteboards), pbcopy and pbpaste,<br/>finch-update (signed,<br/>resumable updates, keeps<br/>system accounts),<br/>finch-data-volume (checks and<br/>mounts the data disk),<br/>finch-volume-setup (lays out<br/>the dev VM's disks),<br/>screencapture and its service,<br/>launchctl, sh, mount_tmpfs, devtools"]
         daemons["notifyd, syslogd, aslmanager,<br/>newsyslog, dynamic_pager, atrun,<br/>cron, mDNSPosix, configd,<br/>diskarbitrationd"]
         space2[" "]
         cmds["file/shell/text/adv/system_cmds,<br/>bash, zsh, bc, su, login,<br/>mount, fsck, FAT helpers"]
@@ -334,13 +338,13 @@ block-beta
         columns 4
         t1["Kernel"]
         xnu["XNU xnu-12377.101.15<br/>+ Finch patches"]
-        kexts["Platform drivers<br/>(Finch's later)"]
+        kexts["Platform drivers<br/>(Finch's later; the VM borrows<br/>Apple's virtual PCIe bridge)"]
         finchsandbox["FinchSandbox<br/>file read/write restrictions;<br/>small kernel proof, no profile compiler"]
     end
     block:L0
         columns 4
         t0["Machines"]
-        qemu["Tier 1: QEMU darwin-vm<br/>+ Finch patches: opt-in PCIe<br/>bridge, VirtIO data disk"]
+        qemu["Tier 1: QEMU darwin-vm<br/>+ Finch patches: opt-in PCIe<br/>bridge, VirtIO data disk<br/>(persistent dev VM)"]
         vz["Tier 2: Virtualization.framework<br/>guest, own kernel"]
         metal["Tier 3: M4 bare metal<br/>(deferred)"]
     end

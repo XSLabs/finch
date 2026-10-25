@@ -65,9 +65,9 @@ class DataImageArguments(unittest.TestCase):
         args = json.loads(self.output.read_text())
         self.assertEqual(args[args.index("-M") + 1], "darwin,finch-pcie=on")
         self.assertEqual(args[args.index("-drive") + 1],
-                         "file=" + str(image).replace(",", ",,") + ",if=none,format=raw,id=finchdata")
+                         "file=" + str(image).replace(",", ",,") + ",if=none,format=raw,id=finchdisk0")
         self.assertEqual(args[args.index("-device") + 1],
-                         "virtio-blk-pci,drive=finchdata,disable-legacy=on")
+                         "virtio-blk-pci,drive=finchdisk0,disable-legacy=on")
         self.assertTrue(args[args.index("-dtree") + 1].endswith("/dtree-pcie"))
         self.assertEqual(image.read_bytes(), b"disposable image")
 

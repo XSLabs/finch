@@ -34,6 +34,15 @@ These checks also apply across the phases:
 The current RAM-disk VM and folder-root update tests cover useful parts of these
 flows. They do not establish a working installed operating system.
 
+On 2026-10-25, the persistent development VM (`tools/vm/mkpersistent.sh`) passed
+the stored-data check for accounts, passwords and home files: a new user, a
+changed password and saved files kept their contents, owners and modes through
+a shutdown and two more boots, and another user's private folders and the
+system files stayed closed to that user (`tools/vm/test-persistence.sh`).
+Network settings are not saved yet, the system image still loads into RAM,
+and this is not an installed system. See
+[persistent VM storage](design/PERSISTENT_VM_STORAGE.md).
+
 On 2026-10-17, the VM runner gained explicit result checks for every packaged
 test. New tests must choose a comparison or declare that they check their own
 results. Four tests that previously passed from their exit status now compare
@@ -1264,7 +1273,8 @@ that every app works. These release checks were missing from the Phase 5 list:
       and licence notices recorded. Phase 1's remaining items stay open until checked.
       The [install payload](design/RELEASE.md) now records owners, permissions and
       file hashes. Archive checks and required-library checks pass. This is still
-      an unsigned development payload; installation and persistent accounts remain open.
+      an unsigned development payload; installation remains open. Accounts, passwords
+      and homes persist on the development VM's data disk (2026-10-25, above).
 - [ ] **System services:** cron, configd, disk mounting and Bonjour; network settings
       that persist and notify apps when they change. Framework clients alone do not
       complete these services. See [Security and SystemConfiguration](design/SECURITY.md).

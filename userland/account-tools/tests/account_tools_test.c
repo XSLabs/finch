@@ -109,7 +109,8 @@ put_fixture(const char *directory, const char *legacy_hash)
 	    "locked:*:501:20:Locked User:/Users/locked:/bin/sh\n"
 	    "legacy:*:502:20:Old User:/Users/legacy:/bin/sh\n", 0644);
 	assert(snprintf(path, sizeof(path), "%s/group", directory) < (int)sizeof(path));
-	write_file(path, "wheel:*:0:root\nstaff:*:20:root,locked,legacy\n", 0644);
+	/* macOS's own group file has nobody at -2 and nogroup at -1. */
+	write_file(path, "wheel:*:0:root\nnobody:*:-2:\nnogroup:*:-1:\nstaff:*:20:root,locked,legacy\n", 0644);
 }
 
 static void
@@ -156,6 +157,22 @@ remove_home_store(const char *directory)
 		assert(unlink(path) == 0);
 	}
 	assert(rmdir(directory) == 0);
+}
+
+static void
+remove_home_folders(const char *home)
+{
+	/* Deepest first: Drop Box is inside Public. */
+	static const char *folders[] = {"Public/Drop Box", "Public", "Pictures",
+	    "Music", "Movies", "Library/Preferences", "Library/Caches",
+	    "Library/Application Support", "Library", "Downloads", "Documents",
+	    "Desktop"};
+	for (size_t i = 0; i < sizeof(folders) / sizeof(folders[0]); i++) {
+		char folder[1100];
+		assert(snprintf(folder, sizeof(folder), "%s/%s", home, folders[i]) <
+		    (int)sizeof(folder));
+		assert(rmdir(folder) == 0);
+	}
 }
 
 static void
@@ -307,6 +324,23 @@ test_home_provisioning(void)
 	assert(stat(provisioned_home, &home_stat) == 0 && S_ISDIR(home_stat.st_mode));
 	assert(home_stat.st_uid == home_uid && home_stat.st_gid == home_gid &&
 	    (home_stat.st_mode & 07777) == 0700);
+	/* A new home starts with macOS's standard folders. */
+	static const struct { const char *path; mode_t mode; } folders[] = {
+		{"Desktop", 0700}, {"Documents", 0700}, {"Downloads", 0700},
+		{"Library", 0700}, {"Library/Application Support", 0700},
+		{"Library/Caches", 0700}, {"Library/Preferences", 0700},
+		{"Movies", 0700}, {"Music", 0700},
+		{"Pictures", 0700}, {"Public", 0755}, {"Public/Drop Box", 0733},
+	};
+	for (size_t i = 0; i < sizeof(folders) / sizeof(folders[0]); i++) {
+		char folder[1100];
+		struct stat folder_stat;
+		assert(snprintf(folder, sizeof(folder), "%s/%s", provisioned_home,
+		    folders[i].path) < (int)sizeof(folder));
+		assert(lstat(folder, &folder_stat) == 0 && S_ISDIR(folder_stat.st_mode));
+		assert(folder_stat.st_uid == home_uid && folder_stat.st_gid == home_gid &&
+		    (folder_stat.st_mode & 07777) == folders[i].mode);
+	}
 	at_store_close(&store);
 
 	/* A matching, already-owned empty home is accepted without being replaced. */
@@ -332,6 +366,8 @@ test_home_provisioning(void)
 	if (geteuid() == 0)
 		assert(rmdir(foreign_home) == 0);
 	assert(rmdir(populated_home) == 0);
+	remove_home_folders(provisioned_home);
+	remove_home_folders(existing_home);
 	assert(rmdir(provisioned_home) == 0);
 	assert(rmdir(existing_home) == 0);
 	assert(rmdir(users) == 0);

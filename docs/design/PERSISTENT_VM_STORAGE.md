@@ -1,6 +1,6 @@
 # Persistent VM storage
 
-**Status: experimental disk persistence works; installed-system storage is unfinished.** Finch's normal `darwin` VM still boots from RAM. A separate experiment now exposes a disk device backed by a host image. The extra bridge driver links into a separate test kernel collection, and an opt-in QEMU bridge now attaches in Finch. A marker written to a separate APFS disk survived a full QEMU process restart, and a test system image now boots with `rc` mounting the data volume and reading accounts from it. The normal boot path still keeps user state in RAM.
+**Status: a development VM with persistent accounts and homes; installed-system storage is unfinished.** The normal `darwin` VM still boots from RAM. `tools/vm/mkpersistent.sh` builds a second development VM whose system image mounts a VirtIO data disk at boot, through the AppleVirtualPlatform PCIe bridge that `tools/build-kernel.sh` now links into the kernel collection (`boot/kc/extra-kexts.txt`) and the opt-in QEMU bridge. Accounts, passwords, home folders and `/private/var/db` live on that disk; `tools/vm/test-persistence.sh` checks them across shutdowns and restarts. The system image itself is still loaded as a RAM disk, and installation, updates that switch the booted system, and hardware remain open.
 
 ## What a release must do
 
@@ -130,16 +130,76 @@ booted as the RAM disk with `data.cdr` attached:
    development recovery shell opened, with nothing mounted on
    `/private/var/rw` (`data-boot-missing.log`).
 
-Known gap in this image: the in-guest owner fix dropped the setuid bit on
-`/usr/bin/passwd` (mode `0555`), so password changes by non-root users were not
-tested. The image steps are still manual scripts under
-`build/continuation-20261018/`, not part of `mkramdisk.sh`.
+That image dropped the setuid bit on `/usr/bin/passwd` and was prepared by
+manual scripts. Both are fixed by the persistent development image below.
 
-The acceptance check must create a real user, log in, save a preference file,
-shut down, and repeat login and file checks in a fresh VM. Separate missing,
-wrong, unformatted, and corrupt disk checks must stop ordinary startup without
-formatting or replacing data. The current crash marker test does not cover
-these boot and account paths.
+### Persistent development image (October 24)
+
+`tools/vm/mkpersistent.sh` builds `build/vm-persistent` from the normal VM image,
+without sudo:
+
+- `system.dmg` is the VM image's files copied into a new APFS volume (a new
+  volume UUID, so it can't be confused with the setup boot's root). The account
+  files become links into `/private/var/rw/accounts`, and the image keeps the
+  originals in `/usr/share/finch/accounts` as the seed for a new data volume.
+  `/private/var/root` links to the data volume too. `tools/vm/image-owners.py`
+  writes the owner and mode of every file, by the release archive's rules
+  (`tools/release/mkrootfs.py`), to `/usr/share/finch/image-owners.txt`.
+- One setup boot attaches both disks and runs `finch-volume-setup` as root:
+  `system UUID` applies the manifest (11,844 entries, setuid bits included), and
+  for a new data disk `data UUID SYSTEM-UUID` lays out the accounts, `Users`,
+  `db` and `root` folders that `finch-data-volume` requires. It refuses a data
+  volume that already has accounts. Both find volumes by UUID on a VirtIO disk,
+  through the same registry code as `finch-data-volume`.
+- `data.img` is made once and kept, so rebuilding the system image keeps users'
+  data. `data-empty.img` is a clone of the fresh layout for tests.
+
+`FINCH_PERSISTENT=1 tools/vm/run.sh` boots it.
+
+A new account's home now starts with macOS's standard folders (Desktop,
+Documents, Downloads, Library, Movies, Music, Pictures, Public and its Drop
+Box), made after the account is saved, so a failed save still removes only the
+empty home. The first stored-data run stopped because the new home had no
+`Documents`.
+
+**Stored-data check** (`tools/vm/test-persistence.sh`, on a fresh copy of the
+empty data disk): passed on 2026-10-25. Boot 1 found a fresh data volume mounted with
+`nodev`, `nosuid`, the account files on it as root's (mode 0600 for
+`master.passwd`), system files root's with `passwd` setuid, and notifyd, configd
+and syslogd running. It created user `persist` with `accountctl`, logged in
+through `login` and PAM, saved a mode-0600 file in `Documents` and a preference
+file, checked that the user could not list another user's `Documents`, write
+into their home, or write the account files or `/usr/bin/passwd`, and changed
+the password with `passwd`. Each boot ends with `halt` (finch-init's shutdown,
+which syncs and unmounts). Boots 2 and 3 checked that the old password is
+refused and the new one logs in, read the files back with the same contents,
+owner and modes, and appended to a file whose line count proves each earlier
+boot's write survived. The run's log is
+`build/continuation-20261025/persistence-pass.log`.
+
+Fixed on the way: new homes had no standard folders; the image's homes
+(rc's and the setup tool's) had `Documents` and the rest at mode 0755, readable
+by every user, where macOS has 0700; and `mkpersistent.sh` exited 1 after
+success. The development image still needs the base image's sandbox compiler
+(`FINCH_VM_BASE_SANDBOX=1 tools/vm/mkramdisk.sh`, docs/DEV_VM.md), or notifyd
+can't start.
+
+Timing: login and `passwd` run several 600,000-round PBKDF2 derivations (the
+account hash and the login keychain) on the VM's single emulated CPU. The same
+`passwd` step took between 20 seconds and 51 minutes across runs on this Mac,
+while later logins took seconds; the guest showed `passwd` alone running
+(CPU-bound, decayed priority), so the spread looks like host scheduling of
+QEMU's one TCG thread. The test allows 900 seconds a step. One earlier boot
+also logged Apple System Policy (the borrowed ASP kext) denying `/dev/tty`
+reads to `bash` and `accountctl`; it didn't recur in four later boots of the
+same image, and its cause is unknown.
+
+This covers the release table's stored-data row for accounts, passwords and home
+files in the development VM. Network settings aren't saved yet, and the system
+image still boots as a RAM disk with the data volume as its only writable disk;
+an installed system's own boot volume and updates that switch it remain open.
+Separate missing, wrong, unformatted and corrupt disk checks are also still
+needed (only the missing-disk case is tested above).
 
 ## Work still needed after the disk test
 

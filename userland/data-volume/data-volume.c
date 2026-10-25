@@ -5,6 +5,7 @@
  */
 #include "data-volume-policy.h"
 #include "data-volume-process.h"
+#include "data-volume-registry.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
@@ -27,20 +28,12 @@
 #define MOUNT_APFS "/sbin/mount_apfs"
 #define UMOUNT "/sbin/umount"
 #define FSCK_APFS "/System/Library/Filesystems/apfs.fs/Contents/Resources/fsck_apfs"
-#define UUID_PROPERTY "UUID"
-#define BSD_NAME_PROPERTY "BSD Name"
 #define WAIT_SECONDS 30
 #define STABLE_SCANS 3
 #define POLL_NANOSECONDS 200000000L
 #define FSCK_TIMEOUT_MILLISECONDS 120000
 #define MOUNT_TIMEOUT_MILLISECONDS 30000
 #define UMOUNT_TIMEOUT_MILLISECONDS 30000
-
-struct volume_match {
-	unsigned int count;
-	bool invalid;
-	char bsd_name[32];
-};
 
 static void
 report(const char *message)
@@ -155,89 +148,6 @@ done:
 	return result;
 }
 
-static bool
-service_is_on_virtio_block(io_service_t service)
-{
-	io_registry_entry_t current = service;
-	bool found = false;
-
-	IOObjectRetain(current);
-	for (unsigned int depth = 0; depth < 64; depth++) {
-		io_registry_entry_t parent = IO_OBJECT_NULL;
-		if (IORegistryEntryGetParentEntry(current, kIOServicePlane, &parent) != KERN_SUCCESS)
-			break;
-		IOObjectRelease(current);
-		current = parent;
-		if (IOObjectConformsTo(current, "AppleVirtIOBlockStorageDevice")) {
-			found = true;
-			break;
-		}
-	}
-	IOObjectRelease(current);
-	return found;
-}
-
-static bool
-read_registry_uuid(io_service_t service, uuid_t result)
-{
-	CFTypeRef value = IORegistryEntryCreateCFProperty(service, CFSTR(UUID_PROPERTY),
-	    kCFAllocatorDefault, 0);
-	char text[64];
-	bool ok = false;
-
-	if (value && CFGetTypeID(value) == CFStringGetTypeID() &&
-	    CFStringGetCString((CFStringRef)value, text, sizeof(text), kCFStringEncodingUTF8) &&
-	    uuid_parse(text, result) == 0)
-		ok = true;
-	if (value)
-		CFRelease(value);
-	return ok;
-}
-
-static bool
-read_registry_bsd_name(io_service_t service, char *result, size_t result_size)
-{
-	CFTypeRef value = IORegistryEntryCreateCFProperty(service, CFSTR(BSD_NAME_PROPERTY),
-	    kCFAllocatorDefault, 0);
-	bool ok = false;
-
-	if (value && CFGetTypeID(value) == CFStringGetTypeID() &&
-	    CFStringGetCString((CFStringRef)value, result, (CFIndex)result_size,
-	    kCFStringEncodingUTF8) && finch_dv_valid_bsd_name(result))
-		ok = true;
-	if (value)
-		CFRelease(value);
-	return ok;
-}
-
-static int
-scan_registry(const uuid_t expected, struct volume_match *match)
-{
-	CFMutableDictionaryRef matching = IOServiceMatching("AppleAPFSVolume");
-	io_iterator_t iterator = IO_OBJECT_NULL;
-	IOReturn kr;
-
-	memset(match, 0, sizeof(*match));
-	if (!matching)
-		return -1;
-	kr = IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator);
-	if (kr != KERN_SUCCESS)
-		return -1;
-	for (io_service_t service = IOIteratorNext(iterator); service != IO_OBJECT_NULL;
-	    service = IOIteratorNext(iterator)) {
-		uuid_t actual;
-		if (read_registry_uuid(service, actual) && uuid_compare(actual, expected) == 0) {
-			match->count++;
-			if (!service_is_on_virtio_block(service) ||
-			    !read_registry_bsd_name(service, match->bsd_name, sizeof(match->bsd_name)))
-				match->invalid = true;
-		}
-		IOObjectRelease(service);
-	}
-	IOObjectRelease(iterator);
-	return 0;
-}
-
 static int
 find_volume(const uuid_t expected, char *bsd_name, size_t bsd_size)
 {
@@ -248,8 +158,8 @@ find_volume(const uuid_t expected, char *bsd_name, size_t bsd_size)
 	if (clock_gettime(CLOCK_MONOTONIC, &start) != 0)
 		return -1;
 	for (;;) {
-		struct volume_match match;
-		if (scan_registry(expected, &match) != 0) {
+		struct finch_dv_volume_match match;
+		if (finch_dv_scan_registry(expected, &match) != 0) {
 			report("could not read the I/O registry");
 			return -1;
 		}
@@ -413,8 +323,8 @@ mount_data_volume(const char *block_path, bool readonly)
 static int
 confirm_volume(const uuid_t expected, const char *bsd_name)
 {
-	struct volume_match match;
-	if (scan_registry(expected, &match) != 0 || match.count != 1 || match.invalid ||
+	struct finch_dv_volume_match match;
+	if (finch_dv_scan_registry(expected, &match) != 0 || match.count != 1 || match.invalid ||
 	    strcmp(match.bsd_name, bsd_name) != 0) {
 		report("the APFS volume changed while it was checked");
 		return -1;

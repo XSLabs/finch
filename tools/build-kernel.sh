@@ -5,6 +5,7 @@
 #
 #   tools/build-kernel.sh            # build kernel + kernel collection
 #   tools/build-kernel.sh --install  # ...and make it the darwin-vm boot KC
+#   tools/build-kernel.sh --link-only [--install]  # relink the KC from the built kernel
 #
 # Uses tools/darwin-xnu-build for toolchain bootstrapping (mig, ctf tools,
 # libfirehose, headers). Its build tree lives in build/xnu-work (git-ignored).
@@ -32,7 +33,14 @@ KERNEL_BIN="${WORK}/build/xnu.obj/kernel.${config_lc}.${machine_lc}"
 KC_NAME="finch-${FINCH_VERSION}.${machine_lc}"
 
 install=0
-[[ "${1:-}" == "--install" ]] && install=1
+link_only=0
+for arg in "$@"; do
+    case "${arg}" in
+        --install) install=1 ;;
+        --link-only) link_only=1 ;;
+        *) echo "usage: $0 [--link-only] [--install]" >&2; exit 2 ;;
+    esac
+done
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -72,39 +80,56 @@ if [[ ! -d "${WORK}/xnu" ]]; then
     git clone -q --depth 1 --branch "${XNU_TAG}" \
         https://github.com/apple-oss-distributions/xnu.git "${WORK}/xnu"
 fi
-for p in "${FINCH_ROOT}"/kernel/patches/*.patch; do
-    if git -C "${WORK}/xnu" apply --check "$p" 2>/dev/null; then
-        log "Applying $(basename "$p")"
-        git -C "${WORK}/xnu" apply "$p"
-    elif git -C "${WORK}/xnu" apply --check --reverse "$p" 2>/dev/null; then
-        :   # already applied
-    else
-        die "patch does not apply: $p"
-    fi
-done
+# Later patches can change lines an earlier one added, so once the series is in,
+# an earlier patch checks neither forwards nor in reverse. The stamp records the
+# series last applied in full.
+series_stamp="${WORK}/xnu/.finch-patch-series"
+series=$(cat "${FINCH_ROOT}"/kernel/patches/*.patch | shasum -a 256 | cut -d' ' -f1)
+if [[ "$(cat "${series_stamp}" 2>/dev/null)" == "${series}" ]]; then
+    log "Finch's kernel patches are already applied"
+else
+    for p in "${FINCH_ROOT}"/kernel/patches/*.patch; do
+        if git -C "${WORK}/xnu" apply --check "$p" 2>/dev/null; then
+            log "Applying $(basename "$p")"
+            git -C "${WORK}/xnu" apply "$p"
+        elif git -C "${WORK}/xnu" apply --check --reverse "$p" 2>/dev/null; then
+            :   # already applied
+        else
+            die "patch does not apply: $p"
+        fi
+    done
+    echo "${series}" > "${series_stamp}"
+fi
 
 # 2. Kernel. darwin-xnu-build skips the kernel if it exists, and make won't
 #    re-stamp the version banner unless version.[co] is gone.
-rm -f "${KERNEL_BIN}"
-find "${WORK}/build/xnu.obj" -name 'version.[co]' -delete 2>/dev/null || true
-log "Building XNU ${KERNEL_CONFIG} ${MACHINE_CONFIG} (log: build/xnu-work/build.log)"
-(
-    cd "${WORK}"
-    KERNEL_BUILDER=finch \
-    KERNEL_BUILD_OBJROOT="finch-${FINCH_VERSION}/${XNU_TAG}/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}" \
-    MACOS_VERSION="${MACOS_VERSION}" KDKROOT="${KDKROOT}" \
-    KERNEL_CONFIG="${KERNEL_CONFIG}" ARCH_CONFIG=ARM64 MACHINE_CONFIG="${MACHINE_CONFIG}" \
-        /opt/homebrew/bin/bash "${DARWIN_XNU_BUILD_DIR}/build.sh" > build.log 2>&1
-) || die "XNU build failed; see ${WORK}/build.log"
-[[ -f "${KERNEL_BIN}" ]] || die "kernel not produced; see ${WORK}/build.log"
+if (( link_only )); then
+    [[ -f "${KERNEL_BIN}" ]] || die "--link-only needs a built kernel: ${KERNEL_BIN}"
+    log "Using the built kernel ${KERNEL_BIN}"
+else
+    rm -f "${KERNEL_BIN}"
+    find "${WORK}/build/xnu.obj" -name 'version.[co]' -delete 2>/dev/null || true
+    log "Building XNU ${KERNEL_CONFIG} ${MACHINE_CONFIG} (log: build/xnu-work/build.log)"
+    (
+        cd "${WORK}"
+        KERNEL_BUILDER=finch \
+        KERNEL_BUILD_OBJROOT="finch-${FINCH_VERSION}/${XNU_TAG}/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}" \
+        MACOS_VERSION="${MACOS_VERSION}" KDKROOT="${KDKROOT}" \
+        KERNEL_CONFIG="${KERNEL_CONFIG}" ARCH_CONFIG=ARM64 MACHINE_CONFIG="${MACHINE_CONFIG}" \
+            /opt/homebrew/bin/bash "${DARWIN_XNU_BUILD_DIR}/build.sh" > build.log 2>&1
+    ) || die "XNU build failed; see ${WORK}/build.log"
+    [[ -f "${KERNEL_BIN}" ]] || die "kernel not produced; see ${WORK}/build.log"
+fi
 strings "${KERNEL_BIN}" | awk '/^Darwin Kernel Version/ && !p { print "    " $0; p = 1 }'
 
-# 3. Kernel collection: KDK manifest minus kexts we can't link.
+# 3. Kernel collection: KDK manifest minus kexts we can't link, plus the extra
+#    kexts the VM needs (boot/kc/extra-kexts.txt).
 log "Linking kernel collection ${KC_NAME}.${config_lc}"
 manifest="${KDKROOT}/System/Library/KernelCollections/${KC_MANIFEST}.manifest.plist"
 excluded=$(grep -v '^\s*#' "${FINCH_ROOT}/boot/kc/excluded-kexts.txt" | sed '/^\s*$/d')
 bundles=$(plutil -convert json "${manifest}" -o - | jq -r '.requiredIdentifiers[]' \
     | grep -vxF -e "${excluded}" | awk '{print "-b " $1}')
+bundles+=$(grep -v '^\s*#' "${FINCH_ROOT}/boot/kc/extra-kexts.txt" | sed '/^\s*$/d' | awk '{print " -b " $1}')
 rm -f "${KC_OUT}/${KC_NAME}.${config_lc}"
 # shellcheck disable=SC2086
 kmutil create -n boot -s none -a arm64e -z \

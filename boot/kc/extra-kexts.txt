@@ -1,0 +1,7 @@
+# Apple kexts the kernel collection adds beyond the KDK's Mac16,10 manifest.
+# tools/build-kernel.sh links them in. One bundle id per line; '#' starts a comment.
+
+# The virtual-platform PCIe bridge and its VirtIO block driver: the VM's data disk
+# (QEMU's finch-pcie=on, docs/design/PERSISTENT_VM_STORAGE.md). It only attaches
+# to the bridge's device-tree node, which the default VM tree doesn't have.
+com.apple.driver.AppleVirtualPlatform

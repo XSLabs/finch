@@ -321,3 +321,4 @@ build/userland/finch-notify-path-direct-test /usr/local/bin/finch-notify-path-di
 build/userland/finch-notify-path-cancel-test /usr/local/bin/finch-notify-path-cancel-test
 build/userland/finch-notify-path-permission-test /usr/local/bin/finch-notify-path-permission-test
 build/userland/finch-bootstrap-failure-test /usr/local/bin/finch-bootstrap-failure-test
+build/userland/finch-volume-setup /usr/local/bin/finch-volume-setup
