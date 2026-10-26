@@ -22,8 +22,12 @@
  *   evaluate-mechanisms        root, or a credential
  *
  * Passwords come in the request's environment (kAuthorizationEnvironmentUsername
- * and ...Password); without them a right that needs one fails as macOS's
- * does with no agent to ask (errAuthorizationInteractionNotAllowed without
+ * and ...Password), or, when the caller allows interaction, from the person at
+ * the screen: finch-securityagent, in the logged-in user's domain, shows the
+ * dialog (macOS's SecurityAgent), up to three tries; cancelling it is
+ * errAuthorizationCanceled. authd checks the agent is that program before
+ * taking its answer. With neither, a right that needs a password fails
+ * (errAuthorizationInteractionNotAllowed without
  * kAuthorizationFlagInteractionAllowed, else errAuthorizationDenied).
  *
  * AuthorizationExecuteWithPrivileges comes here too: an authorization that holds
@@ -37,7 +41,10 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
+#include <libproc.h>
 #include <limits.h>
+#include <mach/mach.h>
+#include <servers/bootstrap.h>
 #include <pwd.h>
 #include <security/pam_appl.h>
 #include <spawn.h>
@@ -308,6 +315,7 @@ enum { GRANTED, DENIED, NEEDS_CREDENTIAL };
 struct subject {
 	uid_t uid;
 	uid_t audit_uid;	/* who logged in to the caller's session */
+	pid_t pid;
 	au_asid_t session;
 	struct authorization *auth;
 };
@@ -528,6 +536,101 @@ environment_value(xpc_object_t request, const char *name)
 	return s;
 }
 
+/* ---- the password dialog (finch-securityagent) ---- */
+
+#define AGENT_SERVICE "org.finch.securityagent"
+#define AGENT_PROGRAM "/usr/libexec/finch-securityagent"
+#define AGENT_TRIES 3
+
+kern_return_t bootstrap_look_up_per_user(mach_port_t bp, const name_t service_name, uid_t target_user,
+    mach_port_t *sp);
+xpc_endpoint_t xpc_endpoint_create_mach_port_4sim(mach_port_t port);
+
+enum { AGENT_ANSWERED, AGENT_CANCELLED, AGENT_UNAVAILABLE };
+
+/* Ask the person at the screen of the caller's session for a name and password. */
+static int
+ask_agent(const struct subject *s, const char *right, CFDictionaryRef needs, bool retry, char **user,
+    char **password)
+{
+	/* The session's login user, or the caller's own where that's unset or root. */
+	uid_t uid = s->audit_uid != AU_DEFAUDITID && s->audit_uid != 0 ? s->audit_uid : s->uid;
+	mach_port_t port = MACH_PORT_NULL;
+	*user = *password = NULL;
+	if (uid == 0 || bootstrap_look_up_per_user(bootstrap_port, AGENT_SERVICE, uid, &port) != KERN_SUCCESS)
+		return AGENT_UNAVAILABLE;
+	xpc_endpoint_t endpoint = xpc_endpoint_create_mach_port_4sim(port);
+	mach_port_deallocate(mach_task_self(), port);
+	xpc_connection_t c = endpoint ? xpc_connection_create_from_endpoint(endpoint) : NULL;
+	if (endpoint)
+		xpc_release(endpoint);
+	if (c == NULL)
+		return AGENT_UNAVAILABLE;
+	xpc_connection_set_event_handler(c, ^(xpc_object_t event) { (void)event; });
+	xpc_connection_resume(c);
+
+	xpc_object_t request = xpc_dictionary_create(NULL, NULL, 0);
+	char client[PROC_PIDPATHINFO_MAXSIZE] = "";
+	struct passwd *pw = getpwuid(uid);
+	char group[256] = "";
+	CFStringRef g = needs ? CFDictionaryGetValue(needs, CFSTR("group")) : NULL;
+	if (g && CFGetTypeID(g) == CFStringGetTypeID())
+		CFStringGetCString(g, group, sizeof(group), kCFStringEncodingUTF8);
+	if (proc_pidpath(s->pid, client, sizeof(client)) > 0)
+		xpc_dictionary_set_string(request, "client", client);
+	xpc_dictionary_set_string(request, "right", right);
+	if (group[0])
+		xpc_dictionary_set_string(request, "group", group);
+	if (pw)
+		xpc_dictionary_set_string(request, "user", pw->pw_name);
+	xpc_dictionary_set_bool(request, "retry", retry);
+	xpc_object_t answer = xpc_connection_send_message_with_reply_sync(c, request);
+	xpc_release(request);
+
+	/* Only the real agent's answer counts. */
+	int result = AGENT_UNAVAILABLE;
+	audit_token_t token;
+	char peer[PROC_PIDPATHINFO_MAXSIZE] = "";
+	if (answer && xpc_get_type(answer) == XPC_TYPE_DICTIONARY)
+		xpc_dictionary_get_audit_token(answer, &token);	/* the reply's sender */
+	if (answer && xpc_get_type(answer) == XPC_TYPE_DICTIONARY &&
+	    proc_pidpath(audit_token_to_pid(token), peer, sizeof(peer)) > 0 && strcmp(peer, AGENT_PROGRAM) == 0 &&
+	    audit_token_to_euid(token) == uid) {
+		const char *u = xpc_dictionary_get_string(answer, "user");
+		const char *p = xpc_dictionary_get_string(answer, "password");
+		if (xpc_dictionary_get_bool(answer, "cancelled"))
+			result = AGENT_CANCELLED;
+		else if (u && p) {
+			*user = strdup(u);
+			*password = strdup(p);
+			result = AGENT_ANSWERED;
+		}
+	}
+	if (answer)
+		xpc_release(answer);
+	xpc_connection_cancel(c);
+	xpc_release(c);
+	return result;
+}
+
+/* A name and password: when right, the user's credential (and the session's, for a shared rule). */
+static bool
+accept_password(struct authorization *a, CFDictionaryRef needs, const char *user, const char *password)
+{
+	struct passwd *pw = getpwnam(user);
+	if (pw == NULL || !check_password(user, password))
+		return false;
+	time_t now = time(NULL);
+	long timeout = needs ? number_value(needs, CFSTR("timeout"), 0) : 0;
+	add_credential(a->credentials, pw->pw_uid, 0, now);
+	if (needs && bool_value(needs, CFSTR("shared"), false)) {
+		struct session_credentials *sess = session_for(a->session);
+		if (sess)
+			add_credential(sess->credentials, pw->pw_uid, timeout, now);
+	}
+	return true;
+}
+
 static OSStatus
 copy_rights(const struct subject *s, xpc_object_t request, xpc_object_t reply)
 {
@@ -560,17 +663,7 @@ copy_rights(const struct subject *s, xpc_object_t request, xpc_object_t reply)
 				if (user && password && !tried_password) {
 					/* One password per request: a wrong one isn't retried. */
 					tried_password = true;
-					struct passwd *pw = getpwnam(user);
-					if (pw != NULL && check_password(user, password)) {
-						time_t now = time(NULL);
-						long timeout = needs ? number_value(needs, CFSTR("timeout"), 0) : 0;
-						add_credential(a->credentials, pw->pw_uid, 0, now);
-						if (needs && bool_value(needs, CFSTR("shared"), false)) {
-							struct session_credentials *sess = session_for(a->session);
-							if (sess) {
-								add_credential(sess->credentials, pw->pw_uid, timeout, now);
-							}
-						}
+					if (accept_password(a, needs, user, password)) {
 						needs = NULL;
 						r = evaluate_rule(s, right_definition(right, true), 0, &needs);
 					}
@@ -580,7 +673,29 @@ copy_rights(const struct subject *s, xpc_object_t request, xpc_object_t reply)
 				}
 				free(user);
 				free(password);
-				if (r == NEEDS_CREDENTIAL) {
+				/* No password given: ask the person at the screen. */
+				bool cancelled = false;
+				for (int attempt = 0; r == NEEDS_CREDENTIAL && !tried_password &&
+				    (flags & kAuthorizationFlagInteractionAllowed) && attempt < AGENT_TRIES; attempt++) {
+					char *u = NULL, *p = NULL;
+					int asked = ask_agent(s, right, needs, attempt > 0, &u, &p);
+					if (asked == AGENT_CANCELLED) {
+						cancelled = true;
+						break;
+					}
+					if (asked != AGENT_ANSWERED)
+						break;
+					if (accept_password(a, needs, u, p)) {
+						needs = NULL;
+						r = evaluate_rule(s, right_definition(right, true), 0, &needs);
+					}
+					memset(p, 0, strlen(p));
+					free(u);
+					free(p);
+				}
+				if (cancelled && r == NEEDS_CREDENTIAL) {
+					status = errAuthorizationCanceled;
+				} else if (r == NEEDS_CREDENTIAL) {
 					status = (flags & kAuthorizationFlagInteractionAllowed) ? errAuthorizationDenied :
 					    errAuthorizationInteractionNotAllowed;
 					if (tried_password) {
@@ -769,6 +884,7 @@ handle(xpc_connection_t peer, xpc_object_t request)
 		.uid = audit_token_to_euid(token),
 		.audit_uid = audit_token_to_auid(token),
 		.session = audit_token_to_asid(token),
+		.pid = audit_token_to_pid(token),
 	};
 	const char *op = xpc_dictionary_get_string(request, AUTHD_KEY_OP);
 	OSStatus status = errAuthorizationInternal;

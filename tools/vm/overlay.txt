@@ -256,6 +256,8 @@ build/userland/finch-chpass-test /usr/local/bin/finch-chpass-test
 build/userland/finch-app-sandbox-test /usr/local/bin/finch-app-sandbox-test
 build/userland/finch-security-trust-settings-test /usr/local/bin/finch-security-trust-settings-test
 build/userland/finch-openpanel-test /usr/local/bin/finch-openpanel-test
+build/userland/finch-authorization-dialog-test /usr/local/bin/finch-authorization-dialog-test
+userland/securityagent/org.finch.securityagent.plist /System/Library/Finch/LaunchAgents/org.finch.securityagent.plist
 build/userland/apps/OpenPanelTest.app/Contents/MacOS/OpenPanelTest /usr/local/share/finch/apps/OpenPanelTest.app/Contents/MacOS/OpenPanelTest
 build/userland/apps/OpenPanelTest.app/Contents/Info.plist /usr/local/share/finch/apps/OpenPanelTest.app/Contents/Info.plist
 build/userland/apps/OpenPanelTest.app/Contents/_CodeSignature/CodeResources /usr/local/share/finch/apps/OpenPanelTest.app/Contents/_CodeSignature/CodeResources

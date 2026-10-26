@@ -1326,8 +1326,9 @@ that every app works. These release checks were missing from the Phase 5 list:
       add-trusted-cert (security-trust-settings-test, tools/vm/test-trust-settings.sh,
       2026-10-26); refreshed web roots ship as system updates. Sandboxed apps' open
       and save panels run in Finch's panel agent, which hands the chosen files over
-      as extensions (tools/vm/test-openpanel.sh, 2026-10-26). Revocation checks and
-      a password dialog remain open.
+      as extensions (tools/vm/test-openpanel.sh, 2026-10-26). Authorization asks for
+      passwords in Finch's dialog agent (tools/vm/test-authorization-dialog.sh,
+      2026-10-26). Revocation checks remain open.
 - [ ] **Updates:** signed update files, interrupted-download recovery, safe installation,
       rollback to a working system and preservation of user files and settings.
       Signed updates and rollback (2026-10-15): tools/release/sign-update.sh signs an

@@ -1142,7 +1142,12 @@ all: $(OUT)/finch-configd-contained-service
 all: $(OUT)/finch-account-tools-test
 all: $(OUT)/finch-account-login-test
 all: $(OUT)/finch-authorization-test $(OUT)/finch-chpass-test $(OUT)/finch-app-sandbox-test
-all: $(OUT)/finch-openpanel-test
+all: $(OUT)/finch-openpanel-test $(OUT)/finch-authorization-dialog-test
+# Guest-only, on the persistent VM: authorization's password dialog (finch-securityagent).
+$(OUT)/finch-authorization-dialog-test: authorization-dialog-test.m ../account-tools/account_tools.h ../../build/root/usr/lib/system/libfinchaccount.dylib
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -Wno-deprecated-declarations -I../account-tools -o $@ $< -framework AppKit -framework Security \
+	    -L../../build/root/usr/lib/system -lfinchaccount -Wl,-U,_FWSConnect -Wl,-U,_FWSPostEvent -Wl,-U,_FWSCopyWindowList
 # Guest-only, on the persistent VM: a sandboxed app's panels through the panel service;
 # the same program, signed for the sandbox, is the app.
 $(OUT)/finch-openpanel-test: openpanel-test.m ../account-tools/account_tools.h app-sandbox-fixture/openpanel.entitlements ../../build/root/usr/lib/system/libfinchaccount.dylib

@@ -411,9 +411,23 @@ and adding, changing and removing a right, with changes refused without an
 administrator. `is-root` grants only root (an earlier build granted any caller
 a rule with `authenticate-user` false and no group).
 
-Plug-in mechanisms and the password dialog (SecurityAgent) remain open:
-`evaluate-mechanisms` rules accept root or a password given in the
-environment.
+**The password dialog (2026-10-26).** When a right needs a password, none came
+in the environment and the caller allows interaction, authd asks
+`finch-securityagent` (userland/securityagent; macOS's SecurityAgent), a
+per-user agent in the domain of the caller's login user (`org.finch.securityagent`,
+reached with `bootstrap_look_up_per_user`). It shows the dialog ("PROGRAM wants
+to make changes. Enter an administrator’s name and password to allow this.")
+and returns the name and password to authd only, which takes the answer only
+from `/usr/libexec/finch-securityagent` running as that user and checks it with
+PAM; a wrong one asks again, up to three times, and cancelling is
+`errAuthorizationCanceled`. `tools/vm/test-authorization-dialog.sh` (persistent
+VM, headless window server) passes: an ordinary user's tool asks for
+system.privilege.admin, a wrong administrator password brings the dialog back,
+the right one grants the right, and a second request cancelled with Escape is
+refused (9 checks).
+
+Plug-in mechanisms remain open: `evaluate-mechanisms` rules accept root or a
+password.
 
 ## SecurityInterface and AuthenticationServices
 
