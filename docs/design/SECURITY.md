@@ -133,7 +133,8 @@ Finch has its own sandbox, end to end, in place of macOS's closed one:
 is compiled so it never widens access: it matches in a deny rule and fails in
 an allow rule (`sbplc -w` lists each). That covers sandbox extensions
 (`extension`, issued and consumed through the kernel on macOS; Finch's are
-still process-local), app containers, `require-entitlement` at run time,
+still process-local), app containers in a profile (the App Sandbox passes its
+container as a parameter instead), `require-entitlement` at run time,
 mount-relative paths, `syscall-group-*` sets, private ioctl/fsctl and MIG
 constants, `iokit-connection` and IOKit message filters. Mach-trap and kernel
 MIG filtering (`syscall-mach`, `syscall-mig`) is unenforced: XNU takes one
@@ -145,6 +146,58 @@ Mach task operations, Apple events, preferences, which the services
 themselves must ask about) are decided only where a service asks
 `sandbox_check`. Apple's Sandbox.kext is still linked into the kernel
 collection; nothing Finch runs applies a profile to it.
+
+### The App Sandbox (2026-10-26)
+
+A process whose signature has `com.apple.security.app-sandbox` is sandboxed
+before `main`, as on macOS. libSystem's initializer calls Finch's
+`libsystem_secinit` (`userland/libsystem/secinit`), which:
+
+- reads the process's entitlements (libxpc, from its code signature) and its
+  code-signing identifier, and leaves alone a process already sandboxed (a
+  sandboxed app's child keeps its parent's sandbox; one with
+  `com.apple.security.inherit` and no parent sandbox stops);
+- makes its container, `~/Library/Containers/IDENTIFIER/Data`, laid out as
+  macOS's: its own `Documents`, `Library` (Application Support, Caches,
+  Preferences, Saved Application State, ...), `SystemData` and `tmp`, and
+  links to the user's Desktop, Downloads, Movies, Music and Pictures and
+  Library folders such as Fonts and Keychains, which stay closed unless
+  entitled;
+- points `HOME`, `CFFIXED_USER_HOME` and `TMPDIR` into it;
+- compiles Finch's `application.sb` (`userland/sandbox-profiles`, written for
+  Finch) with the home, container and bundle as parameters and the
+  entitlements as `ENTITLEMENT:` parameters, which libsandbox hands the
+  compiler as entitlements, and applies it. If that fails the process stops: a
+  sandboxed app never runs unsandboxed.
+
+`application.sb` denies by default and imports `system.sb`. It allows looking
+up any path but reading only system files, the app's bundle, its container,
+the user's fonts, input methods, global preferences and the like, and Finch's
+services (the window server's socket, pasteboard, Launch Services, keychain
+and authorization). Entitlements add network clients and servers, Downloads,
+Pictures, Music and Movies (read-only or read-write), and temporary exceptions
+by absolute or home-relative path and by service name (absolute paths are
+resolved first, since the kernel matches resolved paths). User-selected files
+come as sandbox extensions, which are still process-local, so they stay closed
+for now.
+
+`tools/vm/test-app-sandbox.sh` (persistent VM, a user it makes) passes: an app
+with only the sandbox entitlement gets its container as `HOME` and `TMPDIR`,
+with Documents and the Desktop link, writes and reads it, and is refused the
+user's Documents, Downloads and home listing, `/tmp`, other files and network
+connections, while system files stay readable and `/bin/cat` run from it is
+sandboxed too (18 checks); an app with network.client,
+downloads.read-write and a read-only exception may connect, use Downloads and
+read, but not write, the excepted file (19 checks); without a sandbox the same
+user reads all those files and connects. `system.sb` now also allows
+`sysctl.name2oid` (behind `sysctlbyname`) and ioctls on `/dev/null`, `/dev/zero`
+and `/dev/dtracehelper`. Each sandboxed child still logs one
+`dynamic-code-generation` denial at start (a `MAP_JIT` probe in a borrowed
+library), which is harmless.
+
+Open: sandbox extensions in the kernel and an out-of-process open and save
+panel to issue them, app groups, and containers for app extensions and XPC
+services.
 
 ### Notification service work still required
 

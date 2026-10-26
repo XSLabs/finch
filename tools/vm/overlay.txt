@@ -253,6 +253,13 @@ build/userland/finch-account-tools-test /usr/local/bin/finch-account-tools-test
 build/userland/finch-account-login-test /usr/local/bin/finch-account-login-test
 build/userland/finch-authorization-test /usr/local/bin/finch-authorization-test
 build/userland/finch-chpass-test /usr/local/bin/finch-chpass-test
+build/userland/finch-app-sandbox-test /usr/local/bin/finch-app-sandbox-test
+build/userland/apps/SandboxTest.app/Contents/MacOS/SandboxTest /usr/local/share/finch/apps/SandboxTest.app/Contents/MacOS/SandboxTest
+build/userland/apps/SandboxTest.app/Contents/Info.plist /usr/local/share/finch/apps/SandboxTest.app/Contents/Info.plist
+build/userland/apps/SandboxTest.app/Contents/_CodeSignature/CodeResources /usr/local/share/finch/apps/SandboxTest.app/Contents/_CodeSignature/CodeResources
+build/userland/apps/SandboxNetTest.app/Contents/MacOS/SandboxNetTest /usr/local/share/finch/apps/SandboxNetTest.app/Contents/MacOS/SandboxNetTest
+build/userland/apps/SandboxNetTest.app/Contents/Info.plist /usr/local/share/finch/apps/SandboxNetTest.app/Contents/Info.plist
+build/userland/apps/SandboxNetTest.app/Contents/_CodeSignature/CodeResources /usr/local/share/finch/apps/SandboxNetTest.app/Contents/_CodeSignature/CodeResources
 userland/release/etc/master.passwd /usr/local/share/finch/account-fixture/master.passwd
 userland/release/etc/group /usr/local/share/finch/account-fixture/group
 build/userland/finch-diskarbitration-session-test /usr/local/bin/finch-diskarbitration-session-test

@@ -123,6 +123,7 @@ SCRIPTS = {
     'tools/vm/test-login.sh': ['security-keychain-login-test'],
     'tools/vm/test-authorization.sh': ['authorization-test'],
     'tools/vm/test-chpass.sh': ['chpass-test'],
+    'tools/vm/test-app-sandbox.sh': ['app-sandbox-test'],
 }
 # test-keychain.sh builds these images itself, then login-init-smoke.exp overrides the
 # inherited RAMDISK and TC with them. The script prints a VMTIMAGE record for each just before

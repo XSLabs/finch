@@ -1136,7 +1136,22 @@ all: $(OUT)/finch-configd-daemon-test
 all: $(OUT)/finch-configd-contained-service
 all: $(OUT)/finch-account-tools-test
 all: $(OUT)/finch-account-login-test
-all: $(OUT)/finch-authorization-test $(OUT)/finch-chpass-test
+all: $(OUT)/finch-authorization-test $(OUT)/finch-chpass-test $(OUT)/finch-app-sandbox-test
+# Guest-only, on the persistent VM: the App Sandbox. The same program, signed with
+# the sandbox entitlement, as two apps (app-sandbox-fixture/*.entitlements).
+$(OUT)/finch-app-sandbox-test: app-sandbox-test.c ../account-tools/account_tools.h app-sandbox-fixture/plain.entitlements app-sandbox-fixture/net.entitlements ../../build/root/usr/lib/system/libfinchaccount.dylib
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -I../account-tools -o $@ $< -L../../build/root/usr/lib/system -lfinchaccount
+	for app in SandboxTest:plain:org.finch.test.sandboxed SandboxNetTest:net:org.finch.test.sandboxed-net; do \
+	    name=$${app%%:*}; rest=$${app#*:}; kind=$${rest%%:*}; id=$${rest#*:}; \
+	    dir=$(OUT)/apps/$$name.app/Contents; rm -rf $(OUT)/apps/$$name.app; mkdir -p $$dir/MacOS; \
+	    plutil -create xml1 $$dir/Info.plist; \
+	    plutil -insert CFBundleIdentifier -string $$id $$dir/Info.plist; \
+	    plutil -insert CFBundleExecutable -string $$name $$dir/Info.plist; \
+	    plutil -insert CFBundlePackageType -string APPL $$dir/Info.plist; \
+	    cp $@ $$dir/MacOS/$$name; \
+	    codesign -f -s - -i $$id --entitlements app-sandbox-fixture/$$kind.entitlements $(OUT)/apps/$$name.app; \
+	done
 # Guest-only, on the persistent VM: chpass, chsh and chfn through OpenDirectory.
 $(OUT)/finch-chpass-test: chpass-test.c ../account-tools/account_tools.h ../../build/root/usr/lib/system/libfinchaccount.dylib
 	@mkdir -p $(OUT)

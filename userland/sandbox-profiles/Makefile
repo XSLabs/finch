@@ -6,12 +6,15 @@ FINCH_ROOT := $(abspath ../..)
 DEST := $(FINCH_ROOT)/build/root/System/Library/Sandbox/Profiles
 PROFILES := $(wildcard *.sb)
 SBPLC := $(FINCH_ROOT)/build/obj/libsandbox/sbplc
+# application.sb's parameters (libsystem_secinit's), for the check.
+CHECK_PARAMS := -D HOME_DIRECTORY=/Users/check -D APPLICATION_CONTAINER=/Users/check/Library/Containers/check/Data \
+	-D APPLICATION_BUNDLE=/Applications/Check.app
 
 all: $(addprefix $(DEST)/,$(PROFILES))
 
 $(DEST)/%.sb: %.sb $(SBPLC)
 	@mkdir -p $(DEST)
-	$(SBPLC) -I . $< > /dev/null
+	$(SBPLC) -I . $(CHECK_PARAMS) $< > /dev/null
 	install -m 644 $< $@
 
 $(SBPLC):

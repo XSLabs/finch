@@ -18,7 +18,9 @@ app containers, Mach-trap filtering and network address filters remain open
 (`docs/design/SECURITY.md`, "The sandbox"). Finch's own `scutil` and
 `networksetup` set system and network settings; on the persistent VM those
 survive restarts. A new system's first boot runs `finch-setup`, which makes the
-first administrator account before login. Finch's `authd` shares authorization
+first administrator account before login. Apps signed for the App Sandbox
+start in their containers under Finch's `application.sb` (`libsystem_secinit`).
+Finch's `authd` shares authorization
 rights and credentials between processes. `chpass`, `chsh` and `chfn` change
 account details through Finch's OpenDirectory and its setuid account helper.
 A persistent development VM (`tools/vm/mkpersistent.sh`) keeps accounts,
@@ -41,7 +43,7 @@ CoreBluetooth, `libsandbox.1.dylib`, CryptoTokenKit, and WidgetKit. Together the
 712 of 1,433 API items. Host comparisons cover their now-playing values and artwork,
 caption defaults, Bluetooth identifiers and GATT values, sandbox checks and extension
 tokens, token TLV records and PIN formats, and WidgetKit timelines and no-host results.
-Finch has no media-key route, Bluetooth radio, card reader, general app sandbox, or widget
+Finch has no media-key route, Bluetooth radio, card reader, or widget
 host. `Widget` and `WidgetConfiguration` still need Finch SwiftUI support. Details and
 test boundaries are in `docs/design/SMALL-FRAMEWORKS.md`.
 GameController builds from the macOS SDK headers, without shipping
@@ -318,7 +320,7 @@ block-beta
         space3[" "]
         xpc["libxpc<br/>Apple's wire protocol"]
         cc["libcorecrypto<br/>over OpenSSL 3.5.9"]
-        stubs["libsystem_* (sandbox, trace,<br/>featureflags, quarantine...), libm"]
+        stubs["libsystem_* (sandbox, trace,<br/>featureflags, quarantine...), libm;<br/>libsystem_secinit (App Sandbox:<br/>containers, application.sb)"]
         space3b[" "]
         cxx["libc++, compiler-rt<br/>(LLVM runtimes)"]
         space3c[" "]

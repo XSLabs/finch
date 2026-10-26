@@ -335,16 +335,43 @@ static void set_error(char **errorbuf, const char *message)
     if (errorbuf) *errorbuf = message ? strdup(message) : NULL;
 }
 
-/* The compiler's view of sandbox_set_param's pairs. */
-static struct sbpl_param *compile_params(sandbox_params_t params, size_t *count)
+/*
+ * The compiler's view of sandbox_set_param's pairs. A parameter named
+ * "ENTITLEMENT:key" is instead an entitlement the profile asks about
+ * ((entitlement-is-bool-true "key") and the like), as "key=value": the App
+ * Sandbox's start (libsystem_secinit) passes the app's this way. An array's
+ * values are separated by commas.
+ */
+#define ENTITLEMENT_PARAM "ENTITLEMENT:"
+static struct sbpl_param *compile_params(sandbox_params_t params, size_t *count,
+    char ***entitlements, size_t *entitlement_count)
 {
-    *count = params ? params->count / 2 : 0;
-    struct sbpl_param *list = calloc(*count ? *count : 1, sizeof(*list));
-    if (!list) return NULL;
-    for (size_t i = 0; i < *count; i++) {
-        list[i].name = params->values[2 * i];
-        list[i].value = params->values[2 * i + 1];
+    size_t pairs = params ? params->count / 2 : 0;
+    struct sbpl_param *list = calloc(pairs ? pairs : 1, sizeof(*list));
+    char **ents = calloc(pairs ? pairs : 1, sizeof(*ents));
+    if (!list || !ents) {
+        free(list);
+        free(ents);
+        return NULL;
     }
+    *count = *entitlement_count = 0;
+    for (size_t i = 0; i < pairs; i++) {
+        const char *name = params->values[2 * i], *value = params->values[2 * i + 1];
+        if (!strncmp(name, ENTITLEMENT_PARAM, strlen(ENTITLEMENT_PARAM))) {
+            if (asprintf(&ents[*entitlement_count], "%s=%s", name + strlen(ENTITLEMENT_PARAM), value) < 0) {
+                for (size_t j = 0; j < *entitlement_count; j++) free(ents[j]);
+                free(ents);
+                free(list);
+                return NULL;
+            }
+            (*entitlement_count)++;
+            continue;
+        }
+        list[*count].name = name;
+        list[*count].value = value;
+        (*count)++;
+    }
+    *entitlements = ents;
     return list;
 }
 
@@ -371,8 +398,9 @@ static sandbox_profile_t compile(int kind, const char *what, sandbox_params_t pa
         errno = EINVAL;
         return NULL;
     }
-    size_t nparams;
-    struct sbpl_param *list = compile_params(params, &nparams);
+    size_t nparams, nentitlements;
+    char **entitlements = NULL;
+    struct sbpl_param *list = compile_params(params, &nparams, &entitlements, &nentitlements);
     if (!list) {
         set_error(errorbuf, "out of memory");
         errno = ENOMEM;
@@ -382,6 +410,7 @@ static sandbox_profile_t compile(int kind, const char *what, sandbox_params_t pa
         .params = list, .param_count = nparams,
         .search_paths = profile_folders,
         .search_path_count = sizeof(profile_folders) / sizeof(profile_folders[0]),
+        .entitlements = (const char *const *)entitlements, .entitlement_count = nentitlements,
     };
     void *compiled = NULL;
     size_t size = 0;
@@ -410,6 +439,8 @@ static sandbox_profile_t compile(int kind, const char *what, sandbox_params_t pa
         r = sbpl_compile_string(what, strlen(what), NULL, &options, &compiled, &size, &error);
     }
     free(list);
+    for (size_t i = 0; i < nentitlements; i++) free(entitlements[i]);
+    free(entitlements);
     if (r != 0) {
         if (errorbuf) *errorbuf = error ? error : strdup("compile failed");
         else free(error);

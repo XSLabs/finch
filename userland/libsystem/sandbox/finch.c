@@ -62,7 +62,7 @@ finch_sandbox_check(int64_t pid, uint32_t pidversion, const char *operation, uin
 	struct finch_sandbox_query_request req = {
 		.version = FINCH_SANDBOX_ABI_VERSION, .size = sizeof(req),
 		.target_pid = (int32_t)pid, .target_pidversion = pidversion,
-		.field = 0xffffffffu, .flags = no_report ? FINCH_SANDBOX_QUERY_NO_REPORT : 0,
+		.field = 0xffffffffu, .flags = no_report || !operation ? FINCH_SANDBOX_QUERY_NO_REPORT : 0,
 	};
 	char path[MAXPATHLEN];
 	int field = filter_field(filter);

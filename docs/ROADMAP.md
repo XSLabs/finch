@@ -1313,7 +1313,11 @@ that every app works. These release checks were missing from the Phase 5 list:
       keychain (same test). Shared authorization: Finch's authd keeps the rights
       database, checks passwords through PAM, shares credentials within a session
       and runs privileged tools (tools/vm/test-authorization.sh, 2026-10-26).
-      Certificate updates, a password dialog and enforced app restrictions remain open.
+      The App Sandbox is enforced: an app signed with com.apple.security.app-sandbox
+      starts in its container under Finch's application.sb, with its entitlements
+      deciding network and folder access (tools/vm/test-app-sandbox.sh, 2026-10-26).
+      Certificate updates, a password dialog and user-selected files (sandbox
+      extensions, an open and save panel service) remain open.
 - [ ] **Updates:** signed update files, interrupted-download recovery, safe installation,
       rollback to a working system and preservation of user files and settings.
       Signed updates and rollback (2026-10-15): tools/release/sign-update.sh signs an

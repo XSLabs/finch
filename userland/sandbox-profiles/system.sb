@@ -57,11 +57,17 @@
        (literal "/dev/urandom"))
 (allow file-read* file-write-data file-ioctl
        (literal "/dev/tty"))
+(allow file-ioctl
+       (literal "/dev/null")
+       (literal "/dev/zero")
+       (literal "/dev/dtracehelper"))
 
 ;;; Its own process.
 (allow process-info* (target self))
 (allow signal (target self))
 (allow sysctl-read)
+;;; sysctlbyname(3) looks names up by writing them to sysctl.name2oid.
+(allow sysctl-write (sysctl-name "sysctl.name2oid"))
 
 ;;; Per-process service names.
 (allow mach-register (local-name-prefix ""))

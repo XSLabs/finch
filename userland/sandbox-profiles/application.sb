@@ -1,0 +1,124 @@
+;;; SPDX-License-Identifier: MIT OR Apache-2.0
+;;;
+;;; Finch's application.sb: the App Sandbox, for apps signed with
+;;; com.apple.security.app-sandbox. libsystem_secinit applies it as a process
+;;; starts, with these parameters:
+;;;
+;;;   HOME_DIRECTORY          the user's real home folder (resolved)
+;;;   APPLICATION_CONTAINER   the app's container, HOME/Library/Containers/ID/Data
+;;;   APPLICATION_BUNDLE      the app's bundle, or a tool's own executable
+;;;
+;;; and the app's entitlements, which decide the rest: network access, the
+;;; user's folders, and temporary exceptions. Written for Finch's services and
+;;; file layout; it covers the entitlements of macOS's App Sandbox that Finch
+;;; can enforce.
+
+(version 1)
+(deny default)
+(import "system.sb")
+
+(define home (param "HOME_DIRECTORY"))
+(define container (param "APPLICATION_CONTAINER"))
+(define bundle (param "APPLICATION_BUNDLE"))
+(define (home-subpath relative) (subpath (string-append home relative)))
+(define (home-literal relative) (literal (string-append home relative)))
+
+;;; Looking up any path: a sandboxed app may see that files exist, not read them.
+(allow file-read-metadata)
+
+;;; The app itself: read, run and map its code.
+(allow file-read* file-map-executable process-exec (subpath bundle))
+
+;;; Its container: everything.
+(allow file* (subpath container))
+
+;;; Its own processes, and the system's tools, which run under this sandbox too.
+(allow process-fork)
+(allow process-exec (subpath "/usr/bin") (subpath "/bin") (subpath "/usr/libexec"))
+(allow file-read* file-map-executable (subpath "/usr/bin") (subpath "/bin") (subpath "/usr/libexec"))
+(allow signal (target children))
+(allow process-info* (target children))
+
+;;; What every app reads in the user's Library: global preferences, fonts,
+;;; input methods and the like (the container's links lead to these).
+(allow file-read*
+       (home-literal "/Library/Preferences/.GlobalPreferences.plist")
+       (home-literal "/.CFUserTextEncoding")
+       (home-subpath "/Library/Fonts")
+       (home-subpath "/Library/FontCollections")
+       (home-subpath "/Library/Input Methods")
+       (home-subpath "/Library/KeyBindings")
+       (home-subpath "/Library/Keyboard Layouts")
+       (home-subpath "/Library/Colors")
+       (home-subpath "/Library/ColorPickers")
+       (home-subpath "/Library/ColorSync")
+       (home-subpath "/Library/Dictionaries")
+       (home-subpath "/Library/Spelling"))
+
+;;; System-wide files apps read.
+(allow file-read*
+       (subpath "/Library/Fonts")
+       (subpath "/Library/ColorSync")
+       (subpath "/Library/Keyboard Layouts")
+       (subpath "/Library/Input Methods")
+       (subpath "/Library/Frameworks")
+       (subpath "/Library/Preferences")
+       (subpath "/Applications")
+       (subpath "/private/var/db/mds")
+       (literal "/private/etc/shells"))
+
+;;; Finch's services an app uses: the window server (a UNIX socket), the
+;;; pasteboard, Launch Services, keychains, authorization and fonts.
+(allow network-outbound
+       (literal "/tmp/finch-windowserver")
+       (literal "/private/tmp/finch-windowserver"))
+(allow mach-lookup
+       (global-name "org.finch.pboard")
+       (global-name "org.finch.LaunchServices")
+       (global-name "org.finch.securityd")
+       (global-name "com.apple.SecurityServer")
+       (global-name "com.apple.securityd.xpc")
+       (global-name "com.apple.authd")
+       (global-name "com.apple.windowserver.active")
+       (global-name "com.apple.FontObjectsServer")
+       (global-name "com.apple.fonts")
+       (global-name "com.apple.coreservices.launchservicesd")
+       (global-name "com.apple.lsd.mapdb")
+       (global-name "com.apple.pasteboard.1"))
+
+;;; Network: outgoing connections and incoming ones, each by its entitlement.
+(if (entitlement "com.apple.security.network.client")
+    (allow network-outbound system-socket))
+(if (entitlement "com.apple.security.network.server")
+    (allow network-inbound network-bind system-socket))
+
+;;; The user's folders, by entitlement.
+(define (folder-access entitlement-prefix folder)
+  (if (entitlement (string-append entitlement-prefix ".read-write"))
+      (allow file* (home-subpath folder))
+      (if (entitlement (string-append entitlement-prefix ".read-only"))
+          (allow file-read* (home-subpath folder)))))
+(folder-access "com.apple.security.files.downloads" "/Downloads")
+(folder-access "com.apple.security.assets.pictures" "/Pictures")
+(folder-access "com.apple.security.assets.music" "/Music")
+(folder-access "com.apple.security.assets.movies" "/Movies")
+
+;;; Files the user chose (open and save panels) come as sandbox extensions.
+(if (or (entitlement "com.apple.security.files.user-selected.read-write")
+        (entitlement "com.apple.security.files.user-selected.read-only"))
+    (begin
+      (allow file-read* (extension "com.apple.app-sandbox.read"))
+      (allow file-read* file-write* (extension "com.apple.app-sandbox.read-write"))))
+
+;;; Temporary exceptions: paths outside the container, by absolute path or
+;;; relative to the home folder, and service names.
+(sandbox-array-entitlement "com.apple.security.temporary-exception.files.absolute-path.read-only"
+  (lambda (path) (allow file-read* (subpath path))))
+(sandbox-array-entitlement "com.apple.security.temporary-exception.files.absolute-path.read-write"
+  (lambda (path) (allow file-read* file-write* (subpath path))))
+(sandbox-array-entitlement "com.apple.security.temporary-exception.files.home-relative-path.read-only"
+  (lambda (path) (allow file-read* (home-subpath path))))
+(sandbox-array-entitlement "com.apple.security.temporary-exception.files.home-relative-path.read-write"
+  (lambda (path) (allow file-read* file-write* (home-subpath path))))
+(sandbox-array-entitlement "com.apple.security.temporary-exception.mach-lookup.global-name"
+  (lambda (name) (allow mach-lookup (global-name name))))
