@@ -121,6 +121,7 @@ SCRIPTS = {
     'tools/vm/test-drag.sh': ['appkit-drag-apps-test'],
     'tools/vm/test-services.sh': [],  # (the daemons running, and cron running a job)
     'tools/vm/test-login.sh': ['security-keychain-login-test'],
+    'tools/vm/test-authorization.sh': ['authorization-test'],
 }
 # test-keychain.sh builds these images itself, then login-init-smoke.exp overrides the
 # inherited RAMDISK and TC with them. The script prints a VMTIMAGE record for each just before

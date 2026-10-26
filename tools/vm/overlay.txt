@@ -250,10 +250,12 @@ build/userland/finch-configd-contained-service /usr/local/bin/finch-configd-cont
 build/userland/finch-configd-network-test /usr/local/bin/finch-configd-network-test
 build/userland/finch-account-tools-test /usr/local/bin/finch-account-tools-test
 build/userland/finch-account-login-test /usr/local/bin/finch-account-login-test
+build/userland/finch-authorization-test /usr/local/bin/finch-authorization-test
 userland/release/etc/master.passwd /usr/local/share/finch/account-fixture/master.passwd
 userland/release/etc/group /usr/local/share/finch/account-fixture/group
 build/userland/finch-diskarbitration-session-test /usr/local/bin/finch-diskarbitration-session-test
 userland/LaunchDaemons/com.apple.SystemConfiguration.configd.plist /System/Library/Finch/LaunchDaemons/com.apple.SystemConfiguration.configd.plist
+userland/LaunchDaemons/com.apple.authd.plist /System/Library/Finch/LaunchDaemons/com.apple.authd.plist
 userland/LaunchDaemons/com.apple.diskarbitrationd.plist /System/Library/Finch/LaunchDaemons/com.apple.diskarbitrationd.plist
 build/userland/finch-audioqueue-test /usr/local/bin/finch-audioqueue-test
 build/userland/finch-security-keychain-storage-test /usr/local/bin/finch-security-keychain-storage-test

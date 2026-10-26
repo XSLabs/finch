@@ -57,8 +57,8 @@ locked reads and writes, changed-file rejection, alias locking, concurrent saves
 file permissions and unsafe paths (2026-10-13). Filename-case checks pass on both
 systems. These checks use dummy secrets in private temporary folders.
 
-Authorization rules run inside the calling process; there is no shared authorization service
-or password dialog. Code checks read signatures and validate file hashes,
+Authorization Services go through Finch's `authd` (see "Shared authorization"
+below); there is no password dialog yet. Code checks read signatures and validate file hashes,
 resources and CMS signatures. Requirement parsing and trust serialization also
 exist. These checks do not establish an Apple signing identity or enforce an
 app sandbox. Hardware keys and the assessment service remain unavailable.
@@ -262,6 +262,48 @@ XPC message. Apple-format trust exceptions and the old CSSM, search, and
 transform APIs remain unsupported; hardware keys and Apple assessment services
 also remain unavailable.
 
+## Shared authorization (2026-10-26)
+
+`authd` (`userland/authd`, Mach service `com.apple.authd`, started on demand by
+finch-init) is Finch's own authorization service. Security.framework's
+Authorization calls send it XPC requests; every message carries a Finch
+protocol marker, so on a macOS host (whose own `authd` has the same name)
+Security falls back to evaluating rules in the process.
+
+- The rules database is `/private/var/db/auth.plist`, seeded from Security's
+  `authorization.plist` on first use. Rights match exactly or by the longest
+  wildcard prefix; rules follow macOS's classes (`allow`, `deny`, `user`,
+  `rule` with `k-of-n`, `evaluate-mechanisms`) and keys (`group`, `shared`,
+  `timeout`, `allow-root`, `authenticate-user`, `session-owner`).
+- Passwords given in the environment are checked through PAM's
+  `authorization` service. A credential lasts for the authorization's life;
+  a `shared` rule's credential is also kept for the caller's audit session,
+  for the rule's timeout (0: not reused).
+- Authorizations are 32-byte random tokens, so an external form passes one to
+  another process. Only its own session may free it.
+- `AuthorizationRightSet` and `AuthorizationRightRemove` need
+  `config.add.`/`config.modify.`/`config.remove.` for the right;
+  `AuthorizationExecuteWithPrivileges` runs a tool as root for an
+  authorization that holds `system.privilege.admin`, its output on a pipe.
+- The service is signed `org.finch.authd`: AMFI refuses the identifier
+  `com.apple.authd` without Apple's version-restriction entitlement.
+
+`tools/vm/test-authorization.sh` (persistent VM, fresh data disk) makes an
+administrator and an ordinary account and, as the ordinary account, passes 31
+checks: no password, a wrong password and a non-administrator's password are
+refused; an administrator's password grants `system.privilege.admin`, the
+context names them, and a privileged tool runs as UID 0; an authorization
+without the right can't run one; allow and deny rules; a shared credential
+reaches a second authorization in the session while a non-shared right still
+asks; an external form opens in another process and a made-up one is refused;
+and adding, changing and removing a right, with changes refused without an
+administrator. `is-root` grants only root (an earlier build granted any caller
+a rule with `authenticate-user` false and no group).
+
+Plug-in mechanisms and the password dialog (SecurityAgent) remain open:
+`evaluate-mechanisms` rules accept root or a password given in the
+environment.
+
 ## SecurityInterface and AuthenticationServices
 
 Finch's `SecurityInterface.framework` draws certificate, trust, identity,
@@ -281,8 +323,7 @@ panel reads and writes the lock settings through Finch Security. Those settings
 are currently kept only in the calling process and do not lock keychains
 automatically. `SFAuthorizationView` checks and obtains its configured rights
 through `SFAuthorization` and sends state changes to its delegate. Authorization
-still runs inside the app; Finch has no shared authorization service or system
-password dialog. The plugin view can collect local input and report a missing
+goes through Finch's `authd`; Finch has no system password dialog yet. The plugin view can collect local input and report a missing
 system UI service, but cannot act as Apple's authorization plug-in host.
 
 Finch's `AuthenticationServices.framework` provides the request and credential

@@ -18,7 +18,8 @@ app containers, Mach-trap filtering and network address filters remain open
 (`docs/design/SECURITY.md`, "The sandbox"). Finch's own `scutil` and
 `networksetup` set system and network settings; on the persistent VM those
 survive restarts. A new system's first boot runs `finch-setup`, which makes the
-first administrator account before login.
+first administrator account before login. Finch's `authd` shares authorization
+rights and credentials between processes.
 A persistent development VM (`tools/vm/mkpersistent.sh`) keeps accounts,
 passwords, home folders and `/private/var/db` on a VirtIO data disk: `rc` mounts
 it through `finch-data-volume` before services start, and a missing disk stops
@@ -167,8 +168,9 @@ a pinned Mozilla bundle. New file keychains encrypt their contents and require a
 password; process-local locking, unsafe-path refusal, changed-file rejection and
 concurrent saves pass focused host and QEMU checks (2026-10-13). The per-user
 keychain service also passes a QEMU check in which a second app reads an unlocked
-keychain and locks out the first app. Login password integration and shared
-authorization remain open.
+keychain and locks out the first app. Authorization Services go through
+Finch's `authd`: rights database, PAM password checks, credentials shared in a
+session and privileged tools pass in QEMU.
 SystemConfiguration reads local preferences and network state. Finch configd
 shares store values and sends change callbacks between processes; user access
 checks pass in QEMU. Settings watches recover after service restart; saved files
@@ -192,7 +194,7 @@ normal startup, password refusal, user login and return to login after logout.
 The install archive records file owners, permissions and hashes and passes
 required-library checks. A new system's first boot runs `finch-setup`, which makes
 the first administrator before `login` starts. Broader network setup, real disk
-mounting and the authorization service remain unfinished (`docs/design/SECURITY.md`).
+mounting and a system password dialog remain unfinished (`docs/design/SECURITY.md`).
 SecurityInterface adds certificate, trust, identity, keychain and authorization panels over
 AppKit and Security. AuthenticationServices builds Apple ID, password, web and passkey
 requests; Apple account and passkey requests return an unavailable-service error, while web
@@ -326,7 +328,7 @@ block-beta
         t2["Processes"]
         init["finch-init (PID 1)<br/>bootstrap server,<br/>system + user domains"]
         logd["finch-logd, finch-pboardd<br/>(pasteboards), pbcopy and pbpaste,<br/>finch-update (signed,<br/>resumable updates, keeps<br/>system accounts),<br/>finch-data-volume (checks and<br/>mounts the data disk),<br/>finch-volume-setup (lays out<br/>the dev VM's disks),<br/>screencapture and its service,<br/>scutil, networksetup,<br/>finch-setup (a new system's<br/>first account),<br/>launchctl, sh, mount_tmpfs, devtools"]
-        daemons["notifyd, syslogd, aslmanager,<br/>newsyslog, dynamic_pager, atrun,<br/>cron, mDNSPosix, configd,<br/>diskarbitrationd"]
+        daemons["notifyd, syslogd, aslmanager,<br/>newsyslog, dynamic_pager, atrun,<br/>cron, mDNSPosix, configd,<br/>diskarbitrationd, authd"]
         space2[" "]
         cmds["file/shell/text/adv/system_cmds,<br/>bash, zsh, bc, su, login,<br/>mount, fsck, FAT helpers"]
         space2b[" "]

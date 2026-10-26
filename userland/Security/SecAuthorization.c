@@ -1,10 +1,17 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
 /*
- * Authorization Services and security sessions, without a security server.
+ * Authorization Services and security sessions.
  *
- * Rights and rules come from Apple's published authorization database
+ * Where Finch's authorization service runs (authd, userland/authd: Finch's
+ * systems), every call goes to it: it decides rights for the caller's
+ * identity, checks passwords, shares credentials within a session, makes
+ * external forms work between processes and runs privileged tools. Where it
+ * doesn't (a macOS host, in the comparison tests), the rules are evaluated
+ * in-process as below.
+ *
+ * In-process, rights and rules come from Apple's published authorization database
  * (Security's OSX/authd/authorization.plist, installed in the framework's
- * Resources), evaluated in-process: "allow" rules are granted, "deny" rules
+ * Resources): "allow" rules are granted, "deny" rules
  * denied, and rules that would need a user to authenticate are granted to
  * root (allow-root) or to members of the rule's group when the rule doesn't
  * ask for authentication. Anything that would need an authentication dialog
@@ -15,7 +22,9 @@
  * External forms work within a process only (no authd to hand them across).
  */
 #include "SecInternal.h"
+#include "../authd/authd_protocol.h"
 #include <Security/AuthSession.h>
+#include <xpc/xpc.h>
 #include <Security/AuthorizationDB.h>
 #include <bsm/audit.h>
 #include <bsm/audit_session.h>
@@ -35,6 +44,7 @@
 struct AuthorizationOpaqueRef {
 	uint32_t magic;
 	uint8_t token[32];
+	bool remote;		/* authd's */
 	struct AuthorizationOpaqueRef *next;
 };
 #define kAuthMagic 0x46415554u   /* 'FAUT' */
@@ -51,6 +61,68 @@ static bool validRef(AuthorizationRef a)
 			ok = true;
 	pthread_mutex_unlock(&authLock);
 	return ok;
+}
+
+/* ---- authd ---- */
+
+static bool authdAbsent;
+
+/*
+ * Send a request to authd and wait for its reply. NULL (with authdAbsent set
+ * the first time) when the service isn't there.
+ */
+static xpc_object_t authdRequest(xpc_object_t request, OSStatus *status)
+{
+	if (authdAbsent)
+		return NULL;
+	xpc_connection_t c = xpc_connection_create_mach_service(AUTHD_SERVICE, NULL, 0);
+	if (!c) {
+		authdAbsent = true;
+		return NULL;
+	}
+	xpc_connection_set_event_handler(c, ^(xpc_object_t event) { (void)event; });
+	xpc_connection_resume(c);
+	xpc_object_t reply = xpc_connection_send_message_with_reply_sync(c, request);
+	xpc_connection_cancel(c);
+	xpc_release(c);
+	if (!reply || xpc_get_type(reply) != XPC_TYPE_DICTIONARY ||
+	    xpc_dictionary_get_uint64(reply, AUTHD_KEY_VERSION) != AUTHD_VERSION) {
+		/* No service, or another system's authd under the same name. */
+		if (reply == XPC_ERROR_CONNECTION_INVALID ||
+		    (reply && xpc_get_type(reply) == XPC_TYPE_DICTIONARY))
+			authdAbsent = true;
+		if (reply)
+			xpc_release(reply);
+		return NULL;
+	}
+	*status = (OSStatus)xpc_dictionary_get_int64(reply, AUTHD_KEY_STATUS);
+	return reply;
+}
+
+static xpc_object_t authdMessage(const char *op, AuthorizationRef a)
+{
+	xpc_object_t m = xpc_dictionary_create(NULL, NULL, 0);
+	xpc_dictionary_set_uint64(m, AUTHD_KEY_VERSION, AUTHD_VERSION);
+	xpc_dictionary_set_string(m, AUTHD_KEY_OP, op);
+	if (a)
+		xpc_dictionary_set_data(m, AUTHD_KEY_TOKEN, a->token, AUTHD_TOKEN_SIZE);
+	return m;
+}
+
+static struct AuthorizationOpaqueRef *newRef(const uint8_t token[32], bool remote)
+{
+	struct AuthorizationOpaqueRef *a = calloc(1, sizeof(*a));
+	a->magic = kAuthMagic;
+	if (token)
+		memcpy(a->token, token, sizeof(a->token));
+	else
+		arc4random_buf(a->token, sizeof(a->token));
+	a->remote = remote;
+	pthread_mutex_lock(&authLock);
+	a->next = allRefs;
+	allRefs = a;
+	pthread_mutex_unlock(&authLock);
+	return a;
 }
 
 /* ---- The rules database ---- */
@@ -158,7 +230,10 @@ static int evaluateRule(CFDictionaryRef rule, int depth)
 		else
 			return kDenied;
 		CFIndex count = CFArrayGetCount(names), k = count;
-		CFNumberRef kn = CFDictionaryGetValue(rule, CFSTR("k"));
+		/* "k-of-n" in the published database ("k" in older ones) */
+		CFNumberRef kn = CFDictionaryGetValue(rule, CFSTR("k-of-n"));
+		if (!kn)
+			kn = CFDictionaryGetValue(rule, CFSTR("k"));
 		if (kn && CFGetTypeID(kn) == CFNumberGetTypeID())
 			CFNumberGetValue(kn, kCFNumberCFIndexType, &k);
 		CFIndex granted = 0;
@@ -235,6 +310,45 @@ OSStatus AuthorizationCopyRights(AuthorizationRef authorization, const Authoriza
 		return errAuthorizationInvalidRef;
 	if (rights && rights->count && !rights->items)
 		return errAuthorizationInvalidSet;
+	if (authorization->remote) {
+		xpc_object_t m = authdMessage(AUTHD_OP_COPY_RIGHTS, authorization);
+		xpc_object_t names = xpc_array_create(NULL, 0);
+		for (UInt32 i = 0; rights && i < rights->count; i++) {
+			if (!rights->items[i].name) {
+				xpc_release(names);
+				xpc_release(m);
+				return errAuthorizationInvalidSet;
+			}
+			xpc_array_set_string(names, XPC_ARRAY_APPEND, rights->items[i].name);
+		}
+		xpc_dictionary_set_value(m, AUTHD_KEY_RIGHTS, names);
+		xpc_release(names);
+		xpc_object_t env = xpc_dictionary_create(NULL, NULL, 0);
+		for (UInt32 i = 0; environment && i < environment->count; i++) {
+			const AuthorizationItem *it = &environment->items[i];
+			if (it->name && it->value && it->valueLength)
+				xpc_dictionary_set_data(env, it->name, it->value, it->valueLength);
+		}
+		xpc_dictionary_set_value(m, AUTHD_KEY_ENVIRONMENT, env);
+		xpc_release(env);
+		xpc_dictionary_set_uint64(m, AUTHD_KEY_FLAGS, flags);
+		OSStatus st = errAuthorizationInternal;
+		xpc_object_t reply = authdRequest(m, &st);
+		xpc_release(m);
+		if (!reply)
+			return errAuthorizationInternal;
+		if (st == errAuthorizationSuccess && authorizedRights) {
+			xpc_object_t granted = xpc_dictionary_get_value(reply, AUTHD_KEY_RIGHTS);
+			size_t n = granted && xpc_get_type(granted) == XPC_TYPE_ARRAY ? xpc_array_get_count(granted) : 0;
+			AuthorizationItemSet *set = calloc(1, sizeof(*set));
+			set->items = calloc(n ? n : 1, sizeof(AuthorizationItem));
+			for (size_t i = 0; i < n; i++)
+				set->items[set->count++].name = strdup(xpc_array_get_string(granted, i));
+			*authorizedRights = set;
+		}
+		xpc_release(reply);
+		return st;
+	}
 	for (UInt32 i = 0; rights && i < rights->count; i++) {
 		if (!rights->items[i].name)
 			return errAuthorizationInvalidSet;
@@ -271,14 +385,23 @@ OSStatus AuthorizationCreate(const AuthorizationRights *rights, const Authorizat
 	                 kAuthorizationFlagDestroyRights | kAuthorizationFlagPreAuthorize | kAuthorizationFlagSkipInternalAuth |
 	                 kAuthorizationFlagNoData))
 		return errAuthorizationInvalidFlags;
-	struct AuthorizationOpaqueRef *a = calloc(1, sizeof(*a));
-	a->magic = kAuthMagic;
-	arc4random_buf(a->token, sizeof(a->token));
-	pthread_mutex_lock(&authLock);
-	a->next = allRefs;
-	allRefs = a;
-	pthread_mutex_unlock(&authLock);
+	struct AuthorizationOpaqueRef *a = NULL;
 	OSStatus st = errAuthorizationSuccess;
+	xpc_object_t m = authdMessage(AUTHD_OP_CREATE, NULL);
+	xpc_object_t reply = authdRequest(m, &st);
+	xpc_release(m);
+	if (reply) {
+		size_t n = 0;
+		const void *token = xpc_dictionary_get_data(reply, AUTHD_KEY_TOKEN, &n);
+		if (st == errAuthorizationSuccess && token && n == AUTHD_TOKEN_SIZE)
+			a = newRef(token, true);
+		xpc_release(reply);
+		if (!a)
+			return st ? st : errAuthorizationInternal;
+	} else {
+		a = newRef(NULL, false);
+	}
+	st = errAuthorizationSuccess;
 	if (rights && rights->count)
 		st = AuthorizationCopyRights(a, rights, environment, flags, NULL);
 	if (st || !authorization) {
@@ -291,6 +414,15 @@ OSStatus AuthorizationCreate(const AuthorizationRights *rights, const Authorizat
 
 OSStatus AuthorizationFree(AuthorizationRef authorization, AuthorizationFlags flags)
 {
+	if (validRef(authorization) && authorization->remote) {
+		xpc_object_t m = authdMessage(AUTHD_OP_FREE, authorization);
+		xpc_dictionary_set_bool(m, AUTHD_KEY_DESTROY, (flags & kAuthorizationFlagDestroyRights) != 0);
+		OSStatus st;
+		xpc_object_t reply = authdRequest(m, &st);
+		xpc_release(m);
+		if (reply)
+			xpc_release(reply);
+	}
 	pthread_mutex_lock(&authLock);
 	for (struct AuthorizationOpaqueRef **p = &allRefs; *p; p = &(*p)->next)
 		if (*p == authorization) {
@@ -311,7 +443,33 @@ OSStatus AuthorizationCopyInfo(AuthorizationRef authorization, AuthorizationStri
 		return errAuthorizationInvalidRef;
 	if (!info)
 		return errAuthorizationInvalidPointer;
-	/* No credentials are ever acquired, so there's no context to report. */
+	if (authorization->remote) {
+		OSStatus st = errAuthorizationInternal;
+		xpc_object_t m = authdMessage(AUTHD_OP_COPY_INFO, authorization);
+		xpc_object_t reply = authdRequest(m, &st);
+		xpc_release(m);
+		if (!reply)
+			return errAuthorizationInternal;
+		AuthorizationItemSet *set = calloc(1, sizeof(*set));
+		xpc_object_t d = xpc_dictionary_get_value(reply, AUTHD_KEY_INFO);
+		size_t n = d && xpc_get_type(d) == XPC_TYPE_DICTIONARY ? xpc_dictionary_get_count(d) : 0;
+		set->items = calloc(n ? n : 1, sizeof(AuthorizationItem));
+		if (n)
+			xpc_dictionary_apply(d, ^bool(const char *key, xpc_object_t value) {
+				if (tag && strcmp(tag, key))
+					return true;
+				AuthorizationItem *it = &set->items[set->count++];
+				it->name = strdup(key);
+				it->valueLength = xpc_data_get_length(value);
+				it->value = malloc(it->valueLength ? it->valueLength : 1);
+				memcpy(it->value, xpc_data_get_bytes_ptr(value), it->valueLength);
+				return true;
+			});
+		xpc_release(reply);
+		*info = set;
+		return st;
+	}
+	/* No credentials are ever acquired in-process, so there's no context to report. */
 	*info = copyItems(NULL);
 	return errAuthorizationSuccess;
 }
@@ -330,6 +488,22 @@ OSStatus AuthorizationCreateFromExternalForm(const AuthorizationExternalForm *ex
 {
 	if (!extForm || !authorization)
 		return errAuthorizationInvalidPointer;
+	/* authd's: any process holding the form may use the authorization. */
+	{
+		struct AuthorizationOpaqueRef probe = { .magic = kAuthMagic };
+		memcpy(probe.token, extForm->bytes, sizeof(probe.token));
+		OSStatus st = errAuthorizationInternal;
+		xpc_object_t m = authdMessage(AUTHD_OP_EXTERNAL, &probe);
+		xpc_object_t reply = authdRequest(m, &st);
+		xpc_release(m);
+		if (reply) {
+			xpc_release(reply);
+			if (st != errAuthorizationSuccess)
+				return st;
+			*authorization = newRef(probe.token, true);
+			return errAuthorizationSuccess;
+		}
+	}
 	pthread_mutex_lock(&authLock);
 	struct AuthorizationOpaqueRef *found = NULL;
 	for (struct AuthorizationOpaqueRef *r = allRefs; r; r = r->next)
@@ -354,6 +528,27 @@ OSStatus AuthorizationRightGet(const char *rightName, CFDictionaryRef *rightDefi
 {
 	if (!rightName)
 		return errAuthorizationInvalidPointer;
+	{
+		OSStatus st = errAuthorizationInternal;
+		xpc_object_t m = authdMessage(AUTHD_OP_RIGHT_GET, NULL);
+		xpc_dictionary_set_string(m, AUTHD_KEY_NAME, rightName);
+		xpc_object_t reply = authdRequest(m, &st);
+		xpc_release(m);
+		if (reply) {
+			size_t n = 0;
+			const void *bytes = xpc_dictionary_get_data(reply, AUTHD_KEY_DEFINITION, &n);
+			if (st == errAuthorizationSuccess && rightDefinitionOut) {
+				CFDataRef data = bytes ? CFDataCreate(NULL, bytes, (CFIndex)n) : NULL;
+				*rightDefinitionOut = data ? CFPropertyListCreateWithData(NULL, data, 0, NULL, NULL) : NULL;
+				if (data)
+					CFRelease(data);
+				if (!*rightDefinitionOut)
+					st = errAuthorizationInternal;
+			}
+			xpc_release(reply);
+			return st;
+		}
+	}
 	CFDictionaryRef d = rightDefinition(rightName, false);
 	if (!d)
 		return errAuthorizationDenied;
@@ -365,13 +560,55 @@ OSStatus AuthorizationRightGet(const char *rightName, CFDictionaryRef *rightDefi
 OSStatus AuthorizationRightSet(AuthorizationRef authRef, const char *rightName, CFTypeRef rightDefinition,
     CFStringRef descriptionKey, CFBundleRef bundle, CFStringRef localeTableName)
 {
-	/* The database is Apple's published one, read-only. */
-	return validRef(authRef) ? errAuthorizationDenied : errAuthorizationInvalidRef;
+	if (!validRef(authRef))
+		return errAuthorizationInvalidRef;
+	if (!rightName || !rightDefinition)
+		return errAuthorizationInvalidPointer;
+	if (!authRef->remote)
+		return errAuthorizationDenied;	/* in-process, Apple's published rules are read-only */
+	CFDictionaryRef def = NULL;
+	if (CFGetTypeID(rightDefinition) == CFDictionaryGetTypeID()) {
+		def = CFRetain(rightDefinition);
+	} else if (CFGetTypeID(rightDefinition) == CFStringGetTypeID()) {
+		/* A rule's name: the right uses that rule. */
+		const void *k[] = { CFSTR("class"), CFSTR("rule") };
+		const void *v[] = { CFSTR("rule"), rightDefinition };
+		def = CFDictionaryCreate(NULL, k, v, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	} else {
+		return errAuthorizationInvalidPointer;
+	}
+	CFDataRef data = CFPropertyListCreateData(NULL, def, kCFPropertyListBinaryFormat_v1_0, 0, NULL);
+	CFRelease(def);
+	if (!data)
+		return errAuthorizationInternal;
+	xpc_object_t m = authdMessage(AUTHD_OP_RIGHT_SET, authRef);
+	xpc_dictionary_set_string(m, AUTHD_KEY_NAME, rightName);
+	xpc_dictionary_set_data(m, AUTHD_KEY_DEFINITION, CFDataGetBytePtr(data), (size_t)CFDataGetLength(data));
+	CFRelease(data);
+	OSStatus st = errAuthorizationInternal;
+	xpc_object_t reply = authdRequest(m, &st);
+	xpc_release(m);
+	if (reply)
+		xpc_release(reply);
+	return reply ? st : errAuthorizationInternal;
 }
 
 OSStatus AuthorizationRightRemove(AuthorizationRef authRef, const char *rightName)
 {
-	return validRef(authRef) ? errAuthorizationDenied : errAuthorizationInvalidRef;
+	if (!validRef(authRef))
+		return errAuthorizationInvalidRef;
+	if (!rightName)
+		return errAuthorizationInvalidPointer;
+	if (!authRef->remote)
+		return errAuthorizationDenied;
+	xpc_object_t m = authdMessage(AUTHD_OP_RIGHT_REMOVE, authRef);
+	xpc_dictionary_set_string(m, AUTHD_KEY_NAME, rightName);
+	OSStatus st = errAuthorizationInternal;
+	xpc_object_t reply = authdRequest(m, &st);
+	xpc_release(m);
+	if (reply)
+		xpc_release(reply);
+	return reply ? st : errAuthorizationInternal;
 }
 
 /* Runs a tool as root, which only a process that's already root can do here. */
@@ -382,8 +619,34 @@ OSStatus AuthorizationExecuteWithPrivileges(AuthorizationRef authorization, cons
 		return errAuthorizationInvalidRef;
 	if (!pathToTool)
 		return errAuthorizationInvalidPointer;
-	if (geteuid() != 0)
-		return errAuthorizationDenied;
+	if (geteuid() != 0) {
+		/* authd runs it as root for an authorization with system.privilege.admin. */
+		if (!authorization->remote)
+			return errAuthorizationDenied;
+		xpc_object_t m = authdMessage(AUTHD_OP_EXECUTE, authorization);
+		xpc_dictionary_set_string(m, AUTHD_KEY_PATH, pathToTool);
+		xpc_object_t args = xpc_array_create(NULL, 0);
+		for (int i = 0; arguments && arguments[i]; i++)
+			xpc_array_set_string(args, XPC_ARRAY_APPEND, arguments[i]);
+		xpc_dictionary_set_value(m, AUTHD_KEY_ARGUMENTS, args);
+		xpc_release(args);
+		OSStatus st = errAuthorizationInternal;
+		xpc_object_t reply = authdRequest(m, &st);
+		xpc_release(m);
+		if (!reply)
+			return errAuthorizationInternal;
+		int fd = st == errAuthorizationSuccess ? xpc_dictionary_dup_fd(reply, AUTHD_KEY_PIPE) : -1;
+		xpc_release(reply);
+		if (st != errAuthorizationSuccess)
+			return st;
+		if (fd < 0)
+			return errAuthorizationToolExecuteFailure;
+		if (communicationsPipe)
+			*communicationsPipe = fdopen(fd, "r+");
+		else
+			close(fd);
+		return errAuthorizationSuccess;
+	}
 	int fds[2];
 	if (communicationsPipe && pipe(fds) < 0)
 		return errAuthorizationToolExecuteFailure;

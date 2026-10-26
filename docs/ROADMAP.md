@@ -400,7 +400,8 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
       encryption and refused trust/rights. Encrypted file keychains and process-local
       locking pass focused host and QEMU checks (2026-10-13). The per-user keychain
       service also passes shared unlock, shared lock and item-reference checks in
-      QEMU. Login password integration, shared authorization and enforced app restrictions
+      QEMU. Shared authorization goes through Finch's authd (tools/vm/test-authorization.sh,
+      2026-10-26). Login password integration and enforced app restrictions
       remain open; see [Security](design/SECURITY.md).
 - [ ] CoreGraphics, CoreText, ImageIO over open renderers (`docs/design/COREGRAPHICS.md`)
   - [x] Skia (chrome/m155) builds for arm64e with FreeType and the open codecs, and
@@ -1307,7 +1308,10 @@ that every app works. These release checks were missing from the Phase 5 list:
       The login keychain is made and unlocked with the login password at a real console
       login, and one with another password stays locked (tools/vm/test-login.sh,
       2026-10-15). passwd is built, and a user's own password change re-keys their
-      keychain (same test). Shared authorization, certificate updates and enforced app restrictions remain open.
+      keychain (same test). Shared authorization: Finch's authd keeps the rights
+      database, checks passwords through PAM, shares credentials within a session
+      and runs privileged tools (tools/vm/test-authorization.sh, 2026-10-26).
+      Certificate updates, a password dialog and enforced app restrictions remain open.
 - [ ] **Updates:** signed update files, interrupted-download recovery, safe installation,
       rollback to a working system and preservation of user files and settings.
       Signed updates and rollback (2026-10-15): tools/release/sign-update.sh signs an

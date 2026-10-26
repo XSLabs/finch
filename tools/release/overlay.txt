@@ -26,4 +26,5 @@ userland/LaunchDaemons/com.vix.cron.plist /System/Library/Finch/LaunchDaemons/co
 userland/LaunchDaemons/com.apple.atrun.plist /System/Library/Finch/LaunchDaemons/com.apple.atrun.plist
 userland/LaunchDaemons/com.apple.mDNSResponder.plist /System/Library/Finch/LaunchDaemons/com.apple.mDNSResponder.plist
 userland/LaunchDaemons/com.apple.SystemConfiguration.configd.plist /System/Library/Finch/LaunchDaemons/com.apple.SystemConfiguration.configd.plist
+userland/LaunchDaemons/com.apple.authd.plist /System/Library/Finch/LaunchDaemons/com.apple.authd.plist
 userland/LaunchDaemons/com.apple.diskarbitrationd.plist /System/Library/Finch/LaunchDaemons/com.apple.diskarbitrationd.plist

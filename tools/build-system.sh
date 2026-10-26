@@ -266,6 +266,8 @@ steps=(
     "libsandbox|userland/libsandbox/build.sh"
     "libm|make -s -C userland/libm"
     "Security|userland/Security/build.sh"
+    # authd: shared authorization rights and credentials (com.apple.authd)
+    "authd|make -s -C userland/authd"
     "CryptoTokenKit|userland/CryptoTokenKit/build.sh"
     "securityd|userland/securityd/build.sh"
     "pam-keychain|make -s -C userland/pam keychain"

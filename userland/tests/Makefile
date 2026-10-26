@@ -1136,6 +1136,11 @@ all: $(OUT)/finch-configd-daemon-test
 all: $(OUT)/finch-configd-contained-service
 all: $(OUT)/finch-account-tools-test
 all: $(OUT)/finch-account-login-test
+all: $(OUT)/finch-authorization-test
+# Guest-only, on the persistent VM: Authorization Services through authd.
+$(OUT)/finch-authorization-test: authorization-test.c ../account-tools/account_tools.h ../../build/root/usr/lib/system/libfinchaccount.dylib
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -I../account-tools -o $@ $< -L../../build/root/usr/lib/system -lfinchaccount -framework Security -framework CoreFoundation
 all: $(OUT)/finch-configd-network-test
 $(OUT)/finch-configd-network-test: configd-network-test.c
 	@mkdir -p $(OUT)
