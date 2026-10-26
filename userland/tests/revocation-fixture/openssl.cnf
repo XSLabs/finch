@@ -1,0 +1,27 @@
+# Test-only certificate authority for security-revocation-test (tools/test-revocation.sh).
+[req]
+distinguished_name=dn
+prompt=no
+[dn]
+CN=Finch Revocation Test Root
+[v3_ca]
+basicConstraints=critical,CA:TRUE
+keyUsage=critical,keyCertSign,cRLSign
+subjectKeyIdentifier=hash
+[v3_leaf]
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature
+extendedKeyUsage=serverAuth
+authorityKeyIdentifier=keyid
+authorityInfoAccess=OCSP;URI:http://127.0.0.1:18780
+crlDistributionPoints=URI:http://127.0.0.1:18781/root.crl
+[v3_ocsp]
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature
+extendedKeyUsage=OCSPSigning
+[ca]
+default_ca=ca_default
+[ca_default]
+database=index.txt
+default_md=sha256
+default_crl_days=7300

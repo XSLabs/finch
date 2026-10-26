@@ -273,6 +273,8 @@ def coverage():
     host = set(compare) | set(expect) | set(finch_only)
     # (the host suite also runs these through other programs: tools/host-tests.sh's last checks)
     host |= {'contacts-test', 'metal-test', 'app-test'}
+    # (with local OCSP and CRL servers: tools/test-revocation.sh)
+    host |= {'security-revocation-test'}
     in_vm = {m.group(1) for src in overlay() for m in [re.fullmatch(r'build/userland/finch-(.+-test)', src)] if m}
     scripted = {t for tests in SCRIPTS.values() for t in tests}
     return sorted(built - host - in_vm - scripted)

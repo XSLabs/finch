@@ -241,6 +241,10 @@ $(OUT)/finch-coreservices-identity-test: $(OUT)/finch-coreservices-additions-tes
 
 # Finch's supported keys, certificates and explicit unavailable-service errors.
 all: $(OUT)/finch-security-trust-settings-test
+# Host-only, with local OCSP and CRL servers (tools/test-revocation.sh).
+$(OUT)/finch-security-revocation-test: security-revocation-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework Security -framework CoreFoundation
 $(OUT)/finch-security-trust-settings-test: security-trust-settings-test.c security-trust-settings-certs.inc
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework Security -framework CoreFoundation

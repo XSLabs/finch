@@ -1,0 +1,15 @@
+fixtures load: pass
+without a revocation policy a revoked certificate isn't checked: pass
+OCSP: a good certificate passes: pass
+OCSP: a revoked one fails: pass
+OCSP: the responder's answer is a positive one: pass
+CRL: so is the CRL's: pass
+CRL: a good certificate passes: pass
+CRL: a revoked one fails: pass
+either method, CRL first: revoked: pass
+no network and no answer: passes by default: pass
+no answer when one is required: incomplete: pass
+the policy can forbid the network too: pass
+a stapled response answers without the network: pass
+and isn't taken for another certificate: pass
+failures: 0

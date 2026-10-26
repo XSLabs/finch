@@ -1328,7 +1328,8 @@ that every app works. These release checks were missing from the Phase 5 list:
       and save panels run in Finch's panel agent, which hands the chosen files over
       as extensions (tools/vm/test-openpanel.sh, 2026-10-26). Authorization asks for
       passwords in Finch's dialog agent (tools/vm/test-authorization-dialog.sh,
-      2026-10-26). Revocation checks remain open.
+      2026-10-26). Revocation is checked by OCSP and CRLs for trusts that ask
+      (tools/test-revocation.sh, 2026-10-26).
 - [ ] **Updates:** signed update files, interrupted-download recovery, safe installation,
       rollback to a working system and preservation of user files and settings.
       Signed updates and rollback (2026-10-15): tools/release/sign-update.sh signs an

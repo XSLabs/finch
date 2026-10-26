@@ -286,7 +286,7 @@ block-beta
         uti["UniformTypeIdentifiers<br/>UTType, declared and<br/>dynamic types"]
         cfnetwork["CFNetwork<br/>HTTP messages and streams,<br/>socket streams (TLS via OpenSSL),<br/>CFHost, Bonjour (dns_sd),<br/>proxies, FTP"]
         cf["CoreFoundation<br/>swift-corelibs CF + Finch ObjC:<br/>toll-free dispatch, collections,<br/>ordered sets, NSCache, NSData, NSDate,<br/>NSURL, locales, calendars, defaults,<br/>run loops, attributed strings,<br/>streams, Mach ports, notifications;<br/>bundle languages and .loctable files"]
-        security["Security<br/>keys, certificates, web roots,<br/>trust settings, file keychains,<br/>signature checks,<br/>Secure Transport (OpenSSL);<br/>SecurityFoundation (SFAuthorization,<br/>certificate summaries)"]
+        security["Security<br/>keys, certificates, web roots,<br/>trust settings, OCSP and CRLs,<br/>file keychains,<br/>signature checks,<br/>Secure Transport (OpenSSL);<br/>SecurityFoundation (SFAuthorization,<br/>certificate summaries)"]
         cryptokit["CryptoKit<br/>hashes, HMAC, HKDF,<br/>AES-GCM, ChaChaPoly,<br/>P-256, P-384, Curve25519"]
         od["OpenDirectory<br/>CFOpenDirectory,<br/>local account password checks<br/>and record changes<br/>(finch-account-update)"]
         icu["libicucore<br/>ICU-76142.4.7"]

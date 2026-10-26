@@ -1,0 +1,2 @@
+V	461021225039Z		0A	unknown	/CN=good.revocation.finch.test
+R	461021225040Z	261026225040Z	0B	unknown	/CN=revoked.revocation.finch.test

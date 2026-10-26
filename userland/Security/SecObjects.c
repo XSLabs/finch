@@ -113,6 +113,11 @@ int SecRandomCopyBytes(SecRandomRef random, size_t count, void *bytes)
 	return 0;
 }
 
+/* SecRevocation.c: OCSP and CRL checks of a built chain (errSecSuccess, errSecCertificateRevoked
+   or errSecIncompleteCertRevocationCheck). */
+SEC_HIDDEN OSStatus _FinchCheckRevocation(STACK_OF(X509) *chain, CFOptionFlags flags, bool networkAllowed,
+    CFArrayRef stapled, time_t when);
+
 typedef struct {
 	CFRuntimeBase base;
 	X509 *cert;
@@ -145,6 +150,8 @@ typedef struct {
 	CFRuntimeBase base;
 	CFArrayRef certs, anchors, policies;
 	CFArrayRef chain;   /* built by the last evaluation */
+	CFArrayRef ocspResponses;   /* stapled (SecTrustSetOCSPResponse) */
+	bool networkFetchDisallowed;
 	CFDateRef date;
 	CFDataRef exceptions;
 	CFIndex result;
@@ -213,6 +220,8 @@ static void trustFree(CFTypeRef o)
 		CFRelease(t->date);
 	if (t->chain)
 		CFRelease(t->chain);
+	if (t->ocspResponses)
+		CFRelease(t->ocspResponses);
 	if (t->exceptions)
 		CFRelease(t->exceptions);
 }
@@ -1449,8 +1458,7 @@ SecPolicyRef SecPolicyCreateWithOID(CFTypeRef oid)
 {
 	return SecPolicyCreateWithProperties(oid, NULL);
 }
-/* Revocation isn't checked (no network fetching, no OCSP responder cache):
- * the policy exists so it can be passed along, and constrains nothing. */
+/* Revocation is checked by OCSP and CRLs in the trusts it's given to (SecRevocation.c). */
 SecPolicyRef SecPolicyCreateRevocation(CFOptionFlags flags)
 {
 	CFMutableDictionaryRef d = CFDictionaryCreateMutable(
@@ -1616,6 +1624,12 @@ OSStatus SecTrustCreateWithCertificates(CFTypeRef certs, CFTypeRef policies, Sec
 	Trust *t = (Trust *)_SecCreateInstance(SecTrustGetTypeID(), sizeof(*t));
 	t->certs = c;
 	t->policies = p;
+	/* As on macOS, a trust may use the network by default only when it checks revocation. */
+	t->networkFetchDisallowed = true;
+	for (CFIndex i = 0; i < CFArrayGetCount(p); i++)
+		if (CFEqual(CFDictionaryGetValue(((Policy *)CFArrayGetValueAtIndex(p, i))->properties, kSecPolicyOid),
+		    kSecPolicyAppleRevocation))
+			t->networkFetchDisallowed = false;
 	t->result = kSecTrustResultInvalid;
 	*out = (SecTrustRef)t;
 	return 0;
@@ -1671,16 +1685,40 @@ OSStatus SecTrustSetAnchorCertificatesOnly(SecTrustRef ref, Boolean only)
 	t->result = kSecTrustResultInvalid;
 	return 0;
 }
+/* Whether revocation checks may ask the network (OCSP responders, CRLs). Finch
+   still never fetches missing intermediate certificates. */
 OSStatus SecTrustSetNetworkFetchAllowed(SecTrustRef ref, Boolean allowed)
 {
-	return valid(ref, SecTrustGetTypeID()) ? (allowed ? errSecUnimplemented : 0) : errSecParam;
+	if (!valid(ref, SecTrustGetTypeID()))
+		return errSecParam;
+	((Trust *)ref)->networkFetchDisallowed = !allowed;
+	((Trust *)ref)->result = kSecTrustResultInvalid;
+	return errSecSuccess;
 }
 OSStatus SecTrustGetNetworkFetchAllowed(SecTrustRef ref, Boolean *allowed)
 {
 	if (!valid(ref, SecTrustGetTypeID()) || !allowed)
 		return errSecParam;
-	/* Finch does not fetch missing certificates from the network. */
-	*allowed = false;
+	*allowed = !((Trust *)ref)->networkFetchDisallowed;
+	return errSecSuccess;
+}
+/* OCSP responses for the leaf, stapled (by a TLS server, say): a CFData or an array of them. */
+OSStatus SecTrustSetOCSPResponse(SecTrustRef ref, CFTypeRef responseData)
+{
+	if (!valid(ref, SecTrustGetTypeID()))
+		return errSecParam;
+	Trust *t = (Trust *)ref;
+	CFArrayRef responses = NULL;
+	if (responseData && CFGetTypeID(responseData) == CFDataGetTypeID())
+		responses = CFArrayCreate(NULL, &responseData, 1, &kCFTypeArrayCallBacks);
+	else if (responseData && CFGetTypeID(responseData) == CFArrayGetTypeID())
+		responses = CFArrayCreateCopy(NULL, responseData);
+	else if (responseData)
+		return errSecParam;
+	if (t->ocspResponses)
+		CFRelease(t->ocspResponses);
+	t->ocspResponses = responses;
+	t->result = kSecTrustResultInvalid;
 	return errSecSuccess;
 }
 OSStatus SecTrustSetOptions(SecTrustRef ref, SecTrustOptionFlags options)
@@ -1822,6 +1860,7 @@ static bool evaluate(Trust *t)
 	int ok = s && c && chain;
 	int err = X509_V_ERR_UNSPECIFIED;
 	bool implicitAnchorUsed = false;
+	OSStatus revocationStatus = 0;
 	/* Mozilla's bundle approves HTTPS server roots, not code-signing or mail
 	 * identities. Keep it out of those other policy checks. */
 	bool https = false, serverPolicies = true;
@@ -1909,6 +1948,22 @@ static bool evaluate(Trust *t)
 		}
 		STACK_OF(X509) *built = X509_STORE_CTX_get1_chain(c);
 		setChain(t, built);
+		/* A revocation policy: each certificate in the chain, by OCSP or CRL (SecRevocation.c). */
+		for (CFIndex i = 0; ok && built && i < CFArrayGetCount(t->policies); i++) {
+			CFDictionaryRef props = ((Policy *)CFArrayGetValueAtIndex(t->policies, i))->properties;
+			if (!CFEqual(CFDictionaryGetValue(props, kSecPolicyOid), kSecPolicyAppleRevocation))
+				continue;
+			CFOptionFlags flags = 0;
+			CFNumberRef n = CFDictionaryGetValue(props, kSecPolicyRevocationFlags);
+			if (n)
+				CFNumberGetValue(n, kCFNumberCFIndexType, &flags);
+			OSStatus revocation = _FinchCheckRevocation(built, flags, !t->networkFetchDisallowed,
+			    t->ocspResponses, when);
+			if (revocation != errSecSuccess) {
+				ok = 0;
+				revocationStatus = revocation;
+			}
+		}
 		/* A distrusted certificate anywhere in the chain fails it; a chain
 		   ending at a root the settings trust is the user's explicit choice. */
 		for (int i = 0; built && i < sk_X509_num(built); i++) {
@@ -1925,8 +1980,10 @@ static bool evaluate(Trust *t)
 		}
 		OSSL_STACK_OF_X509_free(built);
 	}
-	t->status = ok ? 0 : trustStatus(err == X509_V_OK ? X509_V_ERR_UNSPECIFIED : err);
+	t->status = ok ? 0 : revocationStatus ? revocationStatus :
+	    trustStatus(err == X509_V_OK ? X509_V_ERR_UNSPECIFIED : err);
 	t->result = ok ? (implicitAnchorUsed || settingsAnchorUsed ? kSecTrustResultProceed : kSecTrustResultUnspecified)
+	    : revocationStatus == errSecCertificateRevoked ? kSecTrustResultFatalTrustFailure
 	    : err == X509_V_ERR_CERT_REJECTED && settingsDenied && CFArrayGetCount(settingsDenied) ?
 	      kSecTrustResultDeny : kSecTrustResultRecoverableTrustFailure;
 	if (!ok && t->hasException && t->exceptions &&

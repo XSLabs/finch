@@ -27,6 +27,24 @@ SHA-256 during the build. The image includes its source record and MPL 2.0
 licence. A refreshed bundle ships as a system update (finch-update); there is
 no automatic certificate download or revocation fetch.
 
+**Revocation (2026-10-26).** A trust with a revocation policy
+(`SecPolicyCreateRevocation`) checks each certificate of the built chain but
+its anchor (`userland/Security/SecRevocation.c`): by OCSP, first any response
+stapled with `SecTrustSetOCSPResponse`, then the responder its Authority
+Information Access names, and by its CRL distribution points, in the order the
+flags ask. OCSP responses must be signed by the issuer or a responder it
+certified and be current; CRLs must be the issuer's, signed by it and current.
+A revoked certificate fails the trust (`errSecCertificateRevoked`,
+`kSecTrustResultFatalTrustFailure`); with no answer it passes unless
+`kSecRevocationRequirePositiveResponse` (`errSecIncompleteCertRevocationCheck`).
+Fetching is plain HTTP, through a small bounded client (Finch's OpenSSL has no
+sockets), and only where `SecTrustSetNetworkFetchAllowed` and the flags allow;
+as on macOS a trust may fetch by default only when it checks revocation.
+`tools/test-revocation.sh` serves OCSP and a CRL for a test-only authority on
+the host and passes 14 checks: good and revoked certificates by OCSP and by CRL,
+positive answers required, the network refused by the trust or the policy, and
+a stapled response used offline but not for another certificate.
+
 **Trust settings (2026-10-26).** `SecTrustSettings` keeps the user's
 (`~/Library/Security/Trust Settings/User.plist`, the user's own, mode 0600) and
 the administrator's (`/Library/Security/Trust Settings/Admin.plist`, root's to
