@@ -180,9 +180,9 @@ boot's write survived. The run's log is
 Fixed on the way: new homes had no standard folders; the image's homes
 (rc's and the setup tool's) had `Documents` and the rest at mode 0755, readable
 by every user, where macOS has 0700; and `mkpersistent.sh` exited 1 after
-success. The development image still needs the base image's sandbox compiler
-(`FINCH_VM_BASE_SANDBOX=1 tools/vm/mkramdisk.sh`, docs/DEV_VM.md), or notifyd
-can't start.
+success. The check passes again on an image with Finch's own sandbox compiler
+and nothing borrowed (2026-10-25, after the sandbox work in
+docs/design/SECURITY.md).
 
 Timing: login and `passwd` run several 600,000-round PBKDF2 derivations (the
 account hash and the login keychain) on the VM's single emulated CPU. The same

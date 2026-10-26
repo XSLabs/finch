@@ -13,8 +13,7 @@
 #                kept; rebuilding the system image keeps its data.
 #   data-empty.img  a clone of the data disk as first laid out, for tests
 #
-# Needs build/vm/ramdisk.dmg (FINCH_VM_BASE_SANDBOX=1 tools/vm/mkramdisk.sh until
-# Finch's sandbox compiler can start notifyd, docs/DEV_VM.md) and a kernel collection with
+# Needs build/vm/ramdisk.dmg (tools/vm/mkramdisk.sh) and a kernel collection with
 # the PCIe bridge (tools/build-kernel.sh links it in, boot/kc/extra-kexts.txt).
 # FINCH_DATA_SIZE sizes a new data disk (default 4g). No sudo needed.
 set -euo pipefail
