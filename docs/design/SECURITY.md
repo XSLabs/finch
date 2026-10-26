@@ -24,8 +24,25 @@ same bundle for HTTPS.
 
 The bundle comes from curl's dated Mozilla export (2026-09-25), checked by
 SHA-256 during the build. The image includes its source record and MPL 2.0
-licence. Updating the pin and shipping refreshed roots remain release work;
-there is no automatic certificate download or revocation fetch.
+licence. A refreshed bundle ships as a system update (finch-update); there is
+no automatic certificate download or revocation fetch.
+
+**Trust settings (2026-10-26).** `SecTrustSettings` keeps the user's
+(`~/Library/Security/Trust Settings/User.plist`, the user's own, mode 0600) and
+the administrator's (`/Library/Security/Trust Settings/Admin.plist`, root's to
+change; others get `errAuthorizationDenied`) in macOS's record format, with
+each certificate kept in its entry; the system's are the pinned roots,
+read-only. Trust evaluation uses them unless the caller chose only its own
+anchors: a root trusted (for every policy, one policy, or one host name)
+becomes an anchor and the result is `kSecTrustResultProceed`, a distrusted
+certificate fails any chain it's in (`kSecTrustResultDeny`), and a user's
+setting overrides the administrator's. Only a self-signed certificate can be a
+trusted root; a corrupt file is reported and grants nothing. Finch's `security`
+command has macOS's `add-trusted-cert`, `remove-trusted-cert`,
+`dump-trust-settings` and `verify-cert`. `security-trust-settings-test`
+(host and QEMU, 28 checks) and `tools/vm/test-trust-settings.sh` (root adding
+and removing a company root on the persistent VM) pass. Sandboxed apps and
+services may read both files.
 
 The file keychain stores items across calls and processes, with file locks and
 duplicate checks. Its path is walked without following links (except the system's

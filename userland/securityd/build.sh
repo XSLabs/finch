@@ -33,7 +33,7 @@ CFLAGS=(-arch arm64e -mmacosx-version-min=26.0 -isysroot "$SDKROOT" -Os -g -fblo
 
 objects=()
 for source in "$SECURITY/SecKeychain.c" "$SECURITY/SecKeychainCrypto.c" \
-	"$SECURITY/SecAccess.c" "$SECURITY/SecObjects.c" \
+	"$SECURITY/SecAccess.c" "$SECURITY/SecObjects.c" "$SECURITY/SecTrustSettings.c" \
 	"$SECURITY/SecKeychainServiceWire.c" "$SECURITY_OBJ/SecConstants.c" \
 	"$HERE/securityd.c"; do
 	output="$OBJ/o/$(basename "${source%.c}").o"

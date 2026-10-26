@@ -37,6 +37,8 @@ SEC_HIDDEN CFStringRef _SecCopyErrorString(OSStatus status);   /* NULL if unknow
 
 SEC_HIDDEN CFDataRef _SecCertificateCopyNameDER(SecCertificateRef c, bool issuer);
 SEC_HIDDEN CFDataRef _SecCertificateCopyPublicKeySHA1(SecCertificateRef c);
+/* SecTrustSettings.c: the trust settings' anchors and distrusted certificates for these policies. */
+SEC_HIDDEN void _FinchTrustSettingsCopyForPolicies(CFArrayRef policies, CFArrayRef *anchors, CFArrayRef *denied);
 SEC_HIDDEN CFDataRef _SecKeyCopyPrivateKeyInfo(SecKeyRef key);
 
 /* Keychain (SecKeychain.c) */

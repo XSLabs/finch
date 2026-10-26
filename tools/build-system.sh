@@ -268,6 +268,8 @@ steps=(
     "Security|userland/Security/build.sh"
     # authd: shared authorization rights and credentials (com.apple.authd)
     "authd|make -s -C userland/authd"
+    # security: trust settings and certificate checks from the command line
+    "security-tool|make -s -C userland/security-tool"
     "CryptoTokenKit|userland/CryptoTokenKit/build.sh"
     "securityd|userland/securityd/build.sh"
     "pam-keychain|make -s -C userland/pam keychain"

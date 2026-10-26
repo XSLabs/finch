@@ -1844,6 +1844,17 @@ static bool evaluate(Trust *t)
 	}
 	for (CFIndex i = 0; ok && t->anchors && i < CFArrayGetCount(t->anchors); i++)
 		X509_STORE_add_cert(s, ((Certificate *)CFArrayGetValueAtIndex(t->anchors, i))->cert);
+	/* The user's and administrator's trust settings (SecTrustSettings.c): roots
+	   they trust for these policies, and certificates they distrust. A caller
+	   that chose only its own anchors gets only those. */
+	CFArrayRef settingsAnchors = NULL, settingsDenied = NULL;
+	bool settingsAnchorUsed = false;
+	if (ok && !t->anchorsOnly) {
+		_FinchTrustSettingsCopyForPolicies(t->policies, &settingsAnchors, &settingsDenied);
+		for (CFIndex i = 0; settingsAnchors && i < CFArrayGetCount(settingsAnchors); i++)
+			if (X509_STORE_add_cert(s, ((Certificate *)CFArrayGetValueAtIndex(settingsAnchors, i))->cert) != 1)
+				ERR_clear_error();
+	}
 	if (ok && (t->options & kSecTrustOptionImplicitAnchors))
 		for (CFIndex i = 0; ok && i < CFArrayGetCount(t->certs); i++) {
 			X509 *candidate = ((Certificate *)CFArrayGetValueAtIndex(t->certs, i))->cert;
@@ -1898,11 +1909,26 @@ static bool evaluate(Trust *t)
 		}
 		STACK_OF(X509) *built = X509_STORE_CTX_get1_chain(c);
 		setChain(t, built);
+		/* A distrusted certificate anywhere in the chain fails it; a chain
+		   ending at a root the settings trust is the user's explicit choice. */
+		for (int i = 0; built && i < sk_X509_num(built); i++) {
+			X509 *x = sk_X509_value(built, i);
+			for (CFIndex j = 0; settingsDenied && j < CFArrayGetCount(settingsDenied); j++)
+				if (X509_cmp(((Certificate *)CFArrayGetValueAtIndex(settingsDenied, j))->cert, x) == 0) {
+					ok = 0;
+					err = X509_V_ERR_CERT_REJECTED;
+				}
+			for (CFIndex j = 0; ok && settingsAnchors && i == sk_X509_num(built) - 1 &&
+			    j < CFArrayGetCount(settingsAnchors); j++)
+				if (X509_cmp(((Certificate *)CFArrayGetValueAtIndex(settingsAnchors, j))->cert, x) == 0)
+					settingsAnchorUsed = true;
+		}
 		OSSL_STACK_OF_X509_free(built);
 	}
 	t->status = ok ? 0 : trustStatus(err == X509_V_OK ? X509_V_ERR_UNSPECIFIED : err);
-	t->result = ok ? (implicitAnchorUsed ? kSecTrustResultProceed : kSecTrustResultUnspecified)
-	    : kSecTrustResultRecoverableTrustFailure;
+	t->result = ok ? (implicitAnchorUsed || settingsAnchorUsed ? kSecTrustResultProceed : kSecTrustResultUnspecified)
+	    : err == X509_V_ERR_CERT_REJECTED && settingsDenied && CFArrayGetCount(settingsDenied) ?
+	      kSecTrustResultDeny : kSecTrustResultRecoverableTrustFailure;
 	if (!ok && t->hasException && t->exceptions &&
 	    CFDataGetLength(t->exceptions) == 40 &&
 	    t->exceptionStatus == t->status) {
@@ -1917,6 +1943,10 @@ static bool evaluate(Trust *t)
 			t->result = kSecTrustResultProceed;
 		}
 	}
+	if (settingsAnchors)
+		CFRelease(settingsAnchors);
+	if (settingsDenied)
+		CFRelease(settingsDenied);
 	sk_X509_free(chain);
 	X509_STORE_CTX_free(c);
 	X509_STORE_free(s);

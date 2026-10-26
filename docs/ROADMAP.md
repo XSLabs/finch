@@ -1318,8 +1318,11 @@ that every app works. These release checks were missing from the Phase 5 list:
       deciding network and folder access (tools/vm/test-app-sandbox.sh, 2026-10-26).
       Sandbox extensions are the kernel's own (signed tokens, inherited, released),
       and user-selected files reach a sandboxed app through them (same test).
-      Certificate updates, a password dialog and an open and save panel service
-      remain open.
+      Trust settings: the user's and administrator's trusted and distrusted
+      certificates take part in trust evaluation, set with Finch's `security`
+      add-trusted-cert (security-trust-settings-test, tools/vm/test-trust-settings.sh,
+      2026-10-26); refreshed web roots ship as system updates. Revocation checks, a
+      password dialog and an open and save panel service remain open.
 - [ ] **Updates:** signed update files, interrupted-download recovery, safe installation,
       rollback to a working system and preservation of user files and settings.
       Signed updates and rollback (2026-10-15): tools/release/sign-update.sh signs an

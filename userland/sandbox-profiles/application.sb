@@ -53,7 +53,8 @@
        (home-subpath "/Library/ColorPickers")
        (home-subpath "/Library/ColorSync")
        (home-subpath "/Library/Dictionaries")
-       (home-subpath "/Library/Spelling"))
+       (home-subpath "/Library/Spelling")
+       (home-subpath "/Library/Security/Trust Settings"))
 
 ;;; System-wide files apps read.
 (allow file-read*

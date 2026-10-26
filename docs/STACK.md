@@ -21,7 +21,8 @@ survive restarts. A new system's first boot runs `finch-setup`, which makes the
 first administrator account before login. Apps signed for the App Sandbox
 start in their containers under Finch's `application.sb` (`libsystem_secinit`).
 Finch's `authd` shares authorization
-rights and credentials between processes. `chpass`, `chsh` and `chfn` change
+rights and credentials between processes; administrators trust or distrust
+certificates with Finch's `security` command. `chpass`, `chsh` and `chfn` change
 account details through Finch's OpenDirectory and its setuid account helper.
 A persistent development VM (`tools/vm/mkpersistent.sh`) keeps accounts,
 passwords, home folders and `/private/var/db` on a VirtIO data disk: `rc` mounts
@@ -282,7 +283,7 @@ block-beta
         uti["UniformTypeIdentifiers<br/>UTType, declared and<br/>dynamic types"]
         cfnetwork["CFNetwork<br/>HTTP messages and streams,<br/>socket streams (TLS via OpenSSL),<br/>CFHost, Bonjour (dns_sd),<br/>proxies, FTP"]
         cf["CoreFoundation<br/>swift-corelibs CF + Finch ObjC:<br/>toll-free dispatch, collections,<br/>ordered sets, NSCache, NSData, NSDate,<br/>NSURL, locales, calendars, defaults,<br/>run loops, attributed strings,<br/>streams, Mach ports, notifications;<br/>bundle languages and .loctable files"]
-        security["Security<br/>keys, certificates, web roots,<br/>file keychains, signature checks,<br/>Secure Transport (OpenSSL);<br/>SecurityFoundation (SFAuthorization,<br/>certificate summaries)"]
+        security["Security<br/>keys, certificates, web roots,<br/>trust settings, file keychains,<br/>signature checks,<br/>Secure Transport (OpenSSL);<br/>SecurityFoundation (SFAuthorization,<br/>certificate summaries)"]
         cryptokit["CryptoKit<br/>hashes, HMAC, HKDF,<br/>AES-GCM, ChaChaPoly,<br/>P-256, P-384, Curve25519"]
         od["OpenDirectory<br/>CFOpenDirectory,<br/>local account password checks<br/>and record changes<br/>(finch-account-update)"]
         icu["libicucore<br/>ICU-76142.4.7"]
@@ -330,7 +331,7 @@ block-beta
         columns 4
         t2["Processes"]
         init["finch-init (PID 1)<br/>bootstrap server,<br/>system + user domains"]
-        logd["finch-logd, finch-pboardd<br/>(pasteboards), pbcopy and pbpaste,<br/>finch-update (signed,<br/>resumable updates, keeps<br/>system accounts),<br/>finch-data-volume (checks and<br/>mounts the data disk),<br/>finch-volume-setup (lays out<br/>the dev VM's disks),<br/>screencapture and its service,<br/>scutil, networksetup,<br/>finch-setup (a new system's<br/>first account),<br/>launchctl, sh, mount_tmpfs, devtools"]
+        logd["finch-logd, finch-pboardd<br/>(pasteboards), pbcopy and pbpaste,<br/>finch-update (signed,<br/>resumable updates, keeps<br/>system accounts),<br/>finch-data-volume (checks and<br/>mounts the data disk),<br/>finch-volume-setup (lays out<br/>the dev VM's disks),<br/>screencapture and its service,<br/>scutil, networksetup, security,<br/>finch-setup (a new system's<br/>first account),<br/>launchctl, sh, mount_tmpfs, devtools"]
         daemons["notifyd, syslogd, aslmanager,<br/>newsyslog, dynamic_pager, atrun,<br/>cron, mDNSPosix, configd,<br/>diskarbitrationd, authd"]
         space2[" "]
         cmds["file/shell/text/adv/system_cmds,<br/>bash, zsh, bc, su, login,<br/>mount, fsck, FAT helpers"]

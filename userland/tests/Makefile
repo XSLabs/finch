@@ -240,6 +240,11 @@ $(OUT)/finch-coreservices-identity-test: $(OUT)/finch-coreservices-additions-tes
 	ln -sf finch-coreservices-additions-test $@
 
 # Finch's supported keys, certificates and explicit unavailable-service errors.
+all: $(OUT)/finch-security-trust-settings-test
+$(OUT)/finch-security-trust-settings-test: security-trust-settings-test.c security-trust-settings-certs.inc
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework Security -framework CoreFoundation
+
 $(OUT)/finch-security-core-test: security-core-test.c security-test-certs.inc
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework Security -framework CoreFoundation

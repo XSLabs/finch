@@ -1,0 +1,29 @@
+fixtures load: pass
+without settings the server certificate isn't trusted: pass
+the user has no settings: pass
+the user trusts the root: pass
+the user's settings file is private: pass
+now the server certificate is trusted, as the user chose: pass
+the user's settings list the root: pass
+with no constraints: pass
+and a modification date: pass
+a caller's own anchors alone leave the settings out: pass
+the user distrusts the server certificate: pass
+which fails its chain: pass
+removing that: pass
+trusts it again: pass
+removing it twice is not found: pass
+the root trusted for mail only: pass
+isn't trusted for a server: pass
+its setting names the mail policy: pass
+a server certificate can't be a trusted root: pass
+the user's settings export: pass
+removing the root: pass
+and importing them back: pass
+restores it: pass
+the administrator's settings are root's: pass
+the system's are read-only: pass
+the system's list the pinned roots: pass
+a corrupt settings file is reported: pass
+and grants nothing: pass
+failures: 0

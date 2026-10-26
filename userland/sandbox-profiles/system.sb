@@ -28,6 +28,7 @@
        (literal "/private/etc/services")
        (literal "/private/etc/protocols")
        (literal "/private/var/run/resolv.conf")
+       (subpath "/Library/Security/Trust Settings")
        (literal "/Library/Preferences/.GlobalPreferences.plist"))
 
 ;;; The folders above those, for lookups and stat.
