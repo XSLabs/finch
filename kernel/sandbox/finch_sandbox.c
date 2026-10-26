@@ -46,6 +46,8 @@
 #include <kern/cs_blobs.h>
 #include <mach/vm_prot.h>
 #include <os/refcnt.h>
+#include <libkern/crypto/sha2.h>
+#include <sys/random.h>
 #include <security/mac_framework.h>
 #include <security/mac_policy.h>
 
@@ -54,6 +56,23 @@
 
 /* ---- profiles on credentials ---- */
 
+/* A consumed sandbox extension: a class, and the path or service it covers. */
+struct finch_sb_extension {
+	int64_t handle;
+	uint32_t type;		/* FINCH_SANDBOX_EXTENSION_* */
+	uint32_t class_len;
+	uint32_t data_len;
+	char *extension_class;
+	char *data;
+};
+
+/* A process's extensions; never changed once made (consuming makes a new set). */
+struct finch_sb_extensions {
+	os_refcnt_t ref;
+	uint32_t count;
+	struct finch_sb_extension e[];
+};
+
 struct finch_sb_profile {
 	os_refcnt_t ref;
 	uint32_t size;
@@ -61,6 +80,10 @@ struct finch_sb_profile {
 	/* (version 2) profiles: a bit per Unix system call the profile allows
 	   outright; the others go to proc_check_syscall_unix. NULL otherwise. */
 	uint8_t *unix_mask;
+	/* A label made by consuming or releasing an extension has no profile of
+	   its own: it shares this one's, with its own extensions. */
+	struct finch_sb_profile *shared;
+	struct finch_sb_extensions *extensions;
 	uint64_t data[];	/* the FSB1 profile, 8-byte aligned */
 };
 
@@ -103,6 +126,20 @@ finch_sb_retain(intptr_t v)
 }
 
 static void
+finch_sb_extensions_release(struct finch_sb_extensions *set)
+{
+	if (set != NULL && os_ref_release(&set->ref) == 0) {
+		for (uint32_t i = 0; i < set->count; i++) {
+			kfree_data(set->e[i].extension_class, set->e[i].class_len + 1);
+			if (set->e[i].data != NULL) {
+				kfree_data(set->e[i].data, set->e[i].data_len + 1);
+			}
+		}
+		kfree_type(struct finch_sb_extensions, struct finch_sb_extension, set->count, set);
+	}
+}
+
+static void
 finch_sb_release(intptr_t v)
 {
 	struct finch_sb_profile *p = finch_sb_profile_of(v);
@@ -110,8 +147,19 @@ finch_sb_release(intptr_t v)
 		if (p->unix_mask != NULL) {
 			kfree_data(p->unix_mask, p->unix_mask_size);
 		}
+		if (p->shared != NULL) {
+			finch_sb_release((intptr_t)p->shared);
+		}
+		finch_sb_extensions_release(p->extensions);
 		kfree_data(p, sizeof(*p) + p->size);
 	}
+}
+
+/* The compiled profile a label decides with. */
+static const void *
+finch_sb_profile_data(const struct finch_sb_profile *p)
+{
+	return p->shared != NULL ? p->shared->data : p->data;
 }
 
 static intptr_t
@@ -169,6 +217,43 @@ finch_sb_report(proc_t p, const struct fsb_request *r, uint32_t rule_flags)
 }
 
 /*
+ * (extension "class"): does one of the caller's extensions of that class cover
+ * the request? A file extension covers its path and everything below it; a
+ * Mach one its service; a generic one any request.
+ */
+static bool
+finch_sb_extension_covers(const void *arg, const char *extension_class, size_t length,
+    const struct fsb_request *r)
+{
+	const struct finch_sb_extensions *set = arg;
+
+	for (uint32_t i = 0; i < set->count; i++) {
+		const struct finch_sb_extension *x = &set->e[i];
+		if (x->class_len != length || memcmp(x->extension_class, extension_class, length) != 0) {
+			continue;
+		}
+		if (x->type == FINCH_SANDBOX_EXTENSION_GENERIC) {
+			return true;
+		}
+		int field = x->type == FINCH_SANDBOX_EXTENSION_MACH ? FSB_F_GLOBAL_NAME : FSB_F_PATH;
+		if ((r->strings_present & (1u << field)) == 0) {
+			continue;
+		}
+		const char *s = r->string[field];
+		size_t n = r->length[field];
+		if (n == x->data_len && memcmp(s, x->data, n) == 0) {
+			return true;
+		}
+		if (x->type == FINCH_SANDBOX_EXTENSION_FILE && n > x->data_len &&
+		    memcmp(s, x->data, x->data_len) == 0 &&
+		    (s[x->data_len] == '/' || (x->data_len > 0 && x->data[x->data_len - 1] == '/'))) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/*
  * Decide a request against a label value: 0 allowed, EPERM denied (macOS's
  * sandbox denials are EPERM). Unsandboxed callers are always allowed.
  */
@@ -187,7 +272,12 @@ finch_sb_decide_for(proc_t subject, intptr_t label, const struct fsb_request *r,
 	if (scratch == NULL) {
 		return ENOMEM;
 	}
-	decision = fsb_evaluate(p->data, r, scratch, &rule_flags);
+	struct fsb_request with_extensions = *r;
+	if (p->extensions != NULL) {
+		with_extensions.extension = finch_sb_extension_covers;
+		with_extensions.extension_arg = p->extensions;
+	}
+	decision = fsb_evaluate(finch_sb_profile_data(p), &with_extensions, scratch, &rule_flags);
 	kfree_data(scratch, FSB_SCRATCH_BYTES);
 	if (decision == FSB_ALLOW) {
 		return 0;
@@ -491,7 +581,7 @@ finch_sb_build_unix_mask(struct finch_sb_profile *profile)
 	for (unsigned int n = 0; n < nsysent; n++) {
 		fsb_request_init(&r, FSB_OP_SYSCALL_UNIX);
 		fsb_request_number(&r, FSB_F_SYSCALL_NUMBER, n);
-		if (fsb_evaluate(profile->data, &r, scratch, NULL) == FSB_ALLOW) {
+		if (fsb_evaluate(finch_sb_profile_data(profile), &r, scratch, NULL) == FSB_ALLOW) {
 			profile->unix_mask[n >> 3] |= (uint8_t)(1u << (n & 7));
 		}
 	}
@@ -728,6 +818,530 @@ out:
 	return error;
 }
 
+
+/* ---- sandbox extensions ---- */
+
+/*
+ * A token is "MAC;PAYLOAD": PAYLOAD is "type;flags;pid;pidversion;CLASS;DATA"
+ * (class and data in hex), MAC its HMAC-SHA256 under a key made at boot, in
+ * hex. Only this boot's kernel can make one; any process holding it may
+ * consume it, or only the one it was issued to.
+ */
+static uint8_t finch_sb_extension_key[32];
+static int64_t finch_sb_extension_handles;
+
+static void
+finch_sb_hmac(const char *message, size_t length, uint8_t mac[SHA256_DIGEST_LENGTH])
+{
+	uint8_t pad[64], inner[SHA256_DIGEST_LENGTH];
+	SHA256_CTX ctx;
+
+	memset(pad, 0x36, sizeof(pad));
+	for (size_t i = 0; i < sizeof(finch_sb_extension_key); i++) {
+		pad[i] ^= finch_sb_extension_key[i];
+	}
+	SHA256_Init(&ctx);
+	SHA256_Update(&ctx, pad, sizeof(pad));
+	SHA256_Update(&ctx, message, length);
+	SHA256_Final(inner, &ctx);
+	memset(pad, 0x5c, sizeof(pad));
+	for (size_t i = 0; i < sizeof(finch_sb_extension_key); i++) {
+		pad[i] ^= finch_sb_extension_key[i];
+	}
+	SHA256_Init(&ctx);
+	SHA256_Update(&ctx, pad, sizeof(pad));
+	SHA256_Update(&ctx, inner, sizeof(inner));
+	SHA256_Final(mac, &ctx);
+}
+
+static size_t
+finch_sb_hex(char *out, size_t size, const void *bytes, size_t n)
+{
+	static const char digits[] = "0123456789abcdef";
+	const uint8_t *b = bytes;
+	if (size < 2 * n + 1) {
+		return 0;
+	}
+	for (size_t i = 0; i < n; i++) {
+		out[2 * i] = digits[b[i] >> 4];
+		out[2 * i + 1] = digits[b[i] & 15];
+	}
+	out[2 * n] = '\0';
+	return 2 * n;
+}
+
+static int
+finch_sb_unhex_digit(char c)
+{
+	return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+}
+
+/* Hex to bytes (a NUL added): the byte count, or -1. */
+static ssize_t
+finch_sb_unhex(const char *s, size_t n, char *out, size_t size)
+{
+	if (n % 2 != 0 || n / 2 + 1 > size) {
+		return -1;
+	}
+	for (size_t i = 0; i < n / 2; i++) {
+		int hi = finch_sb_unhex_digit(s[2 * i]), lo = finch_sb_unhex_digit(s[2 * i + 1]);
+		if (hi < 0 || lo < 0) {
+			return -1;
+		}
+		out[i] = (char)(hi << 4 | lo);
+		if (out[i] == '\0') {
+			return -1;
+		}
+	}
+	out[n / 2] = '\0';
+	return (ssize_t)(n / 2);
+}
+
+/* A class that grants writing ("com.apple.app-sandbox.read-write"). */
+static bool
+finch_sb_names_write(const char *extension_class)
+{
+	for (const char *s = extension_class; *s; s++) {
+		if (strncmp(s, "write", 5) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/* A path resolved as the kernel names files, or a missing file's resolved
+   folder and its name (for a file about to be saved). */
+static int
+finch_sb_resolve_path(const char *path, bool nofollow, char *out)
+{
+	vfs_context_t ctx = vfs_context_current();
+	vnode_t vp = NULLVP;
+	int len = MAXPATHLEN;
+	int error = vnode_lookup(path, nofollow ? VNODE_LOOKUP_NOFOLLOW : 0, &vp, ctx);
+
+	if (error == 0) {
+		error = vn_getpath(vp, out, &len);
+		vnode_put(vp);
+		return error;
+	}
+	if (error != ENOENT) {
+		return error;
+	}
+	const char *slash = strrchr(path, '/');
+	if (slash == NULL || slash[1] == '\0') {
+		return ENOENT;
+	}
+	char *parent = kalloc_data(MAXPATHLEN, Z_WAITOK);
+	if (parent == NULL) {
+		return ENOMEM;
+	}
+	size_t plen = slash == path ? 1 : (size_t)(slash - path);
+	memcpy(parent, path, plen);
+	parent[plen] = '\0';
+	error = vnode_lookup(parent, 0, &vp, ctx);
+	if (error == 0) {
+		error = vn_getpath(vp, out, &len);
+		vnode_put(vp);
+	}
+	kfree_data(parent, MAXPATHLEN);
+	if (error == 0) {
+		size_t dlen = strnlen(out, MAXPATHLEN);
+		if (dlen + strlen(slash) >= MAXPATHLEN) {
+			return ENAMETOOLONG;
+		}
+		strlcpy(out + (dlen == 1 ? 0 : dlen), slash, MAXPATHLEN - dlen);
+	}
+	return error;
+}
+
+static int
+finch_sandbox_extension_issue(proc_t p, user_addr_t arg)
+{
+	struct finch_sandbox_extension_issue_request request;
+	char extension_class[128];
+	char *data = NULL, *resolved = NULL, *payload = NULL, *token = NULL;
+	size_t done;
+	int error;
+
+	if (arg == USER_ADDR_NULL) {
+		return EINVAL;
+	}
+	error = copyin(arg, &request, sizeof(request));
+	if (error != 0) {
+		return error;
+	}
+	if (request.version != FINCH_SANDBOX_ABI_VERSION || request.size != sizeof(request) ||
+	    (request.type != FINCH_SANDBOX_EXTENSION_FILE && request.type != FINCH_SANDBOX_EXTENSION_MACH &&
+	    request.type != FINCH_SANDBOX_EXTENSION_GENERIC) || request.extension_class == 0 ||
+	    request.token == 0 || request.token_size == 0) {
+		return EINVAL;
+	}
+	error = copyinstr((user_addr_t)request.extension_class, extension_class, sizeof(extension_class), &done);
+	if (error != 0 || extension_class[0] == '\0') {
+		return error != 0 ? error : EINVAL;
+	}
+	data = kalloc_data(MAXPATHLEN, Z_WAITOK | Z_ZERO);
+	resolved = kalloc_data(MAXPATHLEN, Z_WAITOK | Z_ZERO);
+	payload = kalloc_data(FINCH_SANDBOX_EXTENSION_MAX, Z_WAITOK | Z_ZERO);
+	token = kalloc_data(FINCH_SANDBOX_EXTENSION_MAX, Z_WAITOK | Z_ZERO);
+	if (data == NULL || resolved == NULL || payload == NULL || token == NULL) {
+		error = ENOMEM;
+		goto out;
+	}
+	if (request.type != FINCH_SANDBOX_EXTENSION_GENERIC) {
+		if (request.data == 0) {
+			error = EINVAL;
+			goto out;
+		}
+		error = copyinstr((user_addr_t)request.data, data, MAXPATHLEN, &done);
+		if (error != 0 || data[0] == '\0') {
+			error = error != 0 ? error : EINVAL;
+			goto out;
+		}
+	}
+	if (request.type == FINCH_SANDBOX_EXTENSION_FILE) {
+		if (data[0] != '/') {
+			error = EINVAL;
+			goto out;
+		}
+		error = finch_sb_resolve_path(data, (request.flags & FINCH_SANDBOX_EXTENSION_NOFOLLOW) != 0, resolved);
+		if (error != 0) {
+			goto out;
+		}
+	} else {
+		strlcpy(resolved, data, MAXPATHLEN);
+	}
+
+	/* A sandboxed issuer passes on only what it has itself. */
+	intptr_t label = finch_sb_current();
+	if (finch_sb_profile_of(label) != NULL && request.type != FINCH_SANDBOX_EXTENSION_GENERIC) {
+		struct fsb_request r;
+		if (request.type == FINCH_SANDBOX_EXTENSION_FILE) {
+			fsb_request_init(&r, FSB_OP_FILE_READ_DATA);
+			fsb_request_string(&r, FSB_F_PATH, resolved, strnlen(resolved, MAXPATHLEN));
+			error = finch_sb_decide(label, &r, true);
+			if (error == 0 && finch_sb_names_write(extension_class)) {
+				fsb_request_init(&r, FSB_OP_FILE_WRITE_DATA);
+				fsb_request_string(&r, FSB_F_PATH, resolved, strnlen(resolved, MAXPATHLEN));
+				error = finch_sb_decide(label, &r, true);
+			}
+		} else {
+			fsb_request_init(&r, FSB_OP_MACH_LOOKUP);
+			fsb_request_string(&r, FSB_F_GLOBAL_NAME, resolved, strnlen(resolved, MAXPATHLEN));
+			error = finch_sb_decide(label, &r, true);
+		}
+		if (error != 0) {
+			goto out;
+		}
+	}
+
+	int n = scnprintf(payload, FINCH_SANDBOX_EXTENSION_MAX, "%x;%x;%d;%u;", request.type, request.flags,
+	    request.target_pid, request.target_pidversion);
+	size_t used = (size_t)n;
+	size_t h = finch_sb_hex(payload + used, FINCH_SANDBOX_EXTENSION_MAX - used, extension_class,
+	    strnlen(extension_class, sizeof(extension_class)));
+	if (h == 0 || used + h + 2 >= FINCH_SANDBOX_EXTENSION_MAX) {
+		error = ENAMETOOLONG;
+		goto out;
+	}
+	used += h;
+	payload[used++] = ';';
+	if (request.type != FINCH_SANDBOX_EXTENSION_GENERIC) {
+		h = finch_sb_hex(payload + used, FINCH_SANDBOX_EXTENSION_MAX - used, resolved,
+		    strnlen(resolved, MAXPATHLEN));
+		if (h == 0) {
+			error = ENAMETOOLONG;
+			goto out;
+		}
+		used += h;
+	}
+	payload[used] = '\0';
+	uint8_t mac[SHA256_DIGEST_LENGTH];
+	finch_sb_hmac(payload, used, mac);
+	finch_sb_hex(token, FINCH_SANDBOX_EXTENSION_MAX, mac, sizeof(mac));
+	token[2 * sizeof(mac)] = ';';
+	if (2 * sizeof(mac) + 1 + used + 1 > FINCH_SANDBOX_EXTENSION_MAX ||
+	    2 * sizeof(mac) + 1 + used + 1 > request.token_size) {
+		error = ERANGE;
+		goto out;
+	}
+	memcpy(token + 2 * sizeof(mac) + 1, payload, used + 1);
+	error = copyout(token, (user_addr_t)request.token, 2 * sizeof(mac) + 1 + used + 1);
+out:
+	if (data) kfree_data(data, MAXPATHLEN);
+	if (resolved) kfree_data(resolved, MAXPATHLEN);
+	if (payload) kfree_data(payload, FINCH_SANDBOX_EXTENSION_MAX);
+	if (token) kfree_data(token, FINCH_SANDBOX_EXTENSION_MAX);
+	(void)p;
+	return error;
+}
+
+/* A new label: the current one's profile, with these extensions. */
+static struct finch_sb_profile *
+finch_sb_with_extensions(struct finch_sb_profile *current, struct finch_sb_extensions *set)
+{
+	struct finch_sb_profile *base = current->shared != NULL ? current->shared : current;
+	struct finch_sb_profile *label = kalloc_data(sizeof(*label), Z_WAITOK | Z_ZERO);
+
+	if (label == NULL) {
+		return NULL;
+	}
+	os_ref_init(&label->ref, &finch_sb_refgrp);
+	os_ref_retain(&base->ref);
+	label->shared = base;
+	label->extensions = set;
+	return label;
+}
+
+/* Swap the process's label from `expected` to `value`; EAGAIN if it changed. */
+static int
+finch_sandbox_replace(proc_t p, intptr_t expected, intptr_t value)
+{
+	kauth_cred_t cred;
+	int error;
+
+	lck_mtx_lock(&finch_sandbox_apply_lock);
+	cred = kauth_cred_proc_ref(p);
+	if (cred == NOCRED) {
+		lck_mtx_unlock(&finch_sandbox_apply_lock);
+		return ESRCH;
+	}
+	if (finch_sb_label(cred) != expected) {
+		kauth_cred_unref(&cred);
+		lck_mtx_unlock(&finch_sandbox_apply_lock);
+		return EAGAIN;
+	}
+	kauth_cred_unref(&cred);
+	error = kauth_cred_proc_update(p, PROC_SETTOKEN_NONE,
+	    ^bool (kauth_cred_t parent, kauth_cred_t model) {
+		mac_cred_label_init(model);
+		mac_cred_label_associate(parent, model);
+		finch_sb_release(mac_label_get(mac_cred_label(model), finch_sandbox_label_slot));
+		finch_sb_retain(value);
+		mac_label_set(mac_cred_label(model), finch_sandbox_label_slot, value);
+		return true;
+	}) ? 0 : EPERM;
+	lck_mtx_unlock(&finch_sandbox_apply_lock);
+	return error;
+}
+
+static int
+finch_sandbox_extension_consume(proc_t p, user_addr_t arg)
+{
+	struct finch_sandbox_extension_consume_request request;
+	char *token = NULL, *extension_class = NULL, *data = NULL;
+	struct finch_sb_extensions *set = NULL;
+	size_t done;
+	int error;
+
+	if (arg == USER_ADDR_NULL) {
+		return EINVAL;
+	}
+	error = copyin(arg, &request, sizeof(request));
+	if (error != 0) {
+		return error;
+	}
+	if (request.version != FINCH_SANDBOX_ABI_VERSION || request.size != sizeof(request) || request.token == 0) {
+		return EINVAL;
+	}
+	token = kalloc_data(FINCH_SANDBOX_EXTENSION_MAX, Z_WAITOK | Z_ZERO);
+	extension_class = kalloc_data(128, Z_WAITOK | Z_ZERO);
+	data = kalloc_data(MAXPATHLEN, Z_WAITOK | Z_ZERO);
+	if (token == NULL || extension_class == NULL || data == NULL) {
+		error = ENOMEM;
+		goto out;
+	}
+	error = copyinstr((user_addr_t)request.token, token, FINCH_SANDBOX_EXTENSION_MAX, &done);
+	if (error != 0) {
+		goto out;
+	}
+	/* The MAC first: nothing else in a token is trusted before it checks. */
+	size_t length = strnlen(token, FINCH_SANDBOX_EXTENSION_MAX);
+	uint8_t mac[SHA256_DIGEST_LENGTH];
+	char expected[2 * SHA256_DIGEST_LENGTH + 1];
+	if (length < sizeof(expected) || token[2 * SHA256_DIGEST_LENGTH] != ';') {
+		error = EINVAL;
+		goto out;
+	}
+	const char *payload = token + sizeof(expected);
+	finch_sb_hmac(payload, length - sizeof(expected), mac);
+	finch_sb_hex(expected, sizeof(expected), mac, sizeof(mac));
+	uint8_t diff = 0;
+	for (size_t i = 0; i < 2 * SHA256_DIGEST_LENGTH; i++) {
+		diff |= (uint8_t)(expected[i] ^ token[i]);
+	}
+	if (diff != 0) {
+		error = EINVAL;
+		goto out;
+	}
+	/* type;flags;pid;pidversion;CLASS;DATA */
+	const char *fields[6];
+	size_t lengths[6];
+	const char *s = payload;
+	for (int i = 0; i < 6; i++) {
+		const char *end = i < 5 ? strchr(s, ';') : s + strlen(s);
+		if (end == NULL) {
+			error = EINVAL;
+			goto out;
+		}
+		fields[i] = s;
+		lengths[i] = (size_t)(end - s);
+		s = end + (i < 5 ? 1 : 0);
+	}
+	uint32_t type = (uint32_t)strtoul(fields[0], NULL, 16);
+	long target_pid = strtol(fields[2], NULL, 10);
+	unsigned long target_pidversion = strtoul(fields[3], NULL, 10);
+	if (target_pid != 0 && (target_pid != proc_pid(p) ||
+	    (target_pidversion != 0 && target_pidversion != (unsigned long)proc_pidversion(p)))) {
+		error = EPERM;	/* issued to another process */
+		goto out;
+	}
+	ssize_t class_len = finch_sb_unhex(fields[4], lengths[4], extension_class, 128);
+	ssize_t data_len = finch_sb_unhex(fields[5], lengths[5], data, MAXPATHLEN);
+	if (class_len <= 0 || data_len < 0) {
+		error = EINVAL;
+		goto out;
+	}
+
+	int64_t handle = os_atomic_inc(&finch_sb_extension_handles, relaxed);
+	for (int attempt = 0; attempt < 8; attempt++) {
+		intptr_t label = finch_sb_current();
+		struct finch_sb_profile *current = finch_sb_profile_of(label);
+		if (current == NULL) {
+			/* Nothing to widen: an unsandboxed process may do it all already. */
+			error = 0;
+			break;
+		}
+		uint32_t old = current->extensions ? current->extensions->count : 0;
+		if (old >= 1024) {
+			error = ENOSPC;
+			break;
+		}
+		set = kalloc_type(struct finch_sb_extensions, struct finch_sb_extension, old + 1, Z_WAITOK | Z_ZERO);
+		if (set == NULL) {
+			error = ENOMEM;
+			break;
+		}
+		os_ref_init(&set->ref, &finch_sb_refgrp);
+		set->count = old + 1;
+		bool copied = true;
+		for (uint32_t i = 0; i < old + 1; i++) {
+			const struct finch_sb_extension *from = i < old ? &current->extensions->e[i] : NULL;
+			struct finch_sb_extension *to = &set->e[i];
+			to->handle = from ? from->handle : handle;
+			to->type = from ? from->type : type;
+			to->class_len = from ? from->class_len : (uint32_t)class_len;
+			to->data_len = from ? from->data_len : (uint32_t)data_len;
+			to->extension_class = kalloc_data(to->class_len + 1, Z_WAITOK | Z_ZERO);
+			to->data = kalloc_data(to->data_len + 1, Z_WAITOK | Z_ZERO);
+			if (to->extension_class == NULL || to->data == NULL) {
+				copied = false;
+				continue;
+			}
+			memcpy(to->extension_class, from ? from->extension_class : extension_class, to->class_len);
+			memcpy(to->data, from ? from->data : data, to->data_len);
+		}
+		if (!copied) {
+			finch_sb_extensions_release(set);
+			set = NULL;
+			error = ENOMEM;
+			break;
+		}
+		struct finch_sb_profile *next = finch_sb_with_extensions(current, set);
+		if (next == NULL) {
+			finch_sb_extensions_release(set);
+			set = NULL;
+			error = ENOMEM;
+			break;
+		}
+		set = NULL;	/* the new label owns it */
+		error = finch_sandbox_replace(p, label, (intptr_t)next);
+		finch_sb_release((intptr_t)next);	/* the credential holds its own reference */
+		if (error != EAGAIN) {
+			break;
+		}
+	}
+	if (error == 0) {
+		request.handle = handle;
+		error = copyout(&request, arg, sizeof(request));
+	}
+out:
+	if (token) kfree_data(token, FINCH_SANDBOX_EXTENSION_MAX);
+	if (extension_class) kfree_data(extension_class, 128);
+	if (data) kfree_data(data, MAXPATHLEN);
+	return error;
+}
+
+static int
+finch_sandbox_extension_release(proc_t p, user_addr_t arg)
+{
+	struct finch_sandbox_extension_release_request request;
+	int error;
+
+	if (arg == USER_ADDR_NULL) {
+		return EINVAL;
+	}
+	error = copyin(arg, &request, sizeof(request));
+	if (error != 0) {
+		return error;
+	}
+	if (request.version != FINCH_SANDBOX_ABI_VERSION || request.size != sizeof(request)) {
+		return EINVAL;
+	}
+	for (int attempt = 0; attempt < 8; attempt++) {
+		intptr_t label = finch_sb_current();
+		struct finch_sb_profile *current = finch_sb_profile_of(label);
+		if (current == NULL) {
+			return 0;
+		}
+		uint32_t old = current->extensions ? current->extensions->count : 0, at = old;
+		for (uint32_t i = 0; i < old; i++) {
+			if (current->extensions->e[i].handle == request.handle) {
+				at = i;
+			}
+		}
+		if (at == old) {
+			return ENOENT;
+		}
+		struct finch_sb_extensions *set = NULL;
+		if (old > 1) {
+			set = kalloc_type(struct finch_sb_extensions, struct finch_sb_extension, old - 1, Z_WAITOK | Z_ZERO);
+			if (set == NULL) {
+				return ENOMEM;
+			}
+			os_ref_init(&set->ref, &finch_sb_refgrp);
+			set->count = old - 1;
+			for (uint32_t i = 0, j = 0; i < old; i++) {
+				const struct finch_sb_extension *from = &current->extensions->e[i];
+				if (i == at) {
+					continue;
+				}
+				struct finch_sb_extension *to = &set->e[j++];
+				*to = *from;
+				to->extension_class = kalloc_data(from->class_len + 1, Z_WAITOK | Z_ZERO);
+				to->data = kalloc_data(from->data_len + 1, Z_WAITOK | Z_ZERO);
+				if (to->extension_class == NULL || to->data == NULL) {
+					finch_sb_extensions_release(set);
+					return ENOMEM;
+				}
+				memcpy(to->extension_class, from->extension_class, from->class_len);
+				memcpy(to->data, from->data, from->data_len);
+			}
+		}
+		struct finch_sb_profile *next = finch_sb_with_extensions(current, set);
+		if (next == NULL) {
+			finch_sb_extensions_release(set);
+			return ENOMEM;
+		}
+		error = finch_sandbox_replace(p, label, (intptr_t)next);
+		finch_sb_release((intptr_t)next);
+		if (error != EAGAIN) {
+			return error;
+		}
+	}
+	return EAGAIN;
+}
+
 static int
 finch_sandbox_policy_syscall(proc_t p, int call, user_addr_t arg)
 {
@@ -740,6 +1354,12 @@ finch_sandbox_policy_syscall(proc_t p, int call, user_addr_t arg)
 		return finch_sandbox_profile_request(p, arg);
 	case FINCH_SANDBOX_CALL_QUERY:
 		return finch_sandbox_query_request(p, arg);
+	case FINCH_SANDBOX_CALL_EXTENSION_ISSUE:
+		return finch_sandbox_extension_issue(p, arg);
+	case FINCH_SANDBOX_CALL_EXTENSION_CONSUME:
+		return finch_sandbox_extension_consume(p, arg);
+	case FINCH_SANDBOX_CALL_EXTENSION_RELEASE:
+		return finch_sandbox_extension_release(p, arg);
 	case FINCH_SANDBOX_PROFILE_DENY_READ:
 	case FINCH_SANDBOX_PROFILE_DENY_WRITE:
 		if (arg != USER_ADDR_NULL) {
@@ -1501,6 +2121,7 @@ static struct mac_policy_conf finch_sandbox_policy_conf = {
 void
 finch_sandbox_policy_init(void)
 {
+	read_random(finch_sb_extension_key, sizeof(finch_sb_extension_key));
 	int error = mac_policy_register(&finch_sandbox_policy_conf,
 	    &finch_sandbox_policy_handle, NULL);
 

@@ -133,7 +133,7 @@ Finch has its own sandbox, end to end, in place of macOS's closed one:
 is compiled so it never widens access: it matches in a deny rule and fails in
 an allow rule (`sbplc -w` lists each). That covers sandbox extensions
 (`extension`, issued and consumed through the kernel on macOS; Finch's are
-still process-local), app containers in a profile (the App Sandbox passes its
+now FinchSandbox's own, see the App Sandbox below), app containers in a profile (the App Sandbox passes its
 container as a parameter instead), `require-entitlement` at run time,
 mount-relative paths, `syscall-group-*` sets, private ioctl/fsctl and MIG
 constants, `iokit-connection` and IOKit message filters. Mach-trap and kernel
@@ -177,9 +177,8 @@ services (the window server's socket, pasteboard, Launch Services, keychain
 and authorization). Entitlements add network clients and servers, Downloads,
 Pictures, Music and Movies (read-only or read-write), and temporary exceptions
 by absolute or home-relative path and by service name (absolute paths are
-resolved first, since the kernel matches resolved paths). User-selected files
-come as sandbox extensions, which are still process-local, so they stay closed
-for now.
+resolved first, since the kernel matches resolved paths). With
+`files.user-selected.*`, files the user chose come as sandbox extensions.
 
 `tools/vm/test-app-sandbox.sh` (persistent VM, a user it makes) passes: an app
 with only the sandbox entitlement gets its container as `HOME` and `TMPDIR`,
@@ -195,9 +194,28 @@ and `/dev/dtracehelper`. Each sandboxed child still logs one
 `dynamic-code-generation` denial at start (a `MAP_JIT` probe in a borrowed
 library), which is harmless.
 
-Open: sandbox extensions in the kernel and an out-of-process open and save
-panel to issue them, app groups, and containers for app extensions and XPC
-services.
+**Sandbox extensions (2026-10-26).** FinchSandbox issues, consumes and
+releases extensions itself (calls 0x104 to 0x106; `sandbox_extension_issue_*`,
+`_consume` and `_release` use them, falling back to Apple's only where
+FinchSandbox isn't registered). A token is the extension's type, flags,
+optional target process, class and resolved path or service name, with an
+HMAC-SHA256 under a key made at boot: only this boot's kernel can make one, a
+changed one is refused, and one issued to a process is that process's alone. A
+sandboxed issuer can pass on only what its own profile allows. Consuming gives
+the process a new label that shares its profile and adds the extension;
+children inherit it, and releasing takes it away again. `(extension "class")`
+is now compiled and evaluated: it matches when the caller holds an extension of
+that class covering the path (the path or anything below it) or the service.
+
+The same test then hands the networked app tokens, as an open panel would, for
+the user's secret file (read) and another Documents file (read-write), and
+passes 16 more checks: each opens just its file for what its class allows, a
+tool the app runs inherits it, releasing closes it again, a changed token, a
+token issued to another process and issuing for a file the app can't read are
+refused (35 checks in that app in all).
+
+Open: an out-of-process open and save panel that issues these, app groups,
+and containers for app extensions and XPC services.
 
 ### Notification service work still required
 

@@ -22,6 +22,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 #define FSB_MAGIC		0x31425346u	/* "FSB1" */
 #define FSB_VERSION		1u
@@ -81,6 +82,9 @@ enum {
 	FSB_N_REGEX,		/* field; a = data offset of the program, b = words */
 	FSB_N_NUM_EQ,		/* field; a = low 32 bits, b = high 32 bits */
 	FSB_N_NUM_BITS,		/* field; every bit of a is set */
+	FSB_N_EXTENSION,	/* (extension "class"): a = data offset of the class, b = length;
+				   matches when the caller holds an extension of that class
+				   covering the request (fsb_request.extension) */
 	FSB_N_KIND_MAX
 };
 
@@ -203,6 +207,11 @@ struct fsb_request {
 	const char *string[FSB_F_STRING_COUNT];
 	size_t length[FSB_F_STRING_COUNT];
 	uint64_t number[FSB_F_NUM_COUNT];
+	/* Does the caller hold an extension of this class covering the request?
+	   NULL: it holds none. */
+	bool (*extension)(const void *arg, const char *extension_class, size_t length,
+	    const struct fsb_request *r);
+	const void *extension_arg;
 };
 
 /* Scratch the regex matcher needs: three FSB_MAX_REGEX_INSNS lists and marks. */

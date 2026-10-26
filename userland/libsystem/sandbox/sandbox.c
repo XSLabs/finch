@@ -582,6 +582,18 @@ static char *extension_issue(const char *class, uint32_t type, const char *data,
 		strlcpy(token, "invalid", EXTENSION_MAX);
 		return token;
 	}
+	/* FinchSandbox's, where it's registered; a token "to process" names its pid. */
+	int r = finch_extension_issue(class, type, data, flags,
+	    (flags & (EXT_TO_PID | EXT_TO_TOKEN)) ? (int32_t)pid : 0,
+	    (flags & EXT_TO_TOKEN) == EXT_TO_TOKEN ? pidversion : 0, token, EXTENSION_MAX);
+	if (r == 0)
+		return token;
+	if (r == -1) {
+		int e = errno;
+		free(token);
+		errno = e;
+		return NULL;
+	}
 	struct {
 		const char *class; uint64_t type; const char *data; uint64_t flags;
 		char *token; int64_t pid; uint64_t pidversion;
@@ -675,6 +687,11 @@ EXPORT int64_t sandbox_extension_consume(const char *token)
 {
 	if (!strcmp(token, "invalid"))
 		return 0;
+	if (finch_extension_token(token)) {
+		int64_t h = finch_extension_consume(token);
+		if (h != -2)
+			return h;
+	}
 	int64_t handle = 0;
 	struct { const char *token; uint64_t size; int64_t *handle; } req = { token, strlen(token) + 1, &handle };
 	return __sandbox_ms("Sandbox", 6, &req) == 0 ? handle : -1;
@@ -718,6 +735,10 @@ EXPORT int sandbox_issue_mach_extension(const char *name, char **token)
 /* Release (call 7) by handle, by path, or by token. */
 EXPORT int sandbox_extension_release(int64_t handle)
 {
+	/* FinchSandbox's handles first; one it doesn't hold may be Apple's. */
+	int r = finch_extension_release(handle);
+	if (r == 0 || (r == -1 && errno != ENOENT))
+		return r;
 	struct { int64_t handle; const char *token; const char *path; } req = { handle, NULL, NULL };
 	return __sandbox_ms("Sandbox", 7, &req);
 }

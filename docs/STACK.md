@@ -13,9 +13,9 @@ requirements from library comparisons and app import counts.
 **As of 2026-10-26:** Finch's sandbox is its own: `libsandbox.1` compiles macOS's
 profile language (SBPL) and the `FinchSandbox` kernel policy enforces the compiled
 profiles at file, process, sysctl, IPC, socket, IOKit and system-call hooks.
-notifyd starts under its profile with no borrowed sandbox component. Extensions,
-app containers, Mach-trap filtering and network address filters remain open
-(`docs/design/SECURITY.md`, "The sandbox"). Finch's own `scutil` and
+notifyd starts under its profile with no borrowed sandbox component, and
+sandbox extensions are the kernel policy's own. Mach-trap filtering and network
+address filters remain open (`docs/design/SECURITY.md`, "The sandbox"). Finch's own `scutil` and
 `networksetup` set system and network settings; on the persistent VM those
 survive restarts. A new system's first boot runs `finch-setup`, which makes the
 first administrator account before login. Apps signed for the App Sandbox
@@ -299,7 +299,7 @@ block-beta
         t4["Libraries"]
         comp["libcompression<br/>LZFSE, LZ4, Brotli, zlib, LZMA"]
         codecs["lzfse, lz4, brotli,<br/>liblzma, libxo, libsbuf"]
-        libsandbox["libsandbox.1.dylib<br/>SBPL compiler (Finch's),<br/>process-local extension tokens"]
+        libsandbox["libsandbox.1.dylib<br/>SBPL compiler (Finch's)"]
         osslibs["zlib, bzip2, libedit, libresolv,<br/>libiconv, ncurses (+ terminfo), OpenBSM,<br/>libxml2"]
         cmark["cmark-gfm 0.29.0.gfm.13<br/>(static, Foundation Markdown)"]
         pam["OpenPAM + pam_modules"]
@@ -342,7 +342,7 @@ block-beta
         t1["Kernel"]
         xnu["XNU xnu-12377.101.15<br/>+ Finch patches"]
         kexts["Platform drivers<br/>(Finch's later; the VM borrows<br/>Apple's virtual PCIe bridge)"]
-        finchsandbox["FinchSandbox<br/>enforces compiled profiles:<br/>files, processes, IPC,<br/>sockets, IOKit, syscalls"]
+        finchsandbox["FinchSandbox<br/>enforces compiled profiles:<br/>files, processes, IPC,<br/>sockets, IOKit, syscalls;<br/>sandbox extensions"]
     end
     block:L0
         columns 4

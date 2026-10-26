@@ -14,6 +14,10 @@
 #define FINCH_SANDBOX_CALL_APPLY_PROFILE 0x102
 /* Ask how a process's profile decides one request (sandbox_check). */
 #define FINCH_SANDBOX_CALL_QUERY 0x103
+/* Sandbox extensions: issue a token, consume one, release one. */
+#define FINCH_SANDBOX_CALL_EXTENSION_ISSUE 0x104
+#define FINCH_SANDBOX_CALL_EXTENSION_CONSUME 0x105
+#define FINCH_SANDBOX_CALL_EXTENSION_RELEASE 0x106
 
 #define FINCH_SANDBOX_PROFILE_DENY_READ 1u
 #define FINCH_SANDBOX_PROFILE_DENY_WRITE 2u
@@ -87,12 +91,59 @@ struct finch_sandbox_query_request {
 	uint32_t result;
 };
 
+/*
+ * Call 0x104: issue an extension token, a string the kernel signs. type is
+ * FINCH_SANDBOX_EXTENSION_FILE (data a path, resolved by the kernel),
+ * _MACH (a global service name) or _GENERIC (no data). A sandboxed issuer may
+ * issue a file or Mach extension only for what its own profile allows. When
+ * target_pid isn't 0 only that process (with target_pidversion, if not 0) can
+ * consume it. The token (NUL-terminated) goes to token, of token_size bytes.
+ */
+struct finch_sandbox_extension_issue_request {
+	uint32_t version;
+	uint32_t size;
+	uint32_t type;
+	uint32_t flags;		/* FINCH_SANDBOX_EXTENSION_* flags */
+	uint64_t extension_class;	/* user address of a NUL-terminated string */
+	uint64_t data;		/* user address of a NUL-terminated string, or 0 */
+	int32_t target_pid;
+	uint32_t target_pidversion;
+	uint64_t token;		/* user address */
+	uint64_t token_size;
+};
+
+#define FINCH_SANDBOX_EXTENSION_FILE 0u
+#define FINCH_SANDBOX_EXTENSION_MACH 1u
+#define FINCH_SANDBOX_EXTENSION_GENERIC 3u
+/* Don't resolve the path's last component (SANDBOX_EXTENSION_NOFOLLOW). */
+#define FINCH_SANDBOX_EXTENSION_NOFOLLOW 0x20u
+
+/* Call 0x105: consume a token; handle receives an id for releasing it. */
+struct finch_sandbox_extension_consume_request {
+	uint32_t version;
+	uint32_t size;
+	uint64_t token;		/* user address of a NUL-terminated string */
+	int64_t handle;
+};
+
+/* Call 0x106: release a consumed extension by its handle. */
+struct finch_sandbox_extension_release_request {
+	uint32_t version;
+	uint32_t size;
+	int64_t handle;
+};
+
+/* The longest token. */
+#define FINCH_SANDBOX_EXTENSION_MAX 4096u
+
 #define FINCH_SANDBOX_QUERY_NO_REPORT 0x1u
 #define FINCH_SANDBOX_QUERY_RESULT_ALLOW 0u
 #define FINCH_SANDBOX_QUERY_RESULT_DENY 1u
 #define FINCH_SANDBOX_QUERY_RESULT_UNSANDBOXED 2u
 
 #if defined(__cplusplus)
+static_assert(sizeof(struct finch_sandbox_extension_issue_request) == 56,
+    "Finch sandbox extension issue request size");
 static_assert(sizeof(struct finch_sandbox_profile_request) == 32,
     "Finch sandbox profile request size");
 static_assert(sizeof(struct finch_sandbox_query_request) == 48,
@@ -102,6 +153,8 @@ static_assert(sizeof(struct finch_sandbox_apply_request) == 32,
 static_assert(sizeof(struct finch_sandbox_check_request) == 48,
     "Finch sandbox check request size");
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+_Static_assert(sizeof(struct finch_sandbox_extension_issue_request) == 56,
+    "Finch sandbox extension issue request size");
 _Static_assert(sizeof(struct finch_sandbox_profile_request) == 32,
     "Finch sandbox profile request size");
 _Static_assert(sizeof(struct finch_sandbox_query_request) == 48,

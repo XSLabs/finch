@@ -75,7 +75,7 @@ enum {
 	F_TRUE = FSB_N_TRUE, F_FALSE = FSB_N_FALSE, F_ALL = FSB_N_ALL, F_ANY = FSB_N_ANY,
 	F_NOT = FSB_N_NOT, F_STR_EQ = FSB_N_STR_EQ, F_STR_PREFIX = FSB_N_STR_PREFIX,
 	F_SUBPATH = FSB_N_SUBPATH, F_REGEX = FSB_N_REGEX, F_NUM_EQ = FSB_N_NUM_EQ,
-	F_NUM_BITS = FSB_N_NUM_BITS,
+	F_NUM_BITS = FSB_N_NUM_BITS, F_EXTENSION = FSB_N_EXTENSION,
 	F_UNKNOWN = 100		/* never widens access (see lowering) */
 };
 
@@ -2149,6 +2149,30 @@ attribute_filter(struct ctx *c, obj *a, int field, const char *who)
 static obj *p_file_attribute(struct ctx *c, obj *a, env *e) { (void)e; return attribute_filter(c, a, FSB_F_FILE_ATTRIBUTES, "file-attribute"); }
 static obj *p_process_attribute(struct ctx *c, obj *a, env *e) { (void)e; return attribute_filter(c, a, FSB_F_PROCESS_ATTRIBUTES, "process-attribute"); }
 
+/* (extension "class" ...): the caller holds an extension of one of these
+   classes covering the request (FinchSandbox keeps consumed extensions). */
+static obj *
+p_extension(struct ctx *c, obj *a, env *e)
+{
+	(void)e;
+	struct filt *kids[16];
+	size_t n = 0;
+	while (IS(a, T_PAIR) && n < 16) {
+		obj *cls = arg(c, &a, "extension");
+		if (!IS(cls, T_STR) || cls->u.str.n == 0) {
+			return filt_obj(c, filt_unknown(c, "extension"));
+		}
+		struct filt *f = filt_new(c, F_EXTENSION);
+		f->s = cls->u.str.s;
+		f->n = cls->u.str.n;
+		kids[n++] = f;
+	}
+	if (n == 0 || !IS(a, T_NIL)) {
+		return filt_obj(c, filt_unknown(c, "extension"));
+	}
+	return filt_obj(c, filt_combine(c, F_ANY, kids, n));
+}
+
 /* Filters Finch can't evaluate (yet): sandbox extensions, entitlement checks
    at run time, process attributes, network addresses, ... */
 static obj *
@@ -2561,7 +2585,7 @@ setup(struct ctx *c)
 		{ "file-mode", p_file_mode, true }, { "target", p_target, true }, { "vnode-type", p_vnode_type, true },
 		{ "remote", p_unknown_special, true }, { "local", p_unknown_special, true },
 		{ "process-attribute", p_process_attribute, true }, { "system-attribute", p_false, true },
-		{ "state-flag", p_unknown_filter, false }, { "extension", p_unknown_filter, false },
+		{ "state-flag", p_unknown_filter, false }, { "extension", p_extension, false },
 		{ "extension-class", p_unknown_filter, false }, { "require-entitlement", p_unknown_filter, false },
 		{ "entitlement-is-present", p_unknown_filter, false }, { "entitlement-is-bool-true", p_unknown_filter, false },
 		{ "entitlement-value", p_unknown_filter, false }, { "storage-class", p_unknown_filter, false },
@@ -2752,6 +2776,14 @@ lower(struct emitter *m, struct filt *f, bool deny, bool positive, int depth, ui
 	case F_NUM_BITS:
 		return add_node(m, (uint16_t)f->kind, (uint16_t)f->field, (uint32_t)f->num,
 		    (uint32_t)(f->num >> 32));
+	case F_EXTENSION: {
+		if (f->node != FSB_NONE) {
+			return f->node;
+		}
+		uint32_t at = add_data(m, f->s, f->n, 1);
+		f->node = add_node(m, FSB_N_EXTENSION, 0, at, (uint32_t)f->n);
+		return f->node;
+	}
 	default:
 		fail(c, "internal: bad filter kind %d", f->kind);
 	}

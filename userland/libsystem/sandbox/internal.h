@@ -32,6 +32,15 @@ void sandbox_warn(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
 /* finch.c: ask FinchSandbox. 0 allowed, 1 denied (or sandboxed, for a NULL
    operation), -1 error, -2 the policy isn't registered. */
+/* Sandbox extensions through FinchSandbox: 0 or a handle on success, -1 with
+   errno on failure, -2 when FinchSandbox isn't registered (ask Apple's). */
+int finch_extension_issue(const char *extension_class, uint32_t type, const char *data, uint32_t flags,
+    int32_t pid, uint32_t pidversion, char *token, size_t size);
+int64_t finch_extension_consume(const char *token);
+int finch_extension_release(int64_t handle);
+/* A token FinchSandbox issued (its MAC, then the payload). */
+bool finch_extension_token(const char *token);
+
 int finch_sandbox_check(int64_t pid, uint32_t pidversion, const char *operation, uint32_t filter,
     uint64_t arg, int no_report);
 

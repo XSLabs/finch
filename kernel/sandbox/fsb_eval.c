@@ -260,6 +260,11 @@ fsb_profile_validate(const void *profile, size_t size)
 				return EINVAL;
 			}
 			break;
+		case FSB_N_EXTENSION:
+			if (n->b == 0 || (uint64_t)n->a + n->b > v.h->data_size) {
+				return EINVAL;
+			}
+			break;
 		default:
 			return EINVAL;
 		}
@@ -474,6 +479,9 @@ fsb_match(const struct fsb_view *v, const struct fsb_request *r, uint32_t node,
 		}
 		return (r->number[idx] & want) == want;
 	}
+	case FSB_N_EXTENSION:
+		return r->extension != NULL &&
+		       r->extension(r->extension_arg, (const char *)(v->data + n->a), n->b, r);
 	default:
 		return -1;
 	}

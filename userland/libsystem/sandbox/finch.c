@@ -98,3 +98,67 @@ finch_sandbox_check(int64_t pid, uint32_t pidversion, const char *operation, uin
 		return req.result != FINCH_SANDBOX_QUERY_RESULT_UNSANDBOXED;
 	return req.result == FINCH_SANDBOX_QUERY_RESULT_DENY;
 }
+
+/* ---- extensions ---- */
+
+int
+finch_extension_issue(const char *extension_class, uint32_t type, const char *data, uint32_t flags,
+    int32_t pid, uint32_t pidversion, char *token, size_t size)
+{
+	struct finch_sandbox_extension_issue_request req = {
+		.version = FINCH_SANDBOX_ABI_VERSION, .size = sizeof(req), .type = type,
+		.flags = flags & FINCH_SANDBOX_EXTENSION_NOFOLLOW,
+		.extension_class = (uint64_t)(uintptr_t)extension_class, .data = (uint64_t)(uintptr_t)data,
+		.target_pid = pid, .target_pidversion = pidversion,
+		.token = (uint64_t)(uintptr_t)token, .token_size = size,
+	};
+	int saved_errno = errno;
+	if (__sandbox_ms("FinchSandbox", FINCH_SANDBOX_CALL_EXTENSION_ISSUE, &req) != 0) {
+		if (errno != ENOPOLICY)
+			return -1;
+		errno = saved_errno;
+		return -2;
+	}
+	return 0;
+}
+
+bool
+finch_extension_token(const char *token)
+{
+	for (int i = 0; i < 64; i++)
+		if (!((token[i] >= '0' && token[i] <= '9') || (token[i] >= 'a' && token[i] <= 'f')))
+			return false;
+	return token[64] == ';';
+}
+
+int64_t
+finch_extension_consume(const char *token)
+{
+	struct finch_sandbox_extension_consume_request req = {
+		.version = FINCH_SANDBOX_ABI_VERSION, .size = sizeof(req), .token = (uint64_t)(uintptr_t)token,
+	};
+	int saved_errno = errno;
+	if (__sandbox_ms("FinchSandbox", FINCH_SANDBOX_CALL_EXTENSION_CONSUME, &req) != 0) {
+		if (errno != ENOPOLICY)
+			return -1;
+		errno = saved_errno;
+		return -2;
+	}
+	return req.handle;
+}
+
+int
+finch_extension_release(int64_t handle)
+{
+	struct finch_sandbox_extension_release_request req = {
+		.version = FINCH_SANDBOX_ABI_VERSION, .size = sizeof(req), .handle = handle,
+	};
+	int saved_errno = errno;
+	if (__sandbox_ms("FinchSandbox", FINCH_SANDBOX_CALL_EXTENSION_RELEASE, &req) != 0) {
+		if (errno != ENOPOLICY)
+			return -1;
+		errno = saved_errno;
+		return -2;
+	}
+	return 0;
+}

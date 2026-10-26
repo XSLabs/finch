@@ -38,6 +38,11 @@
 #define OTHER_FILE "/private/var/db/finch-sandbox-other"
 
 int sandbox_check(pid_t pid, const char *operation, int type, ...);
+char *sandbox_extension_issue_file(const char *extension_class, const char *path, uint32_t flags);
+char *sandbox_extension_issue_file_to_process_by_pid(const char *extension_class, const char *path,
+    uint32_t flags, pid_t pid);
+int64_t sandbox_extension_consume(const char *token);
+int sandbox_extension_release(int64_t handle);
 
 static int failures, checks;
 
@@ -118,9 +123,56 @@ path(char *out, const char *relative)
 	snprintf(out, PATH_MAX, "%s%s", home, relative);
 }
 
+/*
+ * Extensions (net only; it has files.user-selected.read-write): tokens the
+ * unsandboxed driver issued for the user's secret file (read) and another
+ * Documents file (read-write).
+ */
+static void
+extensions(const char *container, const char *secret, const char *read_token, const char *rw_token)
+{
+	char rw_file[PATH_MAX];
+	path(rw_file, "/Documents/chosen.txt");
+	CHECK(read_error(secret) == EPERM && read_error(rw_file) == EPERM, "before consuming: closed");
+	int64_t read_handle = sandbox_extension_consume(read_token);
+	CHECK(read_handle > 0, "a read extension is consumed");
+	CHECK(read_error(secret) == 0, "and opens its file for reading");
+	CHECK(write_error(secret) == EPERM, "but not for writing");
+	CHECK(read_error(rw_file) == EPERM, "and nothing else");
+	CHECK(run((char *[]){ "/bin/cat", (char *)secret, NULL }) == 0, "a tool it runs inherits the extension");
+	int64_t rw_handle = sandbox_extension_consume(rw_token);
+	CHECK(rw_handle > 0 && rw_handle != read_handle, "a read-write extension is consumed");
+	CHECK(read_error(rw_file) == 0 && write_error(rw_file) == 0, "and opens its file for reading and writing");
+	CHECK(sandbox_extension_release(read_handle) == 0, "releasing the read extension");
+	CHECK(read_error(secret) == EPERM, "closes its file again");
+	CHECK(write_error(rw_file) == 0, "and keeps the other");
+
+	/* A changed token is refused. */
+	char *tampered = strdup(read_token);
+	size_t n = strlen(tampered);
+	tampered[n - 1] = tampered[n - 1] == '0' ? '1' : '0';
+	errno = 0;
+	CHECK(sandbox_extension_consume(tampered) == -1 && errno == EINVAL, "a changed token is refused");
+	free(tampered);
+	CHECK(read_error(secret) == EPERM, "and opens nothing");
+
+	/* It passes on only what it has, and a token issued to another process is that one's. */
+	char inside[PATH_MAX];
+	snprintf(inside, sizeof(inside), "%s/Documents", container);
+	errno = 0;
+	CHECK(sandbox_extension_issue_file("com.apple.app-sandbox.read", secret, 0) == NULL && errno == EPERM,
+	    "it can't issue an extension for a file it can't read");
+	char *mine = sandbox_extension_issue_file_to_process_by_pid("com.apple.app-sandbox.read", inside, 0, getppid());
+	CHECK(mine != NULL, "it can issue one for its own container, to another process");
+	errno = 0;
+	CHECK(mine && sandbox_extension_consume(mine) == -1 && errno == EPERM,
+	    "which it can't consume itself");
+	free(mine);
+}
+
 /* Inside a sandboxed app: "plain" or "net". */
 static int
-sandboxed(const char *mode, const char *identifier)
+sandboxed(const char *mode, const char *identifier, const char *read_token, const char *rw_token)
 {
 	bool net = !strcmp(mode, "net");
 	char container[PATH_MAX], file[PATH_MAX], secret[PATH_MAX], downloads[PATH_MAX];
@@ -162,6 +214,9 @@ sandboxed(const char *mode, const char *identifier)
 		CHECK(read_error(downloads) == EPERM, "no downloads entitlement: Downloads is closed");
 		CHECK(read_error(EXCEPTION_FILE) == EPERM, "no exception: its file is closed");
 	}
+
+	if (net && read_token && rw_token)
+		extensions(container, secret, read_token, rw_token);
 
 	/* What it runs is sandboxed too. */
 	snprintf(file, sizeof(file), "%s/Library/Preferences/test.plist", container);
@@ -221,8 +276,8 @@ put(const char *file, uid_t uid, mode_t mode)
 int
 main(int argc, char *argv[])
 {
-	if (argc == 4 && !strcmp(argv[1], "--sandboxed"))
-		return sandboxed(argv[2], argv[3]);
+	if (argc >= 4 && !strcmp(argv[1], "--sandboxed"))
+		return sandboxed(argv[2], argv[3], argc > 5 ? argv[4] : NULL, argc > 5 ? argv[5] : NULL);
 	if (argc == 2 && !strcmp(argv[1], "--unsandboxed"))
 		return unsandboxed();
 	if (getuid() != 0) {
@@ -253,6 +308,14 @@ main(int argc, char *argv[])
 	put(file, pw->pw_uid, 0600);
 	snprintf(file, sizeof(file), "%s/Downloads/dl.txt", pw->pw_dir);
 	put(file, pw->pw_uid, 0600);
+	char chosen[PATH_MAX], secret[PATH_MAX];
+	snprintf(chosen, sizeof(chosen), "%s/Documents/chosen.txt", pw->pw_dir);
+	put(chosen, pw->pw_uid, 0600);
+	snprintf(secret, sizeof(secret), "%s/Documents/secret.txt", pw->pw_dir);
+	/* What an open panel would hand the app: tokens for the files the user chose. */
+	char *read_token = sandbox_extension_issue_file("com.apple.app-sandbox.read", secret, 0);
+	char *rw_token = sandbox_extension_issue_file("com.apple.app-sandbox.read-write", chosen, 0);
+	CHECK(read_token != NULL && rw_token != NULL, "root issues extension tokens");
 	put(EXCEPTION_FILE, 0, 0644);
 	put(OTHER_FILE, 0, 0644);
 
@@ -260,7 +323,8 @@ main(int argc, char *argv[])
 	    "the unsandboxed control");
 	CHECK(run_as_user((char *[]){ PLAIN_APP, "--sandboxed", "plain", "org.finch.test.sandboxed", NULL }) == 0,
 	    "SandboxTest.app's checks");
-	CHECK(run_as_user((char *[]){ NET_APP, "--sandboxed", "net", "org.finch.test.sandboxed-net", NULL }) == 0,
+	CHECK(run_as_user((char *[]){ NET_APP, "--sandboxed", "net", "org.finch.test.sandboxed-net",
+	    read_token ? read_token : "none", rw_token ? rw_token : "none", NULL }) == 0,
 	    "SandboxNetTest.app's checks");
 	/* The container is the user's own and private. */
 	struct stat st;
