@@ -21,9 +21,27 @@
  * allowed one, asks before replacing a file, and asks the delegate's
  * panel:validateURL:error:. Until then, as Apple's, URL is the directory
  * and the name joined.
+ *
+ * A sandboxed app can't look through the user's folders, so its panels run in
+ * the per-user agent finch-openandsavepanel (userland/openandsavepanel), as
+ * macOS's run in AppKit's panel service: the panel's settings go there, and the
+ * files the user chose come back with sandbox extensions for this process,
+ * which are consumed before the URLs are handed to the app.
  */
 #import "FinchPanels.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#include <xpc/xpc.h>
+
+int sandbox_check(pid_t pid, const char *operation, int type, ...);
+int64_t sandbox_extension_consume(const char *token);
+
+#define FINCH_PANEL_SERVICE "org.finch.openandsavepanel"
+
+static BOOL
+FinchPanelIsRemote(void)
+{
+    return sandbox_check(getpid(), NULL, 0) == 1;
+}
 
 @interface NSSavePanel ()
 - (BOOL)_finchIsOpenPanel;
@@ -1090,8 +1108,108 @@ small_icon(FinchIconKind kind)
     [editor setSelectedRange:NSMakeRange(0, len)];
 }
 
+#pragma mark The panel service (sandboxed apps)
+
+- (xpc_object_t)_finchRemoteRequest
+{
+    xpc_object_t r = xpc_dictionary_create(NULL, NULL, 0);
+    BOOL open = [self _finchIsOpenPanel];
+    xpc_dictionary_set_string(r, "kind", open ? "open" : "save");
+    if (_title) xpc_dictionary_set_string(r, "title", [_title UTF8String]);
+    if (_prompt) xpc_dictionary_set_string(r, "prompt", [_prompt UTF8String]);
+    if (_message) xpc_dictionary_set_string(r, "message", [_message UTF8String]);
+    if (_name) xpc_dictionary_set_string(r, "name", [_name UTF8String]);
+    if (_directoryURL) xpc_dictionary_set_string(r, "directory", [_directoryURL fileSystemRepresentation]);
+    xpc_object_t types = xpc_array_create(NULL, 0);
+    for (NSString *ext in _allowedFileTypes)
+        xpc_array_set_string(types, XPC_ARRAY_APPEND, [ext UTF8String]);
+    for (UTType *type in _allowedTypes)
+        if ([type preferredFilenameExtension])
+            xpc_array_set_string(types, XPC_ARRAY_APPEND, [[type preferredFilenameExtension] UTF8String]);
+    xpc_dictionary_set_value(r, "types", types);
+    xpc_release(types);
+    xpc_dictionary_set_bool(r, "canCreateDirectories", _canCreateDirectories);
+    xpc_dictionary_set_bool(r, "showsHidden", _showsHiddenFiles);
+    if (open) {
+        NSOpenPanel *o = (NSOpenPanel *)self;
+        xpc_dictionary_set_bool(r, "canChooseFiles", [o canChooseFiles]);
+        xpc_dictionary_set_bool(r, "canChooseDirectories", [o canChooseDirectories]);
+        xpc_dictionary_set_bool(r, "multiple", [o allowsMultipleSelection]);
+    }
+    return r;
+}
+
+/* The service's answer: the files chosen, opened to this process by consuming their extensions. */
+- (NSModalResponse)_finchTakeRemoteReply:(xpc_object_t)reply
+{
+    if (!reply || xpc_get_type(reply) != XPC_TYPE_DICTIONARY) {
+        NSLog(@"NSSavePanel: the open and save panel service isn't available");
+        return NSModalResponseCancel;
+    }
+    NSModalResponse response = (NSModalResponse)xpc_dictionary_get_int64(reply, "response");
+    xpc_object_t urls = xpc_dictionary_get_value(reply, "urls");
+    xpc_object_t tokens = xpc_dictionary_get_value(reply, "tokens");
+    NSMutableArray<NSURL *> *chosen = [NSMutableArray array];
+    for (size_t i = 0; urls && tokens && i < xpc_array_get_count(urls) && i < xpc_array_get_count(tokens); i++) {
+        const char *path = xpc_array_get_string(urls, i), *token = xpc_array_get_string(tokens, i);
+        if (path && token && sandbox_extension_consume(token) > 0)
+            [chosen addObject:[NSURL fileURLWithPath:[NSString stringWithUTF8String:path]]];
+    }
+    if (response != NSModalResponseOK || !chosen.count)
+        return response == NSModalResponseOK ? NSModalResponseCancel : response;
+    if ([self _finchIsOpenPanel])
+        [(NSOpenPanel *)self _finchSetURLs:chosen];
+    else {
+        [_finalURL autorelease];
+        _finalURL = [chosen[0] retain];
+        [_name autorelease];
+        _name = [[chosen[0] lastPathComponent] copy];
+    }
+    [_directoryURL autorelease];
+    _directoryURL = [[chosen[0] URLByDeletingLastPathComponent] retain];
+    return NSModalResponseOK;
+}
+
+- (NSModalResponse)_finchRunRemote
+{
+    xpc_connection_t c = xpc_connection_create_mach_service(FINCH_PANEL_SERVICE, NULL, 0);
+    xpc_connection_set_event_handler(c, ^(xpc_object_t event) { (void)event; });
+    xpc_connection_resume(c);
+    xpc_object_t request = [self _finchRemoteRequest];
+    xpc_object_t reply = xpc_connection_send_message_with_reply_sync(c, request);
+    xpc_release(request);
+    NSModalResponse r = [self _finchTakeRemoteReply:reply];
+    if (reply)
+        xpc_release(reply);
+    xpc_connection_cancel(c);
+    xpc_release(c);
+    return r;
+}
+
+- (void)_finchBeginRemote:(void (^)(NSModalResponse))handler
+{
+    xpc_connection_t c = xpc_connection_create_mach_service(FINCH_PANEL_SERVICE, NULL, 0);
+    xpc_connection_set_event_handler(c, ^(xpc_object_t event) { (void)event; });
+    xpc_connection_resume(c);
+    xpc_object_t request = [self _finchRemoteRequest];
+    void (^h)(NSModalResponse) = [handler copy];
+    [self retain];
+    xpc_connection_send_message_with_reply(c, request, dispatch_get_main_queue(), ^(xpc_object_t reply) {
+        NSModalResponse r = [self _finchTakeRemoteReply:reply];
+        xpc_connection_cancel(c);
+        xpc_release(c);
+        if (h)
+            h(r);
+        [h release];
+        [self autorelease];
+    });
+    xpc_release(request);
+}
+
 - (NSModalResponse)runModal
 {
+    if (FinchPanelIsRemote())
+        return [self _finchRunRemote];
     [self _finchPrepare];
     [self center];
     [self setLevel:NSModalPanelWindowLevel];
@@ -1109,6 +1227,10 @@ small_icon(FinchIconKind kind)
 
 - (void)beginWithCompletionHandler:(void (^)(NSModalResponse))handler
 {
+    if (FinchPanelIsRemote()) {
+        [self _finchBeginRemote:handler];
+        return;
+    }
     [self _finchPrepare];
     [_handler release];
     _handler = [handler copy];
@@ -1120,7 +1242,7 @@ small_icon(FinchIconKind kind)
 
 - (void)beginSheetModalForWindow:(NSWindow *)window completionHandler:(void (^)(NSModalResponse))handler
 {
-    if (!window) {
+    if (!window || FinchPanelIsRemote()) {
         [self beginWithCompletionHandler:handler];
         return;
     }

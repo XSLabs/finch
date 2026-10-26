@@ -235,8 +235,27 @@ tool the app runs inherits it, releasing closes it again, a changed token, a
 token issued to another process and issuing for a file the app can't read are
 refused (35 checks in that app in all).
 
-Open: an out-of-process open and save panel that issues these, app groups,
-and containers for app extensions and XPC services.
+**Open and save panels (2026-10-26).** A sandboxed app's NSOpenPanel and
+NSSavePanel run in `finch-openandsavepanel` (userland/openandsavepanel), a
+per-user agent (Mach service `org.finch.openandsavepanel`), as macOS's run in
+AppKit's panel service. The app sends the panel's settings; the agent,
+unsandboxed as the user, shows Finch's panel (starting in the folder asked
+for, unless that's in the app's container, else ~/Documents) and issues an
+extension for each chosen file to the asking process only: read-write with
+`files.user-selected.read-write`, read-only with `.read-only`, nothing (and no
+panel) without either. AppKit consumes them before handing the URLs over;
+`runModal`, `beginWithCompletionHandler:` and sheets all go this way.
+`application.sb` now also lets apps make local sockets (the window server's)
+and `system.sb` reach syslog's socket.
+
+`tools/vm/test-openpanel.sh` (persistent VM) runs a sandboxed app as a user in
+that user's domain on a headless window server and answers its panels from
+the keyboard: the app shows its own window, can't read the user's file, gets
+the Open panel from the agent, reads the file chosen and only it, gets the
+Save panel, writes the file named, and the user finds it in Documents (18
+checks).
+
+Open: app groups, and containers for app extensions and XPC services.
 
 ### Notification service work still required
 

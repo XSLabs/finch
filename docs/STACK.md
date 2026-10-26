@@ -19,7 +19,8 @@ address filters remain open (`docs/design/SECURITY.md`, "The sandbox"). Finch's 
 `networksetup` set system and network settings; on the persistent VM those
 survive restarts. A new system's first boot runs `finch-setup`, which makes the
 first administrator account before login. Apps signed for the App Sandbox
-start in their containers under Finch's `application.sb` (`libsystem_secinit`).
+start in their containers under Finch's `application.sb` (`libsystem_secinit`);
+their open and save panels run in Finch's panel agent, which hands chosen files over.
 Finch's `authd` shares authorization
 rights and credentials between processes; administrators trust or distrust
 certificates with Finch's `security` command. Disk Arbitration mounts a second
@@ -332,7 +333,7 @@ block-beta
         columns 4
         t2["Processes"]
         init["finch-init (PID 1)<br/>bootstrap server,<br/>system + user domains"]
-        logd["finch-logd, finch-pboardd<br/>(pasteboards), pbcopy and pbpaste,<br/>finch-update (signed,<br/>resumable updates, keeps<br/>system accounts),<br/>finch-data-volume (checks and<br/>mounts the data disk),<br/>finch-volume-setup (lays out<br/>the dev VM's disks),<br/>screencapture and its service,<br/>scutil, networksetup, security,<br/>kextload (starts kexts from<br/>the boot collection),<br/>finch-setup (a new system's<br/>first account),<br/>launchctl, sh, mount_tmpfs, devtools"]
+        logd["finch-logd, finch-pboardd<br/>(pasteboards), pbcopy and pbpaste,<br/>finch-update (signed,<br/>resumable updates, keeps<br/>system accounts),<br/>finch-data-volume (checks and<br/>mounts the data disk),<br/>finch-volume-setup (lays out<br/>the dev VM's disks),<br/>screencapture and its service,<br/>scutil, networksetup, security,<br/>kextload (starts kexts from<br/>the boot collection),<br/>finch-openandsavepanel<br/>(sandboxed apps' panels),<br/>finch-setup (a new system's<br/>first account),<br/>launchctl, sh, mount_tmpfs, devtools"]
         daemons["notifyd, syslogd, aslmanager,<br/>newsyslog, dynamic_pager, atrun,<br/>cron, mDNSPosix, configd,<br/>diskarbitrationd, authd"]
         space2[" "]
         cmds["file/shell/text/adv/system_cmds,<br/>bash, zsh, bc, su, login,<br/>mount, fsck, FAT helpers"]

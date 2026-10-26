@@ -1142,6 +1142,21 @@ all: $(OUT)/finch-configd-contained-service
 all: $(OUT)/finch-account-tools-test
 all: $(OUT)/finch-account-login-test
 all: $(OUT)/finch-authorization-test $(OUT)/finch-chpass-test $(OUT)/finch-app-sandbox-test
+all: $(OUT)/finch-openpanel-test
+# Guest-only, on the persistent VM: a sandboxed app's panels through the panel service;
+# the same program, signed for the sandbox, is the app.
+$(OUT)/finch-openpanel-test: openpanel-test.m ../account-tools/account_tools.h app-sandbox-fixture/openpanel.entitlements ../../build/root/usr/lib/system/libfinchaccount.dylib
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -fobjc-arc -I../account-tools -o $@ $< -framework AppKit -L../../build/root/usr/lib/system -lfinchaccount \
+	    -Wl,-U,_FWSConnect -Wl,-U,_FWSPostEvent -Wl,-U,_FWSCopyWindowList
+	dir=$(OUT)/apps/OpenPanelTest.app/Contents; rm -rf $(OUT)/apps/OpenPanelTest.app; mkdir -p $$dir/MacOS; \
+	    plutil -create xml1 $$dir/Info.plist; \
+	    plutil -insert CFBundleIdentifier -string org.finch.test.openpanel $$dir/Info.plist; \
+	    plutil -insert CFBundleExecutable -string OpenPanelTest $$dir/Info.plist; \
+	    plutil -insert CFBundlePackageType -string APPL $$dir/Info.plist; \
+	    cp $@ $$dir/MacOS/OpenPanelTest; \
+	    codesign -f -s - -i org.finch.test.openpanel --entitlements app-sandbox-fixture/openpanel.entitlements \
+	        $(OUT)/apps/OpenPanelTest.app
 # Guest-only, on the persistent VM: the App Sandbox. The same program, signed with
 # the sandbox entitlement, as two apps (app-sandbox-fixture/*.entitlements).
 $(OUT)/finch-app-sandbox-test: app-sandbox-test.c ../account-tools/account_tools.h app-sandbox-fixture/plain.entitlements app-sandbox-fixture/net.entitlements ../../build/root/usr/lib/system/libfinchaccount.dylib

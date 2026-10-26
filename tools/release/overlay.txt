@@ -27,4 +27,5 @@ userland/LaunchDaemons/com.apple.atrun.plist /System/Library/Finch/LaunchDaemons
 userland/LaunchDaemons/com.apple.mDNSResponder.plist /System/Library/Finch/LaunchDaemons/com.apple.mDNSResponder.plist
 userland/LaunchDaemons/com.apple.SystemConfiguration.configd.plist /System/Library/Finch/LaunchDaemons/com.apple.SystemConfiguration.configd.plist
 userland/LaunchDaemons/com.apple.authd.plist /System/Library/Finch/LaunchDaemons/com.apple.authd.plist
+userland/openandsavepanel/org.finch.openandsavepanel.plist /System/Library/Finch/LaunchAgents/org.finch.openandsavepanel.plist
 userland/LaunchDaemons/com.apple.diskarbitrationd.plist /System/Library/Finch/LaunchDaemons/com.apple.diskarbitrationd.plist

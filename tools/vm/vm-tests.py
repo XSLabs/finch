@@ -126,6 +126,7 @@ SCRIPTS = {
     'tools/vm/test-app-sandbox.sh': ['app-sandbox-test'],
     'tools/vm/test-trust-settings.sh': [],
     'tools/vm/test-disks.sh': [],
+    'tools/vm/test-openpanel.sh': ['openpanel-test'],
 }
 # test-keychain.sh builds these images itself, then login-init-smoke.exp overrides the
 # inherited RAMDISK and TC with them. The script prints a VMTIMAGE record for each just before

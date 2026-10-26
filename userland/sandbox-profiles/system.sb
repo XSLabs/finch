@@ -70,6 +70,11 @@
 ;;; sysctlbyname(3) looks names up by writing them to sysctl.name2oid.
 (allow sysctl-write (sysctl-name "sysctl.name2oid"))
 
+;;; syslog(3)'s socket (connect names it as given, unresolved).
+(allow network-outbound
+       (literal "/var/run/syslog")
+       (literal "/private/var/run/syslog"))
+
 ;;; Per-process service names.
 (allow mach-register (local-name-prefix ""))
 

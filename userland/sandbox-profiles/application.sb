@@ -68,6 +68,9 @@
        (subpath "/private/var/db/mds")
        (literal "/private/etc/shells"))
 
+;;; Local sockets (the window server's, below); network ones need an entitlement.
+(allow system-socket (socket-domain AF_UNIX))
+
 ;;; Finch's services an app uses: the window server (a UNIX socket), the
 ;;; pasteboard, Launch Services, keychains, authorization and fonts.
 (allow network-outbound
@@ -75,6 +78,7 @@
        (literal "/private/tmp/finch-windowserver"))
 (allow mach-lookup
        (global-name "org.finch.pboard")
+       (global-name "org.finch.openandsavepanel")
        (global-name "org.finch.LaunchServices")
        (global-name "org.finch.securityd")
        (global-name "com.apple.SecurityServer")
