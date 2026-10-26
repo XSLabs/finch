@@ -130,6 +130,8 @@ if {$phase eq "first"} {
     as_root "printf '%s\\n' 'echo FINCH_PERSIST_PROFILE' \"PS1='FINCH_PERSIST_USER> '\" 'export PS1' > /Users/$username/.profile && chown 6001:20 /Users/$username/.profile && chmod 600 /Users/$username/.profile" user-profile
     # System settings: configd keeps them in /Library on the data volume.
     as_root {scutil --set ComputerName "Finch Persistence" && scutil --set LocalHostName finch-persistence && test "$(stat -f %u:%g /Library/Preferences/SystemConfiguration/preferences.plist)" = 0:0} system-settings
+    # A user's crontab, kept with the data: its @reboot job runs at each later boot.
+    as_root {printf '%s\n' '@reboot echo ran >> /Users/persist/Documents/cron.txt' | crontab -u persist - && crontab -u persist -l | grep -q '@reboot'} crontab-installed
     as_root {stty echo} restore-echo
     login $first_password "the first login"
     as_user {test "$(id -u)" = 6001 && test "$(pwd -P)" = /private/var/rw/Users/persist} user-identity
@@ -150,6 +152,8 @@ if {$phase eq "first"} {
     logout
 } else {
     as_root {test "$(scutil --get ComputerName)" = "Finch Persistence" && test "$(scutil --get LocalHostName)" = finch-persistence} system-settings-kept
+    as_root {crontab -u persist -l | grep -q '@reboot echo ran'} crontab-kept
+    as_root [format {i=0; while [ $i -lt 60 ] && [ $(cat /Users/persist/Documents/cron.txt 2>/dev/null | wc -l) -lt %d ]; do sleep 1; i=$((i + 1)); done; test $(wc -l < /Users/persist/Documents/cron.txt) -eq %d} [expr {$boot - 1}] [expr {$boot - 1}]] cron-ran-at-boot
     as_root {stty echo} restore-echo
     send -s -- "/usr/bin/login\r"
     expect -brace { -re $login_prompt {} timeout { fail "login did not show its prompt" } }

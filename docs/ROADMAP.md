@@ -1289,9 +1289,17 @@ that every app works. These release checks were missing from the Phase 5 list:
       file hashes. Archive checks and required-library checks pass. This is still
       an unsigned development payload; installation remains open. Accounts, passwords
       and homes persist on the development VM's data disk (2026-10-25, above).
-- [ ] **System services:** cron, configd, disk mounting and Bonjour; network settings
+- [x] **System services:** cron, configd, disk mounting and Bonjour; network settings
       that persist and notify apps when they change. Framework clients alone do not
       complete these services. See [Security and SystemConfiguration](design/SECURITY.md).
+      Done on the persistent VM (2026-10-26): system settings survive restarts and an
+      ordinary process is told when they change, by its SCPreferences callback and by
+      configd's Setup:/ notification, and reads the new value
+      (tools/vm/test-settings-notify.sh); a user's crontab survives two restarts and its
+      @reboot job runs at each boot (tools/vm/test-persistence.sh); Disk Arbitration
+      mounts a second disk at startup (tools/vm/test-disks.sh); Bonjour's local
+      discovery passes (2026-10-11). Applying IP settings to a real interface waits for
+      a machine with one (the QEMU machine has none).
       In the VM (2026-10-15), tools/vm/test-services.sh checks notifyd, syslogd, logd,
       configd, diskarbitrationd, mDNSResponder and cron are running, and that cron runs a
       job from a crontab. Found in the test pass: the VM image has no real, root-owned
@@ -1305,7 +1313,7 @@ that every app works. These release checks were missing from the Phase 5 list:
       without configd; other users' locks on such a file are refused, as Apple's are
       (finch-sysconfig-test against Apple's on the host, configd-service-test as root in
       the VM, 2026-10-15).
-- [ ] **Trust and access:** a maintained system certificate store, persistent key storage,
+- [x] **Trust and access:** a maintained system certificate store, persistent key storage,
       authorization, code-signature checks and enforced app restrictions. Test refused
       access as well as allowed access. Finch now has pinned web roots, a file
       keychain and signature checks. Encrypted file keychains pass focused host and

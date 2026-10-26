@@ -257,6 +257,7 @@ build/userland/finch-app-sandbox-test /usr/local/bin/finch-app-sandbox-test
 build/userland/finch-security-trust-settings-test /usr/local/bin/finch-security-trust-settings-test
 build/userland/finch-openpanel-test /usr/local/bin/finch-openpanel-test
 build/userland/finch-authorization-dialog-test /usr/local/bin/finch-authorization-dialog-test
+build/userland/finch-settings-notify-test /usr/local/bin/finch-settings-notify-test
 userland/securityagent/org.finch.securityagent.plist /System/Library/Finch/LaunchAgents/org.finch.securityagent.plist
 build/userland/apps/OpenPanelTest.app/Contents/MacOS/OpenPanelTest /usr/local/share/finch/apps/OpenPanelTest.app/Contents/MacOS/OpenPanelTest
 build/userland/apps/OpenPanelTest.app/Contents/Info.plist /usr/local/share/finch/apps/OpenPanelTest.app/Contents/Info.plist

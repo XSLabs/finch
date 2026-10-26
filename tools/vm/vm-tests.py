@@ -128,6 +128,7 @@ SCRIPTS = {
     'tools/vm/test-disks.sh': [],
     'tools/vm/test-openpanel.sh': ['openpanel-test'],
     'tools/vm/test-authorization-dialog.sh': ['authorization-dialog-test'],
+    'tools/vm/test-settings-notify.sh': ['settings-notify-test'],
 }
 # test-keychain.sh builds these images itself, then login-init-smoke.exp overrides the
 # inherited RAMDISK and TC with them. The script prints a VMTIMAGE record for each just before

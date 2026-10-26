@@ -1146,7 +1146,11 @@ all: $(OUT)/finch-configd-contained-service
 all: $(OUT)/finch-account-tools-test
 all: $(OUT)/finch-account-login-test
 all: $(OUT)/finch-authorization-test $(OUT)/finch-chpass-test $(OUT)/finch-app-sandbox-test
-all: $(OUT)/finch-openpanel-test $(OUT)/finch-authorization-dialog-test
+all: $(OUT)/finch-openpanel-test $(OUT)/finch-authorization-dialog-test $(OUT)/finch-settings-notify-test
+# Guest-only, on the persistent VM: settings changes reach an ordinary process.
+$(OUT)/finch-settings-notify-test: settings-notify-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -o $@ $< -framework SystemConfiguration -framework CoreFoundation
 # Guest-only, on the persistent VM: authorization's password dialog (finch-securityagent).
 $(OUT)/finch-authorization-dialog-test: authorization-dialog-test.m ../account-tools/account_tools.h ../../build/root/usr/lib/system/libfinchaccount.dylib
 	@mkdir -p $(OUT)
