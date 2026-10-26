@@ -1,0 +1,121 @@
+#!/usr/bin/expect -f
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# A second disk through Disk Arbitration (tools/vm/test-disks.sh runs it): the
+# persistent VM boots with a FAT disk the host made (volume FINCHDISK, with
+# hello.txt). Disk Arbitration probes, checks and mounts it at
+# /Volumes/FINCHDISK, through the msdos kext (Finch's kextload starts it), as
+# macOS mounts an internal disk at startup. A user logs in at the console and
+# becomes the console user (pam_console), reads the host's file and writes one;
+# logging out clears the console user; root unmounts the disk and halts. The
+# script checks the host side afterwards.
+# Run under tools/vm/with-vm-lock.sh with FINCH_PERSISTENT=1, FINCH_DATA_IMAGE
+# and FINCH_SETUP_IMAGE (the FAT disk) set.
+set timeout 900
+log_user 1
+set send_slow {8 0.03}
+set root [file normalize [file dirname [info script]]/../..]
+set env(FINCH_INIT) 1
+set env(FINCH_DEV_CONSOLE) 1
+set env(FINCH_PERSISTENT) 1
+unset -nocomplain env(BOOT_ARGS_EXTRA)
+set boot_prompt {[#$] (?:\x1b\[[0-9;?]*[A-Za-z])*$}
+set root_prompt {FINCH_ROOT_SETUP# (?:\x1b\[[0-9;?]*[A-Za-z])*$}
+set login_prompt {(?:^|\r\n)login: }
+set password_prompt {Password:[[:blank:]]*$}
+set user_prompt {FINCH_DISK_USER> }
+set username diskuser
+set password "Finch disk test user 2026"
+
+proc fail {message} {
+    puts "\n### $message"
+    catch {send -- "\x01x"}
+    catch {expect eof}
+    exit 1
+}
+proc checked {command label prompt} {
+    set status_pattern [format {FINCH_STATUS_%s=([0-9]+)} $label]
+    send -s -- "$command; printf '\\nFINCH_STATUS_${label}=%d\\n' \$?\r"
+    expect {
+        -re $status_pattern {
+            if {$expect_out(1,string) != 0} { fail "$label failed with exit status $expect_out(1,string)" }
+        }
+        eof { fail "VM exited while running $label" }
+        timeout { fail "timed out while running $label" }
+    }
+    expect {
+        -re $prompt {}
+        eof { fail "VM exited after $label" }
+        timeout { fail "the shell did not return after $label" }
+    }
+}
+proc as_root {command label} { global root_prompt; checked $command $label $root_prompt }
+proc as_user {command label} { global user_prompt; checked $command $label $user_prompt }
+
+spawn $root/tools/vm/run.sh
+expect {
+    -exact "development root console enabled by boot argument" {}
+    "panic" { fail "guest panicked during boot" }
+    eof { fail "guest exited before the root console started" }
+    timeout { fail "development root console did not start" }
+}
+expect {
+    -re $boot_prompt {}
+    "normal services and login will not start" { fail "startup failed" }
+    "panic" { fail "guest panicked before the root console started" }
+    eof { fail "guest exited before the root console started" }
+    timeout { fail "root console shell did not appear" }
+}
+send -s -- "stty -echo; PS1='FINCH_ROOT_'\"SETUP# \"; export PS1\r"
+expect -brace { -re $root_prompt {} timeout { fail "root setup prompt did not appear" } }
+
+as_root {pgrep -x diskarbitrationd >/dev/null && test -w /Volumes} disk-service-running
+as_root {i=0; while [ $i -lt 60 ] && ! [ -f /Volumes/FINCHDISK/hello.txt ]; do sleep 1; i=$((i + 1)); done; mount | grep -q '^/dev/disk[0-9]*s1 on /Volumes/FINCHDISK (msdos'} mounted-at-startup
+as_root {printf 'show State:/Users/ConsoleUser\n' | scutil | grep -q 'No such key'} no-console-user-yet
+
+send -s -- "/usr/sbin/accountctl -R /private/var/rw create $username 6002 20 'Disk Test' /Users/$username /bin/sh; printf '\\nFINCH_STATUS_accountctl=%d\\n' \$?\r"
+expect {
+    -exact "New password: " { send -s -- "$password\r"; exp_continue }
+    -exact "Repeat new password: " { send -s -- "$password\r"; exp_continue }
+    -re {FINCH_STATUS_accountctl=([0-9]+)} {
+        if {$expect_out(1,string) != 0} { fail "accountctl failed with exit status $expect_out(1,string)" }
+    }
+    timeout { fail "accountctl did not finish" }
+}
+expect -brace { -re $root_prompt {} timeout { fail "setup shell did not return after accountctl" } }
+as_root "printf '%s\\n' 'echo FINCH_DISK_PROFILE' \"PS1='FINCH_DISK_USER> '\" 'export PS1' > /Users/$username/.profile && chown 6002:20 /Users/$username/.profile" user-profile
+as_root {stty echo} restore-echo
+
+send -s -- "/usr/bin/login\r"
+expect -brace { -re $login_prompt {} timeout { fail "login did not show its prompt" } }
+send -s -- "$username\r"
+expect -brace { -re $password_prompt {} timeout { fail "login did not ask for the password" } }
+send -s -- "$password\r"
+expect {
+    -exact "FINCH_DISK_PROFILE" {}
+    "Login incorrect" { fail "login refused the password" }
+    timeout { fail "the login did not start the user's shell" }
+}
+expect -brace { -exact $user_prompt {} timeout { fail "user prompt did not appear" } }
+
+# The console's user, as loginwindow records it on macOS.
+as_user {printf 'show State:/Users/ConsoleUser\n' | scutil | grep -q 'Name : diskuser' && printf 'show State:/Users/ConsoleUser\n' | scutil | grep -q 'UID : 6002'} console-user
+as_user {test "$(cat /Volumes/FINCHDISK/hello.txt)" = "written on the host"} read-host-file
+as_user {printf 'written by %s in Finch\n' "$(id -un)" > /Volumes/FINCHDISK/guest.txt && test -f /Volumes/FINCHDISK/guest.txt} write-as-user
+send -s -- "exit\r"
+expect -brace { -re $root_prompt {} timeout { fail "logout did not return to the setup shell" } }
+as_root {printf 'show State:/Users/ConsoleUser\n' | scutil | grep -q 'No such key'} console-user-cleared
+
+as_root {umount /Volumes/FINCHDISK && ! mount | grep -q FINCHDISK} unmount
+# A real shutdown (it syncs and unmounts the disks), then the VM stops.
+send -s -- "/sbin/halt\r"
+expect {
+    "halting" {}
+    eof { fail "VM exited before finch-init's shutdown" }
+    timeout { fail "halt did not reach finch-init's shutdown" }
+}
+expect {
+    -timeout 60
+    eof {}
+    timeout { send -- "\x01x"; expect eof }
+}
+puts "\ndisks: the second disk mounted at startup, and the console user wrote to it"

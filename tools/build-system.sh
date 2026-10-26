@@ -270,6 +270,8 @@ steps=(
     "authd|make -s -C userland/authd"
     # security: trust settings and certificate checks from the command line
     "security-tool|make -s -C userland/security-tool"
+    # kextload: filesystem helpers start their kexts from the boot collection
+    "kextload|make -s -C userland/kextload"
     "CryptoTokenKit|userland/CryptoTokenKit/build.sh"
     "securityd|userland/securityd/build.sh"
     "pam-keychain|make -s -C userland/pam keychain"

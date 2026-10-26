@@ -1,0 +1,16 @@
+# Finch patch: without FSKit, mount every filesystem through its kext and
+# /sbin/mount; a bundle that lists UserFS first (msdos) otherwise fails with ENOTSUP.
+
+--- a/diskarbitrationd/DAFileSystem.c
++++ b/diskarbitrationd/DAFileSystem.c
+@@ -1323,6 +1323,10 @@
+     CFTypeRef               fsImplementation  = NULL;
+     Boolean                 useUserFS         = FALSE;
+     
++#ifndef DA_FSKIT
++    /* Without FSKit a bundle's UserFS can't be used: mount through its kext. */
++    return FALSE;
++#endif
+ #if TARGET_OS_OSX
+     /*
+      *  Check for UserFS mount support. If the FS bundle supports UserFS and the preference is enabled

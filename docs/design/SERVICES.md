@@ -336,6 +336,34 @@ The basic `mount` and `fsck` dispatchers and FAT filesystem helpers now build
 from pinned Apple sources. The current QEMU `darwin` machine has no secondary
 block-device controller; a generic NVMe device is rejected before boot. Thus
 QEMU cannot yet check these tools against a separate disk.
+**Mounting (2026-10-26).** On the persistent VM (whose PCIe bridge gives the
+QEMU machine VirtIO disks) Disk Arbitration finds a second disk, probes it with
+the msdos bundle, checks it with fsck_msdos and mounts it at
+/Volumes/FINCHDISK. Three gaps were in the way:
+
+- `mount_msdos` loads its filesystem with `/sbin/kextload`, which asks
+  kernelmanagerd on macOS. Finch's own `kextload` (userland/kextload) sends the
+  kernel a `LoadFromKC` request for a kext already in the boot collection
+  (by bundle ID, or by its path, which the collection records), signed with
+  the boot-collection-only management entitlement; `kextload -l` lists the
+  collection.
+- macOS 26's msdos bundle lists FSKit's UserFS first. Disk Arbitration built
+  without FSKit refused the mount (ENOTSUP); Finch's patch
+  (userland/patches/DiskArbitration/0002) mounts through the kext then.
+- `/Volumes` is on the read-only system image; rc gives it a tmpfs, since mount
+  points don't outlive a boot.
+
+A console login now records its user in SystemConfiguration's dynamic store
+(State:/Users/ConsoleUser), as loginwindow does on macOS, through Finch's
+`pam_console` session module; logout clears it. Services that wait for someone
+at the console (Disk Arbitration for external disks) see the login.
+`tools/vm/test-disks.sh` makes a FAT disk on the host with a file, boots with
+it, and passes: mounted at startup, the console user recorded at login and
+cleared at logout, the host's file read and a user's file written, unmounted,
+and the host reads the user's file afterwards. External disks, which macOS
+mounts only once someone is at the console, can't be attached to this machine
+yet.
+
 Formatting and a read-only FAT32 consistency check pass in the VZ guest
 (2026-10-11). `tools/vz/test-fat-guest.sh` creates a new 64 MiB guest-local
 image, verifies the attached device belongs to that image, runs Finch's formatter

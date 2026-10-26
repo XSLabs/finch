@@ -7,6 +7,8 @@
 #    ones pam_modules installs.
 #  - pam_keychain.so.2, built after Security so console logins can unlock or
 #    create a user's encrypted login keychain without affecting authentication.
+#  - pam_console.so.2: a console login's user becomes the console user in
+#    SystemConfiguration's dynamic store, as loginwindow makes it on macOS.
 FINCH := $(abspath ../..)
 ROOT  ?= $(FINCH)/build/root
 CC    := xcrun -sdk macosx clang
@@ -16,6 +18,7 @@ ACCOUNT_LIB := $(ROOT)/usr/lib/system/libfinchaccount.dylib
 MOD   := $(ROOT)/usr/lib/pam/pam_unix.so.2
 KEYCHAIN_MOD := $(ROOT)/usr/lib/pam/pam_keychain.so.2
 KEYCHAIN_OBJ := $(FINCH)/build/obj/pam/pam_keychain.o
+CONSOLE_MOD := $(ROOT)/usr/lib/pam/pam_console.so.2
 CONFS := $(notdir $(wildcard pam.d/*))
 
 all: $(MOD) policy
@@ -25,7 +28,16 @@ all: $(MOD) policy
 policy: $(addprefix $(ROOT)/private/etc/pam.d/,$(CONFS))
 
 # Security is built after PAM. The login hook is built in a later stage.
-keychain: $(KEYCHAIN_MOD)
+keychain: $(KEYCHAIN_MOD) $(CONSOLE_MOD)
+
+$(CONSOLE_MOD): pam_console.c \
+		$(ROOT)/System/Library/Frameworks/SystemConfiguration.framework/SystemConfiguration
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -Wl,-F$(ROOT)/System/Library/Frameworks \
+	    -I$(FINCH)/build/src/OpenPAM/openpam/include -dynamiclib \
+	    -install_name /usr/lib/pam/pam_console.so.2 -o $@ pam_console.c \
+	    -L$(ROOT)/usr/lib -lpam -framework CoreFoundation -framework SystemConfiguration
+	codesign -f -s - -i org.openpam.pam_console $@
 
 # pam_unix.c is Finch's checked-in version of OpenPAM's BSD-licensed module.
 $(MOD): $(SRC) pam_keychain_data.h $(ACCOUNT_LIB) $(FINCH)/userland/account-tools/account_tools.h

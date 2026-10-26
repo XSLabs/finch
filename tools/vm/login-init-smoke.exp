@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Prove normal finch-init login accepts a disposable account and respawns login.
 # Use --relogin between command groups to check another login in the same boot.
-set timeout 300
+# Keychain tests run many 600,000-round PBKDF2 derivations; emulated, on a busy
+# host, one command can take minutes (as in persistence.exp).
+set timeout 900
 log_user 1
 set send_slow {8 0.03}
 set root [file normalize [file dirname [info script]]/../..]

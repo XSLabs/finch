@@ -22,7 +22,8 @@ first administrator account before login. Apps signed for the App Sandbox
 start in their containers under Finch's `application.sb` (`libsystem_secinit`).
 Finch's `authd` shares authorization
 rights and credentials between processes; administrators trust or distrust
-certificates with Finch's `security` command. `chpass`, `chsh` and `chfn` change
+certificates with Finch's `security` command. Disk Arbitration mounts a second
+disk at startup through its filesystem kext, which Finch's `kextload` starts. `chpass`, `chsh` and `chfn` change
 account details through Finch's OpenDirectory and its setuid account helper.
 A persistent development VM (`tools/vm/mkpersistent.sh`) keeps accounts,
 passwords, home folders and `/private/var/db` on a VirtIO data disk: `rc` mounts
@@ -304,7 +305,7 @@ block-beta
         osslibs["zlib, bzip2, libedit, libresolv,<br/>libiconv, ncurses (+ terminfo), OpenBSM,<br/>libxml2"]
         cmark["cmark-gfm 0.29.0.gfm.13<br/>(static, Foundation Markdown)"]
         pam["OpenPAM + pam_modules"]
-        pamunix["pam_unix, Finch pam.d<br/>libfinchaccount, accountctl"]
+        pamunix["pam_unix, pam_keychain,<br/>pam_console, Finch pam.d<br/>libfinchaccount, accountctl"]
         ess["libEndpointSecuritySystem"]
         mesa["Mesa 25.0.7<br/>(softpipe, OSMesa)<br/>for OpenGL"]
         tz["tzdata 2026c (IANA)"]
@@ -331,7 +332,7 @@ block-beta
         columns 4
         t2["Processes"]
         init["finch-init (PID 1)<br/>bootstrap server,<br/>system + user domains"]
-        logd["finch-logd, finch-pboardd<br/>(pasteboards), pbcopy and pbpaste,<br/>finch-update (signed,<br/>resumable updates, keeps<br/>system accounts),<br/>finch-data-volume (checks and<br/>mounts the data disk),<br/>finch-volume-setup (lays out<br/>the dev VM's disks),<br/>screencapture and its service,<br/>scutil, networksetup, security,<br/>finch-setup (a new system's<br/>first account),<br/>launchctl, sh, mount_tmpfs, devtools"]
+        logd["finch-logd, finch-pboardd<br/>(pasteboards), pbcopy and pbpaste,<br/>finch-update (signed,<br/>resumable updates, keeps<br/>system accounts),<br/>finch-data-volume (checks and<br/>mounts the data disk),<br/>finch-volume-setup (lays out<br/>the dev VM's disks),<br/>screencapture and its service,<br/>scutil, networksetup, security,<br/>kextload (starts kexts from<br/>the boot collection),<br/>finch-setup (a new system's<br/>first account),<br/>launchctl, sh, mount_tmpfs, devtools"]
         daemons["notifyd, syslogd, aslmanager,<br/>newsyslog, dynamic_pager, atrun,<br/>cron, mDNSPosix, configd,<br/>diskarbitrationd, authd"]
         space2[" "]
         cmds["file/shell/text/adv/system_cmds,<br/>bash, zsh, bc, su, login,<br/>mount, fsck, FAT helpers"]

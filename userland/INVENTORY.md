@@ -139,6 +139,9 @@ shell and finger information with their password; administrators and root
 anything chpass shows). zprint and zlog stay deferred: they're kernel debugging
 tools over CoreSymbolication's kernel symbolicator, not needed by the installer
 or desktop.
+Finch writes its own `/sbin/kextload` (userland/kextload): with no
+kernelmanagerd, it asks the kernel to start a kext already in the boot
+collection (`LoadFromKC`), which is what the filesystem helpers need.
 gcore works on processes it may read (in the VM, `finch-debuggee`); it relies on
 libdyld's introspection, which needed two dyld patches (`userland/patches/dyld`):
 falling back from the absent Dyld.framework, and the AA01 compact-info archive that

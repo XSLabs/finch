@@ -151,8 +151,8 @@ Finch 1.0 is still open. The checks below cover specific parts of the system.
   players and effect units pass focused host checks. Sound hardware and
   compressed audio codecs remain open.
 - Cron, one-time jobs, local Bonjour discovery and Disk Arbitration sessions pass
-  in QEMU. FAT32 formatting and checking pass on a disposable disk image in VZ;
-  real disk mounting under Finch remains open.
+  in QEMU. Disk Arbitration mounts a second (FAT) disk at startup under Finch's
+  kernel, through its kext (tools/vm/test-disks.sh, 2026-10-26).
 - Shared settings, user access rules and recovery after a service restart pass
   in QEMU. Manual loopback IPv4 and DNS settings also pass, including repeat
   apply. Failed requests try to remove newly added addresses; full undo, DHCP,
@@ -317,6 +317,9 @@ Apple's is closed. Developed in the emulated M4 first. The map is
               development check uses a temporary root-owned `at`; release
               ownership and persistent job storage remain open (2026-10-11).
         - [x] diskarbitrationd runs and accepts client sessions in QEMU (2026-10-11).
+        - [x] diskarbitrationd probes, checks and mounts a second disk at
+              /Volumes, through the msdos kext that Finch's kextload starts
+              from the boot collection (tools/vm/test-disks.sh, 2026-10-26).
         - [x] FAT32 formatting and a read-only filesystem check pass on a new
               guest-local image in VZ with Finch's tools (2026-10-11). This uses
               Apple's guest kernel and does not prove mounting under Finch.

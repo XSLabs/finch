@@ -9,3 +9,5 @@ session    required       pam_launchd.so
 # themselves are ignored by the module.
 session    required       pam_keychain.so
 session    required       pam_uwtmp.so
+# The console's user, for services that wait for someone at the console.
+session    optional       pam_console.so
