@@ -84,11 +84,22 @@ fi
 # an earlier patch checks neither forwards nor in reverse. The stamp records the
 # series last applied in full.
 series_stamp="${WORK}/xnu/.finch-patch-series"
-series=$(cat "${FINCH_ROOT}"/kernel/patches/*.patch | shasum -a 256 | cut -d' ' -f1)
-if [[ "$(cat "${series_stamp}" 2>/dev/null)" == "${series}" ]]; then
+patches=("${FINCH_ROOT}"/kernel/patches/*.patch)
+series=$(cat "${patches[@]}" | shasum -a 256 | cut -d' ' -f1)
+stamp=$(cat "${series_stamp}" 2>/dev/null || true)
+# A stamp for the first k patches (the series before new ones were added)
+# means only the rest need applying.
+first=0
+for ((k = ${#patches[@]} - 1; k > 0; k--)); do
+    if [[ "${stamp}" == "$(cat "${patches[@]:0:k}" | shasum -a 256 | cut -d' ' -f1)" ]]; then
+        first=${k}
+        break
+    fi
+done
+if [[ "${stamp}" == "${series}" ]]; then
     log "Finch's kernel patches are already applied"
 else
-    for p in "${FINCH_ROOT}"/kernel/patches/*.patch; do
+    for p in "${patches[@]:first}"; do
         if git -C "${WORK}/xnu" apply --check "$p" 2>/dev/null; then
             log "Applying $(basename "$p")"
             git -C "${WORK}/xnu" apply "$p"
@@ -100,6 +111,16 @@ else
     done
     echo "${series}" > "${series_stamp}"
 fi
+# Finch's own kernel sources, over what the patches start: the sandbox policy
+# and its profile evaluator (kernel/sandbox), shared with libsandbox.
+for f in finch_sandbox.c fsb_eval.c fsb_format.h fsb_ops.h; do
+    cmp -s "${FINCH_ROOT}/kernel/sandbox/${f}" "${WORK}/xnu/security/${f}" \
+        || cp "${FINCH_ROOT}/kernel/sandbox/${f}" "${WORK}/xnu/security/${f}"
+done
+cmp -s "${FINCH_ROOT}/kernel/include/finch_sandbox_abi.h" "${WORK}/xnu/security/finch_sandbox_abi.h" \
+    || cp "${FINCH_ROOT}/kernel/include/finch_sandbox_abi.h" "${WORK}/xnu/security/finch_sandbox_abi.h"
+cmp -s "${FINCH_ROOT}/kernel/sandbox/FinchSandboxIOKit.cpp" "${WORK}/xnu/iokit/Kernel/FinchSandboxIOKit.cpp" \
+    || cp "${FINCH_ROOT}/kernel/sandbox/FinchSandboxIOKit.cpp" "${WORK}/xnu/iokit/Kernel/FinchSandboxIOKit.cpp"
 
 # 2. Kernel. darwin-xnu-build skips the kernel if it exists, and make won't
 #    re-stamp the version banner unless version.[co] is gone.

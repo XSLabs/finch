@@ -232,12 +232,22 @@ check_in(struct domain *d, const char *name, pid_t pid, xpc_object_t reply, stru
 	return BOOTSTRAP_SUCCESS;
 }
 
+/* libsystem_sandbox: what the caller's sandbox decides (1 denied). */
+extern int sandbox_check_by_audit_token(audit_token_t token, const char *operation, int type, ...);
+#define SANDBOX_FILTER_GLOBAL_NAME 2
+
 static kern_return_t
-look_up(struct domain *d, const char *name, xpc_object_t reply)
+look_up(struct domain *d, const char *name, const audit_token_t *token, xpc_object_t reply)
 {
-	struct service *s = find(d, name);
+	struct service *s;
 	xpc_object_t send;
 
+	/* A sandboxed caller may look up only the services its profile allows
+	   (mach-lookup), whether or not they exist, as with launchd. */
+	if (sandbox_check_by_audit_token(*token, "mach-lookup", SANDBOX_FILTER_GLOBAL_NAME, name) > 0) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+	s = find(d, name);
 	if (s == NULL) {
 		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
@@ -295,7 +305,7 @@ handle(struct domain *d, xpc_object_t request)
 	} else if (routine == ROUTINE_CHECK_IN) {
 		kr = check_in(d, name, pid, reply, &checked_in);
 	} else if (routine == ROUTINE_LOOK_UP) {
-		kr = look_up(d, name, reply);
+		kr = look_up(d, name, &token, reply);
 	} else {
 		kr = BOOTSTRAP_NOT_PRIVILEGED;   /* routine not implemented */
 	}

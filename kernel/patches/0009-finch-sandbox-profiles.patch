@@ -1,0 +1,19 @@
+diff --git a/security/conf/files b/security/conf/files
+--- a/security/conf/files
++++ b/security/conf/files
+@@ -31,3 +31,4 @@
+ security/mac_kext.c					optional config_macf
+ security/mac_mach.c					optional config_macf
+ security/finch_sandbox.c				optional config_macf
++security/fsb_eval.c				optional config_macf
+diff --git a/iokit/conf/files b/iokit/conf/files
+--- a/iokit/conf/files
++++ b/iokit/conf/files
+@@ -94,6 +94,7 @@
+ iokit/Kernel/PassthruInterruptController.cpp		optional iokitcpp
+ 
+ iokit/Kernel/IOUserClient.cpp				optional iokitcpp
++iokit/Kernel/FinchSandboxIOKit.cpp			optional iokitcpp
+ 
+ iokit/Kernel/IOKitDebug.cpp				optional iokitcpp
+ iokit/Kernel/IODataQueue.cpp				optional iokitcpp

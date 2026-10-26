@@ -11,6 +11,7 @@
 int fake_sandbox_ms(const char *, int, void *);
 #define __sandbox_ms fake_sandbox_ms
 #include "../sandbox.c"
+#include "../finch.c"
 
 struct filter9_pair {
 	uint64_t first;
@@ -38,6 +39,11 @@ static void check(int condition, const char *message)
 int fake_sandbox_ms(const char *policy, int call, void *argument)
 {
 	struct check_request *request = argument;
+	/* As on a host without Finch's policy: the request goes to Apple's next. */
+	if (!strcmp(policy, "FinchSandbox")) {
+		errno = ENOPOLICY;
+		return -1;
+	}
 	check(!strcmp(policy, "Sandbox"), "policy name");
 	check(call == 2, "call number");
 	check(request->result != NULL, "result pointer");

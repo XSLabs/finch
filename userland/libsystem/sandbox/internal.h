@@ -30,4 +30,9 @@ int _simple_dprintf(int fd, const char *fmt, ...);
 
 void sandbox_warn(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
+/* finch.c: ask FinchSandbox. 0 allowed, 1 denied (or sandboxed, for a NULL
+   operation), -1 error, -2 the policy isn't registered. */
+int finch_sandbox_check(int64_t pid, uint32_t pidversion, const char *operation, uint32_t filter,
+    uint64_t arg, int no_report);
+
 #endif

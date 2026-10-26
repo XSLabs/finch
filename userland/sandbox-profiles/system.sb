@@ -1,0 +1,95 @@
+;;; SPDX-License-Identifier: MIT OR Apache-2.0
+;;;
+;;; Finch's system.sb: what every sandboxed Finch process may do, imported by
+;;; service profiles such as notifyd's (com.apple.notifyd.sb) after their own
+;;; (deny default). It names the same operations macOS's file of this name
+;;; does, written for Finch's own services and file layout.
+
+(version 1)
+
+;;; The loader and the system's libraries and frameworks: read, and map
+;;; executable code from them.
+(allow file-read* file-map-executable
+       (literal "/usr/lib/dyld")
+       (subpath "/usr/lib")
+       (subpath "/System/Library/Frameworks")
+       (subpath "/System/Library/PrivateFrameworks")
+       (subpath "/System/Library/dyld")
+       (subpath "/System/iOSSupport/System/Library"))
+(allow file-read*
+       (subpath "/System/Library")
+       (subpath "/usr/share")
+       (subpath "/private/var/db/timezone")
+       (subpath "/private/var/db/dyld")
+       (literal "/private/etc/localtime")
+       (literal "/private/etc/passwd")
+       (literal "/private/etc/group")
+       (literal "/private/etc/hosts")
+       (literal "/private/etc/services")
+       (literal "/private/etc/protocols")
+       (literal "/private/var/run/resolv.conf")
+       (literal "/Library/Preferences/.GlobalPreferences.plist"))
+
+;;; The folders above those, for lookups and stat.
+(allow file-read-metadata
+       (literal "/")
+       (literal "/System")
+       (literal "/System/Library")
+       (literal "/usr")
+       (literal "/private")
+       (literal "/private/etc")
+       (literal "/private/var")
+       (literal "/private/var/db")
+       (literal "/private/var/run")
+       (literal "/Library")
+       (literal "/Library/Preferences")
+       (literal "/etc")
+       (literal "/var")
+       (literal "/tmp"))
+
+;;; Standard devices.
+(allow file-read* file-write-data
+       (literal "/dev/null")
+       (literal "/dev/zero")
+       (literal "/dev/dtracehelper"))
+(allow file-read*
+       (literal "/dev/random")
+       (literal "/dev/urandom"))
+(allow file-read* file-write-data file-ioctl
+       (literal "/dev/tty"))
+
+;;; Its own process.
+(allow process-info* (target self))
+(allow signal (target self))
+(allow sysctl-read)
+
+;;; Per-process service names.
+(allow mach-register (local-name-prefix ""))
+
+;;; The core system services.
+(allow mach-lookup
+       (global-name "com.apple.system.notification_center")
+       (global-name "com.apple.system.logger")
+       (global-name "com.apple.logd")
+       (global-name "com.apple.logd.events")
+       (global-name "com.apple.diagnosticd")
+       (global-name "com.apple.system.opendirectoryd.libinfo")
+       (global-name "com.apple.system.opendirectoryd.membership")
+       (global-name "com.apple.system.DirectoryService.libinfo_v1")
+       (global-name "com.apple.SystemConfiguration.configd")
+       (global-name "com.apple.cfprefsd.daemon")
+       (global-name "com.apple.cfprefsd.agent")
+       (global-name "com.apple.bsd.dirhelper")
+       (global-name "com.apple.securityd.xpc")
+       (global-name "com.apple.SecurityServer"))
+
+;;; Notifications: the shared memory notifyd keeps its state in, and posting.
+(allow ipc-posix-shm-read-data
+       (ipc-posix-name "apple.shm.notification_center"))
+(allow darwin-notification-post)
+
+;;; A process compiled on its own (not imported) may also use the bootstrap
+;;; server freely and make any system call, as macOS's file allows.
+(unless *import-path*
+  (allow mach-bootstrap)
+  (allow syscall*))

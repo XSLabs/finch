@@ -9,18 +9,13 @@ These diagrams are updated in every commit that changes the stack, and
 disk; persistent installation, boot recovery and supported-device checks remain
 open. [The release checks](ROADMAP.md#finch-10-release-checks) separate those
 requirements from library comparisons and app import counts.
-The fresh VM also exposes a sandbox compiler gap: notifyd cannot start with
-Finch's incomplete replacement. Development images can explicitly retain the
-base compiler; that borrowed component must still be replaced for 1.0.
 
-**As of 2026-10-25:** A small `FinchSandbox` kernel policy can deny file reads or
-writes. Its QEMU test covers already-open files, new opens, new file mappings, child processes,
-program changes, and attempts to clear the restriction. Asynchronous requests
-submitted after applying it are denied with both tested worker modes. It has no profile
-compiler and is not a complete app sandbox (`docs/design/SECURITY.md`).
-Its versioned request interface also passes guest checks for invalid requests,
-stale process identities, query permissions, and restriction inheritance.
-The notification-service profile remains unavailable and fails explicitly.
+**As of 2026-10-25:** Finch's sandbox is its own: `libsandbox.1` compiles macOS's
+profile language (SBPL) and the `FinchSandbox` kernel policy enforces the compiled
+profiles at file, process, sysctl, IPC, socket, IOKit and system-call hooks.
+notifyd starts under its profile with no borrowed sandbox component. Extensions,
+app containers, Mach-trap filtering and network address filters remain open
+(`docs/design/SECURITY.md`, "The sandbox").
 A persistent development VM (`tools/vm/mkpersistent.sh`) keeps accounts,
 passwords, home folders and `/private/var/db` on a VirtIO data disk: `rc` mounts
 it through `finch-data-volume` before services start, and a missing disk stops
@@ -296,7 +291,7 @@ block-beta
         t4["Libraries"]
         comp["libcompression<br/>LZFSE, LZ4, Brotli, zlib, LZMA"]
         codecs["lzfse, lz4, brotli,<br/>liblzma, libxo, libsbuf"]
-        libsandbox["libsandbox.1.dylib<br/>unsandboxed answers,<br/>process-local extension tokens;<br/>profile install unavailable"]
+        libsandbox["libsandbox.1.dylib<br/>SBPL compiler (Finch's),<br/>process-local extension tokens"]
         osslibs["zlib, bzip2, libedit, libresolv,<br/>libiconv, ncurses (+ terminfo), OpenBSM,<br/>libxml2"]
         cmark["cmark-gfm 0.29.0.gfm.13<br/>(static, Foundation Markdown)"]
         pam["OpenPAM + pam_modules"]
@@ -339,7 +334,7 @@ block-beta
         t1["Kernel"]
         xnu["XNU xnu-12377.101.15<br/>+ Finch patches"]
         kexts["Platform drivers<br/>(Finch's later; the VM borrows<br/>Apple's virtual PCIe bridge)"]
-        finchsandbox["FinchSandbox<br/>file read/write restrictions;<br/>small kernel proof, no profile compiler"]
+        finchsandbox["FinchSandbox<br/>enforces compiled profiles:<br/>files, processes, IPC,<br/>sockets, IOKit, syscalls"]
     end
     block:L0
         columns 4

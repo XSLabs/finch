@@ -3,12 +3,11 @@
 Strategy: **ship of Theseus.** Get a complete, booting system as early as possible, then
 replace Apple's proprietary parts one by one, using the originals as the reference for
 correct behavior. Every phase ends with something that boots. Libraries and frameworks
-are built from Apple's open source or written by Finch. The earlier claim that nothing
-closed remained above the kernel was too broad: on 2026-10-17 a fresh VM build exposed
-its dependence on the base image's sandbox compiler. Finch's replacement does not yet
-compile or apply profiles, so notifyd fails to start. An explicit development option
-can retain the base compiler while that work remains open. Apple's kexts (and, in the
-Tier 2 VM, its kernel) also stay borrowed until Phase 3 replaces them.
+are built from Apple's open source or written by Finch. On 2026-10-17 a fresh VM build
+showed the base image's sandbox compiler was still in use; since 2026-10-25 Finch
+compiles and enforces sandbox profiles itself (its SBPL compiler and the FinchSandbox
+kernel policy) and notifyd starts under its profile with nothing borrowed. Apple's
+kexts (and, in the Tier 2 VM, its kernel) stay borrowed until Phase 3 replaces them.
 
 **How this list is kept:** an item is checked when the scope it states is done and
 tested. Follow-on work gets its own unchecked item rather than a "Next:" appended to a
@@ -64,14 +63,18 @@ image or an installed system.
 The new development VM image also passes account creation and password checks
 through PAM and OpenDirectory. CoreData writes a SQLite store, opens it in a
 second process, and returns the same records as Apple's run. These checks use
-the explicitly borrowed sandbox compiler described above. The VM runner marks
-the sandbox test as unverified in this mode; it cannot be counted as a Finch pass.
+the borrowed sandbox compiler, which the VM image no longer needs (2026-10-25,
+below).
 
 On 2026-10-18, service startup failure and retry checks also pass in Finch,
 including a failed check-in reply. A small kernel policy now denies file reads
-or writes across new opens, already-open files and child processes. This is an
-enforcement proof, not a profile compiler or a complete app sandbox; its limits
-are recorded in [the security notes](design/SECURITY.md).
+or writes across new opens, already-open files and child processes. Since
+2026-10-25 it enforces compiled sandbox profiles: Finch compiles macOS's profile
+language and FinchSandbox decides file, process, sysctl, IPC, socket, IOKit and
+system-call operations by them. It matches macOS's compiler on 567 of the build
+Mac's 569 profiles and never allows what macOS denies across 62,082 compared
+decisions (three path-naming differences aside); its unenforced parts are in
+[the security notes](design/SECURITY.md#the-sandbox-2026-10-25).
 The versioned kernel interface also passes guest checks for malformed requests,
 stale process identities, permission to query another process, and inheritance
 across fork and exec. It explicitly rejects the unfinished notification-service
@@ -255,8 +258,8 @@ Apple's is closed. Developed in the emulated M4 first. The map is
           pam_launchd by `login` and `su -l`, or `launchctl asuser`; 2026-10-08)
     - [ ] Run Apple's open-source daemons under it (notifyd, syslogd, configd, ...)
       - [x] notifyd; syslogd (checks in with `launch_msg`, which Finch's libxpc
-            answers from finch-init's job; 2026-10-07). Notifyd's current VM
-            runs still require the explicitly borrowed sandbox compiler.
+            answers from finch-init's job; 2026-10-07). Notifyd starts under its
+            profile with Finch's sandbox compiler (2026-10-25).
       - [x] finch-logd and `log show`/`log stream`: os_log over libdispatch's open-source
             firehose server (`docs/design/LOGD.md`, 2026-10-08)
       - [x] aslmanager (on demand), newsyslog, dynamic_pager (2026-10-08)
@@ -318,14 +321,15 @@ Apple's is closed. Developed in the emulated M4 first. The map is
         trial, secinit, sanitizers, libRosetta: Finch's own (`userland/libsystem`)
   - [ ] Finish the strict Phase 1 exit: `docs/design/PHASE1-EXIT.md`.
         The earlier 94/94 linked-image check missed the sandbox compiler loaded
-        at runtime. Replace the borrowed compiler and prove notifyd startup.
+        at runtime. Replaced, and notifyd's startup proven without it
+        (2026-10-25); the rest of the exit list stays open.
 - [x] **1.5 dyld from source.** dyld-1376.6 boots the VM (`tools/build-system.sh`)
 - [ ] Finch root image on its own APFS volume (bare-metal Tier 3)
 
 **Exit:** the VM boots to a shell with no closed-source Apple binaries above the kernel.
 **Still open** (`docs/design/PHASE1-EXIT.md`): the 2026-10-07 claim was withdrawn
-after the fresh-image sandbox failure. The unchecked items above continue
-alongside Phase 2.
+after the fresh-image sandbox failure; the sandbox compiler is Finch's since
+2026-10-25. The unchecked items above continue alongside Phase 2.
 
 ## Phase 2: Open graphics stack and first app
 Nothing closed is borrowed (2026-10-08). Unmodified Mac apps need Foundation,

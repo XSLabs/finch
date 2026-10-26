@@ -196,6 +196,16 @@ static int check_common(struct check_request *req, uint32_t type, va_list ap)
 		errno = EINVAL;
 		return -1;
 	}
+	/* Finch's policy answers for profiles Finch's libsandbox applied. Unique-id
+	   and reference checks, and hosts without it, go to Apple's as before. */
+	if (!(req->flags & 0x80000000u)) {
+		uint32_t pidversion = (req->flags & CHECK_BY_AUDIT_TOKEN) ? (uint32_t)req->target : 0;
+		uint64_t finch_arg = filter == 9 ? pair.a : req->filter_arg;
+		int f = finch_sandbox_check(req->pid, pidversion, req->operation, filter, finch_arg,
+		    (req->flags & CHECK_FLAG_NO_REPORT) != 0);
+		if (f != -2)
+			return f;
+	}
 	if (__sandbox_ms("Sandbox", 2, req) != 0)
 		return -1;
 	return result != 0;

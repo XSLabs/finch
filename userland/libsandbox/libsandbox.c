@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 #include <sandbox.h>
 #include <errno.h>
+
+#include "sbpl.h"
+#include "finch_sandbox_abi.h"
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -12,6 +15,11 @@
 #include <unistd.h>
 
 const char SANDBOX_BUILD_ID[] = "Finch sandbox ABI 1";
+
+/* libsystem_kernel */
+int __mac_syscall(const char *policy, int call, void *arg);
+
+static void set_error(char **errorbuf, const char *message);
 
 typedef struct extension_token {
     char *token;
@@ -33,9 +41,10 @@ typedef struct sandbox_parameters {
     size_t capacity;
 } *sandbox_params_t;
 
+/* A compiled profile: FSB1 bytes (kernel/sandbox/fsb_format.h). */
 typedef struct sandbox_profile {
     char *builtin;
-    unsigned char *data;
+    void *data;
     size_t size;
 } *sandbox_profile_t;
 
@@ -222,40 +231,6 @@ int sandbox_extension_release_process(pid_t pid, int handle)
     return sandbox_extension_release(handle);
 }
 
-int sandbox_init(const char *profile, uint64_t flags, char **errorbuf)
-{
-    (void)profile;
-    (void)flags;
-    if (errorbuf) *errorbuf = strdup("Finch does not install application sandbox profiles");
-    errno = ENOTSUP;
-    return -1;
-}
-
-int sandbox_init_with_parameters(const char *profile, uint64_t flags,
-    const char *const parameters[], char **errorbuf)
-{
-    (void)parameters;
-    return sandbox_init(profile, flags, errorbuf);
-}
-
-int sandbox_init_with_extensions(const char *profile, uint64_t flags,
-    const char *const extensions[], size_t extension_count, char **errorbuf)
-{
-    (void)extensions;
-    (void)extension_count;
-    return sandbox_init(profile, flags, errorbuf);
-}
-
-int sandbox_init_with_parameters_and_extensions(const char *profile, uint64_t flags,
-    const char *const parameters[], const char *const extensions[],
-    size_t extension_count, char **errorbuf)
-{
-    (void)parameters;
-    (void)extensions;
-    (void)extension_count;
-    return sandbox_init(profile, flags, errorbuf);
-}
-
 void sandbox_free_error(char *errorbuf)
 {
     free(errorbuf);
@@ -329,27 +304,153 @@ void sandbox_free_params(sandbox_params_t params)
     free(params);
 }
 
-static sandbox_profile_t sandbox_profile_unavailable(char **errorbuf)
+/* Where named profiles and imports are found, as on macOS. */
+static const char *const profile_folders[] = {
+    "/System/Library/Sandbox/Profiles", "/usr/share/sandbox",
+};
+
+/*
+ * The built-in named profiles sandbox_init(..., SANDBOX_NAMED, ...) takes
+ * (kSBXProfile* in sandbox.h), written for Finch.
+ */
+static const struct { const char *name; const char *source; } builtin_profiles[] = {
+    { "no-internet",
+      "(version 1)(allow default)(deny network-outbound (remote ip))(deny network-inbound (local ip))" },
+    { "no-network",
+      "(version 1)(allow default)(deny network*)" },
+    { "no-write",
+      "(version 1)(allow default)(deny file-write*)" },
+    { "no-write-except-temporary",
+      "(version 1)(allow default)(deny file-write*)"
+      "(allow file-write* (subpath \"/private/tmp\") (subpath \"/private/var/tmp\")"
+      " (subpath \"/private/var/folders\"))" },
+    { "pure-computation",
+      "(version 1)(deny default)(allow process-exec* (literal \"/usr/lib/dyld\"))"
+      "(allow file-read* (subpath \"/usr/lib\") (subpath \"/System/Library\"))"
+      "(allow sysctl-read)" },
+};
+
+static void set_error(char **errorbuf, const char *message)
 {
-    if (errorbuf) *errorbuf = strdup("Finch does not include a sandbox profile compiler");
-    errno = ENOTSUP;
-    return NULL;
+    if (errorbuf) *errorbuf = message ? strdup(message) : NULL;
+}
+
+/* The compiler's view of sandbox_set_param's pairs. */
+static struct sbpl_param *compile_params(sandbox_params_t params, size_t *count)
+{
+    *count = params ? params->count / 2 : 0;
+    struct sbpl_param *list = calloc(*count ? *count : 1, sizeof(*list));
+    if (!list) return NULL;
+    for (size_t i = 0; i < *count; i++) {
+        list[i].name = params->values[2 * i];
+        list[i].value = params->values[2 * i + 1];
+    }
+    return list;
+}
+
+static sandbox_profile_t wrap(void *compiled, size_t size)
+{
+    sandbox_profile_t profile = calloc(1, sizeof(*profile));
+    if (!profile) {
+        free(compiled);
+        errno = ENOMEM;
+        return NULL;
+    }
+    profile->data = compiled;
+    profile->size = size;
+    return profile;
+}
+
+/* kind 0: source text; 1: a file path; 2: a name (built in or in profile_folders). */
+static sandbox_profile_t compile(int kind, const char *what, sandbox_params_t params,
+    char **errorbuf)
+{
+    if (errorbuf) *errorbuf = NULL;
+    if (!what) {
+        set_error(errorbuf, "no profile");
+        errno = EINVAL;
+        return NULL;
+    }
+    size_t nparams;
+    struct sbpl_param *list = compile_params(params, &nparams);
+    if (!list) {
+        set_error(errorbuf, "out of memory");
+        errno = ENOMEM;
+        return NULL;
+    }
+    struct sbpl_options options = {
+        .params = list, .param_count = nparams,
+        .search_paths = profile_folders,
+        .search_path_count = sizeof(profile_folders) / sizeof(profile_folders[0]),
+    };
+    void *compiled = NULL;
+    size_t size = 0;
+    char *error = NULL;
+    int r;
+    if (kind == 2) {
+        r = 1;
+        for (size_t i = 0; i < sizeof(builtin_profiles) / sizeof(builtin_profiles[0]); i++) {
+            if (!strcmp(builtin_profiles[i].name, what)) {
+                r = sbpl_compile_string(builtin_profiles[i].source,
+                    strlen(builtin_profiles[i].source), what, &options, &compiled, &size, &error);
+                break;
+            }
+        }
+        if (r == 1) {
+            if (strchr(what, '/')) {
+                r = -1;
+                error = strdup("a profile name has no '/'");
+            } else {
+                r = sbpl_compile_file(what, &options, &compiled, &size, &error);
+            }
+        }
+    } else if (kind == 1) {
+        r = sbpl_compile_file(what, &options, &compiled, &size, &error);
+    } else {
+        r = sbpl_compile_string(what, strlen(what), NULL, &options, &compiled, &size, &error);
+    }
+    free(list);
+    if (r != 0) {
+        if (errorbuf) *errorbuf = error ? error : strdup("compile failed");
+        else free(error);
+        errno = EINVAL;
+        return NULL;
+    }
+    return wrap(compiled, size);
 }
 
 sandbox_profile_t sandbox_compile_string(const char *profile, sandbox_params_t params,
     char **errorbuf)
 {
-    (void)profile;
-    (void)params;
-    return sandbox_profile_unavailable(errorbuf);
+    return compile(0, profile, params, errorbuf);
 }
 
 sandbox_profile_t sandbox_compile_file(const char *path, sandbox_params_t params,
     char **errorbuf)
 {
-    (void)path;
-    (void)params;
-    return sandbox_profile_unavailable(errorbuf);
+    return compile(1, path, params, errorbuf);
+}
+
+sandbox_profile_t sandbox_compile_named(const char *name, sandbox_params_t params,
+    char **errorbuf)
+{
+    return compile(2, name, params, errorbuf);
+}
+
+/* Give the calling process the compiled profile (FinchSandbox, call 0x102). */
+int sandbox_apply(sandbox_profile_t profile)
+{
+    if (!profile || !profile->data || !profile->size) {
+        errno = EINVAL;
+        return -1;
+    }
+    struct finch_sandbox_profile_request request = {
+        .version = FINCH_SANDBOX_ABI_VERSION,
+        .size = sizeof(request),
+        .profile = (uint64_t)(uintptr_t)profile->data,
+        .profile_size = profile->size,
+    };
+    return __mac_syscall(FINCH_SANDBOX_POLICY, FINCH_SANDBOX_CALL_APPLY_PROFILE, &request) == 0 ? 0 : -1;
 }
 
 void sandbox_free_profile(sandbox_profile_t profile)
@@ -358,4 +459,54 @@ void sandbox_free_profile(sandbox_profile_t profile)
     free(profile->builtin);
     free(profile->data);
     free(profile);
+}
+
+int sandbox_init_with_parameters(const char *profile, uint64_t flags,
+    const char *const parameters[], char **errorbuf)
+{
+    sandbox_params_t params = NULL;
+    if (parameters && parameters[0]) {
+        params = sandbox_create_params();
+        if (!params) {
+            set_error(errorbuf, "out of memory");
+            return -1;
+        }
+        for (const char *const *p = parameters; p[0] && p[1]; p += 2) {
+            if (sandbox_set_param(params, p[0], p[1]) != 0) {
+                sandbox_free_params(params);
+                set_error(errorbuf, strerror(errno));
+                return -1;
+            }
+        }
+    }
+    sandbox_profile_t compiled = (flags & SANDBOX_NAMED) ? sandbox_compile_named(profile, params, errorbuf) :
+        sandbox_compile_string(profile, params, errorbuf);
+    sandbox_free_params(params);
+    if (!compiled) return -1;
+    int r = sandbox_apply(compiled);
+    if (r != 0) set_error(errorbuf, strerror(errno));
+    sandbox_free_profile(compiled);
+    return r;
+}
+
+int sandbox_init(const char *profile, uint64_t flags, char **errorbuf)
+{
+    return sandbox_init_with_parameters(profile, flags, NULL, errorbuf);
+}
+
+int sandbox_init_with_extensions(const char *profile, uint64_t flags,
+    const char *const extensions[], size_t extension_count, char **errorbuf)
+{
+    (void)extensions;
+    (void)extension_count;
+    return sandbox_init(profile, flags, errorbuf);
+}
+
+int sandbox_init_with_parameters_and_extensions(const char *profile, uint64_t flags,
+    const char *const parameters[], const char *const extensions[],
+    size_t extension_count, char **errorbuf)
+{
+    (void)extensions;
+    (void)extension_count;
+    return sandbox_init_with_parameters(profile, flags, parameters, errorbuf);
 }

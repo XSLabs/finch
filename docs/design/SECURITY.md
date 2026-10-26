@@ -63,48 +63,93 @@ resources and CMS signatures. Requirement parsing and trust serialization also
 exist. These checks do not establish an Apple signing identity or enforce an
 app sandbox. Hardware keys and the assessment service remain unavailable.
 
-The new `0007-finch-sandbox-vnode-enforcement-proof.patch` is a small kernel
-experiment, not a complete app sandbox. Its separate `FinchSandbox` policy can
-deny file reads or file writes for the calling process. It has no profile parser
-and does not accept Apple's sandbox profiles. The guest-only
-`finch-sandbox-enforcement-proof-test` checks open files, new opens, child
-processes, and attempts to clear or replace the restriction. The kernel builds
-and boots in QEMU, and these checks pass (2026-10-18). Read and write checks use
-the current process's restriction, including when the file was opened before
-the restriction was applied. The interaction with the borrowed Sandbox
-policy also remains unverified. These changes do not close the 1.0 sandbox gap.
-New file-backed memory mappings are also checked (2026-10-18). Deny-read blocks
-all such mappings, including ones initially requested with no access. Deny-write
-blocks writable mappings and prevents a read-only mapping from gaining write
-access later. These guest checks pass with Finch's rebuilt kernel. Writable
-private mappings are also denied, even though they would not write back to the file.
-Existing mappings, POSIX shared memory and passing an open file to an unrestricted
-process remain outside this proof. Asynchronous reads and writes submitted after
-applying a restriction now pass denial checks in both the default worker mode
-and `aio_new_workq=0` (2026-10-18). The hooks check both the current process and
-the request's saved caller credential, so an older kernel worker cannot miss the
-restriction. Tests require access denied, zero transferred bytes, and unchanged
-read buffers and file contents. Requests queued before the restriction are not
-guaranteed to be blocked; applying it also does not cancel I/O already past its
-access check.
+## The sandbox (2026-10-25)
 
-The versioned request interface in `kernel/include/finch_sandbox_abi.h` uses
-separate apply and query calls. It supports only the two file restrictions above.
-Queries name a process by PID and its kernel version number, then read that
-process's current credential. The answer is a snapshot and may become stale
-before it reaches the caller; file operations still pass through kernel checks.
-Ordinary callers may query themselves; root may query another process.
-The reserved notifyd profile fails with `ENOTSUP` and
-does not change the caller. The guest request tests pass with the rebuilt
-kernel (2026-10-18), including malformed requests, failed result writes,
-stale identities, cross-process query permissions, and inheritance across
-fork and exec. This interface does not compile Apple's profile language or
-answer its general sandbox queries.
+Finch has its own sandbox, end to end, in place of macOS's closed one:
+
+- **The profile language.** `userland/libsandbox/sbpl.c` compiles SBPL, the
+  Scheme dialect macOS's profiles are written in (`define`, `lambda`, `let*`,
+  `letrec`, quasiquote, TinyScheme `macro`, imports, parameters), to Finch's
+  FSB1 format (`kernel/sandbox/fsb_format.h`). Rule semantics follow macOS's,
+  checked on the host: within one operation the last matching rule decides; an
+  operation's own rules come before its group's (`file-read-data`, then
+  `file-read*`, then `file*`, then `default`); with no match the answer is
+  deny. Paths are compared resolved; `subpath` respects path components,
+  `prefix` does not; regexes (POSIX extended, compiled for a Pike-VM matcher
+  with no backtracking) search the whole path. `(version 2)` and later profiles
+  also filter Unix system calls by number. The operation names are macOS 26.4's
+  (`tools/sandbox/ops.txt`, from the KDK's Sandbox.kext table) plus the older
+  names its compiler still takes; constants such as `SYS_open` or `AF_UNIX`
+  come from the SDK and XNU (`tools/sandbox/gen-consts.py`).
+- **The kernel policy.** `kernel/sandbox/finch_sandbox.c` (FinchSandbox, built
+  into XNU from Finch's tree) takes a compiled profile once per process,
+  validates it (every offset, index and regex program; filters can't loop), and
+  keeps it on the credential through fork and exec. It decides at the MAC hooks
+  for file open, read of directories, create, unlink, rename, link, stat,
+  attribute, mode, owner, time, flag and extended-attribute changes, ioctl,
+  chroot, exec and executable mappings; fork, signals and process information;
+  sysctls; POSIX shared memory and semaphores; socket creation, connect, bind
+  and listen; IOKit user clients and services; privileges, reboot, setting the
+  time and JIT memory; and (version 2) Unix system calls, through XNU's
+  per-process system-call bitmap. Denials are EPERM and logged as macOS logs
+  them (`Sandbox: cat(135) deny(1) file-read-data /private/tmp/...`), at most 32
+  a second. The first proof's fixed deny-read and deny-write restrictions
+  (calls 1, 2 and 0x100) still work beside it.
+- **Userland.** `libsandbox.1`'s `sandbox_compile_string`, `_file` and
+  `_named` (with Finch-written built-in profiles for `no-internet`,
+  `no-network`, `no-write`, `no-write-except-temporary` and
+  `pure-computation`) and `sandbox_apply`; `libsystem_sandbox`'s
+  `sandbox_init` family drives them as macOS's does. `sandbox_check` and its
+  relatives ask FinchSandbox (call 0x103), and fall back to Apple's policy
+  only where FinchSandbox isn't registered, which keeps the host comparison
+  tests meaningful. finch-init's bootstrap server refuses a lookup the caller's
+  profile denies (`mach-lookup`, BOOTSTRAP_NOT_PRIVILEGED).
+- **Profiles.** Finch ships its own `system.sb` (`userland/sandbox-profiles`),
+  which notifyd's open-source profile imports. notifyd now starts under its
+  profile with no borrowed component: the VM image no longer needs the base
+  image's `libsandbox.1.dylib`.
+
+**Checks.**
+
+- Host: the regex engine agrees with POSIX `regexec` on all 1,364
+  pattern/subject pairs (`make -C userland/libsandbox test`). Across the 569
+  profiles on the build Mac, Finch's compiler accepts and refuses the same
+  ones as macOS's, except two font profiles where macOS refuses a construct it
+  accepts elsewhere. Of 62,082 decisions (each profile applied by macOS's
+  sandbox in a child, and asked of Finch's evaluator: file reads, stats,
+  writes, creates, sysctls, Mach lookups, shared memory), none has Finch allow
+  what macOS denies beyond three paths macOS names differently from `realpath`
+  and its platform rule for raw disks; 242 have Finch deny what macOS allows,
+  all from approximated filters (`make -C userland/libsandbox compare`).
+- Guest: `sandbox-profile-test` (34 checks: literal, regex and subpath file
+  rules, create, unlink and rename, inheritance through fork and exec,
+  `sandbox_check`, sysctls, signals to other processes, shared memory, a
+  bootstrap lookup refused with 1100, deny-default, version-2 system-call
+  filtering and version 1 leaving it off, a second `sandbox_init` refused), and
+  the notifyd, request and enforcement tests, pass on the new kernel with
+  Finch's compiler (2026-10-25).
+
+**Not enforced yet, and how each is compiled.** A filter Finch can't evaluate
+is compiled so it never widens access: it matches in a deny rule and fails in
+an allow rule (`sbplc -w` lists each). That covers sandbox extensions
+(`extension`, issued and consumed through the kernel on macOS; Finch's are
+still process-local), app containers, `require-entitlement` at run time,
+mount-relative paths, `syscall-group-*` sets, private ioctl/fsctl and MIG
+constants, `iokit-connection` and IOKit message filters. Mach-trap and kernel
+MIG filtering (`syscall-mach`, `syscall-mig`) is unenforced: XNU takes one
+set of callbacks for them, which the borrowed Sandbox.kext registers. Network
+filters on remote and local addresses are compiled as unknown for now; the
+kernel already passes `host:port` for IP sockets. Operations with no hook
+here (notably `file-read-xattr` listing on some paths, `nvram*`, `system-fsctl`,
+Mach task operations, Apple events, preferences, which the services
+themselves must ask about) are decided only where a service asks
+`sandbox_check`. Apple's Sandbox.kext is still linked into the kernel
+collection; nothing Finch runs applies a profile to it.
 
 ### Notification service work still required
 
-Notifyd currently runs as root with the development image's borrowed sandbox
-compiler. Replacing it requires more than accepting its profile name:
+Notifyd now runs as root under its own profile, compiled by Finch. Running it
+confined as macOS does needs more:
 
 - Start the service as a dedicated non-root user. Check shared memory,
   bootstrap check-in, logging, and client access under that identity.

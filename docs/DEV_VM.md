@@ -5,28 +5,15 @@
 `firmware/` directory holds Apple binaries extracted from an IPSW. They live only in the
 submodule's working tree and are never committed.
 
-## Sandbox compiler needed for startup
+## Sandbox compiler
 
-The fresh 2026-10-17 image cannot start notifyd with Finch's current
-`libsandbox.1.dylib`: the library does not compile or apply named sandbox
-profiles. The older VM had inherited the compiler from its base image. To
-retain that compiler explicitly while testing other parts of Finch, build with:
-
-```sh
-FINCH_VM_BASE_SANDBOX=1 tools/vm/with-vm-lock.sh tools/vm/mkramdisk.sh
-```
-
-This option borrows the base image's library, reports its hash in the build
-log, and records the choice in
-`/usr/share/finch/development-borrowed-components.txt` inside the image. It does
-not change `build/root` or the install archive. It is a development aid, not a
-release fix. Finch still needs its own compiler and tests showing that the
-kernel enforces the resulting restrictions. Without the option, the builder
-uses Finch's library and the startup blocker remains visible.
-
-The VM test runner reads that marker from the running guest. It reports the
-borrowed library and marks `libsandbox-test` as unverified even if the program
-exits successfully. A known-failure entry cannot turn that result into a pass.
+Since 2026-10-25 the image starts notifyd with Finch's own sandbox compiler
+(`userland/libsandbox`) and kernel policy (FinchSandbox), so no option is
+needed (`docs/design/SECURITY.md`, "The sandbox"). `FINCH_VM_BASE_SANDBOX=1
+tools/vm/mkramdisk.sh` still builds an image with the base image's
+`libsandbox.1.dylib`, for comparing the two; it records the choice in
+`/usr/share/finch/development-borrowed-components.txt`, and the VM test runner
+then marks `libsandbox-test` as unverified.
 
 ## Target
 | | |

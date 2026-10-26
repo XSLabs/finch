@@ -76,6 +76,7 @@ EXIT_CHECKS = {
     'font-replacements-test', 'log-test', 'introspect-test', 'mdnsd-test',
     'diskarbitration-session-test',
     'sandbox-enforcement-proof-test',
+    'sandbox-profile-test',
     'sandbox-request-test', 'notify-access-test', 'notify-path-access-test',
     'notify-restart-test',
     'notify-path-lifecycle-test',

@@ -19,7 +19,7 @@ all: $(OUT)/finch-coreservices-identity-test
 all: $(OUT)/finch-media-player-test $(OUT)/finch-media-accessibility-test
 all: $(OUT)/finch-corebluetooth-test $(OUT)/finch-corebluetooth-unsupported-test
 all: $(OUT)/finch-libsandbox-test
-all: $(OUT)/finch-sandbox-enforcement-proof-test
+all: $(OUT)/finch-sandbox-enforcement-proof-test $(OUT)/finch-sandbox-profile-test
 all: $(OUT)/finch-notify-access-test $(OUT)/finch-sandbox-request-test
 all: $(OUT)/finch-notify-path-access-test
 all: $(OUT)/finch-notify-restart-test
@@ -170,6 +170,11 @@ $(OUT)/finch-bootstrap-failure-test: FORCE
 FORCE:
 
 $(OUT)/finch-sandbox-enforcement-proof-test: sandbox-enforcement-proof-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -idirafter ../../build/sdk/include -o $@ $<
+
+# Guest-only: Finch's compiled profiles end to end (libsandbox, FinchSandbox).
+$(OUT)/finch-sandbox-profile-test: sandbox-profile-test.c
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -idirafter ../../build/sdk/include -o $@ $<
 
