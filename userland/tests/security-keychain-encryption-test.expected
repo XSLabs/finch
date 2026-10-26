@@ -65,11 +65,18 @@ restore intact encrypted fixture: pass
 read after restoring encrypted file: pass
 restored encrypted secret matches: pass
 make plaintext fixture: pass
-open plaintext keychain: pass
-plaintext open returned no keychain: pass
 create over plaintext file: pass
 plaintext create returned no keychain: pass
 plaintext file stayed unchanged: pass
+open plaintext keychain: pass
+plaintext keychain reads nothing before unlock: pass
+opening left it unchanged: pass
+unlock seals the plaintext keychain: pass
+the file is encrypted now: pass
+and no longer holds the plaintext: pass
+migrated keychain locks: pass
+a wrong password no longer unlocks it: pass
+its password does: pass
 change test folder permissions: pass
 lock with changed folder: pass
 restore test folder permissions: pass

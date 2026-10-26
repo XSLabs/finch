@@ -171,7 +171,8 @@ open_directory_path(const char *path, uid_t expected_owner, char *error,
 	if (fstat(current, &st) != 0)
 		goto system_error;
 	if (st.st_uid != expected_owner || (st.st_mode & 0022) != 0) {
-		set_error(error, error_size, "account folder must belong to its caller and block group and other writes");
+		set_error(error, error_size, "account folder %s must belong to its caller (uid %u) and block group and other writes",
+		    path, (unsigned)expected_owner);
 		errno = EPERM;
 		goto fail;
 	}

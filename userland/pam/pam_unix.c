@@ -249,12 +249,16 @@ pam_sm_chauthtok(pam_handle_t *pamh, int flags,
 	}
 	at_secure_clear(confirmation, strlen(confirmation) + 1);
 	free(confirmation);
-	if (at_store_open_default(&store, error, sizeof(error)) != 0)
-		return PAM_AUTHTOK_ERR;
-	int changed = at_store_change_password(&store, user, getuid(),
-	    root_override, root_override ? NULL : old_password, new_password,
-	    error, sizeof(error));
-	at_store_close(&store);
+	int changed = at_store_open_default(&store, error, sizeof(error));
+	if (changed == 0) {
+		changed = at_store_change_password(&store, user, getuid(),
+		    root_override, root_override ? NULL : old_password, new_password,
+		    error, sizeof(error));
+		at_store_close(&store);
+	}
+	/* Say why, as passwd shows a module's messages. */
+	if (changed != 0 && error[0])
+		pam_error(pamh, "%s", error);
 	return changed == 0 ? PAM_SUCCESS : PAM_AUTHTOK_ERR;
 }
 

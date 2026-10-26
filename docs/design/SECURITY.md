@@ -43,8 +43,12 @@ Two apps in the same user session share an unlock, and locking from either app
 blocks reads from both. The QEMU service check also covers item references,
 wrong passwords and malformed requests (2026-10-13). Host-only checks retain a
 local file backend: a fresh process starts locked and a fork clears inherited keys.
-Locking handles aliases of the same file in both paths. Older plaintext files are
-refused and left unchanged; migration and a password dialog remain open. At login,
+Locking handles aliases of the same file in both paths. A keychain from before
+Finch encrypted them (its item database as a bare property list) opens locked
+and unchanged; the first unlock seals it under a key from that password, in
+place and under the write lock, so a login keychain moves to the login
+password at the next login (2026-10-26, host and QEMU checks). A password
+dialog remains open. At login,
 `pam_keychain` (in `/etc/pam.d/login`'s session) makes the user's login keychain with the
 login password, or unlocks it with that password, and leaves a keychain with another
 password locked. tools/vm/test-login.sh checks this through Finch's real console login

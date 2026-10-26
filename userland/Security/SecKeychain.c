@@ -993,6 +993,50 @@ static OSStatus storeCommit(Store *s)
 	return err;
 }
 
+/*
+ * A keychain from before Finch encrypted them is its item database as a bare
+ * property list. Under the write lock, if the file still is one, it is sealed
+ * with a key from the password and left unlocked; anything else stays refused.
+ */
+static OSStatus migratePlaintextKeychain(SecKeychainRef kc, const void *password, UInt32 passwordLength)
+{
+	Store s;
+	OSStatus err = storeAcquire(kc, true, false, false, &s);
+	if (err)
+		return err;
+	uint8_t *bytes = NULL;
+	size_t length = 0;
+	err = readEnvelope(&s, &bytes, &length);
+	if (!err) {
+		uint8_t salt[SEC_KEYCHAIN_CRYPTO_SALT_BYTES];
+		size_t plaintextLength = 0;
+		/* Sealed by someone else meanwhile: unlock it as usual instead. */
+		if (finch_keychain_crypto_inspect(bytes, length, salt, &plaintextLength) == SEC_KEYCHAIN_CRYPTO_OK)
+			err = errSecInvalidKeychain;
+		else
+			err = parseDatabase(bytes, length, &s);
+	}
+	if (bytes) {
+		OPENSSL_cleanse(bytes, length);
+		free(bytes);
+	}
+	if (!err) {
+		SecKeychainCryptoStatus crypto = finch_keychain_crypto_create_key(password, passwordLength,
+		    s.salt, s.key);
+		if (crypto != SEC_KEYCHAIN_CRYPTO_OK)
+			err = crypto == SEC_KEYCHAIN_CRYPTO_NO_MEMORY ? errSecAllocate : errSecIO;
+	}
+	if (!err) {
+		s.hasKey = true;
+		s.dirty = true;
+		err = storeCommit(&s);
+	}
+	if (!err)
+		err = keyCacheSet(s.cachePath, s.salt, s.key);
+	storeDispose(&s);
+	return err;
+}
+
 static OSStatus storeClose(Store *s)
 {
 	OSStatus err = storeCommit(s);
@@ -1017,6 +1061,23 @@ static OSStatus storeInspect(SecKeychainRef kc,
 	OPENSSL_cleanse(salt, sizeof(salt));
 	storeDispose(&s);
 	return err;
+}
+
+/* An early, unencrypted Finch keychain (its database as a bare property list). */
+static bool storeIsPlaintext(SecKeychainRef kc)
+{
+	Store s;
+	if (storeAcquire(kc, false, false, false, &s))
+		return false;
+	uint8_t *bytes = NULL;
+	size_t length = 0;
+	bool plaintext = readEnvelope(&s, &bytes, &length) == 0 && parseDatabase(bytes, length, &s) == 0;
+	if (bytes) {
+		OPENSSL_cleanse(bytes, length);
+		free(bytes);
+	}
+	storeDispose(&s);
+	return plaintext;
 }
 
 static OSStatus createEmptyDatabase(Store *s)
@@ -1333,6 +1394,9 @@ OSStatus SecKeychainOpen(const char *pathName, SecKeychainRef *keychain)
 	if (!kc)
 		return errSecAllocate;
 	OSStatus st = storeInspect(kc, NULL, NULL);
+	/* An unencrypted one opens locked; unlocking it seals it with that password. */
+	if (st == errSecInvalidKeychain && storeIsPlaintext(kc))
+		st = 0;
 	if (st) {
 		CFRelease(kc);
 		return st;
@@ -1586,6 +1650,7 @@ OSStatus SecKeychainUnlock(SecKeychainRef keychain, UInt32 passwordLength, const
 	OPENSSL_cleanse(key, sizeof(key));
 	if (!err)
 		err = readEnvelope(&s, &envelope, &envelopeLength);
+	bool plaintextFile = false;
 	if (!err) {
 		SecKeychainCryptoStatus crypto = finch_keychain_crypto_unlock(envelope,
 		    envelopeLength, password, passwordLength, salt, key, &plaintext,
@@ -1594,10 +1659,21 @@ OSStatus SecKeychainUnlock(SecKeychainRef keychain, UInt32 passwordLength, const
 			err = errSecAuthFailed;
 		else if (crypto == SEC_KEYCHAIN_CRYPTO_NO_MEMORY)
 			err = errSecAllocate;
+		else if (crypto == SEC_KEYCHAIN_CRYPTO_INVALID_FORMAT)
+			plaintextFile = true, err = errSecInvalidKeychain;
 		else if (crypto != SEC_KEYCHAIN_CRYPTO_OK)
 			err = errSecInvalidKeychain;
 	}
 	free(envelope);
+	if (plaintextFile) {
+		/* An early Finch keychain, stored unencrypted: sealed now with this password. */
+		storeDispose(&s);
+		err = migratePlaintextKeychain(kc, password, passwordLength);
+		OPENSSL_cleanse(salt, sizeof(salt));
+		OPENSSL_cleanse(key, sizeof(key));
+		CFRelease(kc);
+		return err;
+	}
 	if (!err)
 		err = parseDatabase(plaintext, plaintextLength, &s);
 	if (plaintext)

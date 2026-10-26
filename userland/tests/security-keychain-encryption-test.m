@@ -585,9 +585,6 @@ mainTest(const char *executable, BOOL serviceMode)
 	checkFlag("make plaintext fixture", writeFile(plaintextPath, plaintext, sizeof(plaintext) - 1));
 	plaintextBefore = [NSData dataWithContentsOfFile:
 	    [NSString stringWithUTF8String:plaintextPath]];
-	status = SecKeychainOpen(plaintextPath, &rejected);
-	checkStatus("open plaintext keychain", status, errSecInvalidKeychain);
-	checkFlag("plaintext open returned no keychain", rejected == NULL);
 	status = SecKeychainCreate(plaintextPath, sizeof(password) - 1, password,
 	    false, NULL, &rejected);
 	checkStatus("create over plaintext file", status, errSecInvalidKeychain);
@@ -599,6 +596,30 @@ mainTest(const char *executable, BOOL serviceMode)
 	if (rejected) {
 		CFRelease(rejected);
 		rejected = NULL;
+	}
+	/* An early unencrypted keychain opens locked, and unlocking seals it with that password. */
+	SecKeychainRef migrated = NULL;
+	status = SecKeychainOpen(plaintextPath, &migrated);
+	checkStatus("open plaintext keychain", status, errSecSuccess);
+	value = migrated ? readSecret(migrated, @"sample", &status) : nil;
+	checkFlag("plaintext keychain reads nothing before unlock", value == nil && status != errSecSuccess);
+	plaintextAfter = [NSData dataWithContentsOfFile:[NSString stringWithUTF8String:plaintextPath]];
+	checkFlag("opening left it unchanged", plaintextBefore && [plaintextBefore isEqualToData:plaintextAfter]);
+	if (migrated) {
+		status = SecKeychainUnlock(migrated, sizeof(password) - 1, password, true);
+		checkStatus("unlock seals the plaintext keychain", status, errSecSuccess);
+		plaintextAfter = [NSData dataWithContentsOfFile:[NSString stringWithUTF8String:plaintextPath]];
+		checkFlag("the file is encrypted now", plaintextAfter.length > 8 &&
+		    memcmp(plaintextAfter.bytes, "FNKCENC", 8) == 0);
+		checkFlag("and no longer holds the plaintext",
+		    [plaintextAfter rangeOfData:[NSData dataWithBytes:"<key>items</key>" length:16]
+		        options:0 range:NSMakeRange(0, plaintextAfter.length)].location == NSNotFound);
+		checkStatus("migrated keychain locks", SecKeychainLock(migrated), errSecSuccess);
+		status = SecKeychainUnlock(migrated, 5, "wrong", true);
+		checkStatus("a wrong password no longer unlocks it", status, errSecAuthFailed);
+		status = SecKeychainUnlock(migrated, sizeof(password) - 1, password, true);
+		checkStatus("its password does", status, errSecSuccess);
+		CFRelease(migrated);
 	}
 
 	checkFlag("change test folder permissions", chmod(directory, 0777) == 0);

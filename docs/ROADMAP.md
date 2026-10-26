@@ -171,8 +171,8 @@ Finch 1.0 is still open. The checks below cover specific parts of the system.
   require a password. Host and QEMU checks pass for locking inside one process,
   concurrent saves, changed files and unsafe paths (2026-10-13). A per-user service
   now shares unlocked keychains between apps; a QEMU check proves that one app's
-  lock prevents another from reading. Migration of old plaintext files and login
-  password integration remain open.
+  lock prevents another from reading. Old plaintext keychains are sealed at
+  their first unlock (2026-10-26); login password integration passes in QEMU.
 
 ## Phase 0: Our kernel boots
 Build XNU from source and boot it on real Apple Silicon with Apple's own kexts.

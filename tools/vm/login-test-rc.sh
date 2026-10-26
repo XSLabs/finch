@@ -105,8 +105,12 @@ while IFS= read -r finch_login_test_account_line; do
     fi
     finch_login_test_account_seen=$((finch_login_test_account_seen + 1))
 done < "$finch_login_test_fixture/account-fixture/master.passwd"
+# (the system accounts the release has: root and nobody at least; more, such as
+# _notifyd, come with the services that need them)
 if [ "$finch_login_test_account_valid" -ne 1 ] ||
-    [ "$finch_login_test_account_seen" -ne 3 ] ||
+    [ "$finch_login_test_account_seen" -lt 3 ] ||
+    ! grep -q '^root:\*:0:0:' "$finch_login_test_fixture/account-fixture/master.passwd" ||
+    ! grep -q '^nobody:\*:-2:-2:' "$finch_login_test_fixture/account-fixture/master.passwd" ||
     ! grep -Fxq 'staff:*:20:' "$finch_login_test_fixture/account-fixture/group"; then
     echo "login-test rc: release account templates are malformed"
     exit 1
@@ -176,6 +180,11 @@ finch_login_test_verify_copy "$finch_login_test_fixture/pam/pam_uwtmp.so.2" \
 
 chown 0:0 /private/etc /private/etc/pam.d /usr/lib/pam
 chmod 755 /private/etc /private/etc/pam.d /usr/lib/pam
+# Root's, as installed: the account tools look here for their store setting.
+if [ -d /private/etc/finch ]; then
+    chown -R 0:0 /private/etc/finch
+    chmod 755 /private/etc/finch
+fi
 chown root:wheel /private/etc/master.passwd /private/etc/passwd \
     /private/etc/group /private/etc/pam.d/login \
     /usr/lib/pam/pam_unix.so.2 /usr/lib/pam/pam_nologin.so.2 \
