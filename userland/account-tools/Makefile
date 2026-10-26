@@ -10,6 +10,8 @@ LIB_DIR := $(ROOT)/usr/lib/system
 LIB := $(LIB_DIR)/libfinchaccount.dylib
 COMMONCRYPTO_ROOT := $(LIB_DIR)/libcommonCrypto.dylib
 ACCOUNTCTL := $(ROOT)/usr/sbin/accountctl
+# Finch's OpenDirectory runs it for account changes by anyone but root (setuid root as installed).
+ACCOUNT_UPDATE := $(ROOT)/usr/libexec/finch-account-update
 
 # The tests use a private build tree and the already-built Finch CommonCrypto.
 TEST_ROOT ?= /private/tmp/finch-account-tools-test
@@ -19,7 +21,7 @@ TEST_BIN := $(TEST_ROOT)/bin/account_tools_test
 TEST_CFLAGS := -O2 -Wall -Wextra -Werror -DAT_ACCOUNT_TOOLS_TESTING
 COMMONCRYPTO_LIB ?= $(FINCH_ROOT)/build/userland/CommonCrypto/libcommonCrypto.dylib
 
-all: $(LIB) $(ACCOUNTCTL)
+all: $(LIB) $(ACCOUNTCTL) $(ACCOUNT_UPDATE)
 
 $(LIB): $(ACCOUNT_SOURCES) $(ACCOUNT_HEADERS) $(COMMONCRYPTO_ROOT)
 	@mkdir -p $(dir $@)
@@ -32,6 +34,11 @@ $(ACCOUNTCTL): accountctl.c $(ACCOUNT_HEADERS) $(LIB)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -I. -o $@ accountctl.c -L$(LIB_DIR) -lfinchaccount
 	codesign -f -s - $@ 2>/dev/null
+
+$(ACCOUNT_UPDATE): finch-account-update.c $(ACCOUNT_HEADERS) $(LIB)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -I. -o $@ finch-account-update.c -L$(LIB_DIR) -lfinchaccount
+	codesign -f -s - -i org.finch.account-update $@ 2>/dev/null
 
 $(TEST_LIB): $(ACCOUNT_SOURCES) $(ACCOUNT_HEADERS) $(COMMONCRYPTO_LIB)
 	@mkdir -p $(TEST_LIB_DIR)
@@ -51,6 +58,6 @@ test: $(TEST_BIN)
 	    $(TEST_BIN)
 
 clean:
-	rm -f $(LIB) $(ACCOUNTCTL)
+	rm -f $(LIB) $(ACCOUNTCTL) $(ACCOUNT_UPDATE)
 
 .PHONY: all test clean

@@ -5,6 +5,7 @@
 build/userland/finch-init   /usr/appleinternal/sbin/launchd.finch
 userland/etc/finch/rc       /etc/finch/rc
 userland/etc/hosts          /etc/hosts
+userland/release/etc/shells /etc/shells
 build/userland/finch-libsystem-test /usr/local/bin/finch-libsystem-test
 build/userland/libxpc/libxpc.dylib /usr/lib/system/libxpc.dylib
 build/userland/finch-xpc-service-test /usr/local/bin/finch-xpc-service-test
@@ -251,6 +252,7 @@ build/userland/finch-configd-network-test /usr/local/bin/finch-configd-network-t
 build/userland/finch-account-tools-test /usr/local/bin/finch-account-tools-test
 build/userland/finch-account-login-test /usr/local/bin/finch-account-login-test
 build/userland/finch-authorization-test /usr/local/bin/finch-authorization-test
+build/userland/finch-chpass-test /usr/local/bin/finch-chpass-test
 userland/release/etc/master.passwd /usr/local/share/finch/account-fixture/master.passwd
 userland/release/etc/group /usr/local/share/finch/account-fixture/group
 build/userland/finch-diskarbitration-session-test /usr/local/bin/finch-diskarbitration-session-test

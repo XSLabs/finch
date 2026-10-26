@@ -19,7 +19,8 @@ app containers, Mach-trap filtering and network address filters remain open
 `networksetup` set system and network settings; on the persistent VM those
 survive restarts. A new system's first boot runs `finch-setup`, which makes the
 first administrator account before login. Finch's `authd` shares authorization
-rights and credentials between processes.
+rights and credentials between processes. `chpass`, `chsh` and `chfn` change
+account details through Finch's OpenDirectory and its setuid account helper.
 A persistent development VM (`tools/vm/mkpersistent.sh`) keeps accounts,
 passwords, home folders and `/private/var/db` on a VirtIO data disk: `rc` mounts
 it through `finch-data-volume` before services start, and a missing disk stops
@@ -281,7 +282,7 @@ block-beta
         cf["CoreFoundation<br/>swift-corelibs CF + Finch ObjC:<br/>toll-free dispatch, collections,<br/>ordered sets, NSCache, NSData, NSDate,<br/>NSURL, locales, calendars, defaults,<br/>run loops, attributed strings,<br/>streams, Mach ports, notifications;<br/>bundle languages and .loctable files"]
         security["Security<br/>keys, certificates, web roots,<br/>file keychains, signature checks,<br/>Secure Transport (OpenSSL);<br/>SecurityFoundation (SFAuthorization,<br/>certificate summaries)"]
         cryptokit["CryptoKit<br/>hashes, HMAC, HKDF,<br/>AES-GCM, ChaChaPoly,<br/>P-256, P-384, Curve25519"]
-        od["OpenDirectory<br/>CFOpenDirectory,<br/>local account password checks"]
+        od["OpenDirectory<br/>CFOpenDirectory,<br/>local account password checks<br/>and record changes<br/>(finch-account-update)"]
         icu["libicucore<br/>ICU-76142.4.7"]
         objc["libobjc (objc4)"]
         autolayout["CoreAutoLayout (private)<br/>constraints, anchors, VFL,<br/>Cassowary solver"]

@@ -1136,7 +1136,11 @@ all: $(OUT)/finch-configd-daemon-test
 all: $(OUT)/finch-configd-contained-service
 all: $(OUT)/finch-account-tools-test
 all: $(OUT)/finch-account-login-test
-all: $(OUT)/finch-authorization-test
+all: $(OUT)/finch-authorization-test $(OUT)/finch-chpass-test
+# Guest-only, on the persistent VM: chpass, chsh and chfn through OpenDirectory.
+$(OUT)/finch-chpass-test: chpass-test.c ../account-tools/account_tools.h ../../build/root/usr/lib/system/libfinchaccount.dylib
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -I../account-tools -o $@ $< -L../../build/root/usr/lib/system -lfinchaccount
 # Guest-only, on the persistent VM: Authorization Services through authd.
 $(OUT)/finch-authorization-test: authorization-test.c ../account-tools/account_tools.h ../../build/root/usr/lib/system/libfinchaccount.dylib
 	@mkdir -p $(OUT)

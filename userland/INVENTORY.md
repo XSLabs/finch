@@ -116,7 +116,6 @@ exactly them to fail.
 
 | Tool | Project | Blocker |
 |---|---|---|
-| chpass | system_cmds | Private OpenDirectory record-editing APIs; Finch provides lookup, verification and password changes only |
 | bintrans tests (not the command) | text_cmds | Apple-internal `darwintest.h`; `bintrans` itself is built and staged |
 | zprint, zlog | system_cmds | CoreSymbolication (closed) |
 
@@ -132,6 +131,14 @@ PAM and OpenDirectory share `libfinchaccount` for Finch PBKDF2 password hashes
 and old DES hash checks. `accountctl` writes an explicitly named account folder;
 it does not install users' home folders or grant admin rights. See
 [the security notes](../docs/design/SECURITY.md) for the checks and remaining work.
+chpass, chsh and chfn change account details through Finch's OpenDirectory
+(`ODRecordCopyDetails`, `ODRecordSetValue`, `ODRecordSynchronize`): as root
+directly, otherwise through the setuid helper `/usr/libexec/finch-account-update`,
+which plays opendirectoryd's part for the local node (users change their own
+shell and finger information with their password; administrators and root
+anything chpass shows). zprint and zlog stay deferred: they're kernel debugging
+tools over CoreSymbolication's kernel symbolicator, not needed by the installer
+or desktop.
 gcore works on processes it may read (in the VM, `finch-debuggee`); it relies on
 libdyld's introspection, which needed two dyld patches (`userland/patches/dyld`):
 falling back from the absent Dyld.framework, and the AA01 compact-info archive that

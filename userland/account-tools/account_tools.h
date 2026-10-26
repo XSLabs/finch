@@ -55,6 +55,20 @@ int at_store_change_password(struct at_store *store, const char *name,
 	uid_t actor_uid, bool root_override, const char *old_password,
 	const char *new_password, char *error, size_t error_size);
 
+/* An account's fields to change: NULL strings and unset ids stay as they are. */
+struct at_user_update {
+	bool set_uid, set_gid;
+	uid_t uid;
+	gid_t gid;
+	const char *gecos, *home, *shell;
+};
+
+/* Change an account's uid, group, GECOS, home or shell. The caller decides
+ * who may; the store keeps uids unique and groups real, and leaves system
+ * accounts (below 500) alone. */
+int at_store_update_user(struct at_store *store, const char *name,
+	const struct at_user_update *update, char *error, size_t error_size);
+
 /* Add an account to a group's members (an administrator to admin). */
 int at_store_add_group_member(struct at_store *store, const char *group_name,
 	const char *user_name, char *error, size_t error_size);

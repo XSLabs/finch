@@ -635,6 +635,34 @@ main(void)
 	assert(at_store_add_group_member(&store, "staff", "bad:name", error, sizeof(error)) != 0);
 	assert(stat(members_path, &st) == 0 && (st.st_mode & 0777) == 0644);
 
+	/* Field changes (chpass): GECOS, shell, home, uid and group, both files. */
+	struct at_user_update update = { .gecos = "Old User,Room 4,555-0100,555-0199", .shell = "/bin/zsh",
+		.home = "/Users/olduser", .set_uid = true, .uid = 510, .set_gid = true, .gid = 0 };
+	assert(at_store_update_user(&store, "legacy", &update, error, sizeof(error)) == 0);
+	char *updated_master = read_file(master_path), *updated_passwd = read_file(passwd_path);
+	assert(strstr(updated_master, ":510:0::0:0:Old User,Room 4,555-0100,555-0199:/Users/olduser:/bin/zsh\n") != NULL);
+	assert(strstr(updated_passwd, "legacy:*:510:0:Old User,Room 4,555-0100,555-0199:/Users/olduser:/bin/zsh\n") != NULL);
+	assert(stat(master_path, &st) == 0 && (st.st_mode & 0777) == 0600);
+	free(updated_master);
+	free(updated_passwd);
+	struct at_user_update taken = { .set_uid = true, .uid = 503 };	/* newuser's */
+	memset(error, 0, sizeof(error));
+	assert(at_store_update_user(&store, "legacy", &taken, error, sizeof(error)) != 0 &&
+	    strstr(error, "another account") != NULL);
+	struct at_user_update no_group = { .set_gid = true, .gid = 4242 };
+	assert(at_store_update_user(&store, "legacy", &no_group, error, sizeof(error)) != 0);
+	struct at_user_update colon = { .gecos = "a:b" }, relative = { .shell = "zsh" }, system = { .set_uid = true, .uid = 1 };
+	assert(at_store_update_user(&store, "legacy", &colon, error, sizeof(error)) != 0);
+	assert(at_store_update_user(&store, "legacy", &relative, error, sizeof(error)) != 0);
+	assert(at_store_update_user(&store, "legacy", &system, error, sizeof(error)) != 0);
+	assert(at_store_update_user(&store, "root", &(struct at_user_update){ .shell = "/bin/sh" }, error,
+	    sizeof(error)) != 0);
+	assert(at_store_update_user(&store, "nosuchuser", &update, error, sizeof(error)) != 0);
+	/* Back as it was, for the checks below. */
+	struct at_user_update back = { .gecos = "Old User", .shell = "/bin/sh", .home = "/Users/legacy",
+		.set_uid = true, .uid = 502, .set_gid = true, .gid = 20 };
+	assert(at_store_update_user(&store, "legacy", &back, error, sizeof(error)) == 0);
+
 	/* A failure on the second file must roll the first file back to the saved master. */
 #ifdef AT_ACCOUNT_TOOLS_TESTING
 	char *before_failed_create_master = read_file(master_path);

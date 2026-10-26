@@ -1575,3 +1575,122 @@ done:
 		close(lock);
 	return result;
 }
+
+/*
+ * Change an account's uid, group, GECOS, home or shell (chpass through
+ * OpenDirectory). The caller decides who may change what; this keeps the
+ * files consistent: a new uid no other account has, a group that exists, and
+ * fields passwd(5) can hold. System accounts (below 500) are left to updates.
+ */
+int
+at_store_update_user(struct at_store *store, const char *name,
+	const struct at_user_update *update, char *error, size_t error_size)
+{
+	struct file_data master = {0}, passwd = {0}, group = {0};
+	struct account_record target = {0};
+	char *new_master = NULL, uid_text[16], gid_text[16];
+	unsigned matches = 0, uid_users = 0;
+	int lock = -1, result = -1;
+
+	if (!store || store->directory_fd < 0 || !valid_username(name) || !update ||
+	    (update->gecos && !valid_optional_field(update->gecos, GECOS_MAX)) ||
+	    (update->home && (!valid_field(update->home, PATH_FIELD_MAX) || update->home[0] != '/')) ||
+	    (update->shell && (!valid_field(update->shell, PATH_FIELD_MAX) || update->shell[0] != '/')) ||
+	    (update->set_uid && (update->uid < 500 || update->uid >= UINT32_MAX - 1U)) ||
+	    (update->set_gid && update->gid >= UINT32_MAX - 1U)) {
+		set_error(error, error_size, "the account's new details are not valid");
+		errno = EINVAL;
+		return -1;
+	}
+	lock = lock_store(store, error, error_size);
+	if (lock < 0)
+		return -1;
+	if (load_database(store, &master, &passwd, error, error_size) != 0)
+		goto done;
+	if (scan_master(master.bytes, master.length, name, update->set_uid ? update->uid : 0,
+	    update->set_uid, &target, &matches, &uid_users, error, error_size) != 0)
+		goto done;
+	if (matches != 1) {
+		set_error(error, error_size, matches == 0 ? "account does not exist" : "account name is repeated");
+		errno = matches == 0 ? ENOENT : EINVAL;
+		goto done;
+	}
+	if (target.uid < 500) {
+		set_error(error, error_size, "system accounts cannot be changed here");
+		errno = EPERM;
+		goto done;
+	}
+	if (update->set_uid && update->uid != target.uid && uid_users > 0) {
+		set_error(error, error_size, "another account has uid %u", (unsigned)update->uid);
+		errno = EEXIST;
+		goto done;
+	}
+	if (update->set_gid) {
+		if (read_file(store, "group", 0644, &group, error, error_size) != 0)
+			goto done;
+		if (validate_group(group.bytes, group.length, update->gid) != 1) {
+			set_error(error, error_size, "no group has gid %u", (unsigned)update->gid);
+			errno = ENOENT;
+			goto done;
+		}
+	}
+	/* The line's ten fields, with the changed ones replaced. */
+	char line[DB_MAX_LINE + 1];
+	memcpy(line, master.bytes + target.line_start, target.line_length);
+	line[target.line_length] = '\0';
+	const char *fields[FIELD_COUNT];
+	char *p = line;
+	for (unsigned i = 0; i < FIELD_COUNT; ++i) {
+		fields[i] = p;
+		p = strchr(p, ':');
+		if (p)
+			*p++ = '\0';
+		else if (i != FIELD_COUNT - 1) {
+			set_error(error, error_size, "master.passwd has a malformed line");
+			errno = EINVAL;
+			goto done;
+		}
+	}
+	if (update->set_uid) {
+		snprintf(uid_text, sizeof(uid_text), "%u", (unsigned)update->uid);
+		fields[2] = uid_text;
+	}
+	if (update->set_gid) {
+		snprintf(gid_text, sizeof(gid_text), "%u", (unsigned)update->gid);
+		fields[3] = gid_text;
+	}
+	if (update->gecos)
+		fields[7] = update->gecos;
+	if (update->home)
+		fields[8] = update->home;
+	if (update->shell)
+		fields[9] = update->shell;
+	if (asprintf(&new_master, "%.*s%s:%s:%s:%s:%s:%s:%s:%s:%s:%s%s",
+	    (int)target.line_start, master.bytes, fields[0], fields[1], fields[2], fields[3],
+	    fields[4], fields[5], fields[6], fields[7], fields[8], fields[9],
+	    master.bytes + target.line_start + target.line_length) < 0) {
+		new_master = NULL;
+		set_error(error, error_size, "not enough memory to update account");
+		goto done;
+	}
+	if (strlen(new_master) > DB_MAX_BYTES) {
+		set_error(error, error_size, "new master.passwd is too large");
+		errno = EFBIG;
+		goto done;
+	}
+	if (atomic_replace(store, "master.passwd", new_master, strlen(new_master),
+	    0600, master.owner, master.group, error, error_size) != 0 ||
+	    resync_public_passwd(store, &passwd, error, error_size) != 0)
+		goto done;
+	result = 0;
+done:
+	if (lock >= 0)
+		close(lock);
+	free_file(&master);
+	free_file(&passwd);
+	free_file(&group);
+	if (new_master)
+		at_secure_clear(new_master, strlen(new_master));
+	free(new_master);
+	return result;
+}

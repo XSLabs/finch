@@ -432,6 +432,40 @@ the same folder and that the account was not saved. Host fixture tests pass
 non-empty-home refusal, PAM and OpenDirectory checks (2026-10-18). These checks
 do not finish first-user setup or reboot persistence.
 
+### Changing account details (2026-10-26)
+
+`chpass`, `chsh` and `chfn` (Apple's system_cmds, built unchanged) edit an
+account through OpenDirectory. Finch's OpenDirectory now reads a user record's
+details and collects changes with `ODRecordSetValue`; `ODRecordSynchronize`
+writes them with `libfinchaccount`'s `at_store_update_user`, which keeps uids
+unique, groups real and system accounts (below 500) untouched, and rewrites the
+public `passwd` from `master.passwd`. GECOS carries the full name, office,
+office phone and home phone, comma-separated as in BSD's passwd(5).
+
+Root's changes are written in the process. Anyone else's go through
+`/usr/libexec/finch-account-update`, installed setuid root, which does the
+local node's checks that macOS's opendirectoryd does, using the caller's real
+uid and the credentials chpass was given (sent on its input, never in its
+arguments):
+
+- an administrator's password (group admin): any field chpass shows;
+- the account's own password, by its own user: the GECOS fields, and the shell
+  when both the old and the new one are in `/etc/shells`;
+- anything else, including a wrong password (after a second's delay), is
+  refused.
+
+Non-root password checks (`ODRecordVerifyPassword`, `ODRecordSetNodeCredentials`)
+use the helper's `--verify` mode, since only root reads password hashes. The VM
+image now has `/etc/shells`, as the release does.
+
+`tools/vm/test-chpass.sh` (persistent VM, fresh data disk) passes 16 checks: a
+user changes their own shell and finger information; a shell outside
+`/etc/shells` and a wrong password change nothing; another user's account, a
+user's own uid or home, a wrong or another user's password and no credentials
+are refused by the helper; an administrator's password changes another account;
+root changes a uid and home without a password, and `/etc/passwd` shows the new
+uid without the hash.
+
 ## SystemConfiguration
 
 `userland/SystemConfiguration` combines Finch's `SCState.c` with `SCDKeys.c`
