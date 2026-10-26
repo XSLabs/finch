@@ -78,10 +78,7 @@ FRAMEWORK_SCOPES = {
     "CoreData": {
         "variables": ("NS",),
     },
-    "CoreLocation": {
-        "functions": {"CLLocationCoordinate2DIsValid"},
-        "variables": ("kCL",),
-    },
+    "CoreLocation": {"functions": set(), "variables": ()},
     "Network": {
         "functions": {
             "nw_endpoint_create_host", "nw_endpoint_get_type", "nw_endpoint_get_hostname",
@@ -99,6 +96,45 @@ FRAMEWORK_SCOPES = {
     "AVFAudio": {
         "variables": ("AVAudio",),
     },
+    "PDFKit": {"variables": ("PDF", "kPDF")},
+    "Quartz/PDFKit": {"variables": ("PDF", "kPDF")},
+    "Quartz": {
+        "functions": {
+            "CVColorPrimariesGetIntegerCodePointForString", "CVColorPrimariesGetStringForIntegerCodePoint",
+            "CVImageBufferCreateColorSpaceFromAttachments", "CVTransferFunctionGetIntegerCodePointForString",
+            "CVTransferFunctionGetStringForIntegerCodePoint", "CVYCbCrMatrixGetIntegerCodePointForString",
+            "CVYCbCrMatrixGetStringForIntegerCodePoint",
+        },
+        "prefixes": ("CATransform3D",),
+        "variables": ("k", "CA", "CI", "IK", "PDF", "QC", "QL"),
+    },
+    "Quartz/ImageKit": {"variables": ("IK",)},
+    "AVFoundation": {
+        "functions": {"AVMakeRectWithAspectRatioInsideRect"},
+        "variables": ("AV",),
+    },
+    "AudioToolbox": {"variables": ("kAudio", "kAudioUnit", "kAudioComponent")},
+    "CoreMIDI": {"variables": ("MIDI", "kMIDI")},
+    "IOKit": {
+        "functions": {"IOCFSerialize", "IOCFUnserialize", "IOCFUnserializeBinary", "IOCFUnserializeWithSize",
+                       "IOHIDManagerGetTypeID", "IOHIDValueGetTypeID",
+                       "IORegistryEntryIDMatching", "IOServiceMatching", "IOServiceNameMatching"},
+        "variables": ("kIO",),
+    },
+    "SystemConfiguration": {
+        "functions": {
+            "SCBondStatusGetTypeID", "SCCopyLastError", "SCDynamicStoreGetTypeID",
+            "SCDynamicStoreKeyCreateComputerName", "SCDynamicStoreKeyCreateConsoleUser",
+            "SCDynamicStoreKeyCreateHostNames", "SCDynamicStoreKeyCreateLocation", "SCError",
+            "SCErrorString", "SCPreferencesGetTypeID",
+        },
+        "variables": ("kSC", "kCFErrorDomainSystemConfiguration"),
+    },
+    "OpenDirectory": {"variables": ("OD",)},
+    "OpenDirectory/CFOpenDirectory": {"variables": ("kOD",)},
+    "StoreKit": {"variables": ("SK",)},
+    "LinkPresentation": {"variables": ("LP",)},
+    "Accelerate": {"prefixes": ("vDSP", "vForce", "vImage"), "variables": ("kvImage",)},
 }
 
 
@@ -162,13 +198,88 @@ VALUE_CLASS_SCOPES = {
     },
     "AVFAudio": {
         "AVAudioFormat", "AVAudioChannelLayout", "AVAudioTime", "AVAudioPCMBuffer",
+        "AVAudioCompressedBuffer", "AVAudioConverter", "AVAudioEngine",
     },
+    "PDFKit": {
+        "PDFDocument", "PDFPage", "PDFSelection", "PDFDestination", "PDFOutline", "PDFBorder",
+        "PDFAnnotation", "PDFAction", "PDFActionURL", "PDFActionGoTo", "PDFAppearanceCharacteristics",
+        "PDFActionNamed", "PDFActionResetForm", "PDFView", "PDFThumbnailView",
+        "PDFAnnotationTextWidget", "PDFAnnotationButtonWidget", "PDFAnnotationChoiceWidget",
+        "PDFAnnotationLine", "PDFAnnotationFreeText", "PDFAnnotationLink", "PDFAnnotationMarkup",
+        "PDFAnnotationInk", "PDFAnnotationCircle", "PDFAnnotationPopup", "PDFAnnotationSquare",
+        "PDFAnnotationStamp", "PDFAnnotationText",
+    },
+    "Quartz/PDFKit": {
+        "PDFDocument", "PDFPage", "PDFSelection", "PDFDestination", "PDFOutline", "PDFBorder",
+        "PDFAnnotation", "PDFAction", "PDFActionURL", "PDFActionGoTo", "PDFAppearanceCharacteristics",
+        "PDFActionNamed", "PDFActionResetForm", "PDFView", "PDFThumbnailView",
+        "PDFAnnotationTextWidget", "PDFAnnotationButtonWidget", "PDFAnnotationChoiceWidget",
+        "PDFAnnotationLine", "PDFAnnotationFreeText", "PDFAnnotationLink", "PDFAnnotationMarkup",
+        "PDFAnnotationInk", "PDFAnnotationCircle", "PDFAnnotationPopup", "PDFAnnotationSquare",
+        "PDFAnnotationStamp", "PDFAnnotationText",
+    },
+    "Quartz": {
+        "CIColor", "CIContext", "CIFilter", "CIFilterShape", "CIImage", "CIImageAccumulator", "CIVector",
+        "CIKernel", "CIColorKernel", "CIWarpKernel", "CIBlendKernel", "CIQRCodeDescriptor",
+        "CIAztecCodeDescriptor", "CIPDF417CodeDescriptor", "CIDataMatrixCodeDescriptor",
+        "CAAnimation", "CAAnimationGroup", "CABasicAnimation", "CAConstraint", "CAConstraintLayoutManager",
+        "CAEDRMetadata", "CAEmitterCell", "CAEmitterLayer", "CAGradientLayer", "CAKeyframeAnimation",
+        "CALayer", "CAMediaTimingFunction", "CAPropertyAnimation", "CAReplicatorLayer", "CAScrollLayer",
+        "CAShapeLayer", "CASpringAnimation", "CATextLayer", "CATiledLayer", "CATransition", "CAValueFunction",
+        "PDFDocument", "PDFPage", "PDFSelection", "PDFDestination", "PDFOutline", "PDFBorder",
+        "PDFAnnotation", "PDFAction", "PDFActionURL", "PDFActionGoTo", "PDFAppearanceCharacteristics",
+        "PDFActionNamed", "PDFActionResetForm", "PDFView", "PDFThumbnailView",
+        "PDFAnnotationTextWidget", "PDFAnnotationButtonWidget", "PDFAnnotationChoiceWidget",
+        "PDFAnnotationLine", "PDFAnnotationFreeText", "PDFAnnotationLink", "PDFAnnotationMarkup",
+        "PDFAnnotationInk", "PDFAnnotationCircle", "PDFAnnotationPopup", "PDFAnnotationSquare",
+        "PDFAnnotationStamp", "PDFAnnotationText",
+    },
+    "Quartz/ImageKit": {"IKSaveOptions", "IKImageView", "IKImageBrowserView", "IKImageBrowserCell"},
+    "AVFoundation": {
+        "AVAsset", "AVURLAsset", "AVAssetTrack", "AVAssetTrackSegment", "AVMetadataItem", "AVMutableMetadataItem",
+        "AVAssetExportSession", "AVAssetImageGenerator", "AVAssetReader", "AVAssetReaderOutput",
+        "AVAssetReaderTrackOutput", "AVPlayerItem", "AVPlayerItemTrack",
+        "AVComposition", "AVCompositionTrack", "AVCompositionTrackSegment", "AVMutableComposition",
+        "AVMutableCompositionTrack", "AVAudioMix", "AVMutableAudioMix", "AVAudioMixInputParameters",
+        "AVMutableAudioMixInputParameters", "AVVideoComposition", "AVMutableVideoComposition",
+        "AVVideoCompositionInstruction", "AVMutableVideoCompositionInstruction",
+        "AVVideoCompositionLayerInstruction", "AVMutableVideoCompositionLayerInstruction",
+        "AVCaption", "AVMutableCaption", "AVCaptionRegion", "AVMutableCaptionRegion", "AVCaptionRuby",
+        "AVTextStyleRule", "AVTimedMetadataGroup", "AVMutableTimedMetadataGroup", "AVMetadataItemFilter",
+        "AVDateRangeMetadataGroup", "AVMutableDateRangeMetadataGroup", "AVMediaSelection",
+        "AVMutableMediaSelection", "AVMediaSelectionGroup", "AVMediaSelectionOption", "AVAssetTrackGroup",
+        "AVAudioFormat", "AVAudioChannelLayout", "AVAudioTime", "AVAudioPCMBuffer",
+        "AVAudioCompressedBuffer", "AVAudioConverter", "AVAudioEngine",
+    },
+    "OpenDirectory": {"ODAttributeMap", "ODConfiguration", "ODMappings", "ODModuleEntry", "ODRecordMap"},
+    "StoreKit": {"SKMutablePayment", "SKPayment", "SKPaymentDiscount"},
+    "LinkPresentation": {"LPLinkMetadata"},
+    "AudioToolbox": set(),
+    "CoreMIDI": set(),
 }
 
 
 def _objc_framework_scope_reason(framework: str, method: dict) -> str | None:
     class_name = method.get("class", "")
     selector = method.get("selector", "")
+    if framework == "AVFoundation" and class_name == "AVMutableDateRangeMetadataGroup" and selector in {
+        "setEndDate:", "setItems:", "setStartDate:",
+    }:
+        return "Apple crashes when these setters receive the generated fixed date-range object"
+    if framework in {"AVFAudio", "AVFoundation"} and class_name == "AVAudioEngine":
+        if selector not in {
+            "init", "attachedNodes", "isInManualRenderingMode", "isRunning", "mainMixerNode",
+            "manualRenderingFormat", "manualRenderingMaximumFrameCount", "manualRenderingSampleTime",
+        }:
+            return "would open, run, render, or rewire an audio graph beyond its fixed idle values"
+    if framework in {"PDFKit", "Quartz/PDFKit", "Quartz"} and class_name.startswith("PDFAnnotation") and selector in {
+        "font", "setFont:",
+    }:
+        return "the generated annotation lacks the page appearance data Apple needs for its font getter and setter"
+    if framework == "Quartz" and class_name == "CIImage" and re.search(r"DepthData|EffectsMatte", selector, re.I):
+        return "needs a valid camera depth or portrait matte object, which the fixed image fixture does not build"
+    if framework == "Quartz/ImageKit" and class_name == "IKImageView" and selector == "zoomImageToRect:":
+        return "needs a displayed image view, which this detached value test does not create"
     if framework == "CoreLocation":
         return "loading Finch CoreLocation aborts because its Objective-C classes collide with Apple's private location framework"
     if framework == "QuartzCore":
@@ -180,11 +291,66 @@ def _objc_framework_scope_reason(framework: str, method: dict) -> str | None:
             return "depends on animation time or a render target"
         if selector in {"getControlPointAtIndex:values:", "initWithPerceptualDuration:bounce:"}:
             return "needs an API-specific buffer or a bounded spring input"
-    elif framework in {"CoreImage", "Contacts", "CoreData", "CoreLocation", "Metal", "CoreSpotlight", "AVFAudio"}:
+    elif framework in {"CoreImage", "Contacts", "CoreData", "CoreLocation", "Metal", "CoreSpotlight", "AVFAudio",
+                       "PDFKit", "Quartz/PDFKit", "Quartz", "Quartz/ImageKit", "AVFoundation", "OpenDirectory",
+                       "StoreKit", "LinkPresentation", "AudioToolbox", "CoreMIDI"}:
         metal_value_object = framework == "Metal" and class_name.startswith("MTL") and (
             class_name.endswith("Descriptor") or class_name == "MTLFunctionConstantValues")
         if class_name not in VALUE_CLASS_SCOPES[framework] and not metal_value_object:
             return f"outside the selected deterministic {framework} value API scope"
+        if framework == "AVFoundation" and class_name in {
+            "AVAssetVariant", "AVAssetVariantQualifier", "AVAssetVariantVideoAttributes",
+            "AVAssetVariantAudioAttributes", "AVFrameRateRange",
+        }:
+            return "needs asset selection, streaming variants, or date-range metadata not present in the fixed movie"
+        if framework == "AVFoundation" and class_name in {"AVMediaSelection", "AVMutableMediaSelection"} and re.search(
+                r"selectedMediaOption|selectMediaOption|mediaSelectionCriteriaCanBeApplied", selector):
+            return "needs a media-selection group that the generated movie does not contain"
+        if framework == "Quartz" and class_name.startswith("CA") and selector in {
+            "getControlPointAtIndex:values:", "initWithPerceptualDuration:bounce:",
+        }:
+            return "needs an API-specific buffer or a bounded spring input"
+        allowed_asset_url = framework == "AVFoundation" and class_name in {"AVAsset", "AVURLAsset"} and selector in {
+            "assetWithURL:", "URLAssetWithURL:options:", "initWithURL:options:",
+        }
+        allowed_pdf_url = framework in {"PDFKit", "Quartz/PDFKit", "Quartz"} and class_name == "PDFActionURL" and selector in {
+            "URL", "setURL:",
+        }
+        allowed_link_url = framework == "LinkPresentation" and class_name == "LPLinkMetadata" and selector in {
+            "originalURL", "setOriginalURL:", "URL", "setURL:",
+        }
+        allowed_storekit_product_id = framework == "StoreKit" and class_name in {"SKPayment", "SKMutablePayment"} and selector in {
+            "productIdentifier", "setProductIdentifier:",
+        }
+        if framework in {"PDFKit", "Quartz/PDFKit", "Quartz", "Quartz/ImageKit", "AVFoundation", "StoreKit", "LinkPresentation"} and not allowed_asset_url and not allowed_pdf_url and not allowed_storekit_product_id and re.search(
+                r"(?:URL|File|Path|Write|Save|Export|Print|Load|Request|Fetch|Download|Purchase|PaymentQueue|ProductRequest|Receipt|Playback|Player|Capture|Camera|Device|Hardware|Network|PresentationController)",
+                selector, re.I):
+            if allowed_link_url:
+                pass
+            else:
+                return "reads a file, uses a service, or changes state outside this fixed-value comparison"
+        if framework == "Quartz" and class_name.startswith("CA") and re.search(
+                r"(?:current|presentationLayer|render|display|draw|convertTime|beginTime|timeOffset)", selector, re.I):
+            return "depends on animation time or a render target"
+        if framework == "Quartz" and class_name.startswith("CI") and re.search(
+                r"(?:filterNames|filterCategories|render|startTask|device|gpu|^apply|MetalLibraryData|MetalString)",
+                selector, re.I):
+            return "depends on installed filters, a render target, or GPU state"
+        if framework == "Quartz" and class_name.startswith("CI") and selector == "imageByApplyingGaussianBlurWithSigma:":
+            return "builds an expensive lazy blur graph on the host implementation"
+        if framework == "AVFoundation" and re.search(
+                r"(?:CurrentTime|Clock|HostTime|Playback|VideoOutput|AudioOutput|Reader|Writer|Export|ImageGenerator|Capture|Player|ResourceLoader)",
+                selector, re.I):
+            return "depends on media playback, I/O, a live clock, or capture hardware"
+        if framework == "OpenDirectory" and class_name in {"ODModuleEntry", "ODRecordMap"} and re.search(
+                r"(?:password|authentication|record|node|query|session|search|fetch|save|delete|write)", selector, re.I):
+            return "uses directory records or credentials"
+        if framework == "StoreKit" and re.search(
+                r"(?:CloudService|Storefront|Request|Queue|Transaction|Download|Receipt|Purchase|Payment|Present|Show|Load)",
+                selector, re.I):
+            return "uses a store account, product service, receipt, or purchase flow"
+        if framework == "LinkPresentation" and class_name != "LPLinkMetadata":
+            return "creates a view or loads link metadata"
         if framework == "CoreData" and re.search(
                 r"(?:PersistentStore|persistentStore|executeRequest|performBlock|obtainPermanent|deleteObject|insertNewObject|refreshObject)",
                 selector):
@@ -725,6 +891,8 @@ def _is_objc_object(value: str) -> bool:
         return True
     base = base.split("<", 1)[0].strip()
     named_string = base.startswith("NS") and base.endswith(("Key", "Name", "Identifier", "Domain"))
+    named_string = named_string or base.startswith("AV") and base.endswith(
+        ("Key", "Name", "Identifier", "Domain", "Type", "Format", "Mode", "Option"))
     named_string = named_string or base in {
         "NSStringTransform", "NSLinguisticTagScheme",
         "CALayerContentsFilter", "CALayerContentsGravity", "CALayerCornerCurve",
@@ -738,7 +906,8 @@ def _is_objc_object(value: str) -> bool:
     if base in {"NSZone", "NSDecimal", "NSHashEnumerator", "NSMapEnumerator", "NSPredicateValidating", "NSHashTableCallBacks",
                 "NSMapTableKeyCallBacks", "NSMapTableValueCallBacks", "NSUncaughtExceptionHandler"}:
         return False
-    return bool("*" in value and re.fullmatch(r"(?:NS|__NS|CA|CI|UT|CN|CL|MTL)[A-Za-z0-9_]+", base))
+    return bool("*" in value and re.fullmatch(
+        r"(?:NS|__NS|CA|CI|UT|CN|CL|MTL|AV|PDF|IK|OD|SK|LP|AU|MIDI)[A-Za-z0-9_]+", base))
 
 
 def _pointer_depth(value: str) -> int:
@@ -2451,6 +2620,8 @@ static void auto_cfnetwork_print_message(CFHTTPMessageRef message)
 
 def _objc_runtime() -> str:
     return r'''
+#import <objc/runtime.h>
+
 @interface FinchDifftestKVCObject : NSObject {
 @public
     NSString *_name;
@@ -2684,6 +2855,93 @@ static NSString *auto_canonical(id value)
         AVAudioPCMBuffer *buffer = value;
         return [NSString stringWithFormat:@"audio-buffer:%@:%u:%u:%lu", auto_canonical(buffer.format),
             (unsigned int)buffer.frameCapacity, (unsigned int)buffer.frameLength, (unsigned long)buffer.stride];
+    }
+    if ([value isKindOfClass:AVAudioCompressedBuffer.class]) {
+        AVAudioCompressedBuffer *buffer = value;
+        return [NSString stringWithFormat:@"audio-compressed-buffer:%@:%u:%u:%ld:%u:%u",
+            auto_canonical(buffer.format), (unsigned int)buffer.packetCapacity,
+            (unsigned int)buffer.packetCount, (long)buffer.maximumPacketSize,
+            (unsigned int)buffer.byteCapacity, (unsigned int)buffer.byteLength];
+    }
+    if ([value isKindOfClass:AVAudioConverter.class]) {
+        AVAudioConverter *converter = value;
+        return [NSString stringWithFormat:@"audio-converter:%@:%@:%ld:%@:%d:%d:%ld:%ld",
+            auto_canonical(converter.inputFormat), auto_canonical(converter.outputFormat),
+            (long)converter.sampleRateConverterQuality, auto_canonical(converter.sampleRateConverterAlgorithm),
+            converter.downmix, converter.dither, (long)converter.primeMethod,
+            (long)converter.maximumOutputPacketSize];
+    }
+#endif
+#ifdef FINCH_DIFFTEST_AVFOUNDATION
+    if ([value isKindOfClass:AVMetadataItem.class]) {
+        AVMetadataItem *item = value;
+        return [NSString stringWithFormat:@"av-metadata:%@:%@:%@:%@:%@", auto_hex(item.identifier ?: @""),
+            auto_hex(item.keySpace ?: @""), auto_hex(item.dataType ?: @""), auto_canonical(item.key),
+            auto_canonical(item.value)];
+    }
+    if ([value isKindOfClass:AVAssetTrack.class]) {
+        AVAssetTrack *track = value;
+        CMTimeRange range = track.timeRange;
+        CGAffineTransform transform = track.preferredTransform;
+        return [NSString stringWithFormat:@"av-track:%@:%lld:%d:%lld:%d:%a:%a:%a:%a:%a:%a:%a:%a",
+            auto_hex(track.mediaType ?: @""), range.start.value, range.start.timescale,
+            range.duration.value, range.duration.timescale, track.naturalSize.width, track.naturalSize.height,
+            transform.a, transform.b, transform.c, transform.d, transform.tx, transform.ty];
+    }
+    if ([value isKindOfClass:AVAsset.class]) {
+        AVAsset *asset = value;
+        CMTime duration = asset.duration;
+        NSMutableArray *metadata = [NSMutableArray array];
+        for (AVMetadataItem *item in asset.commonMetadata) [metadata addObject:auto_canonical(item) ?: @"null"];
+        NSArray *videoTracks = [asset tracksWithMediaType:AVMediaTypeVideo];
+        NSArray *audioTracks = [asset tracksWithMediaType:AVMediaTypeAudio];
+        return [NSString stringWithFormat:@"av-asset:%lld:%d:%d:%d:%d:%lu:%lu:%@", duration.value,
+            duration.timescale, asset.isPlayable, asset.isExportable, asset.isReadable,
+            (unsigned long)videoTracks.count, (unsigned long)audioTracks.count, auto_canonical(metadata)];
+    }
+#endif
+#ifdef FINCH_DIFFTEST_PDFKIT
+    if ([value isKindOfClass:PDFDocument.class]) {
+        PDFDocument *document = value;
+        return [NSString stringWithFormat:@"pdf-document:%lu:%@:%@", (unsigned long)document.pageCount,
+            auto_hex(document.string ?: @""), auto_hex([document documentAttributes][PDFDocumentTitleAttribute] ?: @"")];
+    }
+    if ([value isKindOfClass:PDFPage.class]) {
+        PDFPage *page = value;
+        CGRect bounds = [page boundsForBox:kPDFDisplayBoxMediaBox];
+        return [NSString stringWithFormat:@"pdf-page:%ld:%@:%a:%a:%a:%a:%lu", (long)page.rotation,
+            auto_hex(page.string ?: @""), bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height,
+            (unsigned long)page.annotations.count];
+    }
+    if ([value isKindOfClass:PDFSelection.class])
+        return [NSString stringWithFormat:@"pdf-selection:%@:%lu", auto_hex([(PDFSelection *)value string] ?: @""),
+            (unsigned long)[(PDFSelection *)value pages].count];
+    if ([value isKindOfClass:PDFView.class]) {
+        PDFView *view = value;
+        return [NSString stringWithFormat:@"pdf-view:%@:%ld:%ld:%d:%d", auto_canonical(view.document),
+            (long)view.displayMode, (long)view.displayBox, view.displaysPageBreaks, view.autoScales];
+    }
+#endif
+#ifdef FINCH_DIFFTEST_STOREKIT
+    if ([value isKindOfClass:SKPayment.class]) {
+        SKPayment *payment = value;
+        return [NSString stringWithFormat:@"storekit-payment:%@:%ld:%@:%@:%d:%@",
+            auto_hex(payment.productIdentifier ?: @""), (long)payment.quantity,
+            auto_hex(payment.applicationUsername ?: @""), auto_canonical(payment.requestData),
+            payment.simulatesAskToBuyInSandbox, auto_canonical(payment.paymentDiscount)];
+    }
+    if ([value isKindOfClass:SKPaymentDiscount.class]) {
+        SKPaymentDiscount *discount = value;
+        return [NSString stringWithFormat:@"storekit-discount:%@:%@:%@:%@:%@", auto_hex(discount.identifier ?: @""),
+            auto_hex(discount.keyIdentifier ?: @""), auto_canonical(discount.nonce),
+            auto_hex(discount.signature ?: @""), auto_canonical(discount.timestamp)];
+    }
+#endif
+#ifdef FINCH_DIFFTEST_LINKPRESENTATION
+    if ([value isKindOfClass:LPLinkMetadata.class]) {
+        LPLinkMetadata *metadata = value;
+        return [NSString stringWithFormat:@"link-metadata:%@:%@:%@", auto_hex(metadata.title ?: @""),
+            auto_canonical(metadata.originalURL), auto_canonical(metadata.URL)];
     }
 #endif
     if ([value isKindOfClass:NSDateComponentsFormatter.class]) {
@@ -3355,6 +3613,7 @@ static NSData *auto_data(const void *bytes, NSUInteger length)
 }
 
 static id auto_object(NSString *type, NSUInteger index);
+static id auto_dynamic_init(NSString *className);
 
 static NSArray *auto_generic_arguments(NSString *type)
 {
@@ -3392,6 +3651,100 @@ static id auto_generic_object(NSString *type, NSUInteger index)
     if ([clean isEqualToString:@"id<CAAction>"]) return [CAAnimation animation];
 #endif
     return auto_object(clean, index);
+}
+
+#ifdef FINCH_DIFFTEST_PDFKIT
+static NSData *auto_pdfkit_data(void)
+{
+    CGRect page = CGRectMake(0, 0, 120, 80);
+    CFMutableDataRef data = CFDataCreateMutable(kCFAllocatorDefault, 0);
+    CGDataConsumerRef consumer = CGDataConsumerCreateWithCFData(data);
+    CGContextRef context = consumer ? CGPDFContextCreate(consumer, &page, NULL) : NULL;
+    if (context) {
+        CGPDFContextBeginPage(context, NULL);
+        CGContextSelectFont(context, "Helvetica", 12, kCGEncodingMacRoman);
+        CGContextShowTextAtPoint(context, 8, 40, "Finch generated page", 20);
+        CGPDFContextEndPage(context);
+        CGContextRelease(context);
+    }
+    if (consumer) CGDataConsumerRelease(consumer);
+    NSData *result = [[[NSData alloc] initWithData:(NSData *)data] autorelease];
+    CFRelease(data);
+    return result;
+}
+#endif
+
+#ifdef FINCH_DIFFTEST_AVFOUNDATION
+static NSURL *auto_avfoundation_url(void)
+{
+    static NSURL *url;
+    if (url) return url;
+    (void)mkdir("build/difftest/fixtures", 0755);
+    NSString *path = [NSString stringWithFormat:@"build/difftest/fixtures/avmovie-%d.mov", getpid()];
+    NSData *first = [NSData dataWithBytes:frame0 length:sizeof(frame0)];
+    NSData *second = [NSData dataWithBytes:frame1 length:sizeof(frame1)];
+    NSData *movie = build_movie_with_frames(@[first, second]);
+    if (![movie writeToFile:path atomically:YES]) return nil;
+    url = [[NSURL fileURLWithPath:path] retain];
+    return url;
+}
+
+static AVURLAsset *auto_avfoundation_asset(void)
+{
+    NSURL *url = auto_avfoundation_url();
+    return url ? [AVURLAsset URLAssetWithURL:url options:nil] : nil;
+}
+
+static id auto_avfoundation_composition_track(void)
+{
+    id composition = auto_dynamic_init(@"AVMutableComposition");
+    AVAssetTrack *source = [[auto_avfoundation_asset() tracksWithMediaType:AVMediaTypeVideo] firstObject];
+    if (!composition || !source) return nil;
+    id (*addTrack)(id, SEL, id, int32_t) = (void *)objc_msgSend;
+    id track = addTrack(composition, NSSelectorFromString(@"addMutableTrackWithMediaType:preferredTrackID:"),
+        AVMediaTypeVideo, kCMPersistentTrackID_Invalid);
+    if (!track) return nil;
+    NSError *error = nil;
+    void (*insert)(id, SEL, CMTimeRange, id, CMTime, NSError **) = (void *)objc_msgSend;
+    insert(track, NSSelectorFromString(@"insertTimeRange:ofTrack:atTime:error:"),
+        CMTimeRangeMake(kCMTimeZero, CMTimeMake(1, 6)), source, kCMTimeZero, &error);
+    return track;
+}
+
+#endif
+
+#ifdef FINCH_DIFFTEST_IMAGEKIT
+static CFDataRef auto_png_data(void);
+#endif
+
+static id auto_dynamic_init(NSString *className)
+{
+    Class cls = NSClassFromString(className);
+    return cls ? [[[cls alloc] init] autorelease] : nil;
+}
+
+static id auto_dynamic_class_method0(NSString *className, NSString *selectorName)
+{
+    Class cls = NSClassFromString(className);
+    if (!cls) return nil;
+    id (*send)(id, SEL) = (void *)objc_msgSend;
+    return send(cls, NSSelectorFromString(selectorName));
+}
+
+static id auto_dynamic_class_method1(NSString *className, NSString *selectorName, id argument)
+{
+    Class cls = NSClassFromString(className);
+    if (!cls) return nil;
+    id (*send)(id, SEL, id) = (void *)objc_msgSend;
+    return send(cls, NSSelectorFromString(selectorName), argument);
+}
+
+static id auto_dynamic_class_method2(NSString *className, NSString *selectorName, id first, id second)
+{
+    Class cls = NSClassFromString(className);
+    if (!cls) return nil;
+    id (*send)(id, SEL, id, id) = (void *)objc_msgSend;
+    return send(cls, NSSelectorFromString(selectorName), first, second);
 }
 
 static id auto_object(NSString *type, NSUInteger index)
@@ -3436,6 +3789,206 @@ static id auto_object(NSString *type, NSUInteger index)
         progress.localizedDescription = @"Finch";
         return progress;
     }
+#ifdef FINCH_DIFFTEST_PDFKIT
+    if ([base isEqualToString:@"PDFView"]) {
+        PDFView *view = [[[PDFView alloc] initWithFrame:NSMakeRect(0, 0, 120, 80)] autorelease];
+        view.document = auto_object(@"PDFDocument *", index);
+        view.displaysPageBreaks = YES; view.autoScales = YES;
+        return view;
+    }
+    if ([base isEqualToString:@"PDFThumbnailView"]) {
+        PDFThumbnailView *view = [[[PDFThumbnailView alloc] initWithFrame:NSMakeRect(0, 0, 120, 80)] autorelease];
+        view.PDFView = auto_object(@"PDFView *", index);
+        view.thumbnailSize = CGSizeMake(32, 24);
+        return view;
+    }
+    if ([base isEqualToString:@"PDFDocument"])
+        return [[[PDFDocument alloc] initWithData:auto_pdfkit_data()] autorelease];
+    if ([base isEqualToString:@"PDFPage"])
+        return [auto_object(@"PDFDocument *", index) pageAtIndex:0];
+    if ([base isEqualToString:@"PDFSelection"])
+        return [auto_object(@"PDFDocument *", index) findString:@"Finch" withOptions:0].firstObject;
+    if ([base isEqualToString:@"PDFOutline"]) return [[[PDFOutline alloc] init] autorelease];
+    if ([base isEqualToString:@"PDFDestination"])
+        return [[[PDFDestination alloc] initWithPage:auto_object(@"PDFPage *", index) atPoint:CGPointMake(8, 40)] autorelease];
+    if ([base isEqualToString:@"PDFBorder"]) return [[[PDFBorder alloc] init] autorelease];
+    if ([base isEqualToString:@"PDFAnnotation"])
+        return [[[PDFAnnotation alloc] initWithBounds:CGRectMake(8, 8, 24, 16)
+            forType:PDFAnnotationSubtypeText withProperties:nil] autorelease];
+    if ([base isEqualToString:@"PDFAppearanceCharacteristics"]) {
+        Class appearanceClass = NSClassFromString(@"PDFAppearanceCharacteristics");
+        return appearanceClass ? [[[appearanceClass alloc] init] autorelease] : nil;
+    }
+    if ([base isEqualToString:@"PDFActionURL"])
+        return [[[PDFActionURL alloc] initWithURL:[NSURL URLWithString:@"https://example.invalid/"]] autorelease];
+    if ([base isEqualToString:@"PDFActionGoTo"])
+        return [[[PDFActionGoTo alloc] initWithDestination:auto_object(@"PDFDestination *", index)] autorelease];
+    if ([base hasPrefix:@"PDFAnnotation"] && ![base isEqualToString:@"PDFAnnotation"]) {
+        Class annotationClass = NSClassFromString(base);
+        if (!annotationClass) return nil;
+        id (*send)(id, SEL, CGRect, id, id) = (void *)objc_msgSend;
+        return send([annotationClass alloc], NSSelectorFromString(@"initWithBounds:forType:withProperties:"),
+            CGRectMake(8, 8, 24, 16), PDFAnnotationSubtypeText, nil);
+    }
+    if ([base isEqualToString:@"PDFActionNamed"]) {
+        Class actionClass = NSClassFromString(base);
+        if (!actionClass) return nil;
+        id (*send)(id, SEL, id) = (void *)objc_msgSend;
+        return send([actionClass alloc], NSSelectorFromString(@"initWithName:"), @"GoToPage");
+    }
+    if ([base isEqualToString:@"PDFActionResetForm"]) return auto_dynamic_init(base);
+#endif
+#ifdef FINCH_DIFFTEST_IMAGEKIT
+    if ([base isEqualToString:@"IKImageView"]) {
+        Class imageViewClass = NSClassFromString(base);
+        if (!imageViewClass) return nil;
+        id (*send)(id, SEL, NSRect) = (void *)objc_msgSend;
+        id view = send([imageViewClass alloc], NSSelectorFromString(@"initWithFrame:"), NSMakeRect(0, 0, 64, 48));
+        if (view) [view setValue:auto_object(@"NSImage *", index) forKey:@"image"];
+        return view;
+    }
+    if ([base isEqualToString:@"IKImageBrowserView"]) {
+        Class browserClass = NSClassFromString(base);
+        if (!browserClass) return nil;
+        id (*send)(id, SEL, NSRect) = (void *)objc_msgSend;
+        return send([browserClass alloc], NSSelectorFromString(@"initWithFrame:"), NSMakeRect(0, 0, 64, 48));
+    }
+    if ([base isEqualToString:@"IKImageBrowserCell"]) return auto_dynamic_init(base);
+    if ([base isEqualToString:@"IKSaveOptions"]) return [[[IKSaveOptions alloc] init] autorelease];
+    if ([base isEqualToString:@"NSImage"]) {
+        CFDataRef data = auto_png_data();
+        NSImage *image = [[[NSImage alloc] initWithData:(NSData *)data] autorelease];
+        CFRelease(data);
+        return image;
+    }
+#endif
+#ifdef FINCH_DIFFTEST_AVFOUNDATION
+    if ([base isEqualToString:@"AVAsset"] || [base isEqualToString:@"AVURLAsset"])
+        return auto_avfoundation_asset();
+    if ([base isEqualToString:@"AVAssetTrack"])
+        return [[auto_avfoundation_asset() tracksWithMediaType:AVMediaTypeVideo] firstObject];
+    if ([base isEqualToString:@"AVAssetTrackSegment"])
+        return [[[auto_avfoundation_asset() tracksWithMediaType:AVMediaTypeVideo] firstObject].segments firstObject];
+    if ([base isEqualToString:@"AVMutableComposition"] || [base isEqualToString:@"AVComposition"])
+        return auto_dynamic_init(@"AVMutableComposition");
+    if ([base isEqualToString:@"AVMutableCompositionTrack"] || [base isEqualToString:@"AVCompositionTrack"])
+        return auto_avfoundation_composition_track();
+    if ([base isEqualToString:@"AVMutableAudioMix"] || [base isEqualToString:@"AVAudioMix"])
+        return auto_dynamic_class_method0(@"AVMutableAudioMix", @"audioMix");
+    if ([base isEqualToString:@"AVVideoComposition"] || [base isEqualToString:@"AVMutableVideoComposition"]) {
+        id composition = auto_dynamic_class_method0(@"AVMutableVideoComposition", @"videoComposition");
+        if (composition) {
+            [composition setValue:[NSValue valueWithSize:CGSizeMake(64, 48)] forKey:@"renderSize"];
+            CMTime frameDuration = CMTimeMake(1, 6);
+            [composition setValue:[NSValue valueWithBytes:&frameDuration objCType:@encode(CMTime)]
+                forKey:@"frameDuration"];
+        }
+        return composition;
+    }
+    if ([base isEqualToString:@"AVVideoCompositionInstruction"] ||
+        [base isEqualToString:@"AVMutableVideoCompositionInstruction"]) {
+        id instruction = auto_dynamic_class_method0(@"AVMutableVideoCompositionInstruction", @"videoCompositionInstruction");
+        if (instruction) {
+            CMTimeRange range = CMTimeRangeMake(kCMTimeZero, CMTimeMake(1, 6));
+            [instruction setValue:[NSValue valueWithBytes:&range objCType:@encode(CMTimeRange)] forKey:@"timeRange"];
+            [instruction setValue:@[] forKey:@"layerInstructions"];
+        }
+        return instruction;
+    }
+    if ([base isEqualToString:@"AVVideoCompositionLayerInstruction"] ||
+        [base isEqualToString:@"AVMutableVideoCompositionLayerInstruction"])
+        return auto_dynamic_class_method1(@"AVMutableVideoCompositionLayerInstruction",
+            @"videoCompositionLayerInstructionWithAssetTrack:", auto_object(@"AVAssetTrack *", index));
+    if ([base isEqualToString:@"AVPlayerItem"])
+        return auto_dynamic_class_method1(@"AVPlayerItem", @"playerItemWithAsset:", auto_avfoundation_asset());
+    if ([base isEqualToString:@"AVPlayerItemTrack"])
+        return [[auto_object(@"AVPlayerItem *", index) tracks] firstObject];
+    if ([base isEqualToString:@"AVAssetExportSession"])
+        return auto_dynamic_class_method2(@"AVAssetExportSession", @"exportSessionWithAsset:presetName:",
+            auto_avfoundation_asset(), AVAssetExportPresetPassthrough);
+    if ([base isEqualToString:@"AVAssetImageGenerator"])
+        return auto_dynamic_class_method1(@"AVAssetImageGenerator", @"assetImageGeneratorWithAsset:",
+            auto_avfoundation_asset());
+    if ([base isEqualToString:@"AVMediaSelection"])
+        return auto_avfoundation_asset().preferredMediaSelection;
+    if ([base isEqualToString:@"AVMutableMediaSelection"])
+        return [auto_avfoundation_asset().preferredMediaSelection mutableCopy];
+    if ([base isEqualToString:@"AVMediaSelectionGroup"])
+        return [auto_avfoundation_asset() mediaSelectionGroupForMediaCharacteristic:AVMediaCharacteristicVisual];
+    if ([base isEqualToString:@"AVMediaSelectionOption"])
+        return [[auto_object(@"AVMediaSelectionGroup *", index) options] firstObject];
+    if ([base isEqualToString:@"AVTimedMetadataGroup"] || [base isEqualToString:@"AVMutableTimedMetadataGroup"]) {
+        Class groupClass = NSClassFromString(base);
+        if (!groupClass) return nil;
+        id (*send)(id, SEL, id, CMTimeRange) = (void *)objc_msgSend;
+        CMTimeRange range = CMTimeRangeMake(kCMTimeZero, CMTimeMake(1, 6));
+        return send([groupClass alloc], NSSelectorFromString(@"initWithItems:timeRange:"),
+            @[auto_object(@"AVMetadataItem *", index)], range);
+    }
+    if ([base isEqualToString:@"AVDateRangeMetadataGroup"] || [base isEqualToString:@"AVMutableDateRangeMetadataGroup"]) {
+        Class groupClass = NSClassFromString(base);
+        if (!groupClass) return nil;
+        id (*send)(id, SEL, id, id, id) = (void *)objc_msgSend;
+        NSDate *start = [NSDate dateWithTimeIntervalSinceReferenceDate:700000000];
+        NSDate *end = [NSDate dateWithTimeIntervalSinceReferenceDate:700000006];
+        return send([groupClass alloc], NSSelectorFromString(@"initWithItems:startDate:endDate:"),
+            @[auto_object(@"AVMetadataItem *", index)], start, end);
+    }
+    if ([base isEqualToString:@"AVCaption"] || [base isEqualToString:@"AVMutableCaption"]) {
+        Class captionClass = NSClassFromString(base);
+        if (!captionClass) return nil;
+        id (*send)(id, SEL, id, CMTimeRange) = (void *)objc_msgSend;
+        CMTimeRange range = CMTimeRangeMake(kCMTimeZero, CMTimeMake(1, 6));
+        return send([captionClass alloc], NSSelectorFromString(@"initWithText:timeRange:"), @"Finch caption", range);
+    }
+    if ([base isEqualToString:@"AVCaptionRegion"] || [base isEqualToString:@"AVMutableCaptionRegion"] ||
+        [base isEqualToString:@"AVCaptionRuby"] || [base isEqualToString:@"AVTextStyleRule"] ||
+        [base isEqualToString:@"AVAssetVariantQualifier"] || [base isEqualToString:@"AVAssetVariant"] ||
+        [base isEqualToString:@"AVAssetVariantVideoAttributes"] || [base isEqualToString:@"AVAssetVariantAudioAttributes"] ||
+        [base isEqualToString:@"AVMediaSelectionGroup"] || [base isEqualToString:@"AVMediaSelectionOption"] ||
+        [base isEqualToString:@"AVMetadataItemFilter"] || [base isEqualToString:@"AVAssetTrackGroup"])
+        return auto_dynamic_init(base);
+    if ([base isEqualToString:@"AVMetadataItem"] || [base isEqualToString:@"AVMutableMetadataItem"]) {
+        AVMutableMetadataItem *item = [[[AVMutableMetadataItem alloc] init] autorelease];
+        item.identifier = AVMetadataCommonIdentifierTitle;
+        item.value = @"Finch generated movie";
+        item.dataType = kCMMetadataBaseDataType_UTF8;
+        return item;
+    }
+#endif
+#ifdef FINCH_DIFFTEST_OPENDIRECTORY
+    if ([base isEqualToString:@"ODAttributeMap"])
+        return auto_dynamic_class_method1(base, @"attributeMapWithStaticValue:", @"$native$");
+    if ([base isEqualToString:@"ODConfiguration"] || [base isEqualToString:@"ODMappings"] ||
+        [base isEqualToString:@"ODRecordMap"])
+        return auto_dynamic_class_method0(base, [base isEqualToString:@"ODConfiguration"] ? @"configuration" :
+            ([base isEqualToString:@"ODMappings"] ? @"mappings" : @"recordMap"));
+    if ([base isEqualToString:@"ODModuleEntry"])
+        return auto_dynamic_class_method2(base, @"moduleEntryWithName:xpcServiceName:", @"FinchDifftest", @"org.finch.difftest");
+#endif
+#ifdef FINCH_DIFFTEST_STOREKIT
+    if ([base isEqualToString:@"SKPayment"] || [base isEqualToString:@"SKMutablePayment"]) {
+        SKMutablePayment *payment = [[[SKMutablePayment alloc] init] autorelease];
+        payment.productIdentifier = @"org.finch.difftest.local";
+        payment.quantity = 2;
+        payment.applicationUsername = @"fixed-user-value";
+        payment.requestData = [NSData dataWithBytes:"fixed" length:5];
+        return payment;
+    }
+    if ([base isEqualToString:@"SKPaymentDiscount"])
+        return [[[SKPaymentDiscount alloc] initWithIdentifier:@"fixed-offer" keyIdentifier:@"fixed-key"
+            nonce:[[NSUUID alloc] initWithUUIDString:@"68753a44-4d6f-1226-9c60-0050e4c00067"]
+            signature:@"fixed-signature" timestamp:@1] autorelease];
+#endif
+#ifdef FINCH_DIFFTEST_LINKPRESENTATION
+    if ([base isEqualToString:@"LPLinkMetadata"]) {
+        LPLinkMetadata *metadata = [[[LPLinkMetadata alloc] init] autorelease];
+        metadata.originalURL = [NSURL URLWithString:@"https://example.invalid/original"];
+        metadata.URL = [NSURL URLWithString:@"https://example.invalid/final"];
+        metadata.title = @"Finch fixed link";
+        return metadata;
+    }
+#endif
 #ifdef FINCH_DIFFTEST_QUARTZCORE
     if ([base isEqualToString:@"CALayerContentsFilter"])
         return @[kCAFilterNearest, kCAFilterLinear, kCAFilterTrilinear][index % 3];
@@ -3648,7 +4201,26 @@ static id auto_object(NSString *type, NSUInteger index)
         AVAudioPCMBuffer *buffer = [[[AVAudioPCMBuffer alloc]
             initWithPCMFormat:auto_object(@"AVAudioFormat *", index) frameCapacity:128] autorelease];
         buffer.frameLength = 32;
+        if (buffer.floatChannelData) {
+            for (AVAudioFrameCount frame = 0; frame < buffer.frameLength; frame++) {
+                for (AVAudioChannelCount channel = 0; channel < buffer.format.channelCount; channel++)
+                    buffer.floatChannelData[channel][frame] = (float)((frame + channel) % 7) / 8.0f;
+            }
+        }
         return buffer;
+    }
+    if ([base isEqualToString:@"AVAudioCompressedBuffer"]) {
+        AudioStreamBasicDescription description = {0};
+        description.mSampleRate = 44100;
+        description.mFormatID = kAudioFormatMPEG4AAC;
+        description.mChannelsPerFrame = 2;
+        description.mFramesPerPacket = 1024;
+        AVAudioFormat *format = [[[AVAudioFormat alloc] initWithStreamDescription:&description] autorelease];
+        return [[[AVAudioCompressedBuffer alloc] initWithFormat:format packetCapacity:4 maximumPacketSize:4096] autorelease];
+    }
+    if ([base isEqualToString:@"AVAudioConverter"]) {
+        AVAudioFormat *format = auto_object(@"AVAudioFormat *", index);
+        return [[[AVAudioConverter alloc] initFromFormat:format toFormat:format] autorelease];
     }
 #endif
 #ifdef FINCH_DIFFTEST_APPKIT
@@ -3826,6 +4398,22 @@ static id auto_object(NSString *type, NSUInteger index)
     if ([base isEqualToString:@"NSXMLNode"]) return [NSXMLNode elementWithName:@"node"];
     if ([base isEqualToString:@"NSNotificationName"] || [base hasSuffix:@"Key"] || [base hasSuffix:@"Name"])
         return @[@"", @"FinchTest", @"cafe\u0301"][index % 3];
+    if ([base hasPrefix:@"AV"] &&
+        ([base hasSuffix:@"Key"] || [base hasSuffix:@"Name"] || [base hasSuffix:@"Identifier"] ||
+         [base hasSuffix:@"Type"] || [base hasSuffix:@"Format"] || [base hasSuffix:@"Mode"] ||
+         [base hasSuffix:@"Option"])) {
+#ifdef FINCH_DIFFTEST_AVFOUNDATION
+        if ([base isEqualToString:@"AVMediaType"])
+            return @[AVMediaTypeVideo, AVMediaTypeAudio][index % 2];
+        if ([base isEqualToString:@"AVMetadataIdentifier"])
+            return @[AVMetadataCommonIdentifierTitle, AVMetadataCommonIdentifierArtist][index % 2];
+        if ([base isEqualToString:@"AVMetadataKeySpace"])
+            return @[AVMetadataKeySpaceCommon, AVMetadataKeySpaceQuickTimeUserData][index % 2];
+        if ([base isEqualToString:@"AVMetadataKey"])
+            return @[AVMetadataCommonKeyTitle, AVMetadataCommonKeyArtist][index % 2];
+#endif
+        return @[@"FinchTest", @"org.finch.difftest"][index % 2];
+    }
     if ([base hasSuffix:@"Identifier"] || [base hasSuffix:@"Domain"] || [base hasSuffix:@"Type"])
         return @[@"en_US_POSIX", @"fr_CA", @"ar_EG"][index % 3];
     if ([base hasPrefix:@"CF"] && [base hasSuffix:@"Ref"]) {
@@ -4411,6 +4999,9 @@ static id auto_receiver(NSString *className, NSString *selectorName)
     Class cls = NSClassFromString(className);
     if (!cls) return nil;
     if ([selectorName hasPrefix:@"init"]) return [cls alloc];
+    if ([className hasPrefix:@"PDF"] || [className hasPrefix:@"AV"] || [className hasPrefix:@"IK"] ||
+        [className hasPrefix:@"OD"] || [className hasPrefix:@"SK"] || [className hasPrefix:@"LP"])
+        return auto_object([className stringByAppendingString:@" *"], 2);
     if ([className isEqualToString:@"NSIndexSet"]) return auto_object(@"NSIndexSet *", 2);
     if ([className isEqualToString:@"NSMutableIndexSet"]) return auto_object(@"NSMutableIndexSet *", 2);
     if ([className isEqualToString:@"NSMeasurement"] || [className isEqualToString:@"NSPersonNameComponents"] ||
@@ -5744,6 +6335,61 @@ static BOOL auto_run_objc_item(const char *name, const char *metadataPath)
     NSData *data = [NSData dataWithBytes:metadataPath length:strlen(metadataPath)];
     NSError *error = nil; NSDictionary *root = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
     if (![root isKindOfClass:NSDictionary.class] || ![root[@"name"] isEqualToString:[NSString stringWithUTF8String:name]]) return NO;
+    NSString *kind = root[@"kind"];
+    NSString *typeName = root[@"type_name"];
+    if ([kind isEqualToString:@"objc-class"]) {
+        const char *spelling = typeName.UTF8String;
+        Class cls = spelling ? objc_getClass(spelling) : Nil;
+        if (!cls) { auto_print(auto_hex(@"missing-class")); putchar('\n'); return YES; }
+        Class superclass = class_getSuperclass(cls);
+        NSString *parentName = superclass ? @(class_getName(superclass)) : @"<root>";
+        NSString *record = [NSString stringWithFormat:@"class:%@:%@:%lu", @(class_getName(cls)), parentName,
+            (unsigned long)class_getInstanceSize(cls)];
+        auto_print(auto_hex(record)); putchar('\n');
+        return YES;
+    }
+    if ([kind isEqualToString:@"objc-method"]) {
+        NSString *className = root[@"class_name"];
+        NSString *selectorName = root[@"selector"];
+        Class cls = className ? objc_getClass(className.UTF8String) : Nil;
+        if (!cls) { auto_print(auto_hex(@"missing-class")); putchar('\n'); return YES; }
+        SEL selector = selectorName ? sel_registerName(selectorName.UTF8String) : NULL;
+        Method method = [root[@"class_method"] boolValue]
+            ? class_getClassMethod(cls, selector) : class_getInstanceMethod(cls, selector);
+        if (!method) { auto_print(auto_hex(@"missing-method")); putchar('\n'); return YES; }
+        const char *encoding = method_getTypeEncoding(method);
+        NSString *record = [NSString stringWithFormat:@"method:%@:%@:%@", className, selectorName,
+            encoding ? @(encoding) : @""];
+        auto_print(auto_hex(record)); putchar('\n');
+        return YES;
+    }
+    if ([kind isEqualToString:@"objc-protocol"]) {
+        const char *spelling = typeName.UTF8String;
+        Protocol *protocol = spelling ? objc_getProtocol(spelling) : NULL;
+        if (!protocol) { auto_print(auto_hex(@"missing-protocol")); putchar('\n'); return YES; }
+        NSMutableArray *methods = [NSMutableArray array];
+        for (BOOL required = YES; ; required = NO) {
+            for (BOOL instance = YES; ; instance = NO) {
+                unsigned int count = 0;
+                struct objc_method_description *descriptions = protocol_copyMethodDescriptionList(
+                    protocol, required, instance, &count);
+                for (unsigned int index = 0; index < count; index++) {
+                    NSString *selector = NSStringFromSelector(descriptions[index].name) ?: @"";
+                    NSString *encoding = descriptions[index].types ? @(descriptions[index].types) : @"";
+                    [methods addObject:[NSString stringWithFormat:@"%@:%@:%@", required ? @"required" : @"optional",
+                        instance ? @"instance" : @"class", [NSString stringWithFormat:@"%@:%@", selector, encoding]]];
+                }
+                free(descriptions);
+                if (!instance) break;
+            }
+            if (!required) break;
+        }
+        [methods sortUsingSelector:@selector(compare:)];
+        NSString *record = [NSString stringWithFormat:@"protocol:%@:%@", @(protocol_getName(protocol)),
+            [methods componentsJoinedByString:@"|"]];
+        auto_print(auto_hex(record)); putchar('\n');
+        return YES;
+    }
     NSDictionary *item = root;
     @try { auto_test_method(item); }
     @catch (NSException *exception) { fputs("exception\t", stdout); auto_print(auto_hex(exception.name)); putchar(':'); auto_print(auto_hex(exception.reason ?: @"")); putchar('\n'); }
@@ -5760,7 +6406,8 @@ def _function_metadata(function: dict, enum_values: list[dict]) -> dict:
 
 
 def prepare(framework: str, c_items: set[str], objc_items: set[str], swift_items: set[str],
-            details: dict, manual_names: set[str], finch_symbols: set[str], output_dir: Path) -> dict:
+            details: dict, manual_names: set[str], finch_symbols: set[str], output_dir: Path,
+            objc_type_items: list[dict] | None = None) -> dict:
     """Make a generated dispatch table and metadata for every safely buildable call."""
     function_by_name = {item["name"]: item for item in details.get("functions", [])}
     variable_by_name = {item["name"]: item for item in details.get("variables", [])}
@@ -5879,9 +6526,10 @@ def prepare(framework: str, c_items: set[str], objc_items: set[str], swift_items
         "max_cases_per_item": MAX_CASES,
         "c": [{"name": entry["name"], "category": entry["category"], "kind": entry["kind"], "signature": entry["signature"]} for entry in auto_c],
         "objc": auto_objc,
+        "types": {entry["name"]: entry for entry in (objc_type_items or [])},
         "skipped": skipped,
     }
-    metadata_path = output_dir / f"{framework}.types.json"
+    metadata_path = output_dir / f"{framework.replace('/', '__')}.types.json"
     metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
     return {
         "c_source": _c_runtime() + "\n" + c_source if auto_c else _c_runtime(),
@@ -5889,6 +6537,8 @@ def prepare(framework: str, c_items: set[str], objc_items: set[str], swift_items
         "objc_runtime": _objc_runtime(),
         "auto_c_items": [{"name": entry["name"], "category": entry["category"], "kind": entry["kind"], "signature": entry["signature"]} for entry in auto_c],
         "auto_objc_items": [{"name": name, "category": item["category"], "kind": "objc", "signature": item["return_type"] + " (" + ", ".join(p.get("type", "") for p in item.get("parameters", [])) + ")"} for name, item in auto_objc.items()],
+        "auto_objc_type_items": [{"name": entry["name"], "category": "auto/objc/runtime-type", "kind": "objc-type",
+                                  "signature": entry["kind"]} for entry in (objc_type_items or [])],
         "skipped": skipped,
         "metadata": str(metadata_path),
     }

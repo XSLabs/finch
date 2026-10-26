@@ -112,8 +112,14 @@ def source_fingerprint() -> str:
 def finch_framework_image(framework: str, build_root: Path | None = None) -> Path:
     """Find the Finch framework binary the generated runner must load."""
     root = (build_root or ROOT / "build/root") / "System/Library/Frameworks"
-    bundle = root / f"{framework}.framework"
-    matches = sorted({path.resolve() for path in bundle.glob(f"Versions/*/{framework}") if path.is_file()},
+    # A sub-framework (Quartz/ImageKit) sits in its parent's Versions/A/Frameworks,
+    # unless Finch ships it on its own and the parent re-exports it (Quartz/PDFKit).
+    parent, _, name = framework.rpartition("/")
+    bundle = root / f"{name}.framework"
+    nested = root / f"{parent}.framework/Versions/A/Frameworks/{name}.framework"
+    if parent and nested.is_dir():
+        bundle = nested
+    matches = sorted({path.resolve() for path in bundle.glob(f"Versions/*/{name}") if path.is_file()},
                      key=str)
     if len(matches) != 1:
         raise RuntimeError(f"expected one Finch image for {framework}, found {len(matches)} under {bundle}")
@@ -214,10 +220,17 @@ def build_program(framework: str, source: Path) -> Path:
     compiler = run_checked(["xcrun", "--sdk", "macosx", "-f", "clang"]).stdout.strip()
     sdk = run_checked(["xcrun", "--sdk", "macosx", "--show-sdk-version"]).stdout.strip()
     sdk_path = run_checked(["xcrun", "--sdk", "macosx", "--show-sdk-path"]).stdout.strip()
+    sdk_root = Path(sdk_path)
     compiler_version = run_checked([compiler, "--version"]).stdout.splitlines()[0]
     source_check = BUILD / "source-check.h"
     source_check.parent.mkdir(parents=True, exist_ok=True)
     source_check.write_text(SOURCE_CHECK_HEADER)
+    framework_name = framework.rsplit("/", 1)[-1]
+    framework_search_paths = []
+    if framework == "Quartz" or framework.startswith("Quartz/"):
+        framework_search_paths.extend(["-F", str(sdk_root / "System/Library/Frameworks/Quartz.framework/Versions/A/Frameworks")])
+    elif framework.startswith("OpenDirectory/"):
+        framework_search_paths.extend(["-F", str(sdk_root / "System/Library/Frameworks/OpenDirectory.framework/Versions/A/Frameworks")])
     dependencies = {
         "Foundation": ["CoreFoundation"],
         "AppKit": ["CoreFoundation"],
@@ -240,6 +253,22 @@ def build_program(framework: str, source: Path) -> Path:
         "Metal": ["Foundation", "CoreFoundation"],
         "CoreSpotlight": ["Foundation", "CoreFoundation", "UniformTypeIdentifiers"],
         "AVFAudio": ["Foundation", "CoreFoundation", "AudioToolbox"],
+        "PDFKit": ["Foundation", "CoreFoundation", "CoreGraphics", "AppKit"],
+        "Quartz/PDFKit": ["Foundation", "CoreFoundation", "CoreGraphics", "AppKit"],
+        "Quartz": ["Foundation", "CoreFoundation", "CoreGraphics", "CoreText", "ImageIO", "AppKit",
+                   "CoreImage", "QuartzCore", "ColorSync", "PDFKit", "ImageKit"],
+        "Quartz/ImageKit": ["Foundation", "CoreFoundation", "CoreGraphics", "AppKit", "QuartzCore", "CoreImage"],
+        "AVFoundation": ["Foundation", "CoreFoundation", "CoreGraphics", "CoreMedia", "CoreVideo",
+                         "AudioToolbox", "AVFAudio"],
+        "AudioToolbox": ["Foundation", "CoreFoundation", "CoreAudio"],
+        "IOKit": ["Foundation", "CoreFoundation"],
+        "SystemConfiguration": ["Foundation", "CoreFoundation"],
+        "CoreMIDI": ["Foundation", "CoreFoundation", "CoreAudio", "AudioToolbox"],
+        "OpenDirectory": ["Foundation", "CoreFoundation"],
+        "OpenDirectory/CFOpenDirectory": ["Foundation", "CoreFoundation"],
+        "StoreKit": ["Foundation", "CoreFoundation"],
+        "LinkPresentation": ["Foundation", "CoreFoundation", "UniformTypeIdentifiers"],
+        "Accelerate": ["Foundation", "CoreFoundation", "CoreGraphics"],
     }.get(framework, [])
     extra_frameworks = [part for dependency in dependencies for part in ("-framework", dependency)]
     build_key = hashlib.sha256(
@@ -251,8 +280,9 @@ def build_program(framework: str, source: Path) -> Path:
     if out.is_file():
         return out
     command = [compiler, "-include", str(source_check), "-arch", "arm64e", "-mmacosx-version-min=26.0", "-O2", "-fblocks",
+               *framework_search_paths,
                "-Wno-deprecated-declarations", "-Wno-deprecated-implementations", "-o", str(out), str(source),
-               "-framework", framework, *extra_frameworks]
+               "-framework", framework_name, *extra_frameworks]
     run_checked(command)
     run_checked(["codesign", "--force", "--sign", "-", "--identifier", f"org.finch.difftest.{framework}", str(out)])
     return out
@@ -270,6 +300,7 @@ def child_environment(finch: bool, expected_image: Path | None = None) -> dict[s
     framework_paths = [
         str(ROOT_LIB / "Frameworks"), str(ROOT_LIB / "PrivateFrameworks"),
         str(ROOT_LIB / "Frameworks" / "Quartz.framework" / "Frameworks"),
+        str(ROOT_LIB / "Frameworks" / "OpenDirectory.framework" / "Frameworks"),
         str(ROOT_LIB / "Frameworks" / "CoreServices.framework" / "Versions/A/Frameworks"),
         str(ROOT_LIB / "Frameworks" / "ApplicationServices.framework" / "Versions/A/Frameworks"),
         str(ROOT_LIB / "Frameworks" / "Carbon.framework" / "Versions/A/Frameworks"),
@@ -277,6 +308,10 @@ def child_environment(finch: bool, expected_image: Path | None = None) -> dict[s
     env["DYLD_FRAMEWORK_PATH"] = ":".join(path for path in framework_paths if Path(path).exists())
     swift_libs = ROOT / "build" / "root" / "usr" / "lib" / "swift"
     env["DYLD_LIBRARY_PATH"] = str(swift_libs) if swift_libs.exists() else ""
+    # Finch's own libraries the host lacks, such as OpenDirectory's libfinchaccount;
+    # a fallback path is searched only for libraries not found where they're named.
+    env["DYLD_FALLBACK_LIBRARY_PATH"] = ":".join(
+        [str(ROOT / "build" / "root" / "usr" / "lib" / "system"), "/usr/local/lib", "/usr/lib"])
     env["FINCH_THEME"] = "Classic"
     env["FINCH_FILTER_DIRS"] = str(ROOT_LIB / "Filters")
     env["FINCH_FONT_DIRS"] = str(ROOT_LIB / "Fonts")
@@ -480,11 +515,15 @@ def run_framework(framework: str, timeout: float, rules: list[dict], jobs: int) 
     test_binary_sha256 = sha256_file(binary)
     type_details = json.loads(Path(metadata["type_metadata"]).read_text())
     objc_details = type_details.get("objc", {})
+    objc_type_details = type_details.get("types", {})
     tested = {}
     for entry in metadata["tested_items"]:
         item = dict(entry)
         if entry["name"] in objc_details:
             item["invocation_metadata"] = json.dumps(objc_details[entry["name"]], ensure_ascii=True, separators=(",", ":"))
+        elif entry["name"] in objc_type_details:
+            item["invocation_metadata"] = json.dumps(objc_type_details[entry["name"]], ensure_ascii=True,
+                                                       separators=(",", ":"))
         else:
             item["invocation_metadata"] = "{}"
         tested[entry["name"]] = item
@@ -629,6 +668,8 @@ def run_framework(framework: str, timeout: float, rules: list[dict], jobs: int) 
 def api_item_id(name: str, property_accessors: dict | None = None,
                 method_ids: set[str] | None = None) -> str | None:
     """Translate a generator label to tools/api-coverage.py's item ID."""
+    if re.fullmatch(r"objc-(?:class|protocol):[A-Za-z_][A-Za-z0-9_]*", name):
+        return name
     method = re.fullmatch(r"([A-Za-z_]\w*) ([+-][A-Za-z_]\w*(?::[A-Za-z_]\w*)*:?)", name)
     if method:
         item_id = f"objc-class-method:{method.group(1)}:{method.group(2)}"
@@ -651,8 +692,32 @@ def objc_property_item_ids(framework: str) -> tuple[set[str], dict[str, str]]:
     coverage = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(coverage)
     sdk = Path(run_checked(["xcrun", "--sdk", "macosx", "--show-sdk-path"]).stdout.strip())
-    headers = sdk / "System/Library/Frameworks" / f"{framework}.framework"
-    items, _sources, _excluded = coverage.objc_items(headers)
+    if "/" in framework:
+        parent, child = framework.split("/", 1)
+        headers = sdk / "System/Library/Frameworks" / f"{parent}.framework/Versions/A/Frameworks/{child}.framework"
+        framework_paths = [headers]
+    else:
+        headers = sdk / "System/Library/Frameworks" / f"{framework}.framework"
+        framework_paths = [headers]
+        if framework == "AVFoundation":
+            framework_paths.append(sdk / "System/Library/Frameworks/AVFAudio.framework")
+        if framework == "Quartz":
+            children = (
+                "CoreImage", "QuartzCore", "CoreVideo", "PDFKit", "Quartz/PDFKit",
+                "Quartz/ImageKit", "QuickLook", "QuickLookUI", "Quartz/QuartzComposer",
+                "Quartz/QuartzFilters",
+            )
+            for child in children:
+                if "/" in child:
+                    parent, nested_name = child.split("/", 1)
+                    framework_paths.append(sdk / "System/Library/Frameworks" /
+                        f"{parent}.framework/Versions/A/Frameworks/{nested_name}.framework")
+                else:
+                    framework_paths.append(sdk / "System/Library/Frameworks" / f"{child}.framework")
+    items = []
+    for path in framework_paths:
+        child_items, _sources, _excluded = coverage.objc_items(path)
+        items.extend(child_items)
     methods = {item["id"] for item in items if item["kind"] == "objc method"}
     properties = {}
     for item in items:
@@ -682,7 +747,7 @@ def write_results(result: dict, target: Path | None = None, *,
                   method_ids: set[str] | None = None,
                   property_accessors: dict[str, str] | None = None) -> None:
     """Merge this framework's latest generated checks into its shared result file."""
-    target = target or RESULTS / f"{result['framework']}.json"
+    target = target or RESULTS / f"{result['framework'].replace('/', '__')}.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
         document = json.loads(target.read_text()) if target.is_file() else {}
@@ -743,7 +808,10 @@ def main() -> int:
     supported = {"CoreFoundation", "Foundation", "CoreGraphics", "CoreText", "ImageIO", "AppKit",
                  "Security", "CoreVideo", "CoreMedia", "CoreServices", "QuartzCore", "CoreImage",
                  "UniformTypeIdentifiers", "CFNetwork", "ColorSync", "Contacts", "CoreData",
-                 "CoreLocation", "Network", "Metal", "CoreSpotlight", "AVFAudio"}
+                 "CoreLocation", "Network", "Metal", "CoreSpotlight", "AVFAudio", "PDFKit", "Quartz",
+                 "Quartz/PDFKit", "Quartz/ImageKit", "AVFoundation", "AudioToolbox", "IOKit", "SystemConfiguration",
+                 "CoreMIDI", "OpenDirectory", "OpenDirectory/CFOpenDirectory", "StoreKit",
+                 "LinkPresentation", "Accelerate"}
     invalid = sorted(set(args.framework) - supported)
     if invalid:
         parser.error(f"unknown framework: {', '.join(invalid)}")

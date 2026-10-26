@@ -58,6 +58,7 @@ $(FW)/Versions/A/OpenDirectory: $(CFOD)/Versions/A/CFOpenDirectory $(OBJ)/OpenDi
 	    -L$(ROOT)/usr/lib/system -lfinchaccount
 	ln -sfn A $(FW)/Versions/Current
 	ln -sfn Versions/Current/OpenDirectory $(FW)/OpenDirectory
+	ln -sfn Versions/Current/Frameworks $(FW)/Frameworks
 	$(FINCH_ROOT)/tools/mkframeworkplist.sh $(FW) A OpenDirectory com.apple.OpenDirectory OpenDirectory 26.4 666.100.1 English
 	codesign -f -s - $@ 2>/dev/null
 

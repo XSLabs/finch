@@ -6,13 +6,13 @@ This report compares public C declarations and SDK export lists, Objective-C cla
 
 Behavior-verified counts come from item IDs in build/compat-results/*.json. Generated comparison records count only when the item's run matches the saved SDK, test code, and Finch image for this report, the Finch image was loaded during the run, and both sides produced output. Standalone verified IDs without item records are kept as history but are not counted. These checks cover the recorded safe inputs, not every input an API can accept. Constant checks also merge into the framework files. The full name-by-name report is kept in build/api-coverage.json.
 
-Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or dylibs).
+Overall: **28.5%** (154,649 of 543,220 API items across 843 parsed frameworks or dylibs).
 
 6 frameworks or dylibs had a parse or load issue and are left out of the overall percentage. 141 parsed successfully but had no public macOS API items.
 
 | Framework or dylib | API items | Present | Missing | Coverage | Behavior verified | Status |
 |---|---:|---:|---:|---:|---:|---|
-| Accelerate | 13,547 | 53 | 13,494 | 0.4% | 0/13547 | complete |
+| Accelerate | 13,547 | 53 | 13,494 | 0.4% | 4/13547 | complete |
 | Accelerate/vecLib | 12,956 | 0 | 12,956 | 0.0% | 0/12956 | complete |
 | Accelerate/vecLib/libBNNS | 269 | 0 | 269 | 0.0% | 0/269 | complete |
 | Accelerate/vecLib/libLinearAlgebra | 42 | 0 | 42 | 0.0% | 0/42 | complete |
@@ -30,7 +30,7 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | AdServices | 4 | 0 | 4 | 0.0% | 0/4 | complete |
 | AdSupport | 3 | 0 | 3 | 0.0% | 0/3 | complete |
 | AppIntents | 4,043 | 995 | 3,048 | 24.6% | 0/4043 | complete |
-| AppKit | 18,585 | 16,434 | 2,151 | 88.4% | 2257/18585 | complete |
+| AppKit | 18,585 | 16,434 | 2,151 | 88.4% | 8098/18585 | complete |
 | AppleConvergedTransport | 14 | 0 | 14 | 0.0% | 0/14 | complete |
 | AppleScriptKit | 96 | 0 | 96 | 0.0% | 0/96 | complete |
 | AppleScriptObjC | 1 | 0 | 1 | 0.0% | 0/1 | complete |
@@ -57,9 +57,9 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | AutomaticAssessmentConfiguration/AACClient | 3 | 0 | 3 | incomplete | 0/3 | incomplete |
 | AutomaticAssessmentConfiguration/AACDependencies | 2 | 0 | 2 | 0.0% | 0/2 | complete |
 | Automator | 187 | 0 | 187 | 0.0% | 0/187 | complete |
-| AVFAudio | 670 | 605 | 65 | 90.3% | 84/670 | complete |
-| AVFoundation | 2,681 | 2,173 | 508 | 81.1% | 0/2681 | complete |
-| AVFoundation/AVFAudio | 670 | 605 | 65 | 90.3% | 0/670 | complete |
+| AVFAudio | 670 | 638 | 32 | 95.2% | 524/670 | complete |
+| AVFoundation | 2,681 | 2,440 | 241 | 91.0% | 1250/2681 | complete |
+| AVFoundation/AVFAudio | 670 | 638 | 32 | 95.2% | 0/670 | complete |
 | AVKit | 136 | 66 | 70 | 48.5% | 0/136 | complete |
 | AVRouting | 47 | 0 | 47 | 0.0% | 0/47 | complete |
 | BackgroundAssets | 1,174 | 0 | 1,174 | 0.0% | 0/1174 | complete |
@@ -79,7 +79,7 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | Carbon/SecurityHI | 26 | 0 | 26 | 0.0% | 0/26 | complete |
 | Carbon/SpeechRecognition | 42 | 0 | 42 | 0.0% | 0/42 | complete |
 | CarKey | 102 | 0 | 102 | 0.0% | 0/102 | complete |
-| CFNetwork | 268 | 254 | 14 | 94.8% | 132/268 | complete |
+| CFNetwork | 268 | 254 | 14 | 94.8% | 146/268 | complete |
 | Charts | 840 | 0 | 840 | 0.0% | 0/840 | complete |
 | Cinematic | 284 | 0 | 284 | 0.0% | 0/284 | complete |
 | ClassKit | 176 | 0 | 176 | 0.0% | 0/176 | complete |
@@ -90,27 +90,27 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | ColorSync | 205 | 205 | 0 | 100.0% | 150/205 | complete |
 | Combine | 1,299 | 1,291 | 8 | 99.4% | 0/1299 | complete |
 | CompositorServices | 115 | 0 | 115 | 0.0% | 0/115 | complete |
-| Contacts | 830 | 554 | 276 | 66.7% | 309/830 | complete |
+| Contacts | 830 | 554 | 276 | 66.7% | 482/830 | complete |
 | ContactsUI | 62 | 8 | 54 | incomplete | 0/62 | incomplete |
-| CoreAudio | 67 | 30 | 37 | 44.8% | 0/67 | complete |
+| CoreAudio | 67 | 46 | 21 | 68.7% | 0/67 | complete |
 | CoreAudioKit | 54 | 0 | 54 | 0.0% | 0/54 | complete |
 | CoreAudioTypes | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | CoreBluetooth | 225 | 136 | 89 | 60.4% | 0/225 | complete |
-| CoreData | 959 | 671 | 288 | 70.0% | 96/959 | complete |
+| CoreData | 959 | 671 | 288 | 70.0% | 431/959 | complete |
 | CoreDisplay | 495 | 0 | 495 | 0.0% | 0/495 | complete |
-| CoreFoundation | 1,614 | 1,596 | 18 | 98.9% | 371/1614 | complete |
-| CoreGraphics | 1,176 | 868 | 308 | 73.8% | 130/1176 | complete |
+| CoreFoundation | 1,614 | 1,596 | 18 | 98.9% | 777/1614 | complete |
+| CoreGraphics | 1,176 | 868 | 308 | 73.8% | 398/1176 | complete |
 | CoreHaptics | 127 | 0 | 127 | 0.0% | 0/127 | complete |
 | CoreHID | 3,214 | 0 | 3,214 | 0.0% | 0/3214 | complete |
-| CoreImage | 1,899 | 1,399 | 500 | 73.7% | 269/1899 | complete |
+| CoreImage | 1,899 | 1,399 | 500 | 73.7% | 744/1899 | complete |
 | CoreLocation | 259 | 130 | 129 | 50.2% | 3/259 | complete |
-| CoreMedia | 739 | 717 | 22 | 97.0% | 372/739 | complete |
+| CoreMedia | 739 | 717 | 22 | 97.0% | 490/739 | complete |
 | CoreMediaIO | 168 | 0 | 168 | 0.0% | 0/168 | complete |
-| CoreMIDI | 319 | 241 | 78 | 75.5% | 67/319 | complete |
+| CoreMIDI | 319 | 241 | 78 | 75.5% | 72/319 | complete |
 | CoreMIDIServer | 319 | 0 | 319 | 0.0% | 0/319 | complete |
 | CoreML | 900 | 0 | 900 | 0.0% | 0/900 | complete |
 | CoreMotion | 222 | 0 | 222 | 0.0% | 0/222 | complete |
-| CoreServices | 3,740 | 3,222 | 518 | 86.1% | 0/3740 | complete |
+| CoreServices | 3,740 | 3,222 | 518 | 86.1% | 157/3740 | complete |
 | CoreServices/AE | 136 | 100 | 36 | 73.5% | 4/136 | complete |
 | CoreServices/CarbonCore | 847 | 675 | 172 | 79.7% | 11/847 | complete |
 | CoreServices/DictionaryServices | 2 | 0 | 2 | 0.0% | 0/2 | complete |
@@ -120,9 +120,9 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | CoreServices/OSServices | 166 | 90 | 76 | 54.2% | 33/166 | complete |
 | CoreServices/SearchKit | 79 | 0 | 79 | 0.0% | 0/79 | complete |
 | CoreServices/SharedFileList | 42 | 37 | 5 | 88.1% | 15/42 | complete |
-| CoreSpotlight | 455 | 321 | 134 | 70.5% | 15/455 | complete |
+| CoreSpotlight | 455 | 321 | 134 | 70.5% | 265/455 | complete |
 | CoreTelephony | 264 | 0 | 264 | 0.0% | 0/264 | complete |
-| CoreText | 382 | 374 | 8 | 97.9% | 127/382 | complete |
+| CoreText | 382 | 374 | 8 | 97.9% | 193/382 | complete |
 | CoreTransferable | 93 | 82 | 11 | 88.2% | 1/93 | complete |
 | CoreVideo | 548 | 302 | 246 | 55.1% | 218/548 | complete |
 | CoreWLAN | 174 | 104 | 70 | 59.8% | 11/174 | complete |
@@ -156,7 +156,7 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | FinanceKitUI | 11 | 0 | 11 | 0.0% | 0/11 | complete |
 | FinderSync | 25 | 0 | 25 | 0.0% | 0/25 | complete |
 | ForceFeedback | 20 | 0 | 20 | 0.0% | 0/20 | complete |
-| Foundation | 13,636 | 12,048 | 1,588 | 88.4% | 946/13636 | complete |
+| Foundation | 13,636 | 12,048 | 1,588 | 88.4% | 3652/13636 | complete |
 | FoundationModels | 442 | 0 | 442 | 0.0% | 0/442 | complete |
 | FSKit | 317 | 0 | 317 | 0.0% | 0/317 | complete |
 | GameController | 907 | 545 | 362 | 60.1% | 0/907 | complete |
@@ -200,7 +200,7 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | IdentityDocumentServicesUI | 11 | 0 | 11 | 0.0% | 0/11 | complete |
 | IdentityLookup | 41 | 0 | 41 | 0.0% | 0/41 | complete |
 | ImageCaptureCore | 233 | 183 | 50 | 78.5% | 51/233 | complete |
-| ImageIO | 808 | 808 | 0 | 100.0% | 750/808 | complete |
+| ImageIO | 808 | 808 | 0 | 100.0% | 773/808 | complete |
 | ImagePlayground | 105 | 0 | 105 | 0.0% | 0/105 | complete |
 | ImmersiveMediaSupport | 310 | 0 | 310 | 0.0% | 0/310 | complete |
 | InputMethodKit | 289 | 0 | 289 | 0.0% | 0/289 | complete |
@@ -212,7 +212,7 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | introspection/libsystem_pthread | 152 | 0 | 152 | 0.0% | 0/152 | complete |
 | IOBluetooth | 826 | 364 | 462 | 44.1% | 61/826 | complete |
 | IOBluetoothUI | 108 | 92 | 16 | 85.2% | 0/108 | complete |
-| IOKit | 392 | 227 | 165 | 57.9% | 2/392 | complete |
+| IOKit | 392 | 227 | 165 | 57.9% | 11/392 | complete |
 | IOSurface | 125 | 120 | 5 | 96.0% | 33/125 | complete |
 | IOUSBHost | 204 | 0 | 204 | 0.0% | 0/204 | complete |
 | iTunesLibrary | 221 | 0 | 221 | 0.0% | 0/221 | complete |
@@ -594,7 +594,7 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | libz.1.2.5 | 81 | 81 | 0 | 100.0% | 0/81 | complete |
 | libz.1.2.8 | 81 | 81 | 0 | 100.0% | 0/81 | complete |
 | LightweightCodeRequirements | 238 | 0 | 238 | 0.0% | 0/238 | complete |
-| LinkPresentation | 150 | 19 | 131 | 12.7% | 1/150 | complete |
+| LinkPresentation | 150 | 19 | 131 | 12.7% | 16/150 | complete |
 | LiveCommunicationKit | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | LocalAuthentication | 127 | 70 | 57 | 55.1% | 2/127 | complete |
 | LocalAuthentication/DaemonUtils | 26 | 0 | 26 | 0.0% | 0/26 | complete |
@@ -628,7 +628,7 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | MediaPlayer | 635 | 275 | 360 | 43.3% | 0/635 | complete |
 | MediaToolbox | 30 | 0 | 30 | 0.0% | 0/30 | complete |
 | Message | 2 | 0 | 2 | 0.0% | 0/2 | complete |
-| Metal | 1,901 | 848 | 1,053 | 44.6% | 37/1901 | complete |
+| Metal | 1,901 | 848 | 1,053 | 44.6% | 540/1901 | complete |
 | MetalFX | 232 | 0 | 232 | 0.0% | 0/232 | complete |
 | MetalKit | 99 | 84 | 15 | 84.8% | 17/99 | complete |
 | MetalPerformancePrimitives | 0 | 0 | 0 | 0.0% | 0/0 | empty |
@@ -656,7 +656,7 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | NotificationCenter | 38 | 0 | 38 | 0.0% | 0/38 | complete |
 | OpenAL | 98 | 0 | 98 | 0.0% | 0/98 | complete |
 | OpenCL | 142 | 0 | 142 | 0.0% | 0/142 | complete |
-| OpenDirectory | 629 | 573 | 56 | 91.1% | 395/629 | complete |
+| OpenDirectory | 629 | 573 | 56 | 91.1% | 431/629 | complete |
 | OpenDirectory/CFOpenDirectory | 463 | 401 | 62 | 86.6% | 387/463 | complete |
 | OpenGL | 1,408 | 1,179 | 229 | 83.7% | 0/1408 | complete |
 | OpenGL/libGL | 1,278 | 1,104 | 174 | 86.4% | 0/1278 | complete |
@@ -667,7 +667,7 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | ParavirtualizedGraphics | 64 | 0 | 64 | 0.0% | 0/64 | complete |
 | PassKit | 424 | 0 | 424 | 0.0% | 0/424 | complete |
 | PCSC | 62 | 0 | 62 | 0.0% | 0/62 | complete |
-| PDFKit | 562 | 371 | 191 | 66.0% | 0/562 | complete |
+| PDFKit | 562 | 371 | 191 | 66.0% | 152/562 | complete |
 | PencilKit | 286 | 0 | 286 | 0.0% | 0/286 | complete |
 | PermissionKit | 109 | 0 | 109 | 0.0% | 0/109 | complete |
 | PHASE | 360 | 0 | 360 | 0.0% | 0/360 | complete |
@@ -678,13 +678,13 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | PushKit | 21 | 0 | 21 | 0.0% | 0/21 | complete |
 | PushToTalk | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | QTKit | 0 | 0 | 0 | 0.0% | 0/0 | empty |
-| Quartz | 5,322 | 3,130 | 2,192 | 58.8% | 0/5322 | complete |
-| Quartz/ImageKit | 378 | 290 | 88 | 76.7% | 86/378 | complete |
-| Quartz/PDFKit | 562 | 371 | 191 | 66.0% | 0/562 | complete |
+| Quartz | 5,322 | 3,130 | 2,192 | 58.8% | 1645/5322 | complete |
+| Quartz/ImageKit | 378 | 290 | 88 | 76.7% | 166/378 | complete |
+| Quartz/PDFKit | 562 | 371 | 191 | 66.0% | 152/562 | complete |
 | Quartz/QuartzComposer | 747 | 0 | 747 | 0.0% | 0/747 | complete |
 | Quartz/QuartzFilters | 33 | 29 | 4 | 87.9% | 8/33 | complete |
 | Quartz/QuickLookUI | 189 | 63 | 126 | 33.3% | 0/189 | complete |
-| QuartzCore | 3,413 | 2,291 | 1,122 | 67.1% | 556/3413 | complete |
+| QuartzCore | 3,413 | 2,291 | 1,122 | 67.1% | 793/3413 | complete |
 | QuickLook | 74 | 19 | 55 | 25.7% | 18/74 | complete |
 | QuickLookThumbnailing | 60 | 26 | 34 | 43.3% | 1/60 | complete |
 | QuickLookUI | 189 | 63 | 126 | 33.3% | 0/189 | complete |
@@ -700,7 +700,7 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | ScreenSaver | 35 | 0 | 35 | 0.0% | 0/35 | complete |
 | ScreenTime | 26 | 0 | 26 | 0.0% | 0/26 | complete |
 | ScriptingBridge | 37 | 0 | 37 | 0.0% | 0/37 | complete |
-| Security | 1,858 | 1,555 | 303 | 83.7% | 1135/1858 | complete |
+| Security | 1,858 | 1,555 | 303 | 83.7% | 1171/1858 | complete |
 | SecurityFoundation | 1,890 | 1,567 | 323 | 82.9% | 0/1890 | complete |
 | SecurityInterface | 2,022 | 1,672 | 350 | 82.7% | 4/2022 | complete |
 | SecurityUI | 13 | 0 | 13 | 0.0% | 0/13 | complete |
@@ -717,7 +717,7 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | ssh-keychain | 5 | 0 | 5 | 0.0% | 0/5 | complete |
 | StickerFoundation | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | StickerKit | 14 | 0 | 14 | 0.0% | 0/14 | complete |
-| StoreKit | 823 | 107 | 716 | 13.0% | 15/823 | complete |
+| StoreKit | 823 | 107 | 716 | 13.0% | 90/823 | complete |
 | swift/libswift_Builtin_float | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswift_Concurrency | 112 | 112 | 0 | 100.0% | 0/112 | complete |
 | swift/libswift_DarwinFoundation1 | 0 | 0 | 0 | 0.0% | 0/0 | empty |
@@ -735,7 +735,7 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | swift/libswiftAppKit | 18,585 | 16,365 | 2,220 | 88.1% | 0/18585 | complete |
 | swift/libswiftAppleArchive | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftARKit | 0 | 0 | 0 | 0.0% | 0/0 | empty |
-| swift/libswiftAVFoundation | 671 | 605 | 66 | 90.2% | 0/671 | complete |
+| swift/libswiftAVFoundation | 671 | 638 | 33 | 95.1% | 0/671 | complete |
 | swift/libswiftCallKit | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftCloudKit | 997 | 114 | 883 | 11.4% | 0/997 | complete |
 | swift/libswiftCompatibilitySpan | 461 | 461 | 0 | 100.0% | 0/461 | complete |
@@ -813,12 +813,12 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | swift/libswiftVision | 2,674 | 0 | 2,674 | 0.0% | 0/2674 | complete |
 | swift/libswiftXPC | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | SwiftData | 630 | 240 | 390 | 38.1% | 0/630 | complete |
-| SwiftUI | 8,816 | 5,087 | 3,729 | 57.7% | 0/8816 | complete |
-| SwiftUICore | 3,803 | 2,370 | 1,433 | incomplete | 0/3803 | incomplete |
+| SwiftUI | 8,816 | 5,301 | 3,515 | 60.1% | 0/8816 | complete |
+| SwiftUICore | 3,803 | 2,420 | 1,383 | incomplete | 0/3803 | incomplete |
 | Symbols | 276 | 0 | 276 | 0.0% | 0/276 | complete |
 | SyncServices | 280 | 0 | 280 | 0.0% | 0/280 | complete |
 | System | 7,267 | 2 | 7,265 | 0.0% | 0/7267 | complete |
-| SystemConfiguration | 467 | 467 | 0 | 100.0% | 300/467 | complete |
+| SystemConfiguration | 467 | 467 | 0 | 100.0% | 313/467 | complete |
 | SystemExtensions | 38 | 0 | 38 | 0.0% | 0/38 | complete |
 | TabularData | 815 | 0 | 815 | 0.0% | 0/815 | complete |
 | Tcl | 587 | 0 | 587 | 0.0% | 0/587 | complete |
@@ -828,7 +828,7 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | Tk | 0 | 0 | 0 | incomplete | 0/0 | incomplete |
 | Translation | 85 | 0 | 85 | 0.0% | 0/85 | complete |
 | TWAIN | 1 | 0 | 1 | 0.0% | 0/1 | complete |
-| UniformTypeIdentifiers | 178 | 178 | 0 | 100.0% | 142/178 | complete |
+| UniformTypeIdentifiers | 178 | 178 | 0 | 100.0% | 176/178 | complete |
 | updaters/libAce3Updater | 3 | 0 | 3 | 0.0% | 0/3 | complete |
 | updaters/libAppleTconUARPUpdater | 12 | 0 | 12 | 0.0% | 0/12 | complete |
 | updaters/libAppleTCONUpdater | 3 | 0 | 3 | 0.0% | 0/3 | complete |
@@ -852,7 +852,7 @@ Overall: **28.2%** (153,450 of 543,220 API items across 843 parsed frameworks or
 | VideoSubscriberAccount | 214 | 0 | 214 | 0.0% | 0/214 | complete |
 | VideoToolbox | 578 | 504 | 74 | 87.2% | 323/578 | complete |
 | Virtualization | 402 | 0 | 402 | 0.0% | 0/402 | complete |
-| Vision | 2,674 | 0 | 2,674 | 0.0% | 0/2674 | complete |
+| Vision | 2,674 | 603 | 2,071 | 22.6% | 51/2674 | complete |
 | VisionKit | 116 | 0 | 116 | 0.0% | 0/116 | complete |
 | vmnet | 55 | 0 | 55 | 0.0% | 0/55 | complete |
 | WeatherKit | 623 | 0 | 623 | 0.0% | 0/623 | complete |
@@ -883,7 +883,6 @@ These SDK frameworks or dylibs have no Finch image. The size column is the numbe
 | WebKit | 2,908 |
 | MetalPerformanceShaders | 2,675 |
 | swift/libswiftVision | 2,674 |
-| Vision | 2,674 |
 | CreateMLComponents | 2,258 |
 | CreateML | 1,798 |
 | HealthKit | 1,770 |
@@ -1361,17 +1360,17 @@ Priority score is missing API items multiplied by the number of apps app-sweep.p
 | Framework or dylib | Missing API items | Apps blocked | Score |
 |---|---:|---:|---:|
 | WebKit | 2,908 | 33 | 95,964 |
-| SwiftUI | 3,729 | 25 | 93,225 |
+| SwiftUI | 3,515 | 24 | 84,360 |
 | AppKit | 2,151 | 26 | 55,926 |
 | AppIntents | 3,048 | 15 | 45,720 |
-| Vision | 2,674 | 13 | 34,762 |
 | MetalPerformanceShaders | 2,675 | 7 | 18,725 |
 | ApplicationServices | 1,203 | 15 | 18,045 |
 | Carbon | 1,503 | 12 | 18,036 |
 | Foundation | 1,588 | 11 | 17,468 |
-| AVFoundation | 508 | 25 | 12,700 |
 | QuartzCore | 1,122 | 10 | 11,220 |
 | Quartz | 2,192 | 5 | 10,960 |
 | MetalPerformanceShaders/MPSNeuralNetwork | 1,541 | 7 | 10,787 |
 | CoreML | 900 | 11 | 9,900 |
 | RealityKit | 4,501 | 2 | 9,002 |
+| CoreServices | 518 | 17 | 8,806 |
+| RealityFoundation | 4,295 | 2 | 8,590 |

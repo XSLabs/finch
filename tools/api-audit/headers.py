@@ -10,7 +10,12 @@ import re,glob,subprocess,sys
 sdk=subprocess.run(["xcrun","--show-sdk-path"],capture_output=True,text=True).stdout.strip()
 out=set()
 for fw in sys.argv[1:]:
-    for h in glob.glob(f"{sdk}/System/Library/Frameworks/{fw}.framework/Headers/*.h"):
+    if "/" in fw:
+        parent, child = fw.split("/", 1)
+        headers = f"{sdk}/System/Library/Frameworks/{parent}.framework/Versions/A/Frameworks/{child}.framework/Versions/A/Headers/*.h"
+    else:
+        headers = f"{sdk}/System/Library/Frameworks/{fw}.framework/Headers/*.h"
+    for h in glob.glob(headers):
         t=open(h,errors="ignore").read()
         t=re.sub(r'/\*.*?\*/','',t,flags=re.S); t=re.sub(r'//[^\n]*','',t)
         for blk in re.finditer(r'@interface\s+(\w+)\b(.*?)@end',t,re.S):
