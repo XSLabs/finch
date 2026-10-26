@@ -616,6 +616,25 @@ main(void)
 	assert(at_password_verify(TEST_PASSWORD, new_hash));
 	free(new_hash);
 
+	/* Group membership: an administrator joins admin, once. */
+	char members_path[1024];
+	assert(snprintf(members_path, sizeof(members_path), "%s/group", directory) < (int)sizeof(members_path));
+	assert(at_store_add_group_member(&store, "staff", "newuser", error, sizeof(error)) == 0);
+	assert(at_store_add_group_member(&store, "staff", "newuser", error, sizeof(error)) == 0);
+	assert(at_store_add_group_member(&store, "wheel", "newuser", error, sizeof(error)) == 0);
+	assert(at_store_add_group_member(&store, "nogroup", "newuser", error, sizeof(error)) == 0);
+	char *groups = read_file(members_path);
+	assert(strstr(groups, "staff:*:20:root,locked,legacy,newuser\n") != NULL);
+	assert(strstr(groups, "wheel:*:0:root,newuser\n") != NULL);
+	assert(strstr(groups, "nogroup:*:-1:newuser\n") != NULL);
+	assert(strstr(groups, "nobody:*:-2:\n") != NULL);
+	free(groups);
+	memset(error, 0, sizeof(error));
+	assert(at_store_add_group_member(&store, "nosuchgroup", "newuser", error, sizeof(error)) != 0);
+	assert(strstr(error, "no group named") != NULL);
+	assert(at_store_add_group_member(&store, "staff", "bad:name", error, sizeof(error)) != 0);
+	assert(stat(members_path, &st) == 0 && (st.st_mode & 0777) == 0644);
+
 	/* A failure on the second file must roll the first file back to the saved master. */
 #ifdef AT_ACCOUNT_TOOLS_TESTING
 	char *before_failed_create_master = read_file(master_path);

@@ -55,4 +55,8 @@ int at_store_change_password(struct at_store *store, const char *name,
 	uid_t actor_uid, bool root_override, const char *old_password,
 	const char *new_password, char *error, size_t error_size);
 
+/* Add an account to a group's members (an administrator to admin). */
+int at_store_add_group_member(struct at_store *store, const char *group_name,
+	const char *user_name, char *error, size_t error_size);
+
 #endif

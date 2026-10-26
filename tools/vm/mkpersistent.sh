@@ -12,6 +12,8 @@
 #   data.img     the data disk: accounts, home folders, /var/db. Made once and
 #                kept; rebuilding the system image keeps its data.
 #   data-empty.img  a clone of the data disk as first laid out, for tests
+#   data-new-system-empty.img  a data disk laid out as a new system's, with no
+#                account to log in with (first boot runs finch-setup)
 #
 # Needs build/vm/ramdisk.dmg (tools/vm/mkramdisk.sh) and a kernel collection with
 # the PCIe bridge (tools/build-kernel.sh links it in, boot/kc/extra-kexts.txt).
@@ -28,7 +30,7 @@ die() { echo "mkpersistent: $*" >&2; exit 1; }
 grep -q com.apple.driver.AppleVirtualPlatform "${KC}" \
     || die "the boot kernel collection has no PCIe bridge; run tools/build-kernel.sh --link-only --install"
 mkdir -p "${OUT}"
-rm -f "${OUT}"/*.new.cdr
+rm -f "${OUT}"/*.new.cdr "${OUT}"/fresh.new.cdr
 
 # The UUID of an image's one APFS volume.
 volume_uuid() {
@@ -128,12 +130,30 @@ FINCH_DATA_IMAGE="${data}" FINCH_SETUP_IMAGE="${system}" \
     < /dev/null > "${OUT}/setup.log" 2>&1 || die "guest setup failed; see ${OUT}/setup.log"
 grep -a 'finch-volume-setup:' "${OUT}/setup.log" | tr -d '\r' | sed 's/^/    /'
 
+# A data disk as a new system's: the system image boots only its own data
+# volume, so this is a clone of the empty data disk with the test user taken
+# out (no account a person logs in with: first boot runs finch-setup,
+# tools/vm/test-first-user.sh). Made once, after the data disk.
+fresh="${OUT}/data-new-system-empty.img"
+make_fresh=0
+[[ ! -f "${fresh}" ]] && make_fresh=1
 mv "${system}" "${OUT}/system.dmg"
+# The same programs as the VM image, so the same trust cache.
+cp "${VM}/ramdisk.tc" "${OUT}/ramdisk.tc"
 if (( new_data )); then
     mv "${data}" "${OUT}/data.img"
     # The empty disk, for tests that need a fresh one (tools/vm/test-persistence.sh).
     cp -c "${OUT}/data.img" "${OUT}/data-empty.img"
 fi
-# The same programs as the VM image, so the same trust cache.
-cp "${VM}/ramdisk.tc" "${OUT}/ramdisk.tc"
+if (( make_fresh || new_data )); then
+    echo "==> new-system data disk"
+    rm -f "${OUT}/fresh.new.cdr"
+    cp -c "${OUT}/data-empty.img" "${OUT}/fresh.new.cdr"
+    FINCH_PERSISTENT=1 FINCH_DATA_IMAGE="${OUT}/fresh.new.cdr" \
+        "${FINCH_ROOT}/tools/vm/with-vm-lock.sh" expect "${FINCH_ROOT}/tools/vm/smoke.exp" \
+        "/usr/local/bin/finch-volume-setup forget-test-user" \
+        < /dev/null > "${OUT}/setup-new-system.log" 2>&1 \
+        || die "new-system disk setup failed; see ${OUT}/setup-new-system.log"
+    mv "${OUT}/fresh.new.cdr" "${fresh}"
+fi
 echo "built ${OUT}/system.dmg and $( (( new_data )) && echo new || echo kept) data.img; boot with FINCH_PERSISTENT=1 tools/vm/run.sh"

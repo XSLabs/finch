@@ -15,7 +15,8 @@
  *   4. run /etc/finch/rc if present (one-shot boot script),
  *   5. load launchd job plists and run them: at load, kept alive, or on
  *      demand when a message arrives for their Mach services (jobs.c),
- *   6. run login on the console, respawning it on exit; the development VM
+ *   6. run login on the console (through finch-setup, which first makes a new
+ *      system's first account), respawning it on exit; the development VM
  *      explicitly opts into a root shell with finch_dev_console=1,
  *   7. reap every orphaned process re-parented to PID 1.
  *
@@ -58,6 +59,7 @@
 #define DEFAULT_SHELL      "/bin/zsh"   /* as on macOS */
 #define FALLBACK_SHELL     "/bin/bash"
 #define LOGIN_PROGRAM      "/usr/bin/login"
+#define SETUP_PROGRAM      "/usr/libexec/finch-setup"
 #define RESPAWN_DELAY_SEC  1
 
 /* Job plist directories, in load order (launchd's format). */
@@ -262,6 +264,12 @@ start_console_shell(void)
 {
 	const char *path = LOGIN_PROGRAM;
 	char *argv[] = { "login", NULL, NULL };
+	/* A new system's first account: finch-setup makes it, then becomes login
+	   (at once, when there is one). */
+	if (!development_console && access(SETUP_PROGRAM, X_OK) == 0) {
+		path = SETUP_PROGRAM;
+		argv[0] = "finch-setup";
+	}
 	if (development_console) {
 		bool have_zsh = access(DEFAULT_SHELL, X_OK) == 0;
 		path = have_zsh ? DEFAULT_SHELL : FALLBACK_SHELL;

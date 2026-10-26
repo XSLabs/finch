@@ -162,7 +162,8 @@ Finch 1.0 is still open. The checks below cover specific parts of the system.
   QEMU test folder. The real login program also refuses a wrong password, opens
   the right user's shell and home, and logs out in QEMU (2026-10-13). Normal boot
   also returns to a fresh login prompt after logout in a separate test image.
-  First-user setup remains open.
+  First-user setup passes on the persistent VM: a new system's first boot makes
+  an administrator who then logs in (tools/vm/test-first-user.sh, 2026-10-26).
 - The install archive passes file, owner, permission and required-library checks.
   Test runners now reject failed programs even when their partial output matches.
   A clean installation, signed updates and a full release test run remain open.

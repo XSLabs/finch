@@ -1484,3 +1484,94 @@ done:
 	at_secure_clear(hash, sizeof(hash));
 	return result;
 }
+
+/*
+ * Add an account to a group's member list (group(5)'s fourth field), as
+ * dseditgroup -a does on macOS: an administrator joins admin. A member
+ * already listed is left as it is.
+ */
+int
+at_store_add_group_member(struct at_store *store, const char *group_name,
+	const char *user_name, char *error, size_t error_size)
+{
+	struct file_data group = {0};
+	char *updated = NULL;
+	int lock = -1, result = -1;
+	bool found = false;
+
+	if (!store || store->directory_fd < 0 || !valid_username(user_name) ||
+	    !valid_username(group_name)) {
+		set_error(error, error_size, "group and account names must be valid names");
+		errno = EINVAL;
+		return -1;
+	}
+	lock = lock_store(store, error, error_size);
+	if (lock < 0)
+		return -1;
+	if (read_file(store, "group", 0644, &group, error, error_size) != 0)
+		goto done;
+	if (validate_group(group.bytes, group.length, (gid_t)-2) < 0) {
+		set_error(error, error_size, "group has a malformed line");
+		errno = EINVAL;
+		goto done;
+	}
+	size_t cap = group.length + strlen(user_name) + 2;
+	updated = malloc(cap + 1);
+	if (!updated) {
+		set_error(error, error_size, "not enough memory to update group");
+		goto done;
+	}
+	size_t used = 0, start = 0, glen = strlen(group_name), ulen = strlen(user_name);
+	while (start < group.length) {
+		size_t end = start;
+		while (end < group.length && group.bytes[end] != '\n')
+			++end;
+		const char *line = group.bytes + start;
+		size_t n = end - start;
+		memcpy(updated + used, line, n);
+		used += n;
+		if (!found && n > glen && memcmp(line, group_name, glen) == 0 && line[glen] == ':') {
+			found = true;
+			/* the members field follows the third ':' */
+			const char *members = line;
+			for (int colons = 0; colons < 3 && members < line + n; members++)
+				if (*members == ':')
+					colons++;
+			size_t mlen = (size_t)(line + n - members);
+			bool listed = false;
+			for (size_t i = 0; i < mlen;) {
+				size_t j = i;
+				while (j < mlen && members[j] != ',')
+					++j;
+				if (j - i == ulen && memcmp(members + i, user_name, ulen) == 0)
+					listed = true;
+				i = j + 1;
+			}
+			if (!listed) {
+				if (mlen > 0)
+					updated[used++] = ',';
+				memcpy(updated + used, user_name, ulen);
+				used += ulen;
+			}
+		}
+		if (end < group.length)
+			updated[used++] = '\n';
+		start = end < group.length ? end + 1 : end;
+	}
+	updated[used] = '\0';
+	if (!found) {
+		set_error(error, error_size, "no group named %s", group_name);
+		errno = ENOENT;
+		goto done;
+	}
+	if (atomic_replace(store, "group", updated, used, 0644, group.owner, group.group,
+	    error, error_size) != 0)
+		goto done;
+	result = 0;
+done:
+	free(updated);
+	free_file(&group);
+	if (lock >= 0)
+		close(lock);
+	return result;
+}

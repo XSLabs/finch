@@ -1,0 +1,97 @@
+#!/usr/bin/expect -f
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# A new system's first boot (tools/vm/test-first-user.sh runs it): finch-setup
+# makes the first account at the console, then login lets it in. Normal mode,
+# no development console. Run under tools/vm/with-vm-lock.sh with
+# FINCH_PERSISTENT=1 and FINCH_DATA_IMAGE a copy of data-new-system-empty.img.
+# Kernel messages can follow a prompt on the console, so prompts are matched
+# without anchoring them to the end of the output.
+set timeout 900
+log_user 1
+set send_slow {8 0.03}
+set root [file normalize [file dirname [info script]]/../..]
+set env(FINCH_INIT) 1
+set env(FINCH_PERSISTENT) 1
+set env(FINCH_DEV_CONSOLE) 0
+unset -nocomplain env(BOOT_ARGS_EXTRA)
+set password "Finch first account 2026"
+set prompt {FIRST_USER> }
+
+proc fail {message} {
+    puts "\n### $message"
+    catch {send -- "\x01x"}
+    catch {expect eof}
+    exit 1
+}
+
+proc checked {command label} {
+    global prompt
+    set status_pattern [format {FINCH_STATUS_%s=([0-9]+)} $label]
+    send -s -- "$command; printf '\\nFINCH_STATUS_${label}=%d\\n' \$?\r"
+    expect {
+        -re $status_pattern {
+            if {$expect_out(1,string) != 0} { fail "$label failed with exit status $expect_out(1,string)" }
+        }
+        timeout { fail "timed out while running $label" }
+    }
+    expect {
+        -exact $prompt {}
+        timeout { fail "the shell did not return after $label" }
+    }
+}
+
+spawn $root/tools/vm/run.sh
+expect {
+    -exact "Welcome to Finch." {}
+    "development root console" { fail "this boot has a development console" }
+    "login: " { fail "login started without first-user setup" }
+    "panic" { fail "guest panicked during boot" }
+    eof { fail "guest exited before setup" }
+    timeout { fail "first-user setup did not start" }
+}
+expect -brace { -exact {Full name: } {} timeout { fail "no full-name prompt" } }
+send -s -- "Ada Lovelace\r"
+expect -brace { -exact {Account name [adalovelace]: } {} timeout { fail "no account-name prompt with its suggestion" } }
+send -s -- "\r"
+expect -brace { -exact {Password: } {} timeout { fail "no password prompt" } }
+send -s -- "short\r"
+expect -brace { -exact "Use at least 12 characters." {} timeout { fail "a short password wasn't refused" } }
+expect -brace { -exact {Password: } {} timeout { fail "no second password prompt" } }
+send -s -- "$password\r"
+expect -brace { -exact {Repeat password: } {} timeout { fail "no repeat prompt" } }
+send -s -- "$password\r"
+expect -brace { -exact {Computer name [Ada Lovelace's Finch]: } {} timeout { fail "no computer-name prompt" } }
+send -s -- "\r"
+expect {
+    -exact "Done. Log in as adalovelace." {}
+    "couldn't be made" { fail "the account couldn't be made" }
+    timeout { fail "setup did not finish" }
+}
+expect -brace { -re {(?:^|\r\n)login: $} {} timeout { fail "login did not follow setup" } }
+send -s -- "adalovelace\r"
+expect -brace { -re {Password:[[:blank:]]*$} {} timeout { fail "login did not ask for the password" } }
+send -s -- "$password\r"
+# zsh offers its new-user configuration once; leave it.
+expect {
+    -re {\(q\)  Quit and do nothing} { send -s -- "q\r"; exp_continue }
+    -re {[%$#] (?:\x1b\[[0-9;?]*[A-Za-z])*$} {}
+    "Login incorrect" { fail "login refused the new account" }
+    timeout { fail "the new account's shell did not start" }
+}
+send -s -- "PS1='FIRST_USER> '\r"
+expect -brace { -exact $prompt {} timeout { fail "no shell prompt" } }
+checked {test "$(id -un)" = adalovelace && test "$(id -u)" -ge 501} identity
+checked {id -Gn | tr ' ' '\n' | grep -qx admin && id -Gn | tr ' ' '\n' | grep -qx staff} administrator
+checked {test "$(pwd -P)" = /private/var/rw/Users/adalovelace && test "$(stat -f %Lp ~)" = 700 && test "$(stat -f %Lp ~/Documents)" = 700 && test -d ~/Library/Preferences} home
+checked {test "$(id -F)" = "Ada Lovelace" || grep -q "^adalovelace:.*:Ada Lovelace:" /etc/passwd} full-name
+checked {test "$(scutil --get ComputerName)" = "Ada Lovelace's Finch" && test "$(scutil --get LocalHostName)" = Ada-Lovelaces-Finch} computer-names
+send -s -- "exit\r"
+# The next console program is login itself: setup doesn't run again.
+expect {
+    -exact "Welcome to Finch." { fail "setup ran again with an account made" }
+    -re {(?:^|\r\n)login: $} {}
+    timeout { fail "login did not come back after logout" }
+}
+catch {send -- "\x01x"}
+catch {expect eof}
+puts "\nfirst-user: setup made an administrator who can log in"

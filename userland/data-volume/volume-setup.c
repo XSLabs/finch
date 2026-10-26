@@ -8,10 +8,14 @@
  *	owner and mode its manifest (/usr/share/finch/image-owners.txt in the same
  *	image) records. The image is built on the host without root, where files
  *	can't be given to root and setuid bits don't stick.
- *   finch-volume-setup data UUID SYSTEM-UUID
+ *   finch-volume-setup data UUID SYSTEM-UUID [--without-test-user]
  *	Lay out a new, empty data volume: the account files (copied from the
  *	system image's /usr/share/finch/accounts), home folders and db. Refuses a
- *	volume that already has an accounts folder.
+ *	volume that already has an accounts folder. --without-test-user lays it
+ *	out as a new system's, with no account a person logs in with, so first
+ *	boot runs finch-setup.
+ *   finch-volume-setup forget-test-user
+ *	The same for the running system's mounted data volume, in place.
  *
  * Volumes are found by UUID on a VirtIO disk, as finch-data-volume finds them.
  */
@@ -237,23 +241,63 @@ make_directory(const char *path, mode_t mode, uid_t uid, gid_t gid)
 		fail_path("cannot make", path);
 }
 
+#define TEST_USER "finchtest"
+
+/*
+ * Copy a template account file. Without the test user (a volume laid out as a
+ * new system's), its lines are left out and its name taken out of groups.
+ */
+static void copy_account_file_to(const char *from, const char *to, const char *name, mode_t mode,
+    bool test_user);
+
 static void
-copy_account_file(const char *system_root, const char *name, mode_t mode)
+copy_account_file(const char *system_root, const char *name, mode_t mode, bool test_user)
 {
-	char from[PATH_MAX], to[PATH_MAX], buffer[65536];
+	char from[PATH_MAX], to[PATH_MAX];
 	snprintf(from, sizeof(from), "%s/%s/%s", system_root, ACCOUNT_TEMPLATES, name);
 	snprintf(to, sizeof(to), DATA_MOUNT "/accounts/%s", name);
-	int in = open(from, O_RDONLY | O_NOFOLLOW);
+	copy_account_file_to(from, to, name, mode, test_user);
+}
+
+static void
+copy_account_file_to(const char *from, const char *to, const char *name, mode_t mode, bool test_user)
+{
+	char line[4096];
+	int infd = open(from, O_RDONLY | O_NOFOLLOW);
 	int out = open(to, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
-	ssize_t n;
-	if (in < 0 || out < 0)
+	FILE *in = infd >= 0 ? fdopen(infd, "r") : NULL;
+	if (in == NULL || out < 0)
 		fail_path("cannot copy the account file", name);
-	while ((n = read(in, buffer, sizeof(buffer))) > 0)
-		if (write(out, buffer, (size_t)n) != n)
+	while (fgets(line, sizeof(line), in) != NULL) {
+		if (!test_user) {
+			if (strncmp(line, TEST_USER ":", sizeof(TEST_USER)) == 0)
+				continue;
+			/* group members: drop the test user from the list */
+			char *members = line;
+			for (int colons = 0; colons < 3 && *members; members++)
+				if (*members == ':')
+					colons++;
+			char kept[4096] = "";
+			char *save = NULL;
+			members[strcspn(members, "\n")] = '\0';
+			for (char *m = strtok_r(members, ",", &save); m; m = strtok_r(NULL, ",", &save)) {
+				if (strcmp(m, TEST_USER) == 0)
+					continue;
+				if (kept[0])
+					strlcat(kept, ",", sizeof(kept));
+				strlcat(kept, m, sizeof(kept));
+			}
+			*members = '\0';
+			strlcat(line, kept, sizeof(line));
+			strlcat(line, "\n", sizeof(line));
+		}
+		size_t n = strlen(line);
+		if (write(out, line, n) != (ssize_t)n)
 			fail_path("cannot write the account file", name);
-	if (n < 0 || fchown(out, 0, 0) != 0 || fchmod(out, mode) != 0 || fsync(out) != 0)
+	}
+	if (ferror(in) || fchown(out, 0, 0) != 0 || fchmod(out, mode) != 0 || fsync(out) != 0)
 		fail_path("cannot finish the account file", name);
-	close(in);
+	fclose(in);
 	close(out);
 }
 
@@ -281,7 +325,7 @@ make_home(const char *home, mode_t mode, uid_t uid, gid_t gid)
 }
 
 static void
-lay_out_data(const char *system_root)
+lay_out_data(const char *system_root, bool test_user)
 {
 	struct stat st;
 	if (lstat(DATA_MOUNT "/accounts", &st) == 0)
@@ -295,13 +339,40 @@ lay_out_data(const char *system_root)
 	make_directory(DATA_MOUNT "/Library", 0755, 0, 0);
 	make_directory(DATA_MOUNT "/Library/Preferences", 0755, 0, 0);
 	make_directory(DATA_MOUNT "/Library/Preferences/SystemConfiguration", 0755, 0, 0);
-	copy_account_file(system_root, "master.passwd", 0600);
-	copy_account_file(system_root, "passwd", 0644);
-	copy_account_file(system_root, "group", 0644);
+	copy_account_file(system_root, "master.passwd", 0600, test_user);
+	copy_account_file(system_root, "passwd", 0644, test_user);
+	copy_account_file(system_root, "group", 0644, test_user);
 	make_home(DATA_MOUNT "/root", 0750, 0, 0);
 	/* the development image's test user (tools/vm/mkramdisk.sh) */
-	make_home(DATA_MOUNT "/Users/finchtest", 0750, 501, 20);
+	if (test_user)
+		make_home(DATA_MOUNT "/Users/" TEST_USER, 0750, 501, 20);
 	printf("finch-volume-setup: data volume laid out\n");
+}
+
+/*
+ * The running system's data volume (/private/var/rw), as a new system's: the
+ * test user's account lines, group memberships and home removed, so the next
+ * normal boot runs finch-setup. For a clone of a test data disk.
+ */
+static void
+forget_test_user(void)
+{
+	static const struct { const char *name; mode_t mode; } files[] = {
+		{ "master.passwd", 0600 }, { "passwd", 0644 }, { "group", 0644 },
+	};
+	char from[PATH_MAX], to[PATH_MAX];
+	for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
+		snprintf(from, sizeof(from), "/private/var/rw/accounts/%s", files[i].name);
+		snprintf(to, sizeof(to), "/private/var/rw/accounts/.%s.new", files[i].name);
+		unlink(to);
+		copy_account_file_to(from, to, files[i].name, files[i].mode, false);
+		if (rename(to, from) != 0)
+			fail_path("cannot replace the account file", files[i].name);
+	}
+	char *rm[] = { "rm", "-rf", "/private/var/rw/Users/" TEST_USER, NULL };
+	run("/bin/rm", rm, "cannot remove the test user's home");
+	sync();
+	printf("finch-volume-setup: the test user is gone\n");
 }
 
 int
@@ -315,15 +386,21 @@ main(int argc, char **argv)
 		unmount_volume(SYSTEM_MOUNT);
 		return 0;
 	}
-	if (argc == 4 && strcmp(argv[1], "data") == 0) {
+	if (argc == 2 && strcmp(argv[1], "forget-test-user") == 0) {
+		forget_test_user();
+		return 0;
+	}
+	bool without_test_user = argc == 5 && strcmp(argv[4], "--without-test-user") == 0;
+	if ((argc == 4 || without_test_user) && strcmp(argv[1], "data") == 0) {
 		mount_volume(argv[3], SYSTEM_MOUNT);
 		mount_volume(argv[2], DATA_MOUNT);
-		lay_out_data(SYSTEM_MOUNT);
+		lay_out_data(SYSTEM_MOUNT, !without_test_user);
 		unmount_volume(DATA_MOUNT);
 		unmount_volume(SYSTEM_MOUNT);
 		return 0;
 	}
 	fprintf(stderr, "usage: finch-volume-setup system UUID\n"
-	    "       finch-volume-setup data UUID SYSTEM-UUID\n");
+	    "       finch-volume-setup data UUID SYSTEM-UUID [--without-test-user]\n"
+	    "       finch-volume-setup forget-test-user\n");
 	return 2;
 }

@@ -326,8 +326,24 @@ to the setup shell. No host account or disk image account is changed.
 
 The image builder now rejects stale PAM policies before replacing the VM image.
 The test also checks the guest's exact Finch login rules before setup. Locked
-system accounts are in the install payload. First-user setup and normal boot
-returning to a fresh login prompt after logout remain unfinished.
+system accounts are in the install payload.
+
+### First-user setup (2026-10-26)
+
+On a normal boot `finch-init` starts `/usr/libexec/finch-setup` on the console
+instead of `login`. When the system already has a person's account (UID 501 or
+above with a login shell) it becomes `login` at once. Otherwise it asks for a full
+name, an account name (suggested from the full name), a password of at least 12
+characters typed twice, and a computer name. It makes the account with the next
+free UID from 501, group staff, `/bin/zsh` and a home folder with macOS's standard
+folders, adds it to `admin`, sets ComputerName and LocalHostName through `scutil`,
+then hands the console to `login`.
+
+`tools/vm/test-first-user.sh` boots the persistent VM with a data disk laid out as
+a new system's (no test account) and passes: a short password is refused, the
+account logs in, is an administrator in staff, has a private home with its
+folders, has its full name and the computer's names, and after logout the console
+returns to `login`, not setup.
 
 `accountctl` can now create a local account or change its password in an
 explicitly named account folder. It has no default destination and prompts for

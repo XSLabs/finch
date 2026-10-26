@@ -300,6 +300,8 @@ steps=(
     "data-volume|make -s -C userland/data-volume"
     # scutil and networksetup (Finch's own, over its SystemConfiguration)
     "scutil|make -s -C userland/scutil"
+    # finch-setup: a new system's first account (finch-init runs it before login)
+    "finch-setup|make -s -C userland/finch-setup"
     "networksetup|make -s -C userland/networksetup"
     # Finch's sandbox profiles (system.sb; services' own come with them)
     "sandbox-profiles|make -s -C userland/sandbox-profiles"

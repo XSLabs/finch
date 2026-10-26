@@ -153,6 +153,12 @@ without sudo:
   through the same registry code as `finch-data-volume`.
 - `data.img` is made once and kept, so rebuilding the system image keeps users'
   data. `data-empty.img` is a clone of the fresh layout for tests.
+- `data-new-system-empty.img` is a new system's data disk: a clone of
+  `data-empty.img` whose test account a development boot took out
+  (`finch-volume-setup forget-test-user`), so a normal boot finds no person's
+  account and runs first-user setup (`tools/vm/test-first-user.sh`). It is a
+  clone because the system image mounts only the data volume whose UUID it
+  records.
 
 `FINCH_PERSISTENT=1 tools/vm/run.sh` boots it.
 
