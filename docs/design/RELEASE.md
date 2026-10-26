@@ -46,6 +46,21 @@ files. Its cleanup passes 15 temporary-file checks, including failed restore
 and uncertain detach cases. It has not yet been run against a real image and
 requires administrator access to preserve root ownership.
 
+**Source record (2026-10-26).** The system build's last step,
+`tools/release/provenance.py`, checks every pinned project's checkout (the 56
+in `userland/projects.txt`, `userland/third-party-projects.txt` and XNU): it
+must be at exactly its pinned tag, and every change to a tracked file must be
+one Finch's build makes (its patches, applied in full; build-oss's xcconfig
+include rewrite; files a project's own build regenerates; and, for XNU,
+darwin-xnu-build's scripted edits and Finch's own kernel sources). Anything
+else stops the build. It found three Finch fixes that had been made by hand and
+never recorded (libedit's `EL_EOF`, IOKitUser's directory listing and two
+small changes); they are patches now. It writes `/usr/share/finch/SOURCES.txt`
+(project, tag, commit, origin, Finch's patches, notice) and installs each
+project's licence under `/usr/share/finch/licenses/<project>/` where its recipe
+didn't: its licence files, or, where it has none at its top, the notices its
+source files carry and its components' licences.
+
 The embedded file list records file hashes, owners, permissions, the repository
 commit, whether local changes exist, and the requested source versions. The
 archive uses a fixed timestamp and sorted paths. Given the same input files and

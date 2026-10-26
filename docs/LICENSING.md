@@ -81,6 +81,10 @@ fdlibm notices), `tools/collect-notices.py` collects them from exactly the
 files built in, listing each distinct notice once with the files it covers.
 The `msdosfs` and `diskdev_cmds` recipes install both Apple's licence and the
 notices from their compiled files, including the FAT tools' BSD notices.
+For every other pinned project, the system build's last step
+(`tools/release/provenance.py`) installs its licence files, or the notices its
+source files carry, and records its tag, commit and Finch's patches in
+`/usr/share/finch/SOURCES.txt`.
 
 ## Clean-room rule for GPL drivers
 

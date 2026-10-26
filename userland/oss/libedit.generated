@@ -1,0 +1,2 @@
+# libedit regenerates these from its sources ("make lists", tools/build-system.sh).
+local/*

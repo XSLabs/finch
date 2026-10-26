@@ -1289,6 +1289,9 @@ that every app works. These release checks were missing from the Phase 5 list:
       file hashes. Archive checks and required-library checks pass. This is still
       an unsigned development payload; installation remains open. Accounts, passwords
       and homes persist on the development VM's data disk (2026-10-25, above).
+      Every pinned source is checked at its tag with only Finch's recorded patches,
+      and its licence notice installed, by the build's last step, which writes
+      /usr/share/finch/SOURCES.txt (tools/release/provenance.py, 2026-10-26).
 - [x] **System services:** cron, configd, disk mounting and Bonjour; network settings
       that persist and notify apps when they change. Framework clients alone do not
       complete these services. See [Security and SystemConfiguration](design/SECURITY.md).

@@ -332,6 +332,9 @@ steps=(
     "mount_tmpfs|make -s -C userland/mount_tmpfs"
     # Finch's login rules again: shell_cmds and system_cmds install Apple's su and passwd
     "pam-policy|make -s -C userland/pam policy"
+    # Last: every source as pinned, with only Finch's patches, its licence notice
+    # installed, and /usr/share/finch/SOURCES.txt recording them.
+    "provenance|python3 tools/release/provenance.py"
 )
 
 selected="$*"
