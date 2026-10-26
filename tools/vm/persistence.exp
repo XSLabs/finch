@@ -128,6 +128,8 @@ if {$phase eq "first"} {
     expect -brace { -re $root_prompt {} timeout { fail "setup shell did not return after accountctl" } }
     as_root "test \"\$(stat -f %u:%g:%Lp /private/var/rw/Users/$username)\" = 6001:20:700" home-on-data-volume
     as_root "printf '%s\\n' 'echo FINCH_PERSIST_PROFILE' \"PS1='FINCH_PERSIST_USER> '\" 'export PS1' > /Users/$username/.profile && chown 6001:20 /Users/$username/.profile && chmod 600 /Users/$username/.profile" user-profile
+    # System settings: configd keeps them in /Library on the data volume.
+    as_root {scutil --set ComputerName "Finch Persistence" && scutil --set LocalHostName finch-persistence && test "$(stat -f %u:%g /Library/Preferences/SystemConfiguration/preferences.plist)" = 0:0} system-settings
     as_root {stty echo} restore-echo
     login $first_password "the first login"
     as_user {test "$(id -u)" = 6001 && test "$(pwd -P)" = /private/var/rw/Users/persist} user-identity
@@ -147,6 +149,7 @@ if {$phase eq "first"} {
     expect -brace { -exact $user_prompt {} timeout { fail "user shell did not return after passwd" } }
     logout
 } else {
+    as_root {test "$(scutil --get ComputerName)" = "Finch Persistence" && test "$(scutil --get LocalHostName)" = finch-persistence} system-settings-kept
     as_root {stty echo} restore-echo
     send -s -- "/usr/bin/login\r"
     expect -brace { -re $login_prompt {} timeout { fail "login did not show its prompt" } }

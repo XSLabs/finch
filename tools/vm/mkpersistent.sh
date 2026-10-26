@@ -106,6 +106,12 @@ chmod 644 "${mnt}/private/etc/finch/data-volume" "${mnt}/private/etc/finch/accou
 # Root's home is on the data volume too.
 rmdir "${mnt}/private/var/root" || die "/private/var/root in the VM image isn't an empty folder"
 ln -s rw/root "${mnt}/private/var/root"
+# So is /Library, as on macOS's Data volume: system-wide preferences, among
+# them configd's network settings (Preferences/SystemConfiguration).
+[[ -z "$(find "${mnt}/Library" -type f -print -quit)" ]] \
+    || die "the VM image's /Library holds files; the data volume's would hide them"
+rm -rf "${mnt}/Library"
+ln -s private/var/rw/Library "${mnt}/Library"
 python3 "${FINCH_ROOT}/tools/vm/image-owners.py" "${mnt}"
 hdiutil detach "${mnt}" >/dev/null
 rmdir "${mnt}"

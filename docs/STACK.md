@@ -15,7 +15,9 @@ profile language (SBPL) and the `FinchSandbox` kernel policy enforces the compil
 profiles at file, process, sysctl, IPC, socket, IOKit and system-call hooks.
 notifyd starts under its profile with no borrowed sandbox component. Extensions,
 app containers, Mach-trap filtering and network address filters remain open
-(`docs/design/SECURITY.md`, "The sandbox").
+(`docs/design/SECURITY.md`, "The sandbox"). Finch's own `scutil` and
+`networksetup` set system and network settings; on the persistent VM those
+survive restarts.
 A persistent development VM (`tools/vm/mkpersistent.sh`) keeps accounts,
 passwords, home folders and `/private/var/db` on a VirtIO data disk: `rc` mounts
 it through `finch-data-volume` before services start, and a missing disk stops
@@ -322,7 +324,7 @@ block-beta
         columns 4
         t2["Processes"]
         init["finch-init (PID 1)<br/>bootstrap server,<br/>system + user domains"]
-        logd["finch-logd, finch-pboardd<br/>(pasteboards), pbcopy and pbpaste,<br/>finch-update (signed,<br/>resumable updates, keeps<br/>system accounts),<br/>finch-data-volume (checks and<br/>mounts the data disk),<br/>finch-volume-setup (lays out<br/>the dev VM's disks),<br/>screencapture and its service,<br/>launchctl, sh, mount_tmpfs, devtools"]
+        logd["finch-logd, finch-pboardd<br/>(pasteboards), pbcopy and pbpaste,<br/>finch-update (signed,<br/>resumable updates, keeps<br/>system accounts),<br/>finch-data-volume (checks and<br/>mounts the data disk),<br/>finch-volume-setup (lays out<br/>the dev VM's disks),<br/>screencapture and its service,<br/>scutil, networksetup,<br/>launchctl, sh, mount_tmpfs, devtools"]
         daemons["notifyd, syslogd, aslmanager,<br/>newsyslog, dynamic_pager, atrun,<br/>cron, mDNSPosix, configd,<br/>diskarbitrationd"]
         space2[" "]
         cmds["file/shell/text/adv/system_cmds,<br/>bash, zsh, bc, su, login,<br/>mount, fsck, FAT helpers"]

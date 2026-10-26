@@ -38,8 +38,11 @@ the stored-data check for accounts, passwords and home files: a new user, a
 changed password and saved files kept their contents, owners and modes through
 a shutdown and two more boots, and another user's private folders and the
 system files stayed closed to that user (`tools/vm/test-persistence.sh`).
-Network settings are not saved yet, the system image still loads into RAM,
-and this is not an installed system. See
+System settings set with Finch's `scutil` (the computer and local host names,
+saved by configd under `/Library` on the data volume) survive the same restarts.
+IP and DNS settings (Finch's `networksetup`) go through the same preferences but
+the QEMU machine has no interface to apply them to. The system image still loads
+into RAM, and this is not an installed system. See
 [persistent VM storage](design/PERSISTENT_VM_STORAGE.md).
 
 On 2026-10-17, the VM runner gained explicit result checks for every packaged

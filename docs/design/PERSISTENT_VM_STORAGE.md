@@ -194,8 +194,17 @@ also logged Apple System Policy (the borrowed ASP kext) denying `/dev/tty`
 reads to `bash` and `accountctl`; it didn't recur in four later boots of the
 same image, and its cause is unknown.
 
-This covers the release table's stored-data row for accounts, passwords and home
-files in the development VM. Network settings aren't saved yet, and the system
+**System settings** (2026-10-25): `/Library` is on the data volume too, as on
+macOS's Data volume, so configd keeps `/Library/Preferences/SystemConfiguration`
+there, root's. configd follows that link only when root owns it inside a folder
+only root can change, then checks every folder it leads to. The same check now
+sets the computer and local host names with `scutil --set` in boot 1 and reads
+them back in boots 2 and 3. The QEMU machine has no network interface, so IP
+and DNS settings are saved through the same preferences but can't be applied
+and checked here.
+
+This covers the release table's stored-data row for accounts, passwords, home
+files and system settings in the development VM. The system
 image still boots as a RAM disk with the data volume as its only writable disk;
 an installed system's own boot volume and updates that switch it remain open.
 Separate missing, wrong, unformatted and corrupt disk checks are also still

@@ -6,14 +6,15 @@ guessed. `finch-images` (`userland/devtools`) prints every image a minimal libSy
 program loads: 45 images, of which 12 were Finch-built when this plan was written
 (2026-10-06), plus dyld itself.
 
-**Status (2026-10-18): open.** The 2026-10-07 check found 94 eagerly linked
+**Status (2026-10-25): open.** The 2026-10-07 check found 94 eagerly linked
 images supplied by Finch. That was a file and dependency check, not proof that
-all boot services worked with those files. It did not follow libraries opened
-later with `dlopen`. A fresh image on 2026-10-17 showed that notifyd cannot start
-with Finch's sandbox compiler: named profile compilation and application remain
-unfinished. Current development tests explicitly retain the base image's Apple
-sandbox compiler. That dependency must be replaced and service startup tested
-again before this exit is reached. Kexts remain Apple's below the kernel boundary.
+all boot services worked with those files, and it missed libraries opened later
+with `dlopen`: a fresh image on 2026-10-17 showed notifyd needed the base
+image's sandbox compiler. Since 2026-10-25 Finch compiles and enforces sandbox
+profiles itself and notifyd starts under its profile with nothing borrowed
+(`docs/design/SECURITY.md`, "The sandbox"); the full VM suite runs on that
+image. The rest of the list below must be re-measured on it before this exit is
+reached. Kexts remain Apple's below the kernel boundary.
 
 Each closed library's effort is sized by how many of its exports anything in the stock
 image imports. A Finch replacement (`userland/libsystem/<name>`) exports exactly Apple's

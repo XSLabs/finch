@@ -298,6 +298,9 @@ steps=(
     "update|make -s -C userland/update"
     # finch-data-volume (rc mounts the configured data volume with it)
     "data-volume|make -s -C userland/data-volume"
+    # scutil and networksetup (Finch's own, over its SystemConfiguration)
+    "scutil|make -s -C userland/scutil"
+    "networksetup|make -s -C userland/networksetup"
     # Finch's sandbox profiles (system.sb; services' own come with them)
     "sandbox-profiles|make -s -C userland/sandbox-profiles"
     # screencapture and its service (Apple's Screenshot app asks the service)

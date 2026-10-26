@@ -38,6 +38,15 @@ mkdir -p /private/var/tmp/folders && chmod 755 /private/var/tmp/folders
 # /var/db, the daemons' state, is a link into /private/var/rw for the same
 # reason, and so is /Users (home directories).
 mkdir -p /private/var/rw/db /private/var/rw/Users
+# An image whose /Library is on the data volume (tools/vm/mkpersistent.sh):
+# a volume laid out before that change gets its folders here.
+if [ "$persistent_data" = 1 ] && [ -L /Library ]; then
+    mkdir -p /private/var/rw/Library/Preferences/SystemConfiguration
+    chown root:wheel /private/var/rw/Library /private/var/rw/Library/Preferences \
+        /private/var/rw/Library/Preferences/SystemConfiguration
+    chmod 755 /private/var/rw/Library /private/var/rw/Library/Preferences \
+        /private/var/rw/Library/Preferences/SystemConfiguration
+fi
 # The time-zone database is in the image at /usr/share/zoneinfo; macOS (and
 # CoreFoundation, and /etc/localtime) look in /var/db/timezone/zoneinfo.
 mkdir -p /private/var/rw/db/timezone

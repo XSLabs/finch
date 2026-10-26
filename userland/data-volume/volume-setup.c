@@ -291,6 +291,10 @@ lay_out_data(const char *system_root)
 	make_directory(DATA_MOUNT "/accounts", 0755, 0, 0);
 	make_directory(DATA_MOUNT "/Users", 0755, 0, 0);
 	make_directory(DATA_MOUNT "/db", 0755, 0, 0);
+	/* /Library (system-wide preferences; configd's network settings) */
+	make_directory(DATA_MOUNT "/Library", 0755, 0, 0);
+	make_directory(DATA_MOUNT "/Library/Preferences", 0755, 0, 0);
+	make_directory(DATA_MOUNT "/Library/Preferences/SystemConfiguration", 0755, 0, 0);
 	copy_account_file(system_root, "master.passwd", 0600);
 	copy_account_file(system_root, "passwd", 0644);
 	copy_account_file(system_root, "group", 0644);

@@ -236,28 +236,54 @@ callerCanTraverseDirectories(uid_t uid, const char *directory)
 	return true;
 }
 
+/* A folder only root can change: root's, writable by no group or others. */
+static bool
+rootOnlyDirectory(const struct stat *st)
+{
+	return S_ISDIR(st->st_mode) && st->st_uid == 0 && (st->st_mode & (S_IWGRP | S_IWOTH)) == 0;
+}
+
+/*
+ * The system preferences folder, if only root can change it or anything on the
+ * way to it. A symlink on the way is followed only when root owns it and the
+ * folder it's in is root's alone (an installed system's /Library on its data
+ * volume, as tools/vm/mkpersistent.sh lays it out); the folders it leads to are
+ * then checked one by one without following links.
+ */
 static bool
 trustedSystemPreferencesRoot(char root[PATH_MAX])
 {
 	if (strcmp(preferencesRoot, SYSTEM_PREFS_ROOT) != 0 ||
 	    strlcpy(root, preferencesRoot, PATH_MAX) >= PATH_MAX)
 		return false;
+	/* Each prefix of the path: a root-only folder, or a root-owned link in one. */
+	char prefix[PATH_MAX] = "";
+	const char *components[] = {"Library", "Preferences", "SystemConfiguration"};
+	struct stat st;
+	if (lstat("/", &st) < 0 || !rootOnlyDirectory(&st))
+		return false;
+	for (size_t i = 0; i < sizeof(components) / sizeof(*components); i++) {
+		strlcat(prefix, "/", sizeof(prefix));
+		strlcat(prefix, components[i], sizeof(prefix));
+		if (lstat(prefix, &st) < 0)
+			return false;
+		if (S_ISLNK(st.st_mode) ? st.st_uid != 0 : !rootOnlyDirectory(&st))
+			return false;
+	}
+	/* Where the links lead: every folder along it, root's alone. */
+	char resolved[PATH_MAX];
+	if (realpath(SYSTEM_PREFS_ROOT, resolved) == NULL || resolved[0] != '/')
+		return false;
 	int fd = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
 	if (fd < 0)
 		return false;
-	const char *components[] = {"Library", "Preferences", "SystemConfiguration"};
 	bool valid = true;
-	for (size_t i = 0; i < sizeof(components) / sizeof(*components); i++) {
-		int next = openat(fd, components[i],
-		    O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
-		if (next < 0) {
-			valid = false;
-			break;
-		}
-		struct stat st;
-		if (fstat(next, &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != 0 ||
-		    (st.st_mode & (S_IWGRP | S_IWOTH)) != 0) {
-			close(next);
+	char *save = NULL;
+	for (char *c = strtok_r(resolved + 1, "/", &save); c && valid; c = strtok_r(NULL, "/", &save)) {
+		int next = openat(fd, c, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+		if (next < 0 || fstat(next, &st) < 0 || !rootOnlyDirectory(&st)) {
+			if (next >= 0)
+				close(next);
 			valid = false;
 			break;
 		}
