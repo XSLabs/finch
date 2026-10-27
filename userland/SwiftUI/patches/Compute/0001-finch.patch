@@ -88,7 +88,7 @@ index 392d171..a3e0e39 100644
  
  template <typename Result>
 diff --git a/Sources/ComputeCxx/Comparison/LayoutDescriptor.cpp b/Sources/ComputeCxx/Comparison/LayoutDescriptor.cpp
-index 5710b86..f684d2e 100644
+index 5710b86..3a1dd3c 100644
 --- a/Sources/ComputeCxx/Comparison/LayoutDescriptor.cpp
 +++ b/Sources/ComputeCxx/Comparison/LayoutDescriptor.cpp
 @@ -3,6 +3,9 @@
@@ -125,7 +125,34 @@ index 5710b86..f684d2e 100644
      if (lhs_type != rhs_type) {
          return false;
      }
-@@ -612,6 +627,8 @@ bool compare_existential_values(const swift::existential_type_metadata &type, co
+@@ -590,6 +605,26 @@ bool compare_existential_values(const swift::existential_type_metadata &type, co
+     if (auto lhs_dynamic_type = type.dynamic_type((void *)lhs)) {
+         if (auto rhs_dynamic_type = type.dynamic_type((void *)rhs)) {
+             if (lhs_dynamic_type == rhs_dynamic_type) {
++#if __APPLE__ && __LP64__
++                // Finch: a container whose type isn't metadata (seen in Calculator's scientific
++                // mode, cause open: docs/APPS.md) would crash reading its value witnesses. Real
++                // metadata and witness tables lie above the 4 GB zero page; anything else is
++                // logged once and compared as unequal, which only makes the graph update.
++                uintptr_t witnesses = 0;
++                if ((uintptr_t)lhs_dynamic_type >= 0x100000000ULL)
++                    std::memcpy(&witnesses, (const char *)lhs_dynamic_type - sizeof(void *), sizeof(witnesses));
++                witnesses &= 0x0000007fffffffffULL; // (strip any pointer signature)
++                if ((uintptr_t)lhs_dynamic_type < 0x100000000ULL || witnesses < 0x100000000ULL) {
++                    static bool logged = false;
++                    if (!logged) {
++                        logged = true;
++                        fprintf(stderr, "Compute: existential with a type that isn't metadata (%p, witnesses 0x%lx); "
++                                        "compared as unequal\n",
++                                (const void *)lhs_dynamic_type, (unsigned long)witnesses);
++                    }
++                    return false;
++                }
++#endif
+                 unsigned char *lhs_value = (unsigned char *)type.project_value((void *)lhs);
+                 unsigned char *rhs_value = (unsigned char *)type.project_value((void *)rhs);
+                 if (lhs_value == rhs_value) {
+@@ -612,6 +647,8 @@ bool compare_existential_values(const swift::existential_type_metadata &type, co
  
  bool compare_partial(ValueLayout layout, const unsigned char *lhs, const unsigned char *rhs, size_t offset, size_t size,
                       IAGComparisonOptions options) {
@@ -134,7 +161,7 @@ index 5710b86..f684d2e 100644
      if (lhs == rhs) {
          return true;
      }
-@@ -619,16 +636,23 @@ bool compare_partial(ValueLayout layout, const unsigned char *lhs, const unsigne
+@@ -619,16 +656,23 @@ bool compare_partial(ValueLayout layout, const unsigned char *lhs, const unsigne
      if (layout) {
          Partial partial = find_partial(layout, offset, size);
          if (partial.layout != nullptr) {
@@ -163,7 +190,7 @@ index 5710b86..f684d2e 100644
          }
      }
  
-@@ -643,6 +667,9 @@ Partial find_partial(ValueLayout layout, size_t range_location, size_t range_siz
+@@ -643,6 +687,9 @@ Partial find_partial(ValueLayout layout, size_t range_location, size_t range_siz
  
      ValueLayoutReader reader = ValueLayoutReader(layout);
      size_t accumulated_size = 0;
@@ -173,7 +200,7 @@ index 5710b86..f684d2e 100644
  
      const swift::metadata *enum_type = nullptr;
      while (accumulated_size < range_location) {
-@@ -701,6 +728,7 @@ Partial find_partial(ValueLayout layout, size_t range_location, size_t range_siz
+@@ -701,6 +748,7 @@ Partial find_partial(ValueLayout layout, size_t range_location, size_t range_siz
                  // offset after applying nested layout exceeds range
                  // restart search from nested layout
                  range_location -= accumulated_size;
@@ -181,7 +208,7 @@ index 5710b86..f684d2e 100644
                  accumulated_size = 0;
                  reader = ValueLayoutReader(nested_layout);
              } else {
-@@ -719,6 +747,7 @@ Partial find_partial(ValueLayout layout, size_t range_location, size_t range_siz
+@@ -719,6 +767,7 @@ Partial find_partial(ValueLayout layout, size_t range_location, size_t range_siz
                  // offset after applying nested layout exceeds range
                  // restart search from nested layout
                  range_location -= accumulated_size;
@@ -189,7 +216,7 @@ index 5710b86..f684d2e 100644
                  accumulated_size = 0;
                  reader = ValueLayoutReader(nested_layout);
              } else {
-@@ -766,7 +795,7 @@ Partial find_partial(ValueLayout layout, size_t range_location, size_t range_siz
+@@ -766,7 +815,7 @@ Partial find_partial(ValueLayout layout, size_t range_location, size_t range_siz
          }
      };
  
@@ -493,38 +520,6 @@ index 7d7137e..b173742 100644
      auto type = reinterpret_cast<const IAG::swift::metadata *>(typeID);
      auto value_witness = type->getValueWitnesses();
      if (!value_witness || !value_witness->flags.hasEnumWitnesses()) {
-diff --git a/Sources/ComputeCxx/Swift/SwiftFunction.h b/Sources/ComputeCxx/Swift/SwiftFunction.h
-new file mode 100644
-index 0000000..6ad7285
---- /dev/null
-+++ b/Sources/ComputeCxx/Swift/SwiftFunction.h
-@@ -0,0 +1,26 @@
-+#pragma once
-+
-+#if __has_include(<ptrauth.h>)
-+#include <ptrauth.h>
-+#endif
-+
-+namespace IAG {
-+namespace swift {
-+
-+// A Swift closure's function pointer, as C++ calls it. On arm64e Swift signs a closure's
-+// function pointer with a discriminator of the closure's Swift type, which a C++ function
-+// pointer type can't name; it is re-signed as a plain function pointer.
-+template <typename Function> inline Function function(Function f) {
-+#if __has_feature(ptrauth_calls)
-+    if (f == nullptr) {
-+        return f;
-+    }
-+    return (Function)ptrauth_sign_unauthenticated(ptrauth_strip((void *)f, ptrauth_key_function_pointer),
-+                                                  ptrauth_key_function_pointer, 0);
-+#else
-+    return f;
-+#endif
-+}
-+
-+} // namespace swift
-+} // namespace IAG
 diff --git a/Sources/ComputeCxx/Vector/Vector.h b/Sources/ComputeCxx/Vector/Vector.h
 index fb1c0a9..9604293 100644
 --- a/Sources/ComputeCxx/Vector/Vector.h
