@@ -125,6 +125,10 @@ def check(binary, root=ROOT):
     for short, syms in sorted(imports.items()):
         install = libs.get(short)
         if install is None:
+            # (dyld_info names a library by its file name without the extension: libswiftCore
+            # is libswiftCore.dylib, not the longer libswiftCoreFoundation.dylib)
+            install = next((v for k, v in libs.items() if os.path.splitext(k)[0] == short), None)
+        if install is None:
             install = next((v for k, v in sorted(libs.items(), key=lambda item: -len(item[0]))
                             if k.startswith(short)), None)
         # (bundled libraries, and weak definitions bound wherever they're found)
