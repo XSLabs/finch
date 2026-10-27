@@ -1009,6 +1009,98 @@ static void conversions_10bit(void)
     TD("ARGB8888ToRGBA1010102 unknown flag", W, H, 4, vImageConvert_ARGB8888ToRGBA1010102(&s8, &d, 0, 1023, NULL, 0x100000));
 }
 
+/* the rest of Conversion.h's packing, dithering and sub-byte formats; ordered dithering
+   adds each implementation's own blue noise, so only its result codes are compared */
+static void conversions_dithered(void)
+{
+    const Pixel_FFFF maxF = {1, 1.25f, 0.75f, 1}, minF = {0, -0.25f, 0.125f, 0};
+    TN(ARGB1555toPlanar8, 4, 1, vImageConvert_ARGB1555toPlanar8(&s8, &o[0], &o[1], &o[2], &o[3], 0));
+    TN(XRGB8888ToPlanar8, 3, 1, vImageConvert_XRGB8888ToPlanar8(&s8, &o[0], &o[1], &o[2], 0));
+    TN(XRGBFFFFToPlanarF, 3, 4, vImageConvert_XRGBFFFFToPlanarF(&sF, &o[0], &o[1], &o[2], 0));
+    T1(Planar8ToARGBFFFF, d, 16, vImageConvert_Planar8ToARGBFFFF(&s8, &s8b, &s8c, &s8d, &d, maxF, minF, 0));
+    T1(PlanarFToARGB8888, d, 4, vImageConvert_PlanarFToARGB8888(&sF, &sFb, &sFc, &sFd, &d, maxF, minF, 0));
+    T1(RGB16UtoARGB16U, d, 8, vImageConvert_RGB16UtoARGB16U(&s16U, NULL, 40000, &d, false, 0));
+    T1(RGB16UtoARGB16U alpha plane, d, 8, vImageConvert_RGB16UtoARGB16U(&s16U, &s16S, 0, &d, true, 0));
+    T1(Flatten_ARGB8888ToRGB888, d, 3, vImageFlatten_ARGB8888ToRGB888(&s8, &d, (Pixel_8888){255, 10, 128, 240}, false, 0));
+    T1(Flatten_ARGB8888ToRGB888 premultiplied, d, 3,
+       vImageFlatten_ARGB8888ToRGB888(&s8, &d, (Pixel_8888){255, 10, 128, 240}, true, 0));
+
+    const uint8_t bgra[4] = {3, 2, 1, 0};
+    const Pixel_F max3[3] = {1, 1.25f, 0.75f}, min3[3] = {0, -0.25f, 0.125f};
+    const int modes[4] = {kvImageConvert_DitherNone, kvImageConvert_DitherOrderedReproducible, kvImageConvert_DitherOrdered,
+                          kvImageConvert_DitherFloydSteinberg};
+    char n[96];
+    for (int i = 0; i < 4; ++i) {
+        int m = modes[i];
+#define DITHER(name, BPP, call)                                                                          \
+    snprintf(n, sizeof(n), #name " %d", m);                                                              \
+    if (m == kvImageConvert_DitherNone) {                                                                \
+        TD(n, W, H, BPP, call);                                                                          \
+    } else {                                                                                             \
+        vImage_Buffer d = make(BPP, KZERO);                                                              \
+        printf("%s: %ld\n", n, (long)(call));                                                            \
+        free(d.data);                                                                                    \
+    }
+        DITHER(PlanarFtoPlanar8_dithered, 1, vImageConvert_PlanarFtoPlanar8_dithered(&sF, &d, 1.25f, -0.25f, m, 0));
+        DITHER(RGBFFFtoRGB888_dithered, 3, vImageConvert_RGBFFFtoRGB888_dithered(&sF, &d, max3, min3, m, 0));
+        DITHER(ARGBFFFFtoARGB8888_dithered, 4, vImageConvert_ARGBFFFFtoARGB8888_dithered(&sF, &d, maxF, minF, m, bgra, 0));
+        DITHER(Planar16UtoPlanar8_dithered, 1, vImageConvert_Planar16UtoPlanar8_dithered(&s16U, &d, m, 0));
+        DITHER(RGB16UtoRGB888_dithered, 3, vImageConvert_RGB16UtoRGB888_dithered(&s16U, &d, m, 0));
+        DITHER(ARGB16UtoARGB8888_dithered, 4, vImageConvert_ARGB16UtoARGB8888_dithered(&s16U, &d, m, bgra, 0));
+        DITHER(RGB888toRGB565_dithered, 2, vImageConvert_RGB888toRGB565_dithered(&s8, &d, NULL, m, 0));
+        DITHER(ARGB8888toRGB565_dithered, 2, vImageConvert_ARGB8888toRGB565_dithered(&s8, &d, NULL, m, 0));
+        DITHER(RGBA8888toRGB565_dithered, 2, vImageConvert_RGBA8888toRGB565_dithered(&s8, &d, NULL, m, 0));
+        DITHER(BGRA8888toRGB565_dithered, 2, vImageConvert_BGRA8888toRGB565_dithered(&s8, &d, NULL, m, 0));
+        DITHER(ARGB8888toARGB1555_dithered, 2, vImageConvert_ARGB8888toARGB1555_dithered(&s8, &d, NULL, m, 0));
+        DITHER(RGBA8888toRGBA5551_dithered, 2, vImageConvert_RGBA8888toRGBA5551_dithered(&s8, &d, NULL, m, 0));
+#undef DITHER
+    }
+    printf("ARGB16UtoARGB8888_dithered bad permutation: %ld\n",
+           (long)vImageConvert_ARGB16UtoARGB8888_dithered(&s16U, &s8, kvImageConvert_DitherNone, (uint8_t[]){4, 0, 1, 2}, 0));
+    printf("PlanarFtoPlanar8_dithered unknown flag: %ld\n",
+           (long)vImageConvert_PlanarFtoPlanar8_dithered(&sF, &s8, 1, 0, kvImageConvert_DitherNone, 0x100000));
+
+    /* 1, 2 and 4 bits a pixel, with a palette or computing one: no dither exactly, and
+       Atkinson's at 1 bit (Apple's other diffusion rounds its own way) */
+    Pixel_8 p2[2] = {30, 220}, p4[4] = {10, 60, 200, 250}, p16[16];
+    for (int i = 0; i < 16; ++i)
+        p16[i] = (Pixel_8)(i * i);
+    for (int m = 0; m <= 5; ++m) {
+        /* (Apple's 2- and 4-bit forms step dest by src's rowBytes when not diffusing, so
+           dest gets src's rowBytes here; its Floyd-Steinberg treats the right edge its own
+           way) */
+        bool exact = m == kvImageConvert_DitherNone || (m == kvImageConvert_DitherAtkinson);
+#define BITS(name, bits, call)                                                                           \
+    snprintf(n, sizeof(n), #name " %d", m);                                                              \
+    if (exact && (bits == 1 || m == kvImageConvert_DitherNone)) {                                        \
+        vImage_Buffer d = make(16, KZERO);                                                               \
+        memset(d.data, 0, d.rowBytes * d.height);                                                        \
+        vImage_Error e = call;                                                                           \
+        size_t one = 1;                                                                                  \
+        report(n, e, 1, &d, &one);                                                                       \
+        free(d.data);                                                                                    \
+    } else {                                                                                             \
+        vImage_Buffer d = make(1, KZERO);                                                                \
+        printf("%s: %ld\n", n, (long)(call));                                                            \
+        free(d.data);                                                                                    \
+    }
+        BITS(Planar8toPlanar1, 1, vImageConvert_Planar8toPlanar1(&s8, &d, NULL, m, 0));
+        BITS(Planar8toPlanar2, 2, vImageConvert_Planar8toPlanar2(&s8, &d, NULL, m, 0));
+        BITS(Planar8toPlanar4, 4, vImageConvert_Planar8toPlanar4(&s8, &d, NULL, m, 0));
+        BITS(Planar8toIndexed1, 1, vImageConvert_Planar8toIndexed1(&s8, &d, NULL, p2, m, 0));
+        BITS(Planar8toIndexed2, 2, vImageConvert_Planar8toIndexed2(&s8, &d, NULL, p4, m, 0));
+        BITS(Planar8toIndexed4, 4, vImageConvert_Planar8toIndexed4(&s8, &d, NULL, p16, m, 0));
+#undef BITS
+    }
+    {
+        Pixel_8 auto4[4] = {0};
+        vImage_Buffer d = make(1, KZERO);
+        printf("Planar8toIndexed2 computed palette: %ld\n",
+               (long)vImageConvert_Planar8toIndexed2(&s8, &d, NULL, auto4, kvImageConvert_DitherNone, 0));
+        free(d.data);
+    }
+}
+
 int main(void)
 {
     dump_name = getenv("VIMAGE_DUMP");
@@ -1034,5 +1126,6 @@ int main(void)
     transforms();
     geometry();
     conversions_10bit();
+    conversions_dithered();
     return 0;
 }

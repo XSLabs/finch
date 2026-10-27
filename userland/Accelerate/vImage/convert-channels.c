@@ -135,6 +135,20 @@ vImage_Error vImageConvert_BGRXFFFFToPlanarF(const vImage_Buffer *src, const vIm
     const vImage_Buffer *planes[4] = {b, g, r, NULL};
     return deinterleave(src, planes, 4, 4);
 }
+vImage_Error vImageConvert_XRGB8888ToPlanar8(const vImage_Buffer *src, const vImage_Buffer *r, const vImage_Buffer *g,
+                                             const vImage_Buffer *b, vImage_Flags flags)
+{
+    TEMP_QUERY(flags);
+    const vImage_Buffer *planes[4] = {NULL, r, g, b};
+    return deinterleave(src, planes, 4, 1);
+}
+vImage_Error vImageConvert_XRGBFFFFToPlanarF(const vImage_Buffer *src, const vImage_Buffer *r, const vImage_Buffer *g,
+                                             const vImage_Buffer *b, vImage_Flags flags)
+{
+    TEMP_QUERY(flags);
+    const vImage_Buffer *planes[4] = {NULL, r, g, b};
+    return deinterleave(src, planes, 4, 4);
+}
 
 #define INTERLEAVE4(name, size)                                                                          \
     vImage_Error name(const vImage_Buffer *p0, const vImage_Buffer *p1, const vImage_Buffer *p2,         \
@@ -241,6 +255,43 @@ vImage_Error vImageConvert_Planar8ToBGRXFFFF(const vImage_Buffer *b, const vImag
     TEMP_QUERY(flags);
     const vImage_Buffer *planes[4] = {b, g, r, NULL};
     return interleave_8_to_f(planes, alpha, dest, maxFloat, minFloat);
+}
+vImage_Error vImageConvert_Planar8ToARGBFFFF(const vImage_Buffer *a, const vImage_Buffer *r, const vImage_Buffer *g,
+                                             const vImage_Buffer *b, const vImage_Buffer *dest,
+                                             const Pixel_FFFF maxFloat, const Pixel_FFFF minFloat, vImage_Flags flags)
+{
+    TEMP_QUERY(flags);
+    const vImage_Buffer *planes[4] = {a, r, g, b};
+    return interleave_8_to_f(planes, 0, dest, maxFloat, minFloat);
+}
+/* (as the header's numerics note says: the sample clamped to [min, max], times
+   255 / (max - min), plus -min times that, rounded to nearest even; max == min gives
+   255 max) */
+vImage_Error vImageConvert_PlanarFToARGB8888(const vImage_Buffer *a, const vImage_Buffer *r, const vImage_Buffer *g,
+                                             const vImage_Buffer *b, const vImage_Buffer *dest,
+                                             const Pixel_FFFF maxFloat, const Pixel_FFFF minFloat, vImage_Flags flags)
+{
+    TEMP_QUERY(flags);
+    const vImage_Buffer *planes[4] = {a, r, g, b};
+    for (int c = 0; c < 4; ++c)
+        CHECK(fits(dest, planes[c]));
+    float scale[4], bias[4];
+    for (int c = 0; c < 4; ++c) {
+        scale[c] = maxFloat[c] == minFloat[c] ? 0 : 255.0f / (maxFloat[c] - minFloat[c]);
+        bias[c] = maxFloat[c] == minFloat[c] ? 255.0f * maxFloat[c] : minFloat[c] * -scale[c];
+    }
+    for (vImagePixelCount y = 0; y < dest->height; ++y) {
+        uint8_t *out = ROW(dest, y);
+        for (vImagePixelCount x = 0; x < dest->width; ++x)
+            for (int c = 0; c < 4; ++c) {
+                float lo = fminf(minFloat[c], maxFloat[c]), hi = fmaxf(minFloat[c], maxFloat[c]);
+                float v = SAMPLE(float, planes[c], y, x);
+                v = v != v ? 0 : v < lo ? lo : v > hi ? hi : v;
+                long q = lrintf(v * scale[c] + bias[c]);
+                out[4 * x + c] = sat8(q);
+            }
+    }
+    return kvImageNoError;
 }
 vImage_Error vImageConvert_PlanarFToXRGB8888(Pixel_8 alpha, const vImage_Buffer *r, const vImage_Buffer *g,
                                              const vImage_Buffer *b, const vImage_Buffer *dest,
@@ -385,6 +436,26 @@ vImage_Error vImageConvert_RGBA8888toRGBA5551(const vImage_Buffer *src, const vI
     PIXELS(uint8_t, uint16_t, const uint8_t *p = in + 4 * x;
            out[x] = (uint16_t)((down5(p[0]) << 11) | (down5(p[1]) << 6) | (down5(p[2]) << 1) |
                                ((p[3] + 127u) / 255u)));
+}
+vImage_Error vImageConvert_ARGB1555toPlanar8(const vImage_Buffer *src, const vImage_Buffer *a, const vImage_Buffer *r,
+                                             const vImage_Buffer *g, const vImage_Buffer *b, vImage_Flags flags)
+{
+    TEMP_QUERY(flags);
+    const vImage_Buffer *planes[4] = {a, r, g, b};
+    for (int c = 1; c < 4; ++c)
+        CHECK(same_size(a, planes[c]));
+    CHECK(fits(a, src));
+    for (vImagePixelCount y = 0; y < a->height; ++y) {
+        const uint16_t *in = (const uint16_t *)CROW(src, y);
+        for (vImagePixelCount x = 0; x < a->width; ++x) {
+            uint32_t p = in[x];
+            ROW(a, y)[x] = (uint8_t)((p >> 15) * 255);
+            ROW(r, y)[x] = up5((p >> 10) & 31);
+            ROW(g, y)[x] = up5((p >> 5) & 31);
+            ROW(b, y)[x] = up5(p & 31);
+        }
+    }
+    return kvImageNoError;
 }
 vImage_Error vImageConvert_Planar8toARGB1555(const vImage_Buffer *a, const vImage_Buffer *r, const vImage_Buffer *g,
                                              const vImage_Buffer *b, const vImage_Buffer *dest, vImage_Flags flags)
@@ -563,6 +634,7 @@ ADD_ALPHA(vImageConvert_RGB888toBGRA8888, uint8_t, Pixel_8, 3, 2, 1, 0)
 ADD_ALPHA(vImageConvert_RGBFFFtoARGBFFFF, float, Pixel_F, 0, 1, 2, 3)
 ADD_ALPHA(vImageConvert_RGBFFFtoRGBAFFFF, float, Pixel_F, 3, 0, 1, 2)
 ADD_ALPHA(vImageConvert_RGBFFFtoBGRAFFFF, float, Pixel_F, 3, 2, 1, 0)
+ADD_ALPHA(vImageConvert_RGB16UtoARGB16U, uint16_t, Pixel_16U, 0, 1, 2, 3)
 ADD_ALPHA(vImageConvert_RGB16UtoRGBA16U, uint16_t, Pixel_16U, 3, 0, 1, 2)
 ADD_ALPHA(vImageConvert_RGB16UtoBGRA16U, uint16_t, Pixel_16U, 3, 2, 1, 0)
 
@@ -767,6 +839,7 @@ FLATTEN(vImageFlatten_ARGB8888, uint8_t, 4, 0, Pixel_8888, 255, 127, 0, 1, 2, 3)
 FLATTEN(vImageFlatten_RGBA8888, uint8_t, 4, 3, Pixel_8888, 255, 127, 0, 1, 2, 3)
 FLATTEN(vImageFlatten_ARGB16U, uint16_t, 4, 0, Pixel_ARGB_16U, 65535, 32767, 0, 1, 2, 3)
 FLATTEN(vImageFlatten_RGBA16U, uint16_t, 4, 3, Pixel_ARGB_16U, 65535, 32767, 0, 1, 2, 3)
+FLATTEN(vImageFlatten_ARGB8888ToRGB888, uint8_t, 3, 0, Pixel_8888, 255, 127, 1, 2, 3)
 FLATTEN(vImageFlatten_RGBA8888ToRGB888, uint8_t, 3, 3, Pixel_8888, 255, 127, 0, 1, 2)
 FLATTEN(vImageFlatten_BGRA8888ToRGB888, uint8_t, 3, 3, Pixel_8888, 255, 127, 2, 1, 0)
 

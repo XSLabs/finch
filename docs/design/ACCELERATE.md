@@ -103,7 +103,8 @@ than zeroing it.
 ## vImage
 
 `userland/Accelerate/vImage/` is Finch's vImage, one file per header area:
-`convert.c`, `convert-channels.c` and `convert-10bit.c` (most of `Conversion.h`),
+`convert.c`, `convert-channels.c`, `convert-10bit.c` and `convert-dither.c`
+(`Conversion.h` but for YpCbCr),
 `alpha.c`, `morphology.c`, `histogram.c`, `convolution.c`, `transform.c`
 (matrix multiply, gamma, lookup tables, piecewise functions) and `geometry.c`;
 `common.h` holds the buffer checks and sample conversions they share, and
@@ -130,9 +131,16 @@ ARGB2101010), whose results Apple computes in fixed point in its vector loops
 (groups of eight pixels) and with the header's or single-precision formulas in
 the scalar tail; Finch does the same, so they match.
 
-Still missing: the rest of `Conversion.h` (YpCbCr, dithered and 1-, 2- and
-4-bit formats; 59 calls), `vImage_Utilities.h` (15), `vImage_CVUtilities.h`
-(30) and `BasicImageTypes.h` (1).
+`convert-dither.c` has the dithered conversions and the 1-, 2- and 4-bit
+planar and indexed formats. Ordered dithering adds Finch's own blue noise (a
+64 by 64 void-and-cluster pattern made at first use), so it agrees with
+Apple's in kind, not sample for sample. Apple's 2- and 4-bit conversions step
+the destination by the source's `rowBytes` when not diffusing, writing past
+a narrower destination; Finch's use the destination's.
+
+Still missing: `Conversion.h`'s YpCbCr formats (34 calls),
+`vImage_Utilities.h` (15), `vImage_CVUtilities.h` (30) and
+`BasicImageTypes.h` (1).
 
 ## The rest
 
