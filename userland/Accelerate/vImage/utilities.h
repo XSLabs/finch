@@ -13,6 +13,8 @@ struct vImageCVConversion;
 
 /* a new converter with nothing set (one reference) */
 vImageConverterRef vimage_converter_alloc(void);
+/* makes a new converter one between CoreGraphics and CoreVideo formats (it takes cv) */
+void vimage_converter_set_cv(vImageConverterRef converter, const struct vImageCVConversion *cv);
 /* a ColorSync transform between two colour spaces (NULL is sRGB) */
 ColorSyncTransformRef vimage_make_transform(CGColorSpaceRef from, CGColorSpaceRef to, CGColorRenderingIntent intent);
 /* a converter's CG-to-CG conversion of one buffer */

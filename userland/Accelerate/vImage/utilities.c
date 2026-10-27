@@ -517,6 +517,11 @@ vImageConverterRef vimage_converter_alloc(void)
     return c;
 }
 
+void vimage_converter_set_cv(vImageConverterRef converter, const struct vImageCVConversion *cv)
+{
+    converter->cv = cv;
+}
+
 static vImageConverterRef fail(vImageConverterRef c, vImage_Error e, vImage_Error *error)
 {
     if (error)
@@ -543,8 +548,9 @@ static vImageConverterRef create(const vImage_CGImageFormat *srcFormat, const vI
         e = digest(destFormat, &c->dst, true);
     if (e)
         return fail(c, e, error);
-    if (c->src.hasAlpha && !c->src.skip && !c->dst.hasAlpha) {
-        /* flattening needs a background (NULL is black) */
+    if (c->src.hasAlpha && !c->src.skip && (!c->dst.hasAlpha || c->dst.skip)) {
+        /* flattening, to formats without alpha or skipping it, needs a background (NULL is
+           black) */
         c->hasBackground = true;
         /* (to an integer format's precision, as vImage's flattening takes it) */
         double max = c->dst.isFloat || c->dst.packed ? 0 : (double)((1ull << c->dst.bpc) - 1);

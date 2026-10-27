@@ -9,9 +9,9 @@
  * unit) is rounded to Q5 and the sum rounded; from 16 bits the products (Q13 or Q14) are
  * summed exactly and rounded once. 8-bit RGB to 8-bit 4:4:4 computes full-range luma in
  * Q5, scales it to the range, and takes chroma as gains on B - Y' and R - Y'; to 4:2:2
- * it uses the range-scaled matrix, chroma from each pair's summed RGB. The rest (16Q12
- * and 16-bit RGB, 4:2:0, 10- and 16-bit Y'CbCr from RGB) is single precision, which
- * matches Apple's but for one in a few 10- and 16-bit samples.
+ * and 4:2:0 it uses the range-scaled matrix, chroma from each pair's (Q6) or 2 x 2
+ * block's (Q7) summed RGB. The rest (16Q12 and 16-bit RGB, 10- and 16-bit Y'CbCr from
+ * RGB) is single precision, which matches Apple's but for one in a few samples.
  */
 #include "common.h"
 
@@ -512,6 +512,17 @@ static inline int32_t fixed422_y(const Info *i, const float *argb)
     return clampi(((i->range.Yp_bias << 5) + v + 16) >> 5, i->range.YpMin, i->range.YpMax);
 }
 
+/* 4:2:0: chroma in Q7 from the 2 x 2 block's sums */
+static void fixed420_c(const Info *i, const float (*a)[4], int32_t *cb, int32_t *cr)
+{
+    int32_t r = (int32_t)(a[0][1] + a[1][1] + a[2][1] + a[3][1]), g = (int32_t)(a[0][2] + a[1][2] + a[2][2] + a[3][2]),
+            b = (int32_t)(a[0][3] + a[1][3] + a[2][3] + a[3][3]);
+    int32_t u = q15(r, i->m[3], 10) + q15(g, i->m[4], 10) + q15(b, i->m[5], 10);
+    int32_t v = q15(r, i->m[5], 10) + q15(g, i->m[6], 10) + q15(b, i->m[7], 10);
+    *cb = clampi(((i->range.CbCr_bias << 7) + u + 64) >> 7, i->range.CbCrMin, i->range.CbCrMax);
+    *cr = clampi(((i->range.CbCr_bias << 7) + v + 64) >> 7, i->range.CbCrMin, i->range.CbCrMax);
+}
+
 static void fixed422_c(const Info *i, const float *a0, const float *a1, int32_t *cb, int32_t *cr)
 {
     int32_t r = (int32_t)(a0[1] + a1[1]), g = (int32_t)(a0[2] + a1[2]), b = (int32_t)(a0[3] + a1[3]);
@@ -661,11 +672,11 @@ static vImage_Error rgb_to_420(const vImage_Buffer *src, const vImage_Buffer *de
                     vImagePixelCount yy = y + dy < destY->height ? y + dy : y, xx = x + dx < destY->width ? x + dx : x;
                     argb_of(&t, CROW(src, yy), xx, argb[n]);
                     if (y + dy < destY->height && x + dx < destY->width)
-                        ROW(destY, y + dy)[x + dx] = (uint8_t)y_of(t.info, argb[n]);
+                        ROW(destY, y + dy)[x + dx] = (uint8_t)fixed422_y(t.info, argb[n]);
                     ++n;
                 }
             int32_t cb, cr;
-            chroma_of(t.info, (const float(*)[4])argb, 4, &cb, &cr);
+            fixed420_c(t.info, (const float(*)[4])argb, &cb, &cr);
             if (destCr) {
                 ROW(destCb, y / 2)[x / 2] = (uint8_t)cb;
                 ROW(destCr, y / 2)[x / 2] = (uint8_t)cr;

@@ -118,7 +118,7 @@ $(OUT)/finch-vdsp-test: vdsp-test.c
 # vImage function by function, hashed outputs (diff Apple's and Finch's).
 $(OUT)/finch-vimage-test: vimage-test.c
 	@mkdir -p $(OUT)
-	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework Accelerate -framework CoreGraphics
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework Accelerate -framework CoreGraphics -framework CoreVideo -framework CoreFoundation
 
 # BLAS levels 1-3 through CBLAS, Fortran, legacy and ILP64 (diff Apple's and Finch's).
 $(OUT)/finch-blas-test: blas-test.c

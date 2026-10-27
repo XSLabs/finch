@@ -6,6 +6,7 @@
  * VIMAGE_DUMP=<function> also prints that function's output bytes.
  */
 #include <Accelerate/Accelerate.h>
+#include <CoreVideo/CoreVideo.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1319,7 +1320,9 @@ static void utilities(void)
         if (cases[i].exact) {
             size_t bpp = cases[i].toBytes;
             report(cases[i].name, r, 1, &d, &bpp);
-        } else
+        } else if (cases[i].to.bitsPerComponent == 5) /* (Apple's dither differs call to call) */
+            printf("%s: %ld\n", cases[i].name, (long)r);
+        else
             printf("%s (coarse): %ld %ld\n", cases[i].name, (long)r, coarse(&d, cases[i].toBytes, 1) / 8);
         printf("%s: buffers %lu %lu order %u %u in place %ld\n", cases[i].name, vImageConverter_GetNumberOfSourceBuffers(c),
                vImageConverter_GetNumberOfDestinationBuffers(c), vImageConverter_GetSourceBufferOrder(c)[0],
@@ -1363,6 +1366,173 @@ static void utilities(void)
 }
 #pragma clang diagnostic pop
 
+/* vImage_CVUtilities.h: CoreVideo formats, converters, CVPixelBuffers */
+static void cv_utilities(void)
+{
+    CGColorSpaceRef srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB), gray = CGColorSpaceCreateWithName(kCGColorSpaceGenericGrayGamma2_2);
+    const uint32_t codes[] = {kCVPixelFormatType_32ARGB, kCVPixelFormatType_32BGRA, kCVPixelFormatType_24BGR, kCVPixelFormatType_16LE565,
+                              kCVPixelFormatType_48RGB, kCVPixelFormatType_30RGB, kCVPixelFormatType_OneComponent8, kCVPixelFormatType_64RGBAHalf,
+                              kCVPixelFormatType_422YpCbCr8, kCVPixelFormatType_422YpCbCr8_yuvs, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                              kCVPixelFormatType_420YpCbCr8PlanarFullRange, kCVPixelFormatType_444YpCbCr8, kCVPixelFormatType_4444YpCbCrA8,
+                              kCVPixelFormatType_4444YpCbCrA8R, kCVPixelFormatType_4444AYpCbCr8, kCVPixelFormatType_422YpCbCr_4A_8BiPlanar,
+                              kCVPixelFormatType_422YpCbCr10, kCVPixelFormatType_444YpCbCr10, kCVPixelFormatType_422YpCbCr16,
+                              kCVPixelFormatType_4444AYpCbCr16, 'b64a', 'x420'};
+    const vImageBufferTypeCode types[] = {kvImageBufferTypeCode_Luminance, kvImageBufferTypeCode_Chroma, kvImageBufferTypeCode_Cr,
+                                          kvImageBufferTypeCode_Alpha, kvImageBufferTypeCode_ColorSpaceChannel1};
+    for (size_t i = 0; i < sizeof(codes) / sizeof(codes[0]); ++i) {
+        vImageCVImageFormatRef f = vImageCVImageFormat_Create(codes[i], kvImage_ARGBToYpCbCrMatrix_ITU_R_601_4, kCVImageBufferChromaLocation_Center, srgb, 0);
+        printf("CVImageFormat %08x:", codes[i]);
+        if (!f) {
+            printf(" NULL\n");
+            continue;
+        }
+        vImageMatrixType mt = 9;
+        const void *m = vImageCVImageFormat_GetConversionMatrix(f, &mt);
+        printf(" %08x %u alpha %d matrix %d/%u siting %d space %d names", vImageCVImageFormat_GetFormatCode(f), vImageCVImageFormat_GetChannelCount(f),
+               vImageCVImageFormat_GetAlphaHint(f), m == kvImage_ARGBToYpCbCrMatrix_ITU_R_601_4, mt, vImageCVImageFormat_GetChromaSiting(f) != NULL,
+               vImageCVImageFormat_GetColorSpace(f) == srgb);
+        for (const vImageBufferTypeCode *n = vImageCVImageFormat_GetChannelNames(f); *n; ++n)
+            printf(" %u", *n);
+        for (size_t t = 0; t < 5; ++t) {
+            const vImageChannelDescription *d = vImageCVImageFormat_GetChannelDescription(f, types[t]);
+            if (d)
+                printf(" %u{%g %g %g %g}", types[t], d->min, d->zero, d->full, d->max);
+        }
+        printf(" | set gray %ld, siting %ld, bad siting %ld\n", (long)vImageCVImageFormat_SetColorSpace(f, gray),
+               (long)vImageCVImageFormat_SetChromaSiting(f, kCVImageBufferChromaLocation_Left),
+               (long)vImageCVImageFormat_SetChromaSiting(f, CFSTR("nowhere")));
+        vImageCVImageFormat_Release(f);
+    }
+    {
+        vImageCVImageFormatRef f = vImageCVImageFormat_Create(kCVPixelFormatType_422YpCbCr8, NULL, NULL, NULL, 0);
+        vImage_CGImageFormat argb = {8, 32, srgb, kCGImageAlphaFirst, 0, NULL, 0};
+        vImage_Error e = 0;
+        vImageConverter_CreateForCVToCGImageFormat(f, &argb, NULL, 0, &e);
+        printf("CV converter without matrix: %ld", (long)e);
+        vImageCVImageFormat_CopyConversionMatrix(f, kvImage_ARGBToYpCbCrMatrix_ITU_R_709_2, kvImageMatrixType_ARGBToYpCbCrMatrix);
+        vImageConverter_CreateForCVToCGImageFormat(f, &argb, NULL, 0, &e);
+        printf(", siting: %ld", (long)e);
+        vImageCVImageFormat_SetChromaSiting(f, kCVImageBufferChromaLocation_Center);
+        vImageConverter_CreateForCVToCGImageFormat(f, &argb, NULL, 0, &e);
+        printf(", colour space: %ld\n", (long)e);
+        vImage_ARGBToYpCbCrMatrix mine = *kvImage_ARGBToYpCbCrMatrix_ITU_R_601_4, singular = {0};
+        printf("CopyConversionMatrix: %ld keeps address %d, singular %ld, bad type %ld\n",
+               (long)vImageCVImageFormat_CopyConversionMatrix(f, &mine, kvImageMatrixType_ARGBToYpCbCrMatrix),
+               vImageCVImageFormat_GetConversionMatrix(f, NULL) == &mine,
+               (long)vImageCVImageFormat_CopyConversionMatrix(f, &singular, kvImageMatrixType_ARGBToYpCbCrMatrix),
+               (long)vImageCVImageFormat_CopyConversionMatrix(f, &mine, 7));
+        vImageCVImageFormatRef g = vImageCVImageFormat_Copy(f);
+        printf("CVImageFormat_Copy: %08x %d\n", vImageCVImageFormat_GetFormatCode(g), vImageCVImageFormat_GetChromaSiting(g) != NULL);
+        vImageCVImageFormat_Release(g);
+        vImageCVImageFormat_Release(f);
+    }
+
+    /* converters: sRGB ARGB8888 to each CV format and back, 12 x 4 (not 30-bit RGB: Apple's
+       converter creation crashes on it) */
+    vImage_CGImageFormat argb = {8, 32, srgb, kCGImageAlphaFirst, 0, NULL, 0};
+    vImage_Buffer src = s8;
+    src.width = 12;
+    src.height = 4;
+    for (size_t i = 0; i < sizeof(codes) / sizeof(codes[0]); ++i) {
+        if (codes[i] == kCVPixelFormatType_30RGB)
+            continue;
+        vImageCVImageFormatRef f = vImageCVImageFormat_Create(codes[i], kvImage_ARGBToYpCbCrMatrix_ITU_R_601_4, kCVImageBufferChromaLocation_Center, srgb, 0);
+        if (!f)
+            continue;
+        vImage_Error e1 = 0, e2 = 0;
+        vImageConverterRef to = vImageConverter_CreateForCGToCVImageFormat(&argb, f, NULL, 0, &e1),
+                           from = vImageConverter_CreateForCVToCGImageFormat(f, &argb, NULL, 0, &e2);
+        printf("CV converters %08x: %ld %ld", codes[i], (long)e1, (long)e2);
+        if (to && from) {
+            unsigned long n = vImageConverter_GetNumberOfDestinationBuffers(to);
+            printf(" buffers %lu %lu order", vImageConverter_GetNumberOfSourceBuffers(to), n);
+            for (const vImageBufferTypeCode *o = vImageConverter_GetDestinationBufferOrder(to); *o; ++o)
+                printf(" %u", *o);
+            printf(" /");
+            for (const vImageBufferTypeCode *o = vImageConverter_GetSourceBufferOrder(from); *o; ++o)
+                printf(" %u", *o);
+            vImage_Buffer planes[3];
+            for (unsigned long k = 0; k < n; ++k)
+                planes[k] = make_size(12, 4, 16);
+            vImage_Buffer back = make_size(12, 4, 4);
+            vImage_Error a = vImageConvert_AnyToAny(to, &src, planes, NULL, 0), b = vImageConvert_AnyToAny(from, planes, &back, NULL, 0);
+            printf(" convert %ld %ld", (long)a, (long)b);
+            /* (Apple's dithers RGB565, drops alpha unflattened into 48-bit RGB, and rounds to
+               half floats, 10-bit and 16-bit Y'CbCr its own way: those compare result codes) */
+            bool approximate = codes[i] == kCVPixelFormatType_16LE565 || codes[i] == kCVPixelFormatType_48RGB ||
+                               codes[i] == kCVPixelFormatType_64RGBAHalf || codes[i] == kCVPixelFormatType_444YpCbCr10 ||
+                               codes[i] == kCVPixelFormatType_422YpCbCr16;
+            for (unsigned long k = 0; k < n && !approximate; ++k) {
+                planes[k].width = 12 * 16;
+                printf(" %08x", hash(&planes[k], 1));
+            }
+            if (!approximate)
+                printf(" back %08x", hash(&back, 4));
+            for (unsigned long k = 0; k < n; ++k)
+                free(planes[k].data);
+            free(back.data);
+        }
+        printf("\n");
+        vImageConverter_Release(to);
+        vImageConverter_Release(from);
+        vImageCVImageFormat_Release(f);
+    }
+
+    /* pixel buffers */
+    const uint32_t pbCodes[] = {kCVPixelFormatType_32BGRA, kCVPixelFormatType_422YpCbCr8, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange};
+    for (size_t i = 0; i < 3; ++i) {
+        CVPixelBufferRef pb = NULL;
+        CVPixelBufferCreate(NULL, 12, 4, pbCodes[i], NULL, &pb);
+        if (!pb) {
+            printf("CVPixelBuffer %08x: not created\n", pbCodes[i]);
+            continue;
+        }
+        CVBufferSetAttachment(pb, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_601_4, kCVAttachmentMode_ShouldPropagate);
+        CVBufferSetAttachment(pb, kCVImageBufferChromaLocationTopFieldKey, kCVImageBufferChromaLocation_Center, kCVAttachmentMode_ShouldPropagate);
+        vImageCVImageFormatRef f = vImageCVImageFormat_CreateWithCVPixelBuffer(pb);
+        printf("CVImageFormat_CreateWithCVPixelBuffer %08x: %d matrix %d siting %d\n", pbCodes[i], f != NULL,
+               f && vImageCVImageFormat_GetConversionMatrix(f, NULL) == kvImage_ARGBToYpCbCrMatrix_ITU_R_601_4, f && vImageCVImageFormat_GetChromaSiting(f) != NULL);
+        if (f)
+            vImageCVImageFormat_SetColorSpace(f, srgb);
+        vImage_Error e = vImageBuffer_CopyToCVPixelBuffer(&src, &argb, pb, f, NULL, 0);
+        vImage_Buffer out = {0};
+        vImage_Error r = vImageBuffer_InitWithCVPixelBuffer(&out, &argb, pb, f, NULL, 0);
+        printf("CVPixelBuffer %08x round trip: %ld %ld %lux%lu %08x\n", pbCodes[i], (long)e, (long)r, (unsigned long)out.width,
+               (unsigned long)out.height, out.data ? hash(&out, 4) : 0);
+        free(out.data);
+        vImageCVImageFormat_Release(f);
+        CVPixelBufferRelease(pb);
+    }
+
+    /* colour spaces from primaries and transfer functions: Rec. 709 to sRGB, coarsely */
+    {
+        const vImageTransferFunction f709 = {1.099, 1, 0, -0.099, 0.45, 0.018, 4.5, 0};
+        const vImageRGBPrimaries p709 = {0.64f, 0.30f, 0.15f, 0.3127f, 0.33f, 0.60f, 0.06f, 0.3290f};
+        vImage_Error e;
+        CGColorSpaceRef rec709 = vImageCreateRGBColorSpaceWithPrimariesAndTransferFunction(&p709, &f709, kCGRenderingIntentDefault, 0, &e);
+        printf("RGBColorSpaceWithPrimaries: %ld %d %zu\n", (long)e, rec709 != NULL, rec709 ? CGColorSpaceGetNumberOfComponents(rec709) : 0);
+        const vImageWhitePoint d65 = {0.3127f, 0.3290f};
+        CGColorSpaceRef mono = vImageCreateMonochromeColorSpaceWithWhitePointAndTransferFunction(&d65, &f709, kCGRenderingIntentDefault, 0, &e);
+        printf("MonochromeColorSpaceWithWhitePoint: %ld %d %zu\n", (long)e, mono != NULL, mono ? CGColorSpaceGetNumberOfComponents(mono) : 0);
+        const vImageTransferFunction bad = {1, 1, 0, 0, 0, 0, 1, 0};
+        printf("RGBColorSpaceWithPrimaries gamma 0: %p", (void *)vImageCreateRGBColorSpaceWithPrimariesAndTransferFunction(&p709, &bad, kCGRenderingIntentDefault, 0, &e));
+        printf(" %ld\n", (long)e);
+        if (rec709) {
+            vImage_CGImageFormat from = {8, 32, rec709, kCGImageAlphaFirst, 0, NULL, 0};
+            vImageConverterRef c = vImageConverter_CreateWithCGImageFormat(&from, &argb, NULL, 0, &e);
+            vImage_Buffer d = make_size(12, 4, 4);
+            printf("Rec. 709 to sRGB (coarse): %ld %ld\n", (long)vImageConvert_AnyToAny(c, &src, &d, NULL, 0), coarse(&d, 4, 1) / 16);
+            free(d.data);
+            vImageConverter_Release(c);
+            CGColorSpaceRelease(rec709);
+        }
+        if (mono)
+            CGColorSpaceRelease(mono);
+    }
+    CGColorSpaceRelease(srgb);
+    CGColorSpaceRelease(gray);
+}
+
 int main(void)
 {
     dump_name = getenv("VIMAGE_DUMP");
@@ -1391,5 +1561,6 @@ int main(void)
     conversions_dithered();
     conversions_ycbcr();
     utilities();
+    cv_utilities();
     return 0;
 }

@@ -110,7 +110,7 @@ than zeroing it.
 `common.h` holds the buffer checks and sample conversions they share, and
 `legacy.c` the CoreGraphics interop (`vImageBuffer_InitWithCGImage`,
 `vImageCreateCGImageFromBuffer`). `Alpha.h`, `Convolution.h`, `Histogram.h`,
-`Morphology.h`, `Transform.h`, `Geometry.h` and `Conversion.h` are complete.
+All of its headers are complete.
 
 vImage's results are matched to Apple's, quirks included: its vector loops
 (groups of four pixels) and scalar tails compute some operations differently,
@@ -157,7 +157,21 @@ bits and half floats its own way. ColorSync code fragments and
 `CGColorConversionInfo` converters run between the formats' own colour spaces.
 vImage links ColorSync, which the system build now makes before Accelerate.
 
-Still missing: `vImage_CVUtilities.h` (30 calls).
+`cv-utilities.c` has `vImage_CVUtilities.h`: `vImageCVImageFormat` (the 48
+CoreVideo formats Apple's vImage knows, with its channel names, ranges and
+defaults), converters between CoreGraphics and CoreVideo formats, CVPixelBuffer
+import and export, and colour spaces built as ICC profiles from primaries and
+transfer functions. RGB, gray and indexed CoreVideo formats convert as their
+`vImage_CGImageFormat`; Y'CbCr ones through the Y'CbCr functions and an
+intermediate ARGB in the format's colour space, which is how Apple's results
+come out too. CoreVideo is loaded when first needed, as it is built after
+Accelerate.
+
+So all of vImage's public API is Finch's (596 exports). Apple's departs from
+its documentation in places Finch does not follow: its converter drops alpha
+without flattening from 8-bit ARGB to 16-bit RGB, its resampling filter setup
+writes past its allocation at most scales, and creating a converter to 30-bit
+RGB CoreVideo crashes.
 
 ## The rest
 
