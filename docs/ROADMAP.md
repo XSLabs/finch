@@ -1373,9 +1373,10 @@ that every app works. These release checks were missing from the Phase 5 list:
       Apple's apps run sandboxed as on macOS and all 19 "Ready" apps still come up
       (tools/vm/app-launch.py --ready, 2026-10-26). Checked further: Calculator
       (keyboard, copy), TextEdit (open, save, versions, find, tables, autosave, export
-      and print to PDF) and Stickies (typing, copy and paste with the pasteboard,
-      saving and restoring notes): tools/vm/test-calculator.sh, test-textedit.sh,
-      test-stickies.sh.
+      and print to PDF), Stickies (typing, copy and paste with the pasteboard,
+      saving and restoring notes) and Script Editor (running, saving and rerunning a
+      script): tools/vm/test-calculator.sh, test-textedit.sh, test-stickies.sh,
+      test-script-editor.sh.
 - [ ] **Daily use:** persistent accounts and settings, accessibility, keyboard navigation,
       sleep/wake, shutdown, storage errors and low-space recovery on the target M4.
 - [x] **Test runner:** a failed program must fail the run even if its partial output
