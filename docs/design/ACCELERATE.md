@@ -13,6 +13,7 @@ Accelerate.framework/Versions/A/Accelerate          re-exports vecLib and vImage
     libLAPACK.dylib   LAPACK (the calls apps import)
     libQuadrature.dylib     quadrature_integrate
     libLinearAlgebra.dylib  la_object_t matrices, vectors and splats
+    libSparseBLAS.dylib     Sparse/BLAS.h, all four scalar types
   Frameworks/vImage.framework/Versions/A/vImage     vImage (the calls apps import)
 ```
 
@@ -210,11 +211,33 @@ index reads outside the vector, storing with stride 0 aborts in
 `cblas_dcopy`, and a right-hand side made from a splat is solved in place on
 its single element.
 
+## Sparse BLAS
+
+`userland/Accelerate/SparseBLAS/` is libSparseBLAS, all of Sparse/BLAS.h
+(126 functions over float, double and their complex types). A matrix keeps
+its entries sorted by row then column; insertions queue until a computation
+or `sparse_commit` needs them. Values are held as double complex and rounded
+to the matrix's type after every operation, and products accumulate with
+fused multiply-adds, as macOS's kernels do. As on macOS, inserted zeros are
+not stored, the first of several queued insertions at one place wins,
+matrix properties only gate the triangular solves (which use the named
+triangle and ignore the rest), a triangular solve divides by alpha
+(`x = (alpha T)^-1 x`, before a transposed solve and after an untransposed
+one), the permutations swap rows in turn as the header describes, complex
+norms count `|re| + |im|`, and `SPARSE_NORM_R1` of a vector is its 2-norm.
+Finch follows the header where macOS crashes or corrupts: column
+permutations, variable-block products, negative strides in triangular
+solves, a column-major solve whose leading dimension exceeds the rows, a
+trace past the matrix, and invalid orders, transposes or leading dimensions
+(which abort in CBLAS on macOS). The operator 2-norm is the largest
+singular value to full precision (macOS's iteration stops short), and
+triangular solves can differ from macOS's dtrsm in the last bits.
+
 ## The rest
 
 LAPACK has only the calls imported by the apps found on this Mac: `dgels_`,
 `dgetrf_`, `dgetri_` and `dgtsv_` (`LAPACK/lapack.c`). BNNS and the sparse
-solvers are not implemented. Complete LAPACK is planned
+solvers (libSparse) are not implemented. Complete LAPACK is planned
 from a permissively licensed implementation.
 
 ## Build and check
