@@ -10,6 +10,7 @@
  * Toll-free bridging with CFError comes with the class CF gives CFErrors.
  */
 #import <Foundation/Foundation.h>
+#include <mach/mach_error.h>
 #include <string.h>
 
 #include "Foundation_Finch.h"
@@ -121,7 +122,8 @@ cocoa_description(NSInteger code, NSDictionary *info)
         WITH_FILE(@"You can’t save the file “%@” because there isn’t enough space.", @"The file couldn’t be saved because there isn’t enough space.");
     case NSFileWriteVolumeReadOnlyError:
         WITH_FILE(@"You can’t save the file “%@” because the volume is read only.", @"The file couldn’t be saved because the volume is read only.");
-    case NSFormattingError: return value ? [NSString stringWithFormat:@"The value “%@” is invalid.", value] : @"The value is invalid.";
+    case NSFormattingError:
+    case NSKeyValueValidationError: return value ? [NSString stringWithFormat:@"The value “%@” is invalid.", value] : @"The value is invalid.";
     case NSUserCancelledError: return @"The operation was cancelled.";
     case NSPropertyListReadCorruptError: return @"The data couldn’t be read because it isn’t in the correct format.";
     case NSPropertyListWriteStreamError: return @"The data couldn’t be written because of an error in the destination for the data.";
@@ -140,7 +142,12 @@ cocoa_description(NSInteger code, NSDictionary *info)
     if ([[self domain] isEqualToString:NSCocoaErrorDomain] && (d = cocoa_description([self code], [self userInfo]))) return d;
     NSString *reason = [self localizedFailureReason];
     if (reason) return [@"The operation couldn’t be completed. " stringByAppendingString:reason];
-    NSString *domain = [[self domain] isEqualToString:NSCocoaErrorDomain] ? @"Cocoa" : [self domain];
+    if ([[self domain] isEqualToString:NSMachErrorDomain])
+        return [NSString stringWithFormat:@"The operation couldn’t be completed. (Mach error %ld - %s)", (long)[self code],
+            mach_error_string((mach_error_t)[self code])];
+    NSString *domain = [[self domain] isEqualToString:NSCocoaErrorDomain] ? @"Cocoa"
+        : [[self domain] isEqualToString:NSOSStatusErrorDomain]           ? @"OSStatus"
+                                                                          : [self domain];
     return [NSString stringWithFormat:@"The operation couldn’t be completed. (%@ error %ld.)", domain, (long)[self code]];
 }
 
@@ -165,14 +172,19 @@ cocoa_description(NSInteger code, NSDictionary *info)
 
 - (NSString *)description
 {
-    /* Apple's: POSIX errors by strerror even over the user info, then the
-     * user info's description or failure reason, else "(null)". */
-    NSString *d = nil;
+    /* Apple's: POSIX and Mach errors by their system's text even over the user
+     * info, with any debug description after it; otherwise the debug
+     * description, then the user info's description or failure reason, else
+     * "(null)". */
+    NSString *d = nil, *debug = [[self userInfo] objectForKey:NSDebugDescriptionErrorKey];
     if ([[self domain] isEqualToString:NSPOSIXErrorDomain] && [self code] > 0 && [self code] < 1000) d = [NSString stringWithUTF8String:strerror((int)[self code])];
+    if ([[self domain] isEqualToString:NSMachErrorDomain]) d = [NSString stringWithUTF8String:mach_error_string((mach_error_t)[self code])];
+    NSString *after = d && [debug length] ? [NSString stringWithFormat:@" (%@)", debug] : @"";
+    if (!d) d = debug ? [debug description] : nil;
     if (!d) d = [[self userInfo] objectForKey:NSLocalizedDescriptionKey];
     if (!d && [[self domain] isEqualToString:NSCocoaErrorDomain]) d = cocoa_description([self code], [self userInfo]);
     if (!d) d = [self localizedFailureReason];
-    NSMutableString *s = [NSMutableString stringWithFormat:@"Error Domain=%@ Code=%ld \"%@\"", [self domain], (long)[self code], d ? d : @"(null)"];
+    NSMutableString *s = [NSMutableString stringWithFormat:@"Error Domain=%@ Code=%ld \"%@\"%@", [self domain], (long)[self code], d ? d : @"(null)", after];
     if ([[self userInfo] count]) {
         [s appendString:@" UserInfo={"];
         NSUInteger i = 0;

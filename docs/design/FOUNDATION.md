@@ -590,3 +590,20 @@ optional attribute providers; it does not load a missing UI framework.
   Apple's archive keys. The Swift overlay copies tagged strings when bridging
   them back, as Apple's does. `finch-cf-classes-test` (55 lines) and the new
   literal checks in `swift-overlay-test` match Apple's on the host.
+- 2026-10-27: eight of the classes Foundation still lacked, as Apple's: the
+  grammar model (`NSMorphology` with every grammatical field and Apple's names
+  for them, `NSMorphologyPronoun`, the deprecated `NSMorphologyCustomPronoun`
+  and its English validation, `NSTermOfAddress` with its three shared terms and
+  localized ones, the automatic and explicit `NSInflectionRule`s, all with
+  Apple's equality, hashes and archive keys); `NSExtensionItem`, keeping its
+  title and content as RTF in its user info as Apple's does (UIFoundation loaded
+  on demand) and `NSExtensionContext` (no hosted extensions yet, so no input
+  items); `NSProtocolChecker` (`NSConcreteProtocolChecker` instances passing on
+  only the protocol's messages); `NSPurgeableData` with Apple's access counting
+  and messages; and `NSGarbageCollector`, whose default collector is nil.
+  `NSError` descriptions now quote the debug description as Apple's do (after a
+  POSIX or Mach error's own text), with Mach and OSStatus wording; a nested
+  secure-decoding failure fails the whole unarchive, with Apple's newer message
+  naming each class's address and bundle. `finch-new-classes-test` (94 lines)
+  matches Apple's. The generated API comparison went from 3660 to 3689 verified
+  items (481 differ, no crashes).

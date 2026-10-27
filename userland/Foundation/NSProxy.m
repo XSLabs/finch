@@ -157,3 +157,92 @@ BOOL _objc_rootIsDeallocating(id obj);
 }
 
 @end
+
+/* MARK: - NSProtocolChecker */
+
+/*
+ * A proxy that passes on only the messages its protocol declares (required or
+ * optional instance methods, the protocols it adopts included). As Apple's,
+ * NSProtocolChecker is the abstract class and NSConcreteProtocolChecker the
+ * instances; a method's result goes back as the target returned it.
+ */
+/* libobjc's: a protocol method's full (extended) type encoding. */
+const char *_protocol_getMethodTypeEncoding(Protocol *protocol, SEL sel, BOOL required, BOOL instance);
+
+@interface NSConcreteProtocolChecker : NSProtocolChecker {
+    NSObject *_target;
+    Protocol *_protocol;
+}
+@end
+
+@implementation NSProtocolChecker
+
++ (id)allocWithZone:(NSZone *)zone
+{
+    if (self == [NSProtocolChecker class]) return [NSConcreteProtocolChecker allocWithZone:zone];
+    return [super allocWithZone:zone];
+}
+
++ (instancetype)protocolCheckerWithTarget:(NSObject *)anObject protocol:(Protocol *)aProtocol
+{
+    return [[[self alloc] initWithTarget:anObject protocol:aProtocol] autorelease];
+}
+
+- (instancetype)initWithTarget:(NSObject *)anObject protocol:(Protocol *)aProtocol { return self; }
+- (Protocol *)protocol { return nil; }
+- (NSObject *)target { return nil; }
+
+@end
+
+@implementation NSConcreteProtocolChecker
+
+- (instancetype)initWithTarget:(NSObject *)anObject protocol:(Protocol *)aProtocol
+{
+    _target = [anObject retain];
+    _protocol = aProtocol;
+    return self;
+}
+
+- (void)dealloc
+{
+    [_target release];
+    [super dealloc];
+}
+
+- (Protocol *)protocol { return _protocol; }
+- (NSObject *)target { return _target; }
+
+static BOOL
+declares(Protocol *protocol, SEL sel)
+{
+    if (!protocol) return NO;
+    return protocol_getMethodDescription(protocol, sel, YES, YES).name || protocol_getMethodDescription(protocol, sel, NO, YES).name;
+}
+
+- (BOOL)respondsToSelector:(SEL)sel { return declares(_protocol, sel) && [_target respondsToSelector:sel]; }
+- (BOOL)conformsToProtocol:(Protocol *)protocol { return _protocol && protocol_conformsToProtocol(_protocol, protocol); }
+
+- (NSMethodSignature *)methodSignatureForSelector:(SEL)sel
+{
+    if (!declares(_protocol, sel)) return nil;
+    struct objc_method_description d = protocol_getMethodDescription(_protocol, sel, YES, YES);
+    if (!d.name) d = protocol_getMethodDescription(_protocol, sel, NO, YES);
+    const char *types = _protocol_getMethodTypeEncoding(_protocol, sel, YES, YES);
+    if (!types) types = _protocol_getMethodTypeEncoding(_protocol, sel, NO, YES);
+    return [NSMethodSignature signatureWithObjCTypes:types ?: d.types];
+}
+
+- (void)forwardInvocation:(NSInvocation *)invocation
+{
+    if (!declares(_protocol, [invocation selector]))
+        FinchRaise(NSInvalidArgumentException, "*** NSProtocolChecker: target protocol does not recognize selector: %s",
+            sel_getName([invocation selector]));
+    [invocation invokeWithTarget:_target];
+}
+
+- (void)doesNotRecognizeSelector:(SEL)sel
+{
+    FinchRaise(NSInvalidArgumentException, "*** NSProtocolChecker: target protocol does not recognize selector: %s", sel_getName(sel));
+}
+
+@end

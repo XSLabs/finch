@@ -573,6 +573,8 @@ decode_root(NSData *data, NSSet *classes, BOOL secure, NSError **error)
     u.requiresSecureCoding = secure;
     id o = classes ? [u decodeObjectOfClasses:classes forKey:NSKeyedArchiveRootObjectKey] : [u decodeObjectForKey:NSKeyedArchiveRootObjectKey];
     [u finishDecoding];
+    /* (as Apple's: a failure anywhere inside fails the whole) */
+    if ([u error]) o = nil;
     if (error) *error = o ? nil : [u error];
     return o;
 }
@@ -599,6 +601,7 @@ decode_root(NSData *data, NSSet *classes, BOOL secure, NSError **error)
     if (!u) { if (error) *error = e; return nil; }
     NSArray *a = [u decodeArrayOfObjectsOfClasses:classes forKey:NSKeyedArchiveRootObjectKey];
     [u finishDecoding];
+    if ([u error]) a = nil;
     if (error) *error = a ? nil : [u error];
     return a;
 }
@@ -704,6 +707,12 @@ class_allowed(Class cls, NSSet *allowed)
     return NO;
 }
 
+static NSString *
+class_label(Class cls)
+{
+    return [NSString stringWithFormat:@"'%@' (%p) [%@]", NSStringFromClass(cls), cls, [[NSBundle bundleForClass:cls] bundlePath]];
+}
+
 - (BOOL)checkClass:(Class)cls forKey:(NSString *)key allowed:(NSSet *)allowed
 {
     if (!_secure) return YES;
@@ -711,11 +720,11 @@ class_allowed(Class cls, NSSet *allowed)
         (([cls respondsToSelector:@selector(supportsSecureCoding)] && [(id)cls supportsSecureCoding]) ||
          cls == [NSString class] || cls == [NSNumber class] || cls == [NSData class]))
         return YES;
-    NSMutableArray *names = [NSMutableArray array];
-    for (Class c in allowed) [names addObject:[NSString stringWithFormat:@"'%@'", NSStringFromClass(c)]];
-    [names sortUsingSelector:@selector(compare:)];
-    [self failWithError:corrupt([NSString stringWithFormat:@"value for key '%@' was of unexpected class '%@'. Allowed classes are '{(%@)}'.",
-        key, NSStringFromClass(cls), [names componentsJoinedByString:@", "]])];
+    /* Apple's wording: each class with its address and the bundle it's from */
+    NSMutableSet *names = [NSMutableSet set];
+    for (Class c in allowed) [names addObject:class_label(c)];
+    [self failWithError:corrupt([NSString stringWithFormat:@"value for key '%@' was of unexpected class %@.\nAllowed classes are:\n %@",
+        key, class_label(cls), names])];
     return NO;
 }
 
