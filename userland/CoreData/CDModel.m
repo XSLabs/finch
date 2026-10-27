@@ -295,7 +295,10 @@ static NSString *CDYesNo(BOOL value) { return value ? @"YES" : @"NO"; }
 
 @implementation NSFetchedPropertyDescription
 - (NSFetchRequest *)fetchRequest { return CDGet(self, @"fetchRequest"); }
-- (void)setFetchRequest:(NSFetchRequest *)value { CDSet(self, @"fetchRequest", [value copy]); }
+- (void)setFetchRequest:(NSFetchRequest *)value {
+    (void)value.entity; // a request made from a bare entity name raises, as Core Data's does
+    CDSet(self, @"fetchRequest", [value copy]);
+}
 @end
 
 @implementation NSExpressionDescription
@@ -419,6 +422,9 @@ static NSString *CDYesNo(BOOL value) { return value ? @"YES" : @"NO"; }
     return [self.properties countByEnumeratingWithState:state objects:buffer count:length];
 }
 - (void)setProperties:(NSArray *)value {
+    for (NSPropertyDescription *property in value)
+        if (!property.name || [property isKindOfClass:[NSExpressionDescription class]])
+            [NSException raise:NSInternalInconsistencyException format:@"Invalid property passed to setProperties: property has nil name or is an NSExpressionDescription."];
     NSArray *properties = [value copy] ?: [[NSArray alloc] init];
     CDSet(self, @"properties", properties);
     for (NSPropertyDescription *property in properties) {

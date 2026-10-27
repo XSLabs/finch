@@ -74,6 +74,7 @@
     if (self.propertiesToFetch.count) [text appendFormat:@"propertiesToFetch: (%@); ", self.propertiesToFetch];
     if (self.havingPredicate) [text appendFormat:@"havingPredicate: (%@); ", self.havingPredicate];
     if (self.propertiesToGroupBy.count) [text appendFormat:@"propertiesToGroupBy: (%@); ", self.propertiesToGroupBy];
+    if (self.affectedStores.count) [text appendFormat:@"affected stores: (%@); ", [self.affectedStores valueForKey:@"identifier"]];
     [text appendString:@")"];
     return text;
 }
@@ -174,7 +175,9 @@
         [self release];
         [NSException raise:NSInvalidArgumentException format:@"Must supply a non-zero number of objectIDs to request during initialization"];
     }
-    self = [self initWithFetchRequest:[[[NSFetchRequest alloc] init] autorelease]];
+    NSFetchRequest *request = [[[NSFetchRequest alloc] init] autorelease];
+    request.entity = [(NSManagedObjectID *)[objects firstObject] entity];
+    self = [self initWithFetchRequest:request];
     if (self) CDSet(self, @"objectIDs", [objects copy]);
     return self;
 }

@@ -601,8 +601,21 @@ static BOOL CDDeleteRow(NSPersistentStore *store, NSManagedObject *object, NSErr
     return result == SQLITE_DONE ? YES : CDReturnError(error, CDSQLiteError(db, @"Could not delete an object"));
 }
 
+/* Core Data's object IDs come from stores and contexts; one made with -init is abstract. */
+static void CDRaiseAbstract(id object, SEL selector) {
+    [NSException raise:NSInvalidArgumentException format:@"*** -%@ cannot be sent to an abstract object of class %@: Create a concrete instance!",
+     NSStringFromSelector(selector), NSStringFromClass([object class])];
+}
+
 @implementation NSManagedObjectID
-- (NSEntityDescription *)entity { return CDGet(self, @"entity"); }
+- (instancetype)init {
+    if ((self = [super init])) CDSet(self, @"abstract", [NSNumber numberWithBool:YES]);
+    return self;
+}
+- (NSEntityDescription *)entity {
+    if (CDGet(self, @"abstract")) CDRaiseAbstract(self, _cmd);
+    return CDGet(self, @"entity");
+}
 - (NSPersistentStore *)persistentStore { return CDGet(self, @"persistentStore"); }
 - (BOOL)isTemporaryID { return [CDGet(self, @"temporary") boolValue]; }
 - (NSURL *)URIRepresentation {
@@ -667,12 +680,22 @@ static BOOL CDDeleteRow(NSPersistentStore *store, NSManagedObject *object, NSErr
 - (NSDictionary *)options { return CDGet(self, @"options"); }
 - (NSURL *)URL { return CDGet(self, @"url"); }
 - (void)setURL:(NSURL *)url { CDSet(self, @"url", url); }
-- (NSString *)identifier { return CDGet(self, @"identifier"); }
+- (NSString *)identifier {
+    if (CDGet(self, @"abstract")) CDRaiseAbstract(self, @selector(metadata));
+    return CDGet(self, @"identifier");
+}
 - (void)setIdentifier:(NSString *)identifier { CDSet(self, @"identifier", [identifier copy]); }
 - (NSString *)type { return CDGet(self, @"type"); }
 - (BOOL)isReadOnly { return [CDGet(self, @"readOnly") boolValue]; }
 - (void)setReadOnly:(BOOL)value { CDSet(self, @"readOnly", [NSNumber numberWithBool:value]); }
-- (NSDictionary *)metadata { return CDGet(self, @"metadata") ?: [NSDictionary dictionary]; }
+- (instancetype)init {
+    if ((self = [super init]) && [self class] == [NSPersistentStore class]) CDSet(self, @"abstract", [NSNumber numberWithBool:YES]);
+    return self;
+}
+- (NSDictionary *)metadata {
+    if (CDGet(self, @"abstract")) CDRaiseAbstract(self, _cmd);
+    return CDGet(self, @"metadata") ?: [NSDictionary dictionary];
+}
 - (void)setMetadata:(NSDictionary *)metadata {
     CDSet(self, @"metadata", [metadata copy] ?: [NSDictionary dictionary]);
     sqlite3 *db = CDStoreDatabase(self);

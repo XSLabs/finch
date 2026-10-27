@@ -364,7 +364,17 @@ static NSExpression *CDSourceFetchExpression(NSString *entityName) {
     return [decoded isKindOfClass:[NSMappingModel class]] ? [decoded retain] : nil;
 }
 - (NSArray *)entityMappings { return CDGet(self, @"entityMappings") ?: [NSArray array]; }
-- (void)setEntityMappings:(NSArray *)value { CDSet(self, @"entityMappings", [value copy] ?: [NSArray array]); }
+- (void)setEntityMappings:(NSArray *)value {
+    NSMutableSet *names = [NSMutableSet set];
+    for (NSEntityMapping *mapping in value) {
+        id name = mapping.name ?: [NSNull null];
+        if ([names containsObject:name])
+            [NSException raise:NSInternalInconsistencyException format:@"Model already contains an entity mapping named %@->%@.",
+             mapping.sourceEntityName, mapping.destinationEntityName];
+        [names addObject:name];
+    }
+    CDSet(self, @"entityMappings", [value copy] ?: [NSArray array]);
+}
 - (NSDictionary *)entityMappingsByName {
     NSMutableDictionary *result = [NSMutableDictionary dictionary];
     for (NSEntityMapping *mapping in self.entityMappings) if (mapping.name) result[mapping.name] = mapping;
