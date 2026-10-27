@@ -76,6 +76,14 @@ escapes `&`, `<`, `>` and UTF-16 surrogates as `\u` with the unit's bytes swappe
 Apple's does, so macOS reads Finch's files and Finch reads macOS's
 (`coredata-xml-test`, which saves and reads them through `NSPersistentDocument`).
 
+The binary store (`NSBinaryStoreType`, `NSBinaryObjectStore`) is an atomic store in
+Core Data's binary format: `CoreData`, big-endian 64-bit words for the format version,
+the metadata and object-map archives' offsets and lengths and the last primary key,
+then the two keyed archives. The map holds one `NSDictionaryMapNode` per object (entity
+name, primary key, attribute values ordered by name with a null per relationship,
+related keys by relationship name); transformable values are archived as themselves.
+`coredata-binary-test` reads and writes it across systems.
+
 Several parts remain unsupported. Migrations that change an attribute's type,
 many-to-many relationship storage, persistent history, CloudKit mirroring,
 and Core Spotlight indexing return an error or report that they are

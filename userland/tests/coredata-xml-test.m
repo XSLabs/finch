@@ -3,7 +3,8 @@
  * finch-coredata-xml-test: an NSPersistentDocument saved in Core Data's XML store and read
  * back by another document: every attribute type, text that needs escaping, a
  * transformable value and both kinds of relationship. host-tests runs it across systems:
- * Finch reads the file Apple's run writes and Apple reads Finch's.
+ * Finch reads the file Apple's run writes and Apple reads Finch's. Built with
+ * -DCD_BINARY_STORE it is finch-coredata-binary-test, the same through the binary store.
  *
  *     finch-coredata-xml-test write|read FILE [ignored]
  */
@@ -24,7 +25,20 @@ attr(NSString *name, NSAttributeType type)
     return a;
 }
 
+#ifdef CD_BINARY_STORE
+#define STORE_NAME "binary"
+#else
+#define STORE_NAME "XML"
+#endif
+
 @implementation ShelfDocument
+#ifdef CD_BINARY_STORE
+- (NSString *)persistentStoreTypeForFileType:(NSString *)fileType
+{
+    (void)fileType;
+    return NSBinaryStoreType;
+}
+#endif
 - (NSManagedObjectModel *)managedObjectModel
 {
     static NSManagedObjectModel *model;
@@ -86,7 +100,7 @@ main(int argc, char **argv)
         setvbuf(stdout, NULL, _IOLBF, 0);
         if (argc < 3) return 2;
         [NSApplication sharedApplication];
-        printf("Core Data XML store through NSPersistentDocument\n");
+        printf("Core Data " STORE_NAME " store through NSPersistentDocument\n");
         NSURL *url = [NSURL fileURLWithPath:@(argv[2])];
         NSError *e = nil;
         if (!strcmp(argv[1], "write")) {
@@ -116,7 +130,7 @@ main(int argc, char **argv)
             BOOL ok = [doc writeToURL:url ofType:@"public.data" forSaveOperation:NSSaveAsOperation originalContentsURL:nil error:&e];
             printf("written %d %ld\n", ok, (long)e.code);
         } else {
-            printf("store type XML\n");
+            printf("store type %s\n", [[ShelfDocument new] persistentStoreTypeForFileType:@"public.data"].UTF8String);
         }
         ShelfDocument *reader = [ShelfDocument new];
         BOOL ok = [reader readFromURL:url ofType:@"public.data" error:&e];

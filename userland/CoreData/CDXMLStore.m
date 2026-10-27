@@ -333,4 +333,5 @@ static void CDXMLAppendPlist(NSMutableString *out, NSDictionary *metadata) {
 
 void CDRegisterBuiltInStores(NSMutableDictionary *classes) {
     [classes setObject:[NSXMLObjectStore class] forKey:NSXMLStoreType];
+    CDRegisterBinaryStore(classes);
 }
