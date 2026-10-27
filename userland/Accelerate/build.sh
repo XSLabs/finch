@@ -64,7 +64,7 @@ compile vMisc "${HERE}"/vMisc/*.c
     "${SDK_FW}/vecLib.framework/Versions/A/libBLAS.tbd" > "${OBJ}/blas-abi.c"
 compile BLAS "${HERE}/BLAS/blas.c" "${OBJ}/blas-abi.c"
 compile LAPACK "${HERE}"/LAPACK/*.c
-compile vImage "${HERE}/vimage.c"
+compile vImage "${HERE}"/vImage/*.c
 
 library "${VECLIB}/libvDSP.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libvDSP.tbd" 1126.100.7 "${OBJ}/vDSP"
 library "${VECLIB}/libvMisc.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libvMisc.tbd" 1126.100.7 "${OBJ}/vMisc"

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
-#include <Accelerate/Accelerate.h>
+#include "common.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -220,23 +220,6 @@ vImage_Error vImageTentConvolve_ARGB8888(const vImage_Buffer *src, const vImage_
                          kernel_width, backgroundColor, flags, 1);
 }
 
-vImage_Error vImageTableLookUp_Planar8(const vImage_Buffer *src, const vImage_Buffer *dest,
-                                       const Pixel_8 table[256], vImage_Flags flags)
-{
-    size_t x, y;
-    if (!src || !dest || !table) return kvImageNullPointerArgument;
-        if (!buffer_ok(src, 1) || !buffer_ok(dest, 1) ||
-        src->width != dest->width || src->height != dest->height)
-        return kvImageInvalidParameter;
-    if (!has_only(flags, kvImageDoNotTile)) return kvImageUnknownFlagsBit;
-    for (y = 0; y < src->height; ++y) {
-        const uint8_t *in = (const uint8_t *)src->data + y * src->rowBytes;
-        uint8_t *out = (uint8_t *)dest->data + y * dest->rowBytes;
-        for (x = 0; x < src->width; ++x)
-            out[x] = table[in[x]];
-    }
-    return kvImageNoError;
-}
 
 vImage_Error vImageMatrixMultiply_ARGB8888(const vImage_Buffer *src, const vImage_Buffer *dest,
                                            const int16_t matrix[16], int32_t divisor,
