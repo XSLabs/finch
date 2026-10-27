@@ -381,6 +381,173 @@ section_whose(void)
     }
 }
 
+/* MARK: - so */
+@interface Model_so : NSObject @property NSInteger value; @property (copy) NSString *name; @end
+@implementation Model_so @end
+@interface Sub_so : Model_so @end
+@implementation Sub_so @end
+@interface Watcher_so : NSObject @property (strong) NSMutableArray *log; @end
+@implementation Watcher_so - (instancetype)init{ if((self=[super init])) _log=[NSMutableArray array]; return self;}
+- (void)observeValueForKeyPath:(NSString *)k ofObject:(id)o change:(NSDictionary *)c context:(void *)ctx { [_log addObject:[NSString stringWithFormat:@"%@ old=%@ new=%@ ctx=%ld kind=%@", k, c[NSKeyValueChangeOldKey]?:@"-", c[NSKeyValueChangeNewKey]?:@"-", (long)ctx, c[NSKeyValueChangeKindKey]]]; }
+@end
+#define T_so(...) @try{ id r=(__VA_ARGS__); printf("%s => %s\n", #__VA_ARGS__, [[[r description] stringByReplacingOccurrencesOfString:@"\n" withString:@" "] UTF8String]); }@catch(NSException*e){printf("%s: %s: %s\n", #__VA_ARGS__, e.name.UTF8String, e.reason.UTF8String);}
+static void
+section_so(void)
+{
+    printf("== so\n");
+    @autoreleasepool { 
+ Watcher_so *w=[Watcher_so new], *w2=[Watcher_so new];
+ NSKeyValueSharedObservers *so=[[NSKeyValueSharedObservers alloc] initWithObservableClass:[Model_so class]];
+ [so addSharedObserver:w forKey:@"value" options:NSKeyValueObservingOptionNew|NSKeyValueObservingOptionOld context:(void*)7];
+ [so addSharedObserver:w2 forKey:@"name" options:NSKeyValueObservingOptionInitial|NSKeyValueObservingOptionNew context:(void*)8];
+ NSKeyValueSharedObserversSnapshot *snap=[so snapshot]; T_so(NSStringFromClass([snap class])); T_so(@(snap!=nil));
+ Model_so *m=[Model_so new]; m.name=@"a";
+ [m setSharedObservers:snap];
+ m.value=3; m.name=@"b";
+ T_so(w.log); T_so(w2.log);
+ [so addSharedObserver:w2 forKey:@"value" options:NSKeyValueObservingOptionNew context:(void*)9];
+ m.value=4; T_so(w2.log);
+ NSKeyValueSharedObserversSnapshot *snap2=[so snapshot]; T_so(@(snap2==snap));
+ Model_so *m2=[Model_so new]; [m2 setSharedObservers:snap2]; m2.value=5; T_so(w2.log);
+ [m setSharedObservers:nil]; m.value=6; T_so(w.log);
+ Sub_so *s=[Sub_so new]; T_so(([s setSharedObservers:snap], @"sub ok"));
+ T_so(([[NSObject new] setSharedObservers:snap], @"wrong class ok"));
+ T_so(([m2 setSharedObservers:snap], @"replace ok")); m2.value=7; T_so(w.log); T_so(w2.log);
+ [m2 setSharedObservers:nil]; [s setSharedObservers:nil];
+ T_so([[NSKeyValueSharedObservers alloc] initWithObservableClass:[NSString class]]);
+ T_so(so);
+
+    }
+}
+
+/* MARK: - uh */
+#define T_uh(...) @try{ id r=(__VA_ARGS__); printf("%s => %s\n", #__VA_ARGS__, [[[r description] stringByReplacingOccurrencesOfString:@"\n" withString:@" "] UTF8String]); }@catch(NSException*e){printf("%s: %s: %s\n", #__VA_ARGS__, e.name.UTF8String, e.reason.UTF8String);}
+static void
+section_uh(void)
+{
+    printf("== uh\n");
+    @autoreleasepool { 
+ NSURL *u=[NSURL fileURLWithPath:@"/etc/hosts"];
+ T_uh(NSStringFromClass([NSURLHandle URLHandleClassForURL:u])); T_uh(@([NSURLHandle canInitWithURL:u])); T_uh([NSURLHandle cachedHandleForURL:u]);
+ NSURLHandle *h=[[NSURLHandle alloc] initWithURL:u cached:NO]; T_uh(h); T_uh(@([h status])); T_uh([h failureReason]); T_uh(@([h expectedResourceDataSize]));
+ T_uh(@([h availableResourceData].length)); T_uh(@([h resourceData].length)); T_uh(@([h status])); T_uh([h failureReason]); T_uh([h propertyForKey:@"x"]); T_uh(@([h writeData:[NSData data]]));
+ T_uh(@([[h loadInForeground] length]));
+ NSSpellServer *ss=[NSSpellServer new]; T_uh(@([ss registerLanguage:@"en" byVendor:@"Finch"])); T_uh(@([ss registerLanguage:nil byVendor:nil])); T_uh(@([ss isWordInUserDictionaries:@"qwertyzz" caseSensitive:NO])); T_uh(ss.delegate);
+
+    }
+}
+
+/* MARK: - constant strings */
+/* An NSConstantString over bytes, its ivars set by the runtime's offsets (a struct with a
+   raw isa would need a signed one on arm64e). */
+static NSString *
+edges_constant_string(const char *bytes)
+{
+    Class cls = objc_getClass("NSConstantString");
+    id s = class_createInstance(cls, 0);
+    char *base = (char *)(__bridge void *)s;
+    *(const char **)(base + ivar_getOffset(class_getInstanceVariable(cls, "bytes"))) = bytes;
+    *(int *)(base + ivar_getOffset(class_getInstanceVariable(cls, "numBytes"))) = (int)strlen(bytes);
+    return s;
+}
+
+static void
+section_cs(void)
+{
+    printf("== constant strings\n");
+    @autoreleasepool {
+        NSString *s = edges_constant_string("hello"), *t = edges_constant_string("caf\xc3\xa9"), *z = edges_constant_string("");
+        printf("%s %lu %u equal %d %d hash %d\n", s.description.UTF8String, (unsigned long)s.length, [s characterAtIndex:1],
+            [s isEqual:@"hello"], [@"hello" isEqual:s], s.hash == @"hello".hash);
+        printf("%s %s class %s super %s copy %s\n", s.uppercaseString.UTF8String, [s stringByAppendingString:@"!"].UTF8String,
+            NSStringFromClass([s class]).UTF8String, NSStringFromClass([s superclass]).UTF8String, NSStringFromClass([[s copy] class]).UTF8String);
+        printf("cafe: %lu %u %u %s raw %s\n", (unsigned long)t.length, [t characterAtIndex:3], [t characterAtIndex:4],
+            t.uppercaseString.UTF8String, t.UTF8String);
+        printf("empty %lu encodings %lu %lu cString %lu\n", (unsigned long)z.length, (unsigned long)s.fastestEncoding,
+            (unsigned long)s.smallestEncoding, (unsigned long)[(id)s cStringLength]);
+        @try {
+            [s characterAtIndex:9];
+        } @catch (NSException *e) {
+            printf("%s: %s\n", e.name.UTF8String, e.reason.UTF8String);
+        }
+        printf("NSSimpleCString super %s\n", class_getName(class_getSuperclass(objc_getClass("NSSimpleCString"))));
+    }
+}
+
+/* MARK: - downloads */
+@interface EdgesDownload : NSObject <NSURLDownloadDelegate>
+@property (strong) NSMutableArray *log;
+@property (copy) NSString *dest;
+@property BOOL done, overwrite;
+@end
+@implementation EdgesDownload
+- (void)downloadDidBegin:(NSURLDownload *)d { [_log addObject:@"begin"]; }
+- (NSURLRequest *)download:(NSURLDownload *)d willSendRequest:(NSURLRequest *)r redirectResponse:(NSURLResponse *)rr
+{
+    [_log addObject:[NSString stringWithFormat:@"willSend %@ redirect %@", r.URL.lastPathComponent, rr ? @"yes" : @"nil"]];
+    return r;
+}
+- (void)download:(NSURLDownload *)d didReceiveResponse:(NSURLResponse *)r
+{
+    [_log addObject:[NSString stringWithFormat:@"response %@ %lld %@", r.MIMEType, r.expectedContentLength, r.suggestedFilename]];
+}
+- (void)download:(NSURLDownload *)d didReceiveDataOfLength:(NSUInteger)n { [_log addObject:[NSString stringWithFormat:@"data %lu", (unsigned long)n]]; }
+- (void)download:(NSURLDownload *)d decideDestinationWithSuggestedFilename:(NSString *)f
+{
+    [_log addObject:[@"decide " stringByAppendingString:f]];
+    if (_dest) [d setDestination:[_dest stringByAppendingPathComponent:f] allowOverwrite:_overwrite];
+}
+- (void)download:(NSURLDownload *)d didCreateDestination:(NSString *)p { [_log addObject:[@"created " stringByAppendingString:p.lastPathComponent]]; }
+- (void)downloadDidFinish:(NSURLDownload *)d
+{
+    [_log addObject:@"finish"];
+    _done = YES;
+}
+- (void)download:(NSURLDownload *)d didFailWithError:(NSError *)e
+{
+    [_log addObject:[NSString stringWithFormat:@"fail %@ %ld", e.domain, (long)e.code]];
+    _done = YES;
+}
+@end
+
+static void
+edges_download(NSURL *url, NSString *dest, BOOL overwrite)
+{
+    EdgesDownload *d = [EdgesDownload new];
+    d.log = [NSMutableArray array];
+    d.dest = dest;
+    d.overwrite = overwrite;
+    NSURLDownload *dl = [[NSURLDownload alloc] initWithRequest:[NSURLRequest requestWithURL:url] delegate:d];
+    printf("request %s deletes %d resume %s\n", dl.request.URL.lastPathComponent.UTF8String, dl.deletesFileUponFailure, dl.resumeData ? "yes" : "nil");
+    NSDate *until = [NSDate dateWithTimeIntervalSinceNow:10];
+    while (!d.done && [until timeIntervalSinceNow] > 0)
+        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    for (NSString *l in d.log) printf("  %s\n", l.UTF8String);
+}
+
+static void
+section_downloads(void)
+{
+    printf("== downloads\n");
+    @autoreleasepool {
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSString *dir = [NSTemporaryDirectory() stringByAppendingPathComponent:@"finch-edges-downloads"];
+        [fm removeItemAtPath:dir error:NULL];
+        [fm createDirectoryAtPath:[dir stringByAppendingPathComponent:@"out"] withIntermediateDirectories:YES attributes:nil error:NULL];
+        NSString *source = [dir stringByAppendingPathComponent:@"notes.txt"];
+        [@"twenty-one bytes here" writeToFile:source atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        NSString *out = [dir stringByAppendingPathComponent:@"out"];
+        edges_download([NSURL fileURLWithPath:source], out, NO);
+        edges_download([NSURL fileURLWithPath:source], out, NO);
+        edges_download([NSURL fileURLWithPath:source], out, YES);
+        edges_download([NSURL fileURLWithPath:[dir stringByAppendingPathComponent:@"missing.txt"]], out, NO);
+        printf("files: %s\n", [[[fm contentsOfDirectoryAtPath:out error:NULL] sortedArrayUsingSelector:@selector(compare:)]
+                                   componentsJoinedByString:@","].UTF8String);
+        printf("can resume %d\n", [NSURLDownload canResumeDownloadDecodedWithEncodingMIMEType:@"application/gzip"]);
+        [fm removeItemAtPath:dir error:NULL];
+    }
+}
+
 int
 main(void)
 {
@@ -397,5 +564,9 @@ main(void)
         section_g3();
         section_specd();
         section_whose();
+        section_so();
+        section_uh();
+        section_cs();
+        section_downloads();
     return 0;
 }

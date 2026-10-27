@@ -525,12 +525,23 @@ streams(int port)
     [session invalidateAndCancel];
 }
 
+static void
+watchdog(int sig __attribute__((unused)))
+{
+    static const char message[] = "websocket-test: stalled for 60 seconds\n";
+    write(2, message, sizeof message - 1);
+    _exit(2);
+}
+
 int
 main(void)
 {
     @autoreleasepool {
         setvbuf(stdout, NULL, _IOLBF, 0);
         signal(SIGPIPE, SIG_IGN);
+        /* (a stalled exchange fails the test rather than hanging its runner) */
+        signal(SIGALRM, watchdog);
+        alarm(60);
         server_log = [NSMutableArray array];
         int wport, sport;
         int wl = listen_loopback(&wport), sl = listen_loopback(&sport);

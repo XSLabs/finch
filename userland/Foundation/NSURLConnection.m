@@ -186,3 +186,173 @@
 }
 
 @end
+
+/* MARK: - NSURLDownload */
+
+/*
+ * The older download interface, over a download task, telling its delegate on the run
+ * loop it was made on, in Apple's order: the start, the request, the response (with a
+ * first count of no bytes), the destination asked for and made, the bytes, the end.
+ * Without allowOverwrite: an existing file's name gets "-1" and so on before the extension.
+ */
+@implementation NSURLDownload {
+    NSURLRequest *_request;
+    id _delegate;
+    NSURLSessionDownloadTask *_task;
+    NSRunLoop *_runLoop;
+    NSString *_destination;
+    BOOL _overwrite, _deletes, _cancelled;
+}
+
++ (BOOL)canResumeDownloadDecodedWithEncodingMIMEType:(NSString *)MIMEType { return NO; }
+
+- (instancetype)initWithRequest:(NSURLRequest *)request delegate:(id<NSURLDownloadDelegate>)delegate
+{
+    if ((self = [super init])) {
+        _request = [request copy];
+        _delegate = [(id)delegate retain]; /* until the download ends */
+        _runLoop = [[NSRunLoop currentRunLoop] retain];
+        _deletes = YES;
+        [self retain];
+        [self _finchDeliver:^{ [self _finchStart]; }];
+    }
+    return self;
+}
+
+/* (Finch's downloads keep no resume data of NSURLDownload's kind: this starts again) */
+- (instancetype)initWithResumeData:(NSData *)resumeData delegate:(id<NSURLDownloadDelegate>)delegate path:(NSString *)path
+{
+    id info = resumeData ? [NSPropertyListSerialization propertyListWithData:resumeData options:0 format:NULL error:NULL] : nil;
+    NSString *url = [info isKindOfClass:[NSDictionary class]] ? info[@"NSURLSessionDownloadURL"] : nil;
+    NSURLRequest *r = [NSURLRequest requestWithURL:[NSURL URLWithString:[url isKindOfClass:[NSString class]] ? url : @"finch-invalid-resume-data:"]];
+    if ((self = [self initWithRequest:r delegate:delegate]) && path)
+        [self setDestination:path allowOverwrite:YES];
+    return self;
+}
+
+- (void)dealloc
+{
+    [_request release];
+    [_delegate release];
+    [_task release];
+    [_runLoop release];
+    [_destination release];
+    [super dealloc];
+}
+
+- (NSURLRequest *)request { return _request; }
+- (NSData *)resumeData { return nil; }
+- (BOOL)deletesFileUponFailure { return _deletes; }
+- (void)setDeletesFileUponFailure:(BOOL)deletes { _deletes = deletes; }
+
+- (void)setDestination:(NSString *)path allowOverwrite:(BOOL)allowOverwrite
+{
+    [_destination autorelease];
+    _destination = [path copy];
+    _overwrite = allowOverwrite;
+}
+
+- (void)_finchDeliver:(void (^)(void))block
+{
+    CFRunLoopRef loop = [_runLoop getCFRunLoop];
+    CFRunLoopPerformBlock(loop, kCFRunLoopDefaultMode, block);
+    CFRunLoopWakeUp(loop);
+}
+
+- (void)_finchEnd
+{
+    [_delegate release];
+    _delegate = nil;
+    [self release];
+}
+
+- (void)_finchStart
+{
+    id d = _delegate;
+    if (_cancelled) return [self _finchEnd];
+    if ([d respondsToSelector:@selector(downloadDidBegin:)]) [d downloadDidBegin:self];
+    if ([d respondsToSelector:@selector(download:willSendRequest:redirectResponse:)]) {
+        NSURLRequest *r = [d download:self willSendRequest:_request redirectResponse:nil];
+        if (!r) return [self _finchEnd];
+        [_request autorelease];
+        _request = [r copy];
+    }
+    _task = [[[NSURLSession sharedSession] downloadTaskWithRequest:_request
+                                                 completionHandler:^(NSURL *location, NSURLResponse *response, NSError *error) {
+        /* (the file is the session's until this returns: move it aside first) */
+        NSString *kept = nil;
+        if (location) {
+            kept = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+            if (![[NSFileManager defaultManager] moveItemAtPath:[location path] toPath:kept error:NULL]) kept = nil;
+        }
+        [kept retain];
+        [response retain];
+        [error retain];
+        [self _finchDeliver:^{
+            [self _finchFinish:kept response:response error:error];
+            [kept release];
+            [response release];
+            [error release];
+        }];
+    }] retain];
+    [_task resume];
+}
+
+/* A name not taken in its folder: "name-1.ext", "name-2.ext", ... */
+static NSString *
+unique_path(NSString *path)
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:path]) return path;
+    NSString *ext = [path pathExtension], *base = [path stringByDeletingPathExtension];
+    for (NSUInteger i = 1;; i++) {
+        NSString *p = [NSString stringWithFormat:@"%@-%lu", base, (unsigned long)i];
+        if ([ext length]) p = [p stringByAppendingPathExtension:ext];
+        if (![fm fileExistsAtPath:p]) return p;
+    }
+}
+
+- (void)_finchFinish:(NSString *)file response:(NSURLResponse *)response error:(NSError *)error
+{
+    id d = _delegate;
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (_cancelled) {
+        if (file) [fm removeItemAtPath:file error:NULL];
+        return [self _finchEnd];
+    }
+    if (error || !file) {
+        if ([d respondsToSelector:@selector(download:didFailWithError:)])
+            [d download:self didFailWithError:error ?: [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorUnknown userInfo:nil]];
+        return [self _finchEnd];
+    }
+    if ([d respondsToSelector:@selector(download:didReceiveResponse:)]) [d download:self didReceiveResponse:response];
+    if ([d respondsToSelector:@selector(download:didReceiveDataOfLength:)]) [d download:self didReceiveDataOfLength:0];
+    if (!_destination && [d respondsToSelector:@selector(download:decideDestinationWithSuggestedFilename:)])
+        [d download:self decideDestinationWithSuggestedFilename:[response suggestedFilename] ?: @"Unknown"];
+    unsigned long long size = [[fm attributesOfItemAtPath:file error:NULL] fileSize];
+    if (_destination) {
+        NSString *path = _overwrite ? _destination : unique_path(_destination);
+        if (_overwrite) [fm removeItemAtPath:path error:NULL];
+        NSError *moveError = nil;
+        if (![fm moveItemAtPath:file toPath:path error:&moveError]) {
+            [fm removeItemAtPath:file error:NULL];
+            if ([d respondsToSelector:@selector(download:didFailWithError:)])
+                [d download:self didFailWithError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorCannotCreateFile userInfo:nil]];
+            return [self _finchEnd];
+        }
+        if ([d respondsToSelector:@selector(download:didCreateDestination:)]) [d download:self didCreateDestination:path];
+    } else {
+        [fm removeItemAtPath:file error:NULL];
+    }
+    if ([d respondsToSelector:@selector(download:didReceiveDataOfLength:)]) [d download:self didReceiveDataOfLength:(NSUInteger)size];
+    if ([d respondsToSelector:@selector(downloadDidFinish:)]) [d downloadDidFinish:self];
+    [self _finchEnd];
+}
+
+- (void)cancel
+{
+    _cancelled = YES;
+    [_task cancel];
+}
+
+@end

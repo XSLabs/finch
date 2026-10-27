@@ -649,3 +649,15 @@ optional attribute providers; it does not load a missing UI framework.
   Apple's does), suspends them, and makes upload tasks from files, body streams and
   resume data. `finch-foundation-edges-test` (401 lines) matches Apple's; the
   generated comparison went from 3689 to 3758 verified items (90.1%).
+- 2026-10-27: more of the classes Apple's Foundation exports, as Apple's behave
+  (`NSLegacyClasses.m`, `NSURLConnection.m`): `NSKeyValueSharedObservers` and its
+  snapshots (observers gathered for a class and set on each instance, exactly that
+  class, replacing the last set, without the initial notification);
+  `NSSimpleCString` and `NSConstantString` (bytes read as Mac OS Roman, the bytes
+  given back as they are); `NSURLDownload` over a download task, telling its delegate
+  in Apple's order on the run loop it was made on and naming a taken destination
+  "notes-1.txt"; `NSURLHandle`, abstract, with `NSFileURLHandle` registered for
+  file: URLs; `NSFileProviderService`; and `NSSpellServer`. The delegate protocols
+  Apple's Foundation carries at run time are in Finch's image too.
+  `NSRequestConcreteImplementation` raises Apple's other message when sent to the
+  abstract class itself. `finch-foundation-edges-test` (477 lines) matches Apple's; the generated comparison went from 3758 to 3811 verified items (91.2%).

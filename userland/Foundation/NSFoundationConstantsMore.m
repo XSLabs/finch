@@ -299,10 +299,15 @@ FINCH_FUNC void *NSAllocateScannedUncollectable(NSUInteger size) { return calloc
 FINCH_FUNC void *NSPushAutoreleasePool(NSUInteger capacity) { return objc_autoreleasePoolPush(); }
 FINCH_FUNC void NSPopAutoreleasePool(void *token) { objc_autoreleasePoolPop(token); }
 
-/* What an abstract class's method raises when a subclass doesn't define it. */
+/* What an abstract class's method raises: sent to the abstract class itself, or to a
+   subclass that doesn't define it (Apple's two messages). */
 FINCH_FUNC void
 NSRequestConcreteImplementation(id self, SEL cmd, Class absClass)
 {
+    if (object_getClass(self) == absClass)
+        [NSException raise:NSInvalidArgumentException
+                    format:@"*** -%s cannot be sent to an abstract object of class %@: Create a concrete instance!", sel_getName(cmd),
+                           NSStringFromClass(absClass)];
     [NSException raise:NSInvalidArgumentException
                 format:@"*** -%s only defined for abstract class.  Define -[%@ %s]!", sel_getName(cmd),
                        NSStringFromClass(object_getClass(self)), sel_getName(cmd)];
