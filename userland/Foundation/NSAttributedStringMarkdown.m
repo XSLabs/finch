@@ -777,16 +777,86 @@ utf16_length_of_codepoint_at_utf8_offset(NSString *string, NSUInteger byteOffset
 - (NSInteger)row { return _row; }
 - (NSPresentationIntent *)parentIntent { return _parentIntent; }
 
+/* As Apple's: the lists and block quotes this is inside, for the kinds that are indented
+   (headers, code blocks, lists and list items); 0 for the rest. */
+static BOOL
+indented_kind(NSPresentationIntentKind kind)
+{
+    return kind == NSPresentationIntentKindHeader || kind == NSPresentationIntentKindCodeBlock ||
+           kind == NSPresentationIntentKindOrderedList || kind == NSPresentationIntentKindUnorderedList ||
+           kind == NSPresentationIntentKindListItem;
+}
+
 - (NSInteger)indentationLevel
 {
+    if (!indented_kind(_intentKind))
+        return 0;
     NSInteger level = 0;
-    for (NSPresentationIntent *intent = self; intent; intent = intent->_parentIntent)
+    for (NSPresentationIntent *intent = _parentIntent; intent; intent = intent->_parentIntent)
         if (intent->_intentKind == NSPresentationIntentKindOrderedList ||
             intent->_intentKind == NSPresentationIntentKindUnorderedList ||
             intent->_intentKind == NSPresentationIntentKindBlockQuote)
             level++;
     return level;
 }
+
+/* Apple's: this intent's line, then each enclosing intent's on its own. */
+- (NSString *)_finchDescriptionLine
+{
+    static NSString *const names[] = {
+        [NSPresentationIntentKindParagraph] = @"Paragraph", [NSPresentationIntentKindHeader] = @"Header",
+        [NSPresentationIntentKindOrderedList] = @"OrderedList", [NSPresentationIntentKindUnorderedList] = @"UnorderedList",
+        [NSPresentationIntentKindListItem] = @"ListItem", [NSPresentationIntentKindCodeBlock] = @"CodeBlock",
+        [NSPresentationIntentKindBlockQuote] = @"BlockQuote", [NSPresentationIntentKindThematicBreak] = @"ThematicBreak",
+        [NSPresentationIntentKindTable] = @"Table", [NSPresentationIntentKindTableHeaderRow] = @"TableHeaderRow",
+        [NSPresentationIntentKindTableRow] = @"TableRow", [NSPresentationIntentKindTableCell] = @"TableCell",
+    };
+    NSString *name = (NSUInteger)_intentKind < sizeof(names) / sizeof(names[0]) && names[_intentKind] ? names[_intentKind] : @"Unknown";
+    NSMutableString *line = [NSMutableString stringWithFormat:@"<NSPresentationIntent %p>: %@ (id %ld)", self, name, (long)_identity];
+    long indent = (long)[self indentationLevel];
+    switch (_intentKind) {
+    case NSPresentationIntentKindHeader:
+        [line appendFormat:@" (%ld) indent %ld", (long)_headerLevel, indent];
+        break;
+    case NSPresentationIntentKindCodeBlock:
+        [line appendFormat:@" (%@) indent %ld", _languageHint ?: @"no hint", indent];
+        break;
+    case NSPresentationIntentKindOrderedList:
+    case NSPresentationIntentKindUnorderedList:
+        [line appendFormat:@" indent %ld", indent];
+        break;
+    case NSPresentationIntentKindListItem:
+        [line appendFormat:@" ordinal %ld, indent %ld", (long)_ordinal, indent];
+        break;
+    case NSPresentationIntentKindTable: {
+        NSMutableArray *names = [NSMutableArray array];
+        for (NSNumber *a in _columnAlignments)
+            [names addObject:[a integerValue] == NSPresentationIntentTableColumnAlignmentCenter ? @"center"
+                             : [a integerValue] == NSPresentationIntentTableColumnAlignmentRight ? @"right" : @"left"];
+        [line appendFormat:@" %ld columns, alignment %@", (long)_columnCount, [names componentsJoinedByString:@","]];
+        break;
+    }
+    case NSPresentationIntentKindTableRow:
+        [line appendFormat:@" # %ld", (long)_row];
+        break;
+    case NSPresentationIntentKindTableCell:
+        [line appendFormat:@" # %ld", (long)_column];
+        break;
+    default:
+        break;
+    }
+    return line;
+}
+
+- (NSString *)description
+{
+    NSMutableString *d = [NSMutableString stringWithString:[self _finchDescriptionLine]];
+    for (NSPresentationIntent *intent = _parentIntent; intent; intent = intent->_parentIntent)
+        [d appendFormat:@"\n %@", [intent _finchDescriptionLine]];
+    return d;
+}
+
+- (NSString *)debugDescription { return [self description]; }
 
 + (instancetype)paragraphIntentWithIdentity:(NSInteger)identity nestedInsideIntent:(NSPresentationIntent *)parent
 {

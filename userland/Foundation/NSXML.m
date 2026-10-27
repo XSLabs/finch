@@ -89,6 +89,18 @@ static void raise_has_parent(NSXMLNode *child)
                 format:@"Cannot add a child that has a parent; detach or copy first"];
 }
 
+/* Apple's range errors here are its children array's, with its messages. */
+static void raise_out_of_bounds(const char *method, NSUInteger index, NSUInteger count, BOOL inserting)
+{
+    NSUInteger bound = inserting ? count : count - 1;
+    if (count == 0 && !inserting)
+        [NSException raise:NSRangeException format:@"*** -[__NSArrayM %s]: index %lu beyond bounds for empty array", method, (unsigned long)index];
+    if (count == 0)
+        [NSException raise:NSRangeException format:@"*** -[__NSArrayM %s]: index %lu beyond bounds for empty array", method, (unsigned long)index];
+    [NSException raise:NSRangeException format:@"*** -[__NSArrayM %s]: index %lu beyond bounds [0 .. %lu]", method, (unsigned long)index,
+                       (unsigned long)bound];
+}
+
 static BOOL is_container(NSXMLNodeKind k)
 {
     return k == NSXMLDocumentKind || k == NSXMLElementKind || k == NSXMLDTDKind;
@@ -497,13 +509,20 @@ make_node(NSXMLNodeKind kind, NSString *name, NSString *uri, id value)
         [NSException raise:NSInvalidArgumentException format:@"*** -[%@ addChild:]: nil child", [self class]];
     if (child->_parent)
         raise_has_parent(child);
+    /* (as Apple's: what an element may hold) */
+    if ([self kind] == NSXMLElementKind) {
+        NSXMLNodeKind k = [child kind];
+        if (k != NSXMLTextKind && k != NSXMLElementKind && k != NSXMLProcessingInstructionKind && k != NSXMLCommentKind)
+            [NSException raise:NSInternalInconsistencyException
+                        format:@"Elements can only have text, elements, processing instructions, and comments as children"];
+    }
 }
 
 - (void)insertChild:(NSXMLNode *)child atIndex:(NSUInteger)index
 {
-    [self _finchCheckChild:child];
     if (index > [_fchildren count])
-        [NSException raise:NSRangeException format:@"*** -[%@ insertChild:atIndex:]: index %lu beyond bounds", [self class], (unsigned long)index];
+        raise_out_of_bounds("insertObject:atIndex:", index, [_fchildren count], YES);
+    [self _finchCheckChild:child];
     [_fchildren insertObject:child atIndex:index];
     child->_parent = self;
 }
@@ -518,6 +537,8 @@ make_node(NSXMLNodeKind kind, NSString *name, NSString *uri, id value)
 
 - (void)removeChildAtIndex:(NSUInteger)index
 {
+    if (index >= [_fchildren count])
+        raise_out_of_bounds("objectAtIndex:", index, [_fchildren count], NO);
     NSXMLNode *c = [_fchildren objectAtIndex:index];
     c->_parent = nil;
     [_fchildren removeObjectAtIndex:index];
@@ -533,6 +554,8 @@ make_node(NSXMLNodeKind kind, NSString *name, NSString *uri, id value)
 
 - (void)replaceChildAtIndex:(NSUInteger)index withNode:(NSXMLNode *)node
 {
+    if (index >= [_fchildren count])
+        raise_out_of_bounds("objectAtIndex:", index, [_fchildren count], NO);
     [self _finchCheckChild:node];
     [self removeChildAtIndex:index];
     [self insertChild:node atIndex:index];
@@ -743,11 +766,19 @@ html_void_elements(void)
 /* The string's root element, detached from the document read. */
 - (instancetype)initWithXMLString:(NSString *)string error:(NSError **)error
 {
-    NSXMLDocument *d = [[[NSXMLDocument alloc] initWithXMLString:string options:NSXMLNodeOptionsNone error:error] autorelease];
+    NSError *e = nil;
+    NSXMLDocument *d = [[[NSXMLDocument alloc] initWithXMLString:string options:NSXMLNodeOptionsNone error:&e] autorelease];
     NSXMLElement *root = [d rootElement];
     [self release];
-    if (!root)
+    if (!root) {
+        /* (an element read from nothing, or from an unfinished tag, ends early in Apple's:
+           NSXMLParserPrematureDocumentEndError) */
+        if (e && ([string length] == 0 || [e code] == NSXMLParserUnfinishedTagError))
+            e = [NSError errorWithDomain:NSXMLParserErrorDomain code:NSXMLParserPrematureDocumentEndError userInfo:[e userInfo]];
+        if (error)
+            *error = e;
         return nil;
+    }
     [root retain];
     [root detach];
     return root;
@@ -820,6 +851,13 @@ html_void_elements(void)
 {
     if (!attribute)
         return;
+    /* (Apple's takes the node as its own before finding it isn't an attribute: it's left
+       with this element as its parent) */
+    if ([attribute kind] != NSXMLAttributeKind) {
+        if (!attribute->_parent)
+            attribute->_parent = self;
+        [NSException raise:NSInternalInconsistencyException format:@"Not an attribute"];
+    }
     if (attribute->_parent)
         raise_has_parent(attribute);
     /* (an attribute of the same name is replaced) */
@@ -888,6 +926,8 @@ html_void_elements(void)
 {
     if (!aNamespace)
         return;
+    if ([aNamespace kind] != NSXMLNamespaceKind)
+        [NSException raise:NSInternalInconsistencyException format:@"Not a namespace"];
     if (aNamespace->_parent)
         raise_has_parent(aNamespace);
     [self removeNamespaceForPrefix:[aNamespace name] ?: @""];
@@ -1699,8 +1739,12 @@ assign_quotes(NSXMLNode *node, NSString *source, NSUInteger *cursor)
     }
     const xmlError *problem = finish_errors();
     if (!doc || !xmlDocGetRootElement(doc) || (problem && problem->level >= XML_ERR_ERROR && !(mask & (NSXMLDocumentTidyXML | NSXMLDocumentTidyHTML)))) {
+        /* (nothing to read is an empty document, as libxml2 reports it when it says) */
         if (error)
-            *error = xml_error(problem);
+            *error = !problem && [data length] == 0
+                         ? [NSError errorWithDomain:NSXMLParserErrorDomain code:NSXMLParserEmptyDocumentError
+                                           userInfo:@{NSLocalizedDescriptionKey: @"Document is empty"}]
+                         : xml_error(problem);
         if (doc)
             xmlFreeDoc(doc);
         [self release];
