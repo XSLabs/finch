@@ -103,7 +103,7 @@ than zeroing it.
 ## vImage
 
 `userland/Accelerate/vImage/` is Finch's vImage, one file per header area:
-`convert.c` and `convert-channels.c` (the first part of `Conversion.h`),
+`convert.c`, `convert-channels.c` and `convert-10bit.c` (most of `Conversion.h`),
 `alpha.c`, `morphology.c`, `histogram.c`, `convolution.c`, `transform.c`
 (matrix multiply, gamma, lookup tables, piecewise functions) and `geometry.c`;
 `common.h` holds the buffer checks and sample conversions they share, and
@@ -125,9 +125,14 @@ a bug (flood fills storing a 16-bit value's low byte twice, reads past a
 buffer's edge), Finch follows the header, and the tests compare only result
 codes there.
 
-Still missing: the rest of `Conversion.h` (YpCbCr, 10-bit and dithered
-formats, the any-to-any converters; 108 calls), `vImage_Utilities.h` (15),
-`vImage_CVUtilities.h` (31) and `BasicImageTypes.h` (1).
+`convert-10bit.c` has the 10-bit RGB formats (RGBA1010102, XRGB2101010,
+ARGB2101010), whose results Apple computes in fixed point in its vector loops
+(groups of eight pixels) and with the header's or single-precision formulas in
+the scalar tail; Finch does the same, so they match.
+
+Still missing: the rest of `Conversion.h` (YpCbCr, dithered and 1-, 2- and
+4-bit formats; 59 calls), `vImage_Utilities.h` (15), `vImage_CVUtilities.h`
+(30) and `BasicImageTypes.h` (1).
 
 ## The rest
 

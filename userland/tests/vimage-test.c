@@ -959,6 +959,56 @@ static void geometry(void)
     }
 }
 
+static void conversions_10bit(void)
+{
+    const uint8_t bgra[4] = {3, 2, 1, 0};
+    const int32_t ranges[2][2] = {{0, 1023}, {64, 940}};
+    char n[96];
+    for (int r = 0; r < 2; ++r)
+        for (int p = 0; p < 2; ++p) {
+            int32_t lo = ranges[r][0], hi = ranges[r][1];
+            const uint8_t *perm = p ? bgra : NULL;
+#define C10(name, BPP, call)                                                                             \
+    snprintf(n, sizeof(n), #name " %d %d", r, p);                                                        \
+    TD(n, W, H, BPP, call)
+            C10(RGBA1010102ToARGB8888, 4, vImageConvert_RGBA1010102ToARGB8888(&s8, &d, lo, hi, perm, 0));
+            C10(RGBA1010102ToARGB16U, 8, vImageConvert_RGBA1010102ToARGB16U(&s8, &d, lo, hi, perm, 0));
+            C10(RGBA1010102ToARGB16Q12, 8, vImageConvert_RGBA1010102ToARGB16Q12(&s8, &d, lo, hi, perm, 0));
+            C10(ARGB8888ToRGBA1010102, 4, vImageConvert_ARGB8888ToRGBA1010102(&s8, &d, lo, hi, perm, 0));
+            C10(ARGB16UToRGBA1010102, 4, vImageConvert_ARGB16UToRGBA1010102(&s16U, &d, lo, hi, perm, 0));
+            C10(ARGB16Q12ToRGBA1010102, 4, vImageConvert_ARGB16Q12ToRGBA1010102(&sQ12, &d, lo, hi, 0, 1023, perm, 0));
+            C10(ARGB16Q12ToRGBA1010102 clipped, 4, vImageConvert_ARGB16Q12ToRGBA1010102(&sQ12, &d, lo, hi, 16, 1000, perm, 0));
+            C10(XRGB2101010ToARGB8888, 4, vImageConvert_XRGB2101010ToARGB8888(&s8, 200, &d, lo, hi, perm, 0));
+            C10(ARGB2101010ToARGB8888, 4, vImageConvert_ARGB2101010ToARGB8888(&s8, &d, lo, hi, perm, 0));
+            C10(XRGB2101010ToARGB16U, 8, vImageConvert_XRGB2101010ToARGB16U(&s8, 40000, &d, lo, hi, perm, 0));
+            C10(ARGB2101010ToARGB16U, 8, vImageConvert_ARGB2101010ToARGB16U(&s8, &d, lo, hi, perm, 0));
+            C10(XRGB2101010ToARGB16Q12, 8, vImageConvert_XRGB2101010ToARGB16Q12(&s8, 3000, &d, lo, hi, perm, 0));
+            C10(ARGB2101010ToARGB16Q12, 8, vImageConvert_ARGB2101010ToARGB16Q12(&s8, &d, lo, hi, perm, 0));
+            C10(XRGB2101010ToARGBFFFF, 16, vImageConvert_XRGB2101010ToARGBFFFF(&s8, 0.75f, &d, lo, hi, perm, 0));
+            C10(ARGB2101010ToARGBFFFF, 16, vImageConvert_ARGB2101010ToARGBFFFF(&s8, &d, lo, hi, perm, 0));
+            C10(ARGB2101010ToARGBFFFF unclamped, 16, vImageConvert_ARGB2101010ToARGBFFFF(&s8, &d, lo, hi, perm, kvImageDoNotClamp));
+            C10(XRGB2101010ToARGB16F, 8, vImageConvert_XRGB2101010ToARGB16F(&s8, 0.75f, &d, lo, hi, perm, 0));
+            C10(ARGB2101010ToARGB16F, 8, vImageConvert_ARGB2101010ToARGB16F(&s8, &d, lo, hi, perm, 0));
+            C10(ARGB8888ToXRGB2101010, 4, vImageConvert_ARGB8888ToXRGB2101010(&s8, &d, lo, hi, perm, 0));
+            C10(ARGB8888ToARGB2101010, 4, vImageConvert_ARGB8888ToARGB2101010(&s8, &d, lo, hi, perm, 0));
+            C10(ARGB16UToXRGB2101010, 4, vImageConvert_ARGB16UToXRGB2101010(&s16U, &d, lo, hi, perm, 0));
+            C10(ARGB16UToARGB2101010, 4, vImageConvert_ARGB16UToARGB2101010(&s16U, &d, lo, hi, perm, 0));
+            C10(ARGB16Q12ToXRGB2101010, 4, vImageConvert_ARGB16Q12ToXRGB2101010(&sQ12, &d, lo, hi, 0, 1023, perm, 0));
+            C10(ARGB16Q12ToARGB2101010, 4, vImageConvert_ARGB16Q12ToARGB2101010(&sQ12, &d, lo, hi, 16, 1000, perm, 0));
+            C10(ARGBFFFFToXRGB2101010, 4, vImageConvert_ARGBFFFFToXRGB2101010(&sF, &d, lo, hi, perm, 0));
+            C10(ARGBFFFFToARGB2101010, 4, vImageConvert_ARGBFFFFToARGB2101010(&sF, &d, lo, hi, perm, 0));
+            /* (out of range floats in video range: Apple's scalar tail rounds its own way) */
+            if (r == 0) {
+                C10(ARGBFFFFToARGB2101010 unclamped, 4, vImageConvert_ARGBFFFFToARGB2101010(&sF, &d, lo, hi, perm, kvImageDoNotClamp));
+            }
+#undef C10
+        }
+    TD("RGBA1010102ToARGB8888 inverted range", W, H, 4, vImageConvert_RGBA1010102ToARGB8888(&s8, &d, 900, 100, NULL, 0));
+    TD("ARGB16Q12ToRGBA1010102 inverted clip", W, H, 4, vImageConvert_ARGB16Q12ToRGBA1010102(&sQ12, &d, 0, 1023, 900, 100, NULL, 0));
+    TD("ARGB2101010ToARGB8888 range past 10 bits", W, H, 4, vImageConvert_ARGB2101010ToARGB8888(&s8, &d, 0, 2047, NULL, 0));
+    TD("ARGB8888ToRGBA1010102 unknown flag", W, H, 4, vImageConvert_ARGB8888ToRGBA1010102(&s8, &d, 0, 1023, NULL, 0x100000));
+}
+
 int main(void)
 {
     dump_name = getenv("VIMAGE_DUMP");
@@ -983,5 +1033,6 @@ int main(void)
     convolutions();
     transforms();
     geometry();
+    conversions_10bit();
     return 0;
 }
