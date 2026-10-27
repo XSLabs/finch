@@ -67,12 +67,15 @@ compile vMisc "${HERE}"/vMisc/*.c
 compile BLAS "${HERE}/BLAS/blas.c" "${OBJ}/blas-abi.c"
 compile LAPACK "${HERE}"/LAPACK/*.c
 compile vImage "${HERE}"/vImage/*.c
+compile Quadrature "${HERE}"/Quadrature/*.c
 
 library "${VECLIB}/libvDSP.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libvDSP.tbd" 1126.100.7 "${OBJ}/vDSP"
 library "${VECLIB}/libvMisc.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libvMisc.tbd" 1126.100.7 "${OBJ}/vMisc"
 library "${VECLIB}/libBLAS.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libBLAS.tbd" 1126.100.7 "${OBJ}/BLAS"
 library "${VECLIB}/libLAPACK.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libLAPACK.tbd" 1126.100.7 "${OBJ}/LAPACK" \
     "${ROOT}${VECLIB}/libBLAS.dylib"
+library "${VECLIB}/libQuadrature.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libQuadrature.tbd" 1126.100.7 \
+    "${OBJ}/Quadrature"
 
 # umbrella NAME INSTALL CURRENT BUNDLE_ID SHORT REEXPORT...
 umbrella() {
@@ -91,7 +94,7 @@ umbrella() {
 
 umbrella vecLib "${VECLIB}/vecLib" 1126.100.7 com.apple.Accelerate.vecLib 3.11 \
     "${ROOT}${VECLIB}/libvMisc.dylib" "${ROOT}${VECLIB}/libvDSP.dylib" "${ROOT}${VECLIB}/libBLAS.dylib" \
-    "${ROOT}${VECLIB}/libLAPACK.dylib"
+    "${ROOT}${VECLIB}/libLAPACK.dylib" "${ROOT}${VECLIB}/libQuadrature.dylib"
 
 log "linking vImage"
 "${HERE}/tbd-exports.py" "${SDK_FW}/vImage.framework/Versions/A/vImage.tbd" "${OBJ}/vImage"/*.o > "${OBJ}/vImage.exports"

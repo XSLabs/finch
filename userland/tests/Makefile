@@ -72,7 +72,7 @@ all: $(OUT)/finch-cf-preferences-container-test
 all: $(OUT)/finch-appkit-gaps-test
 all: $(OUT)/finch-urlsession-trust-test
 all: $(OUT)/finch-network-test
-all: $(OUT)/finch-accelerate-test $(OUT)/finch-vdsp-test $(OUT)/finch-vmisc-test $(OUT)/finch-blas-test $(OUT)/finch-vimage-test
+all: $(OUT)/finch-accelerate-test $(OUT)/finch-vdsp-test $(OUT)/finch-vmisc-test $(OUT)/finch-blas-test $(OUT)/finch-vimage-test $(OUT)/finch-quadrature-test
 all: $(OUT)/finch-videotoolbox-test
 all: $(OUT)/finch-contacts-search-links-test
 all: $(OUT)/finch-contacts-search-links-fetch-test
@@ -116,6 +116,10 @@ $(OUT)/finch-vdsp-test: vdsp-test.c
 	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework Accelerate
 
 # vImage function by function, hashed outputs (diff Apple's and Finch's).
+$(OUT)/finch-quadrature-test: quadrature-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -o $@ $< -framework Accelerate
+
 $(OUT)/finch-vimage-test: vimage-test.c
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework Accelerate -framework CoreGraphics -framework CoreVideo -framework CoreFoundation

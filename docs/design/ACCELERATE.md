@@ -173,11 +173,23 @@ without flattening from 8-bit ARGB to 16-bit RGB, its resampling filter setup
 writes past its allocation at most scales, and creating a converter to 30-bit
 RGB CoreVideo crashes.
 
+## Quadrature
+
+`userland/Accelerate/Quadrature/` is libQuadrature: `quadrature_integrate`
+with QUADPACK's integrators (Piessens et al.), written for Finch. QNG applies
+the Gauss-Kronrod-Patterson rules of 21, 43 and 87 points, QAG bisects with a
+Gauss-Kronrod rule of 15 to 61 points, and QAGS adds Wynn's epsilon
+extrapolation and, for infinite bounds, QAGI's substitution. The rules'
+nodes and weights are mathematical constants, computed at high precision by
+`gen-rules.py` into `rules.h`. QNG and QAG match Apple's (theirs are ports of
+QUADPACK) in evaluations and statuses; Apple's QAGS is its own adaptive
+scheme, which Finch's agrees with in result and status.
+
 ## The rest
 
 LAPACK has only the calls imported by the apps found on this Mac: `dgels_`,
-`dgetrf_`, `dgetri_` and `dgtsv_` (`LAPACK/lapack.c`). BNNS, sparse solvers,
-LinearAlgebra and Quadrature are not implemented. Complete LAPACK is planned
+`dgetrf_`, `dgetri_` and `dgtsv_` (`LAPACK/lapack.c`). BNNS, sparse solvers
+and LinearAlgebra are not implemented. Complete LAPACK is planned
 from a permissively licensed implementation.
 
 ## Build and check
@@ -189,7 +201,7 @@ use libSystem and the math library. Test runners put the nested frameworks
 vecLib's folder on `DYLD_LIBRARY_PATH`, as dyld finds those by leaf name.
 
 `userland/tests/accelerate-test.c`, `vdsp-test.c`, `vmisc-test.c`, `blas-test.c` and
-`vimage-test.c` run the
+`vimage-test.c` and `quadrature-test.c` run the
 same calls against Apple's framework and Finch's, and `tools/host-tests.sh`
 compares their printed results. All routines here were written for Finch. No
 Apple binary, closed Apple code or outside source code was copied, so
