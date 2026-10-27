@@ -364,11 +364,12 @@ normally on its own kernel, until Finch's kernel runs on bare metal. The guest
 is set up and reachable with `tools/vz/ssh` (2026-10-08).
 - [x] The open libraries Finch's binaries link: all of them, Foundation included
       (`tools/check-closed.py`, 2026-10-08). IOKit is done.
-- [ ] CoreFoundation: the ObjC bridge works; remaining hosted classes are listed above
+- [x] CoreFoundation: the ObjC bridge works; remaining hosted classes are listed above
   - [x] `CFNotificationCenter`: the local center shares observers with Foundation's
         default `NSNotificationCenter`; posts through either reach both in observer order.
         The Darwin center uses notify(3). `finch-cfnotify-test` matches Apple's on the host
-        and in the VM (2026-10-09). Distributed notifications still stay within the process.
+        and in the VM (2026-10-09). Distributed notifications go between processes through
+        finch-distnoted (tools/vm/test-distnotify.sh, 2026-10-27).
   - [x] Bundle localization: `.loctable` files, the `AppleLanguages` preference and
         Apple's ICU language matching. Image Capture now picks English instead of Korean.
         `finch-l10n-test` matches Apple's on the host (2026-10-09).
@@ -403,8 +404,8 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         host and in the VM (2026-10-09). App-bundled `.xpc` services still need a job
         plist (finch-init doesn't look in apps' `Contents/XPCServices` yet).
   - [ ] The rest, by what apps use (`tools/check-framework-api.py` lists it):
-        the URL loading system (Phase 4), a system-wide distributed notification
-        center, NSFileVersion.
+        the URL loading system (Phase 4), NSFileVersion. (The system-wide distributed
+        notification center landed 2026-10-27.)
   - [x] Swift Foundation and AppKit overlays, the Darwin overlay libraries, and Swift's
         runtime built from pinned open source (2026-10-09). The combined host build
         matches Apple's 78-line overlay check and 12-line runtime check, including

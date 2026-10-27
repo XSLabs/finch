@@ -10,9 +10,12 @@
  *   run time; CF sits below it), and in CF's own list when it isn't.
  * - The Darwin center rides on notify(3): names only, delivered on the main
  *   queue; the object and user info are dropped, as macOS's are.
- * - The distributed center delivers on the main queue, with the object and
- *   user info, within the process: Finch has no distnoted yet to carry
- *   notifications between processes.
+ * - The distributed center goes through finch-distnoted (userland/distnoted):
+ *   observers' filters are registered with it, posts go to it, and it hands each
+ *   notification to every process observing it, the poster included; they're
+ *   delivered on the main queue with the object (a string, matched by value) and
+ *   the user info (a property list). Without the service (a process outside
+ *   Finch's domains), they're delivered within the process the same way.
  */
 #include "CFInternal.h"
 #include "CFRuntime_Internal.h"
@@ -25,6 +28,8 @@
 #include <objc/runtime.h>
 #include <os/lock.h>
 #include <pthread.h>
+#include <servers/bootstrap.h>
+#include <xpc/xpc.h>
 
 enum { LOCAL, DARWIN, DISTRIBUTED };
 
@@ -35,6 +40,7 @@ typedef struct {
     const void *object;   /* NULL: any */
     id proxy;             /* the NSNotificationCenter observer (local center, with Foundation) */
     int token;            /* notify(3) registration (Darwin center) */
+    int64_t id;           /* its filter in finch-distnoted (distributed center) */
 } Observer;
 
 struct __CFNotificationCenter {
@@ -119,6 +125,90 @@ ns_default_center(void)
 }
 @end
 
+#pragma mark The distributed service
+
+#define DISTNOTED "org.finch.distnoted"
+
+static xpc_connection_t dist_connection;   /* NULL: no service, deliver in-process */
+static int64_t dist_next_id;
+static void deliver_distributed(CFStringRef name, CFStringRef object, CFDictionaryRef info);
+
+static void
+dist_send_observe(const Observer *o)
+{
+    xpc_object_t m = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_dictionary_set_string(m, "op", "observe");
+    xpc_dictionary_set_int64(m, "id", o->id);
+    char buf[1024];
+    if (o->name && CFStringGetCString(o->name, buf, sizeof buf, kCFStringEncodingUTF8))
+        xpc_dictionary_set_string(m, "name", buf);
+    if (o->object && CFGetTypeID(o->object) == CFStringGetTypeID() &&
+        CFStringGetCString((CFStringRef)o->object, buf, sizeof buf, kCFStringEncodingUTF8))
+        xpc_dictionary_set_string(m, "object", buf);
+    xpc_connection_send_message(dist_connection, m);
+    xpc_release(m);
+}
+
+static void
+dist_receive(xpc_object_t event)
+{
+    if (event == XPC_ERROR_CONNECTION_INTERRUPTED) {
+        /* the service started again: tell it what's observed */
+        struct __CFNotificationCenter *c = center(DISTRIBUTED);
+        os_unfair_lock_lock(&c->lock);
+        for (CFIndex i = 0; i < c->count; i++)
+            dist_send_observe(&c->observers[i]);
+        os_unfair_lock_unlock(&c->lock);
+        return;
+    }
+    if (xpc_get_type(event) != XPC_TYPE_DICTIONARY)
+        return;
+    const char *op = xpc_dictionary_get_string(event, "op"), *name = xpc_dictionary_get_string(event, "name");
+    if (!op || strcmp(op, "notification") || !name)
+        return;
+    const char *object = xpc_dictionary_get_string(event, "object");
+    size_t length = 0;
+    const void *bytes = xpc_dictionary_get_data(event, "userInfo", &length);
+    CFStringRef n = CFStringCreateWithCString(kCFAllocatorSystemDefault, name, kCFStringEncodingUTF8);
+    CFStringRef obj = object ? CFStringCreateWithCString(kCFAllocatorSystemDefault, object, kCFStringEncodingUTF8) : NULL;
+    CFDictionaryRef info = NULL;
+    if (bytes) {
+        CFDataRef d = CFDataCreate(kCFAllocatorSystemDefault, bytes, (CFIndex)length);
+        CFPropertyListRef pl = CFPropertyListCreateWithData(kCFAllocatorSystemDefault, d, kCFPropertyListImmutable, NULL, NULL);
+        CFRelease(d);
+        if (pl && CFGetTypeID(pl) == CFDictionaryGetTypeID())
+            info = pl;
+        else if (pl)
+            CFRelease(pl);
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        deliver_distributed(n, obj, info);
+        CFRelease(n);
+        if (obj)
+            CFRelease(obj);
+        if (info)
+            CFRelease(info);
+    });
+}
+
+/* The connection to finch-distnoted, if the process can reach one. */
+static xpc_connection_t
+dist_service(void)
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        mach_port_t port = MACH_PORT_NULL;
+        if (bootstrap_look_up(bootstrap_port, DISTNOTED, &port) != KERN_SUCCESS || port == MACH_PORT_NULL)
+            return;
+        mach_port_deallocate(mach_task_self(), port);
+        dispatch_queue_t q = dispatch_queue_create("com.apple.CFNotificationCenter.distributed", DISPATCH_QUEUE_SERIAL);
+        dist_connection = xpc_connection_create_mach_service(DISTNOTED, q, 0);
+        xpc_connection_set_event_handler(dist_connection, ^(xpc_object_t event) { dist_receive(event); });
+        xpc_connection_resume(dist_connection);
+    });
+    return dist_connection;
+}
+
 #pragma mark Observers
 
 static void
@@ -168,6 +258,14 @@ CFNotificationCenterAddObserver(CFNotificationCenterRef cref, const void *observ
         notify_register_dispatch(buf, &o.token, dispatch_get_main_queue(), ^(int token) {
             deliver_darwin(held);
         });
+    } else if (c->kind == DISTRIBUTED) {
+        /* (the object is a string, kept by value) */
+        if (o.object)
+            o.object = CFGetTypeID(o.object) == CFStringGetTypeID()
+                           ? CFStringCreateCopy(kCFAllocatorSystemDefault, (CFStringRef)o.object) : NULL;
+        o.id = __atomic_add_fetch(&dist_next_id, 1, __ATOMIC_RELAXED);
+        if (dist_service())
+            dist_send_observe(&o);
     } else if (c->kind == LOCAL) {
         id ns = ns_default_center();
         if (ns) {
@@ -193,8 +291,9 @@ remove_matching(struct __CFNotificationCenter *c, const void *observer, CFString
     CFIndex k = 0;
     for (CFIndex i = 0; i < c->count; i++) {
         Observer *o = &c->observers[i];
-        bool match = o->observer == observer &&
-                     (every || ((!name || (o->name && CFEqual(o->name, name))) && (!object || o->object == object)));
+        bool sameObject = !object || o->object == object ||
+                          (c->kind == DISTRIBUTED && o->object && CFEqual(o->object, object));
+        bool match = o->observer == observer && (every || ((!name || (o->name && CFEqual(o->name, name))) && sameObject));
         if (match)
             gone[n++] = *o;
         else
@@ -210,6 +309,17 @@ remove_matching(struct __CFNotificationCenter *c, const void *observer, CFString
         }
         if (c->kind == DARWIN)
             notify_cancel(gone[i].token);
+        if (c->kind == DISTRIBUTED) {
+            if (dist_connection) {
+                xpc_object_t m = xpc_dictionary_create(NULL, NULL, 0);
+                xpc_dictionary_set_string(m, "op", "unobserve");
+                xpc_dictionary_set_int64(m, "id", gone[i].id);
+                xpc_connection_send_message(dist_connection, m);
+                xpc_release(m);
+            }
+            if (gone[i].object)
+                CFRelease(gone[i].object);
+        }
         if (gone[i].name)
             CFRelease(gone[i].name);
     }
@@ -242,7 +352,9 @@ matches(struct __CFNotificationCenter *c, CFStringRef name, const void *object, 
     CFIndex n = 0;
     for (CFIndex i = 0; i < c->count; i++) {
         Observer *o = &c->observers[i];
-        if ((!o->name || CFEqual(o->name, name)) && (!o->object || o->object == object))
+        bool sameObject = !o->object || o->object == object ||
+                          (c->kind == DISTRIBUTED && object && CFEqual(o->object, object));
+        if ((!o->name || CFEqual(o->name, name)) && sameObject)
             hits[n++] = *o;
     }
     os_unfair_lock_unlock(&c->lock);
@@ -277,22 +389,52 @@ CFNotificationCenterPostNotificationWithOptions(CFNotificationCenterRef cref, CF
         free(hits);
         return;
     }
-    /* distributed: later on the main queue, as it would come back from distnoted */
+    /* distributed: through finch-distnoted, which hands it back to every process
+       observing it (this one too); without it, the same here */
+    CFStringRef obj = object && CFGetTypeID(object) == CFStringGetTypeID() ? (CFStringRef)object : NULL;
+    xpc_connection_t service = dist_service();
+    if (service) {
+        char nbuf[1024], obuf[1024];
+        if (!CFStringGetCString(name, nbuf, sizeof nbuf, kCFStringEncodingUTF8))
+            return;
+        xpc_object_t m = xpc_dictionary_create(NULL, NULL, 0);
+        xpc_dictionary_set_string(m, "op", "post");
+        xpc_dictionary_set_string(m, "name", nbuf);
+        if (obj && CFStringGetCString(obj, obuf, sizeof obuf, kCFStringEncodingUTF8))
+            xpc_dictionary_set_string(m, "object", obuf);
+        if (userInfo) {
+            CFDataRef d = CFPropertyListCreateData(kCFAllocatorSystemDefault, userInfo, kCFPropertyListBinaryFormat_v1_0, 0, NULL);
+            if (d) {
+                xpc_dictionary_set_data(m, "userInfo", CFDataGetBytePtr(d), (size_t)CFDataGetLength(d));
+                CFRelease(d);
+            }
+        }
+        xpc_connection_send_message(service, m);
+        xpc_release(m);
+        return;
+    }
     CFStringRef n = CFStringCreateCopy(kCFAllocatorSystemDefault, name);
-    CFTypeRef obj = object ? CFRetain(object) : NULL;
+    CFStringRef o = obj ? CFStringCreateCopy(kCFAllocatorSystemDefault, obj) : NULL;
     CFDictionaryRef info = userInfo ? CFDictionaryCreateCopy(kCFAllocatorSystemDefault, userInfo) : NULL;
     dispatch_async(dispatch_get_main_queue(), ^{
-        CFIndex count;
-        Observer *hits = matches(c, n, obj, &count);
-        for (CFIndex i = 0; i < count; i++)
-            hits[i].callback(c, (void *)hits[i].observer, n, obj, info);
-        free(hits);
+        deliver_distributed(n, o, info);
         CFRelease(n);
-        if (obj)
-            CFRelease(obj);
+        if (o)
+            CFRelease(o);
         if (info)
             CFRelease(info);
     });
+}
+
+static void
+deliver_distributed(CFStringRef name, CFStringRef object, CFDictionaryRef info)
+{
+    struct __CFNotificationCenter *c = center(DISTRIBUTED);
+    CFIndex count;
+    Observer *hits = matches(c, name, object, &count);
+    for (CFIndex i = 0; i < count; i++)
+        hits[i].callback(c, (void *)hits[i].observer, name, object, info);
+    free(hits);
 }
 
 void

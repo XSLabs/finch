@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<!-- Distributed notifications between a user's processes, started in their domain when one asks. -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>org.finch.distnoted</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/libexec/finch-distnoted</string>
+	</array>
+	<key>MachServices</key>
+	<dict>
+		<key>org.finch.distnoted</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

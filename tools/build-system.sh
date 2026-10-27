@@ -276,6 +276,8 @@ steps=(
     "kextload|make -s -C userland/kextload"
     # finch-openandsavepanel: sandboxed apps' open and save panels (after AppKit)
     "openandsavepanel|make -s -C userland/openandsavepanel"
+    # finch-distnoted: distributed notifications between processes
+    "distnoted|make -s -C userland/distnoted"
     # finch-securityagent: authorization's password dialog
     "securityagent|make -s -C userland/securityagent"
     "CryptoTokenKit|userland/CryptoTokenKit/build.sh"

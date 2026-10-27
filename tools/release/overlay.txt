@@ -29,6 +29,8 @@ userland/LaunchDaemons/com.apple.SystemConfiguration.configd.plist /System/Libra
 userland/LaunchDaemons/com.apple.authd.plist /System/Library/Finch/LaunchDaemons/com.apple.authd.plist
 userland/openandsavepanel/org.finch.openandsavepanel.plist /System/Library/Finch/LaunchAgents/org.finch.openandsavepanel.plist
 userland/openandsavepanel/org.finch.openandsavepanel.root.plist /System/Library/Finch/LaunchDaemons/org.finch.openandsavepanel.root.plist
+userland/distnoted/org.finch.distnoted.plist /System/Library/Finch/LaunchAgents/org.finch.distnoted.plist
+userland/distnoted/org.finch.distnoted.root.plist /System/Library/Finch/LaunchDaemons/org.finch.distnoted.root.plist
 userland/securityagent/org.finch.securityagent.plist /System/Library/Finch/LaunchAgents/org.finch.securityagent.plist
 userland/LaunchDaemons/com.apple.diskarbitrationd.plist /System/Library/Finch/LaunchDaemons/com.apple.diskarbitrationd.plist
 # The running kernel's symbols (Finch's own build, which the boot collection links), for CoreSymbolication

@@ -463,9 +463,9 @@ optional attribute providers; it does not load a missing UI framework.
   `NSDateComponentsFormatter` (English for now: Apple's localizes through
   ICU's measure formats, which have no C API),
   `NSOrderedCollectionDifference` and the array and ordered-set diffing
-  methods, `NSDistributedNotificationCenter` (the in-process center Apple
-  gives processes without a window server; system-wide delivery needs a
-  distnoted), and `NSFileWrapper` (files, directories and links, Apple's
+  methods, `NSDistributedNotificationCenter` (since 2026-10-27 over CF's
+  distributed center and finch-distnoted, between processes; `finch-distnotify-test`
+  matches Apple's within a process), and `NSFileWrapper` (files, directories and links, Apple's
   numbered keys for clashing names). NSData reads URLs.
   `finch-documents-test` is identical to Apple's on the host and in the VM.
 - 2026-10-08: units, measurements and XML. `NSUnit`, `NSDimension` and all 22

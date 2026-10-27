@@ -112,9 +112,13 @@ declares but does not implement:
   own observer list.
 - The Darwin center uses `notify(3)` and delivers on the main queue. It carries
   names only; it drops the posted object and user info, as Apple's does.
-- The distributed center delivers the object and user info on the main queue
-  within the same process. Notifications between processes still need a
-  `distnoted` service.
+- The distributed center goes through `finch-distnoted` (`userland/distnoted`,
+  a per-user agent with a root instance): observers' filters are registered with
+  it and posts sent to it, and it hands each notification to every process
+  observing it, the poster included. They're delivered on the main queue, with
+  the object (a string, matched by value) and the user info (a property list).
+  A process that can't reach the service delivers within itself the same way.
+  `finch-distnotify-test --cross` passes in the VM (2026-10-27).
 
 ## Bundle languages and strings
 

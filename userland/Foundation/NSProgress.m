@@ -23,6 +23,7 @@
  */
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 #include <math.h>
 
 #include "Foundation_Finch.h"
@@ -879,14 +880,64 @@ apply_difference(NSArray *base, NSOrderedCollectionDifference *diff)
 
 /* MARK: - NSDistributedNotificationCenter */
 
+/* Notifications between processes, over CoreFoundation's distributed center (which
+   goes through finch-distnoted): delivered on the main thread, after the post, to
+   every process observing them, the poster included; objects are strings, matched by
+   value, and user info a property list. Each registration is a _NSDistributedObserver,
+   the CF observer, which calls the selector or the block. */
+
 NSDistributedNotificationCenterType const NSLocalNotificationCenterType = @"_NSLocalNotificationCenter";
+
+@interface _NSDistributedObserver : NSObject {
+@public
+    id observer;          /* not retained, as NSNotificationCenter's */
+    SEL selector;
+    void (^block)(NSNotification *);
+    NSOperationQueue *queue;
+    NSString *name;
+    NSString *object;
+}
+@end
+
+@implementation _NSDistributedObserver
+- (void)dealloc
+{
+    [block release];
+    [queue release];
+    [name release];
+    [object release];
+    [super dealloc];
+}
+@end
+
+static void
+distributed_callback(CFNotificationCenterRef center, void *context, CFNotificationName name, const void *object,
+                     CFDictionaryRef userInfo)
+{
+    _NSDistributedObserver *o = (_NSDistributedObserver *)context;
+    NSNotification *note = [NSNotification notificationWithName:(NSString *)name object:(id)object
+                                                        userInfo:(NSDictionary *)userInfo];
+    if (o->block) {
+        if (o->queue && o->queue != [NSOperationQueue currentQueue]) {
+            void (^b)(NSNotification *) = [[o->block copy] autorelease];
+            [o->queue addOperationWithBlock:^{ b(note); }];
+        } else {
+            o->block(note);
+        }
+    } else if (o->observer) {
+        ((void (*)(id, SEL, id))(void *)objc_msgSend)(o->observer, o->selector, note);
+    }
+}
 
 @interface _NSLocalNotificationCenter : NSDistributedNotificationCenter
 @end
 @implementation _NSLocalNotificationCenter
 @end
 
-@implementation NSDistributedNotificationCenter
+@implementation NSDistributedNotificationCenter {
+    NSMutableArray<_NSDistributedObserver *> *_registrations;
+    BOOL _suspended;
+}
 
 + (NSDistributedNotificationCenter *)notificationCenterForType:(NSDistributedNotificationCenterType)notificationCenterType
 {
@@ -898,23 +949,101 @@ NSDistributedNotificationCenterType const NSLocalNotificationCenterType = @"_NSL
 
 + (NSDistributedNotificationCenter *)defaultCenter { return [self notificationCenterForType:NSLocalNotificationCenterType]; }
 
-- (BOOL)suspended { return NO; }
-- (void)setSuspended:(BOOL)suspended { }
+- (BOOL)suspended { return _suspended; }
+- (void)setSuspended:(BOOL)suspended { _suspended = suspended; }
+
+- (void)_register:(_NSDistributedObserver *)o
+{
+    @synchronized(self) {
+        if (!_registrations)
+            _registrations = [[NSMutableArray alloc] init];
+        [_registrations addObject:o];
+    }
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDistributedCenter(), o, distributed_callback,
+                                    (CFStringRef)o->name, (const void *)o->object,
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
+}
 
 - (void)addObserver:(id)observer selector:(SEL)selector name:(NSNotificationName)name object:(NSString *)object
  suspensionBehavior:(NSNotificationSuspensionBehavior)suspensionBehavior
 {
-    [self addObserver:observer selector:selector name:name object:object];
+    if (!observer || !selector)
+        return;
+    _NSDistributedObserver *o = [[[_NSDistributedObserver alloc] init] autorelease];
+    o->observer = observer;
+    o->selector = selector;
+    o->name = [name copy];
+    o->object = [object isKindOfClass:[NSString class]] ? [object copy] : nil;
+    [self _register:o];
 }
 
-- (void)postNotificationName:(NSNotificationName)name object:(NSString *)object userInfo:(NSDictionary *)userInfo deliverImmediately:(BOOL)deliverImmediately
+- (void)addObserver:(id)observer selector:(SEL)selector name:(NSNotificationName)name object:(id)object
 {
-    [self postNotificationName:name object:object userInfo:userInfo];
+    [self addObserver:observer selector:selector name:name object:object
+        suspensionBehavior:NSNotificationSuspensionBehaviorCoalesce];
 }
 
-- (void)postNotificationName:(NSNotificationName)name object:(NSString *)object userInfo:(NSDictionary *)userInfo options:(NSDistributedNotificationOptions)options
+- (id<NSObject>)addObserverForName:(NSNotificationName)name object:(id)object queue:(NSOperationQueue *)queue
+                        usingBlock:(void (^)(NSNotification *))block
 {
-    [self postNotificationName:name object:object userInfo:userInfo];
+    if (!block)
+        return nil;
+    _NSDistributedObserver *o = [[[_NSDistributedObserver alloc] init] autorelease];
+    o->block = [block copy];
+    o->queue = [queue retain];
+    o->name = [name copy];
+    o->object = [object isKindOfClass:[NSString class]] ? [object copy] : nil;
+    [self _register:o];
+    return o;
+}
+
+/* An observer's registrations (or the one a block registration returned), by name and object. */
+- (void)removeObserver:(id)observer name:(NSNotificationName)name object:(id)object
+{
+    NSMutableArray *gone = [NSMutableArray array];
+    @synchronized(self) {
+        for (_NSDistributedObserver *o in _registrations)
+            if ((o == observer || (o->observer && o->observer == observer)) && (!name || [o->name isEqual:name]) &&
+                (!object || [o->object isEqual:object]))
+                [gone addObject:o];
+        [_registrations removeObjectsInArray:gone];
+    }
+    for (_NSDistributedObserver *o in gone)
+        CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetDistributedCenter(), o);
+}
+
+- (void)removeObserver:(id)observer { [self removeObserver:observer name:nil object:nil]; }
+
+- (void)postNotificationName:(NSNotificationName)name object:(NSString *)object userInfo:(NSDictionary *)userInfo
+                     options:(NSDistributedNotificationOptions)options
+{
+    if (!name)
+        return;
+    CFNotificationCenterPostNotificationWithOptions(CFNotificationCenterGetDistributedCenter(), (CFStringRef)name,
+        [object isKindOfClass:[NSString class]] ? (const void *)object : NULL, (CFDictionaryRef)userInfo,
+        (options & NSNotificationDeliverImmediately) ? kCFNotificationDeliverImmediately : 0);
+}
+
+- (void)postNotificationName:(NSNotificationName)name object:(NSString *)object userInfo:(NSDictionary *)userInfo
+          deliverImmediately:(BOOL)deliverImmediately
+{
+    [self postNotificationName:name object:object userInfo:userInfo
+                       options:deliverImmediately ? NSNotificationDeliverImmediately : 0];
+}
+
+- (void)postNotificationName:(NSNotificationName)name object:(id)object userInfo:(NSDictionary *)userInfo
+{
+    [self postNotificationName:name object:object userInfo:userInfo options:0];
+}
+
+- (void)postNotificationName:(NSNotificationName)name object:(id)object
+{
+    [self postNotificationName:name object:object userInfo:nil options:0];
+}
+
+- (void)postNotification:(NSNotification *)notification
+{
+    [self postNotificationName:[notification name] object:[notification object] userInfo:[notification userInfo] options:0];
 }
 
 @end
