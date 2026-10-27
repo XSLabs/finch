@@ -163,7 +163,7 @@ static NSPlaceholderNumber *numberPlaceholder;
         d = [@"NSRect: " stringByAppendingString:NSStringFromRect(*(NSRect *)b)];
     } else if (!strcmp(t, "{NSEdgeInsets=dddd}")) {
         double *e = (double *)b;
-        d = [NSString stringWithFormat:@"NSEdgeInsets: {%g, %g, %g, %g}", e[0], e[1], e[2], e[3]];
+        d = [NSString stringWithFormat:@"NSEdgeInsets: {%.17g, %.17g, %.17g, %.17g}", e[0], e[1], e[2], e[3]];
     } else {
         d = [[NSData dataWithBytes:b length:size] description];
     }
@@ -174,8 +174,26 @@ static NSPlaceholderNumber *numberPlaceholder;
 @end
 
 @implementation NSValue (NSValueCreation)
+/* (Apple's makes none for a type that isn't an encoding: "Finch") */
+static BOOL
+valid_type(const char *type)
+{
+    if (!type || !*type)
+        return YES;
+    if (!strchr("cislqCISLQfdDBv*@#:[{(b^?rnNoORVAj", type[0]))
+        return NO;
+    @try {
+        NSGetSizeAndAlignment(type, NULL, NULL);
+    } @catch (NSException *e) {
+        return NO;
+    }
+    return YES;
+}
+
 + (NSValue *)valueWithBytes:(const void *)value objCType:(const char *)type
 {
+    if (!valid_type(type))
+        return nil;
     return [[[NSConcreteValue alloc] initWithBytes:value objCType:type] autorelease];
 }
 + (NSValue *)value:(const void *)value withObjCType:(const char *)type { return [self valueWithBytes:value objCType:type]; }

@@ -47,6 +47,73 @@ BOOL _objc_rootIsDeallocating(id obj);
         if (class_conformsToProtocol(c, protocol)) return YES;
     return NO;
 }
+/* The rest of what the class answers itself, as Apple's NSProxy class does (NSObject's class
+   methods, which a root class doesn't inherit). */
++ (id)self { return self; }
++ (struct _NSZone *)zone { return NULL; }
++ (id)init { return self; }
++ (void)dealloc { }
++ (void)finalize { }
++ (id)copy { return self; }
++ (id)copyWithZone:(struct _NSZone *)zone { return self; }
++ (id)mutableCopy { return self; }
++ (id)mutableCopyWithZone:(struct _NSZone *)zone { return self; }
++ (NSUInteger)hash { return (NSUInteger)(uintptr_t)self; }
++ (BOOL)isEqual:(id)object { return object == (id)self; }
++ (BOOL)isFault { return NO; }
++ (BOOL)_tryRetain { return YES; }
++ (BOOL)_isDeallocating { return NO; }
++ (BOOL)allowsWeakReference { return YES; }
++ (BOOL)retainWeakReference { return YES; }
++ (CFStringRef)_copyDescription { return (CFStringRef)[[self description] copy]; }
++ (BOOL)isKindOfClass:(Class)aClass
+{
+    for (Class c = object_getClass((id)self); c; c = class_getSuperclass(c))
+        if (c == aClass) return YES;
+    return NO;
+}
++ (BOOL)isMemberOfClass:(Class)aClass { return object_getClass((id)self) == aClass; }
++ (BOOL)isSubclassOfClass:(Class)aClass
+{
+    for (Class c = self; c; c = class_getSuperclass(c))
+        if (c == aClass) return YES;
+    return NO;
+}
++ (BOOL)isAncestorOfObject:(id)object
+{
+    for (Class c = object_getClass(object); c; c = class_getSuperclass(c))
+        if (c == self) return YES;
+    return NO;
+}
++ (BOOL)instancesRespondToSelector:(SEL)aSelector { return class_respondsToSelector(self, aSelector); }
++ (IMP)instanceMethodForSelector:(SEL)aSelector { return class_getMethodImplementation(self, aSelector); }
++ (IMP)methodForSelector:(SEL)aSelector { return class_getMethodImplementation(object_getClass((id)self), aSelector); }
++ (NSMethodSignature *)instanceMethodSignatureForSelector:(SEL)aSelector
+{
+    Method m = class_getInstanceMethod(self, aSelector);
+    return m ? [NSMethodSignature signatureWithObjCTypes:method_getTypeEncoding(m)] : nil;
+}
++ (NSMethodSignature *)methodSignatureForSelector:(SEL)aSelector
+{
+    Method m = class_getClassMethod(self, aSelector);
+    return m ? [NSMethodSignature signatureWithObjCTypes:method_getTypeEncoding(m)] : nil;
+}
++ (id)performSelector:(SEL)aSelector { return ((id (*)(id, SEL))objc_msgSend)((id)self, aSelector); }
++ (id)performSelector:(SEL)aSelector withObject:(id)object
+{
+    return ((id (*)(id, SEL, id))objc_msgSend)((id)self, aSelector, object);
+}
++ (id)performSelector:(SEL)aSelector withObject:(id)object1 withObject:(id)object2
+{
+    return ((id (*)(id, SEL, id, id))objc_msgSend)((id)self, aSelector, object1, object2);
+}
++ (id)forwardingTargetForSelector:(SEL)aSelector { return nil; }
++ (void)doesNotRecognizeSelector:(SEL)aSelector
+{
+    [NSException raise:NSInvalidArgumentException format:@"+[%s %s]: unrecognized selector sent to class %p",
+        class_getName(self), sel_getName(aSelector), self];
+}
++ (void)forwardInvocation:(NSInvocation *)invocation { [self doesNotRecognizeSelector:[invocation selector]]; }
 
 - (Class)class { return object_getClass(self); }
 - (Class)superclass { return class_getSuperclass(object_getClass(self)); }

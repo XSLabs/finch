@@ -9,6 +9,8 @@
 #import <Foundation/Foundation.h>
 #import <objc/message.h>
 
+#include "Foundation_Finch.h"
+
 /* (enumeration options as the block methods take them: reverse order honoured, the
    concurrent flag runs serially, which is one of the orders it allows) */
 
@@ -108,8 +110,9 @@
 - (NSArray<NSString *> *)pathsMatchingExtensions:(NSArray<NSString *> *)filterTypes
 {
     NSMutableArray *out = [NSMutableArray array];
+    /* (each is asked its extension, strings or not, as Apple's are) */
     for (id p in self)
-        if ([p isKindOfClass:[NSString class]] && [filterTypes containsObject:[p pathExtension]])
+        if ([filterTypes containsObject:[p pathExtension]])
             [out addObject:p];
     return out;
 }
@@ -154,8 +157,23 @@
     [self removeObjectsAtIndexes:set];
 }
 
+/* (as Apple's: the other array's range is checked, then this one's, each against its array) */
+static void
+range_in_bounds(SEL cmd, NSRange range, NSUInteger count)
+{
+    if (range.location <= count && range.length <= count - range.location)
+        return;
+    if (count == 0)
+        FinchRaise(NSRangeException, "*** -[NSMutableArray %s]: range {%lu, %lu} extends beyond bounds for empty array", sel_getName(cmd),
+                   (unsigned long)range.location, (unsigned long)range.length);
+    FinchRaise(NSRangeException, "*** -[NSMutableArray %s]: range {%lu, %lu} extends beyond bounds [0 .. %lu]", sel_getName(cmd),
+               (unsigned long)range.location, (unsigned long)range.length, (unsigned long)count - 1);
+}
+
 - (void)replaceObjectsInRange:(NSRange)range withObjectsFromArray:(NSArray *)otherArray range:(NSRange)otherRange
 {
+    range_in_bounds(_cmd, otherRange, [otherArray count]);
+    range_in_bounds(_cmd, range, [self count]);
     [self replaceObjectsInRange:range withObjectsFromArray:[otherArray subarrayWithRange:otherRange]];
 }
 

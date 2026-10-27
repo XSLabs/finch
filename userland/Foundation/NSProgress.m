@@ -679,6 +679,10 @@ spelled(long n)
 
 - (instancetype)initWithObject:(id)anObject type:(NSCollectionChangeType)type index:(NSUInteger)index associatedIndex:(NSUInteger)associatedIndex
 {
+    if (type != NSCollectionChangeInsert && type != NSCollectionChangeRemove) {
+        [self release];
+        [NSException raise:NSInvalidArgumentException format:@"Invalid type for change"];
+    }
     if ((self = [super init])) {
         _object = [anObject retain];
         _type = type;
@@ -721,6 +725,14 @@ spelled(long n)
 - (instancetype)initWithInsertIndexes:(NSIndexSet *)inserts insertedObjects:(NSArray *)insertedObjects removeIndexes:(NSIndexSet *)removes
                        removedObjects:(NSArray *)removedObjects additionalChanges:(NSArray<NSOrderedCollectionChange *> *)changes
 {
+    if ([inserts count] != [insertedObjects count] && (insertedObjects || [inserts count])) {
+        [self release];
+        [NSException raise:NSInvalidArgumentException format:@"Count of inserted objects does not match count of inserted indexes"];
+    }
+    if ([removes count] != [removedObjects count] && (removedObjects || [removes count])) {
+        [self release];
+        [NSException raise:NSInvalidArgumentException format:@"Count of removed objects does not match count of removed indexes"];
+    }
     NSMutableArray *all = [NSMutableArray arrayWithArray:changes];
     __block NSUInteger i = 0;
     [inserts enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) {

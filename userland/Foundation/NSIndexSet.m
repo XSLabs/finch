@@ -82,8 +82,11 @@ range_at_or_after(NSIndexSet *s, NSUInteger value)
     return lo;
 }
 
+/* (Apple's compares indexes as signed numbers: an index past NSNotFound, as -1 is, is below
+   every index; the greater-than and less-than forms are one past, with wraparound) */
 - (NSUInteger)indexGreaterThanOrEqualToIndex:(NSUInteger)value
 {
+    if ((NSInteger)value < 0) return [self firstIndex];
     NSUInteger r = range_at_or_after(self, value);
     if (r == _count) return NSNotFound;
     return value >= _ranges[r].location ? value : _ranges[r].location;
@@ -93,15 +96,16 @@ range_at_or_after(NSIndexSet *s, NSUInteger value)
     NSUInteger r = range_at_or_after(self, value);
     return r < _count && NSLocationInRange(value, _ranges[r]) ? r : NSNotFound;
 }
-- (NSUInteger)indexGreaterThanIndex:(NSUInteger)value { return value == NSNotFound - 1 ? NSNotFound : [self indexGreaterThanOrEqualToIndex:value + 1]; }
+- (NSUInteger)indexGreaterThanIndex:(NSUInteger)value { return [self indexGreaterThanOrEqualToIndex:value + 1]; }
 - (NSUInteger)indexLessThanOrEqualToIndex:(NSUInteger)value
 {
+    if ((NSInteger)value < 0) return NSNotFound;
     for (NSUInteger i = _count; i-- > 0;) {
         if (_ranges[i].location <= value) return MIN(value, NSMaxRange(_ranges[i]) - 1);
     }
     return NSNotFound;
 }
-- (NSUInteger)indexLessThanIndex:(NSUInteger)value { return value == 0 ? NSNotFound : [self indexLessThanOrEqualToIndex:value - 1]; }
+- (NSUInteger)indexLessThanIndex:(NSUInteger)value { return [self indexLessThanOrEqualToIndex:value - 1]; }
 
 - (BOOL)containsIndex:(NSUInteger)value
 {
@@ -250,6 +254,10 @@ range_at_or_after(NSIndexSet *s, NSUInteger value)
 - (void)addIndexesInRange:(NSRange)range
 {
     if (range.length == 0) return;
+    /* (as Apple's: the range's end, wrapping, may not pass NSNotFound) */
+    if (range.location + range.length > NSNotFound)
+        FinchRaise(NSInvalidArgumentException, "*** -[%s addIndexesInRange:]: Range {%lu, %lu} exceeds maximum index value of NSNotFound - 1",
+                   object_getClassName(self), (unsigned long)range.location, (unsigned long)range.length);
     NSUInteger start = range.location, end = NSMaxRange(range);
     /* Ranges that touch or overlap [start, end) merge into one. */
     NSUInteger first = 0;
@@ -309,7 +317,19 @@ range_at_or_after(NSIndexSet *s, NSUInteger value)
 
 - (void)shiftIndexesStartingAtIndex:(NSUInteger)index by:(NSInteger)delta
 {
-    if (delta < 0) [self removeIndexesInRange:NSMakeRange(index + (NSUInteger)delta, (NSUInteger)-delta)];
+    /* moving right: no index past NSNotFound - 1, as Apple's (its message, naming its helper) */
+    if (delta > 0 && _count) {
+        NSUInteger last = NSMaxRange(_ranges[_count - 1]) - 1;
+        if (last >= index && (NSUInteger)delta > NSNotFound - 1 - last)
+            FinchRaise(NSRangeException, "*** -[%s _incrementBy:startingAtIndex:]: Incrementing by %ld would push last index beyond maximum index value of NSNotFound - 1",
+                       object_getClassName(self), (long)delta);
+    }
+    /* moving left: what's moved over goes, and what would go below zero */
+    if (delta < 0) {
+        NSUInteger start = (NSInteger)index + delta < 0 ? 0 : (NSUInteger)((NSInteger)index + delta);
+        if (index > start)
+            [self removeIndexesInRange:NSMakeRange(start, index - start)];
+    }
     NSMutableIndexSet *shifted = [NSMutableIndexSet indexSet];
     for (NSUInteger i = 0; i < _count; i++) {
         NSRange r = _ranges[i];
@@ -318,7 +338,10 @@ range_at_or_after(NSIndexSet *s, NSUInteger value)
             [shifted addIndexesInRange:NSMakeRange(r.location, index - r.location)];
             r = NSMakeRange(index, NSMaxRange(r) - index);
         }
-        [shifted addIndexesInRange:NSMakeRange((NSUInteger)((NSInteger)r.location + delta), r.length)];
+        NSInteger location = (NSInteger)r.location + delta, end = (NSInteger)NSMaxRange(r) + delta;
+        if (end <= 0) continue;
+        if (location < 0) location = 0;
+        [shifted addIndexesInRange:NSMakeRange((NSUInteger)location, (NSUInteger)(end - location))];
     }
     free(_ranges);
     _ranges = shifted->_ranges;
@@ -334,10 +357,33 @@ range_at_or_after(NSIndexSet *s, NSUInteger value)
 
 /* MARK: - NSArray with index sets */
 
+/* Apple's checks, made before anything changes, with its messages (naming the public class). */
+void
+_FinchIndexSetInBounds(SEL cmd, const char *cls, NSIndexSet *indexes, NSUInteger count, const char *noun)
+{
+    NSUInteger last = [indexes lastIndex];
+    if (last == NSNotFound || last < count)
+        return;
+    if (count == 0)
+        FinchRaise(NSRangeException, "*** -[%s %s]: index %lu in index set beyond bounds for empty %s", cls, sel_getName(cmd),
+                   (unsigned long)last, noun);
+    FinchRaise(NSRangeException, "*** -[%s %s]: index %lu in index set beyond bounds [0 .. %lu]", cls, sel_getName(cmd),
+               (unsigned long)last, (unsigned long)count - 1);
+}
+
+void
+_FinchIndexSetCountMatches(SEL cmd, const char *cls, NSUInteger objects, NSIndexSet *indexes)
+{
+    if (objects != [indexes count])
+        FinchRaise(NSInvalidArgumentException, "*** -[%s %s]: count of array (%lu) differs from count of index set (%lu)", cls,
+                   sel_getName(cmd), (unsigned long)objects, (unsigned long)[indexes count]);
+}
+
 @implementation NSArray (FinchIndexSets)
 
 - (NSArray *)objectsAtIndexes:(NSIndexSet *)indexes
 {
+    _FinchIndexSetInBounds(_cmd, "NSArray", indexes, [self count], "array");
     NSMutableArray *a = [NSMutableArray arrayWithCapacity:[indexes count]];
     [indexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) { [a addObject:[self objectAtIndex:idx]]; }];
     return a;
@@ -367,17 +413,22 @@ range_at_or_after(NSIndexSet *s, NSUInteger value)
 
 - (void)insertObjects:(NSArray *)objects atIndexes:(NSIndexSet *)indexes
 {
+    _FinchIndexSetCountMatches(_cmd, "NSMutableArray", [objects count], indexes);
+    _FinchIndexSetInBounds(_cmd, "NSMutableArray", indexes, [self count] + [objects count], "array");
     __block NSUInteger i = 0;
     [indexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) { [self insertObject:[objects objectAtIndex:i++] atIndex:idx]; }];
 }
 
 - (void)removeObjectsAtIndexes:(NSIndexSet *)indexes
 {
+    _FinchIndexSetInBounds(_cmd, "NSMutableArray", indexes, [self count], "array");
     [indexes enumerateIndexesWithOptions:NSEnumerationReverse usingBlock:^(NSUInteger idx, BOOL *stop) { [self removeObjectAtIndex:idx]; }];
 }
 
 - (void)replaceObjectsAtIndexes:(NSIndexSet *)indexes withObjects:(NSArray *)objects
 {
+    _FinchIndexSetCountMatches(_cmd, "NSMutableArray", [objects count], indexes);
+    _FinchIndexSetInBounds(_cmd, "NSMutableArray", indexes, [self count], "array");
     __block NSUInteger i = 0;
     [indexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) { [self replaceObjectAtIndex:idx withObject:[objects objectAtIndex:i++]]; }];
 }

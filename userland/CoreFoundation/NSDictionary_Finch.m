@@ -162,8 +162,9 @@ copy_key(id key)
 {
     NSUInteger n = [objects count];
     if ([keys count] != n)
-        __CFFinchRaise(NSInvalidArgumentException, "*** " FINCH_METHOD_FMT ": count of objects (%lu) differs from count of keys (%lu)",
-            FINCH_METHOD_ARGS, (unsigned long)n, (unsigned long)[keys count]);
+        /* (named as Apple's: the public class, whatever the placeholder) */
+        __CFFinchRaise(NSInvalidArgumentException, "*** -[NSDictionary initWithObjects:forKeys:]: count of objects (%lu) differs from count of keys (%lu)",
+            (unsigned long)n, (unsigned long)[keys count]);
     id *o = malloc((n + 1) * sizeof(id)), *k = malloc((n + 1) * sizeof(id));
     [objects getObjects:o range:NSMakeRange(0, n)];
     [keys getObjects:k range:NSMakeRange(0, n)];

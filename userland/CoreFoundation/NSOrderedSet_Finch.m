@@ -202,8 +202,32 @@ set_objects(NSSet *set)
     for (NSUInteger i = 0; i < range.length; i++) objects[i] = [self objectAtIndex:range.location + i];
 }
 
+/* Apple's checks, made before anything changes, with its messages (naming the public class). */
+static void
+indexes_in_bounds(SEL cmd, const char *cls, id indexes, NSUInteger count)
+{
+    NSUInteger last = ((NSUInteger(*)(id, SEL))objc_msgSend)(indexes, sel_registerName("lastIndex"));
+    if (!indexes || last == (NSUInteger)NSNotFound || last < count)
+        return;
+    if (count == 0)
+        __CFFinchRaise(NSRangeException, "*** -[%s %s]: index %lu in index set beyond bounds for empty ordered set", cls,
+                       sel_getName(cmd), (unsigned long)last);
+    __CFFinchRaise(NSRangeException, "*** -[%s %s]: index %lu in index set beyond bounds [0 .. %lu]", cls, sel_getName(cmd),
+                   (unsigned long)last, (unsigned long)count - 1);
+}
+
+static void
+counts_match(SEL cmd, NSUInteger objects, id indexes)
+{
+    NSUInteger n = ((NSUInteger(*)(id, SEL))objc_msgSend)(indexes, sel_registerName("count"));
+    if (objects != n)
+        __CFFinchRaise(NSInvalidArgumentException, "*** -[NSMutableOrderedSet %s]: count of array (%lu) differs from count of index set (%lu)",
+                       sel_getName(cmd), (unsigned long)objects, (unsigned long)n);
+}
+
 - (NSArray *)objectsAtIndexes:(id)indexes
 {
+    indexes_in_bounds(_cmd, "NSOrderedSet", indexes, [self count]);
     NSMutableArray *a = [[[NSMutableArray alloc] init] autorelease];
     [indexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) { [a addObject:[self objectAtIndex:idx]]; }];
     return a;
@@ -463,13 +487,25 @@ object_key(NSUInteger i)
 
 - (void)moveObjectsAtIndexes:(id)indexes toIndex:(NSUInteger)idx
 {
+    indexes_in_bounds(_cmd, "NSMutableOrderedSet", indexes, [self count]);
     NSArray *moving = [self objectsAtIndexes:indexes];
     [self removeObjectsAtIndexes:indexes];
+    /* (the destination is checked against what's left) */
+    NSUInteger left = [self count];
+    if (idx > left) {
+        if (left == 0)
+            __CFFinchRaise(NSRangeException, "*** -[NSMutableOrderedSet %s]: index %lu beyond bounds for empty ordered set",
+                           sel_getName(_cmd), (unsigned long)idx);
+        __CFFinchRaise(NSRangeException, "*** -[NSMutableOrderedSet %s]: index %lu beyond bounds [0 .. %lu]", sel_getName(_cmd),
+                       (unsigned long)idx, (unsigned long)left - 1);
+    }
     [self insertObjects:moving atIndexes:[objc_getClass("NSIndexSet") indexSetWithIndexesInRange:NSMakeRange(idx, [moving count])]];
 }
 
 - (void)insertObjects:(NSArray *)objects atIndexes:(id)indexes
 {
+    counts_match(_cmd, [objects count], indexes);
+    indexes_in_bounds(_cmd, "NSMutableOrderedSet", indexes, [self count] + [objects count]);
     __block NSUInteger i = 0;
     [indexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) { [self insertObject:[objects objectAtIndex:i++] atIndex:idx]; }];
 }
@@ -494,12 +530,15 @@ object_key(NSUInteger i)
 
 - (void)replaceObjectsAtIndexes:(id)indexes withObjects:(NSArray *)objects
 {
+    counts_match(_cmd, [objects count], indexes);
+    indexes_in_bounds(_cmd, "NSMutableOrderedSet", indexes, [self count]);
     __block NSUInteger i = 0;
     [indexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) { [self replaceObjectAtIndex:idx withObject:[objects objectAtIndex:i++]]; }];
 }
 
 - (void)removeObjectsAtIndexes:(id)indexes
 {
+    indexes_in_bounds(_cmd, "NSMutableOrderedSet", indexes, [self count]);
     [indexes enumerateIndexesWithOptions:NSEnumerationReverse usingBlock:^(NSUInteger idx, BOOL *stop) { [self removeObjectAtIndex:idx]; }];
 }
 

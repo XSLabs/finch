@@ -790,14 +790,17 @@ transformed(NSString *self, void (*fn)(CFMutableStringRef, CFLocaleRef), CFLocal
 
 @implementation NSString (NSStringPathExtensions)
 
+/* As Apple's: empty components add nothing, and slashes don't repeat. */
 + (NSString *)pathWithComponents:(NSArray<NSString *> *)components
 {
     NSMutableString *p = [NSMutableString string];
-    NSUInteger i = 0;
     for (NSString *c in components) {
-        if (i++ && !([p hasSuffix:@"/"])) [p appendString:@"/"];
+        if (![c length]) continue;
+        if ([p length] && ![p hasSuffix:@"/"]) [p appendString:@"/"];
         [p appendString:c];
     }
+    while ([p rangeOfString:@"//"].location != NSNotFound)
+        [p replaceOccurrencesOfString:@"//" withString:@"/" options:0 range:NSMakeRange(0, [p length])];
     return [NSString stringWithString:p];
 }
 
