@@ -1420,7 +1420,11 @@ that every app works. These release checks were missing from the Phase 5 list:
         scrollers, tabs, menus.
     - [x] The shared control colours and bezels, and menus (2026-10-09).
     - [x] Scrollers: a slim graphite bar with nearly square ends (2026-10-09).
-    - [ ] Tabs, fields' focus rings, table headers.
+    - [x] Tabs, fields' focus rings, table headers (2026-10-27): folder tabs (a slate card
+          joined to the panel, its accent rule on top), an accent ring on the field being
+          edited and the focused control, shown only in the key window as on macOS, and
+          table headers as a slate strip with outline rules, sage when pressed, in Day and
+          Night.
   - [x] Night: `AppleInterfaceStyle` Dark makes apps' appearance DarkAqua, as on macOS,
         and Fieldwork draws it in Night's values. Views draw in their effective appearance,
         uncoloured text in text views is textColor, and the window server's desktop and

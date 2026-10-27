@@ -234,4 +234,11 @@ without touching the compatibility stack.
   - Control text and glyphs come from the theme.
   - The window server's desktop is carbon under `FINCH_APPEARANCE=Night`.
   - Scroller knobs are slim graphite bars.
-
+- 2026-10-27: tabs, focus rings and table headers:
+  - Tabs are folder tabs: the selected tab is a slate card joined to the slate panel,
+    its outline open at the bottom and an accent rule on top; the others are labels in
+    graphite.
+  - The field being edited, and a focused control, carry an accent ring inside their
+    frame, only in the key window (as macOS shows focus).
+  - Table headers are a slate strip with outline rules between columns and below; a
+    pressed or selected column is sage. Night draws them in iron.

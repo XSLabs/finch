@@ -850,3 +850,10 @@ draws (`userland/tests/app-test.c`).
   their text; a PNG is offered under its legacy name and as TIFF, converted when
   read, as Apple's is. The generated AppKit comparison is at 7546 verified items
   (89.4%); `finch-appkit-edges-test` is 98 lines.
+- 2026-10-27: text fields' text rectangles follow Apple's rule: a bezel insets 4
+  points across and centres one line of text with 2 to 4 points above and below, a
+  border insets 2 across, 3 above and 2 below, and a rounded field's title spans the
+  field. The field editor sits on that rectangle with Apple's 2-point line padding, so
+  text no longer moves right by 5 points when editing starts. Focus rings show only in
+  the key window, and an empty search field says "Search" when it has no placeholder of
+  its own, as Apple's do.

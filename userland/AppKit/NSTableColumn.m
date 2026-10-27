@@ -23,6 +23,7 @@
  * NSTableView, NSHeaderToolTip, NSSortDescriptorPrototype.
  */
 #import "NSTableView_Finch.h"
+#import "FinchTheme.h"
 #import "NSKeyValueBinding_Finch.h"
 
 @implementation NSTableColumn {
@@ -470,6 +471,16 @@ split_value_path(NSString *keyPath, NSString **content, NSString **key)
 
 - (void)drawWithFrame:(NSRect)frame inView:(NSView *)controlView
 {
+    if (!FinchThemeIsClassic()) {
+        /* Fieldwork: a slate strip with outline rules; a pressed or selected column is sage */
+        NSColor *fill = [self isHighlighted] ? FinchThemePaletteColor(@"selection") : FinchThemePaletteColor(@"slate");
+        [(fill ?: [NSColor controlBackgroundColor]) setFill];
+        NSRectFill(frame);
+        [(FinchThemePaletteColor(@"outline") ?: [NSColor separatorColor]) setFill];
+        NSRectFill(NSMakeRect(NSMaxX(frame) - 1, NSMinY(frame) + 3, 1, MAX(0, NSHeight(frame) - 6)));
+        [self drawInteriorWithFrame:frame inView:controlView];
+        return;
+    }
     [([self isHighlighted] ? [NSColor colorWithWhite:0.88 alpha:1] : [NSColor colorWithWhite:0.97 alpha:1]) setFill];
     NSRectFill(frame);
     [[NSColor colorWithWhite:0.85 alpha:1] setFill];

@@ -1280,7 +1280,7 @@ value_integer(id v)
     else if (_c.bordered)
         FinchDrawBezel(cellFrame, 0, nil, FinchControlStroke());
     [self drawInteriorWithFrame:cellFrame inView:controlView];
-    if (_c.showsFirstResponder && _focusRingType != NSFocusRingTypeNone)
+    if (_c.showsFirstResponder && _focusRingType != NSFocusRingTypeNone && [[controlView window] isKeyWindow])
         FinchDrawBezel(NSInsetRect(cellFrame, -1, -1), 4, nil, [FinchAccentColor() colorWithAlphaComponent:0.6]);
 }
 
@@ -1395,7 +1395,9 @@ up:
 {
     _c.editing = YES;
     [self setUpFieldEditorAttributes:editor];
-    NSRect r = NSInsetRect([self titleRectForBounds:rect], 2, 0);
+    /* the editor sits on the text's rectangle; its 2-point line padding lines its text up
+       with the cell's */
+    NSRect r = [self drawingRectForBounds:rect];
     NSFont *f = _font ?: [NSFont systemFontOfSize:0];
     if (![self wraps]) {
         /* one line, centred as the cell draws it */

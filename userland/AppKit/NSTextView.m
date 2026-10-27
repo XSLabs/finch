@@ -3305,6 +3305,7 @@ static const void *field_editor_key = &field_editor_key;
         [[fe textContainer] setWidthTracksTextView:NO];
         [[fe textContainer] setHeightTracksTextView:NO];
         [[fe textContainer] setSize:NSMakeSize(9000000, 9000000)];
+        [[fe textContainer] setLineFragmentPadding:2];
         objc_setAssociatedObject(self, field_editor_key, fe, OBJC_ASSOCIATION_RETAIN);
         [fe release];
     }

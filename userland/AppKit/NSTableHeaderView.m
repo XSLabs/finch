@@ -16,6 +16,7 @@
  * one of its subviews (and NSHeaderClipView).
  */
 #import "NSTableView_Finch.h"
+#import "FinchTheme.h"
 
 @implementation NSTableHeaderView {
     NSTableView *_tableView; /* not retained */
@@ -90,7 +91,8 @@ header_init(NSTableHeaderView *self)
 - (void)drawRect:(NSRect)dirty
 {
     NSRect b = [self bounds];
-    [[NSColor colorWithWhite:0.97 alpha:1] setFill];
+    BOOL fieldwork = !FinchThemeIsClassic();
+    [(fieldwork ? (FinchThemePaletteColor(@"slate") ?: [NSColor controlBackgroundColor]) : [NSColor colorWithWhite:0.97 alpha:1]) setFill];
     NSRectFill(dirty);
     NSArray *cols = [_tableView tableColumns];
     NSSortDescriptor *sort = [[_tableView sortDescriptors] firstObject];
@@ -116,7 +118,7 @@ header_init(NSTableHeaderView *self)
             [(NSTableHeaderCell *)cell drawSortIndicatorWithFrame:r inView:self ascending:[sort ascending] priority:0];
         }
     }
-    [[NSColor colorWithWhite:0.85 alpha:1] setFill];
+    [(fieldwork ? (FinchThemePaletteColor(@"outline") ?: [NSColor separatorColor]) : [NSColor colorWithWhite:0.85 alpha:1]) setFill];
     CGFloat px = 1 / MAX(1, FinchViewBackingScale(self));
     NSRectFill(NSIntersectionRect(dirty, NSMakeRect(NSMinX(b), NSMaxY(b) - px, NSWidth(b), px)));
 }

@@ -872,7 +872,7 @@ position_to_flags(NSCellImagePosition p)
         [self drawBezelWithFrame:frame inView:controlView];
     [self drawInteriorWithFrame:frame inView:controlView];
     if ([self showsFirstResponder] && [[controlView window] firstResponder] == controlView &&
-        [self focusRingType] != NSFocusRingTypeNone) {
+        [self focusRingType] != NSFocusRingTypeNone && [[controlView window] isKeyWindow]) {
         NSRect fr = [self _finchIsSwitch] ? [self imageRectForBounds:frame] : [self _finchBezelRect:frame];
         FinchDrawBezel(NSInsetRect(fr, -1, -1), 6, nil, [FinchAccentColor() colorWithAlphaComponent:0.5]);
     }

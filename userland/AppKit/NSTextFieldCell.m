@@ -184,11 +184,20 @@
     return [self isBezeled] ? 4 : [self isBordered] ? 3 : 0;
 }
 
+/* As Apple's: a bezel insets 4 points across and centres one line of text, keeping 2 to 4
+   points above and below it; a border insets 2 across, 3 above and 2 below. */
 - (NSRect)drawingRectForBounds:(NSRect)rect
 {
-    CGFloat i = [self _finchFrameInset];
-    CGFloat h = [self _finchBezelHeightInset];
-    return NSInsetRect(rect, i + h, i > 0 ? MIN(i, 2) : 0);
+    if ([self isBezeled]) {
+        NSFont *f = [self font] ?: [NSFont systemFontOfSize:0];
+        CGFloat line = ceil([f ascender] - [f descender] + [f leading]);
+        CGFloat extra = rect.size.height - line;
+        CGFloat top = MIN(4, MAX(2, ceil(extra / 2))), bottom = MIN(4, MAX(2, floor(extra / 2)));
+        return NSMakeRect(rect.origin.x + 4, rect.origin.y + top, MAX(0, rect.size.width - 8), MAX(0, rect.size.height - top - bottom));
+    }
+    if ([self isBordered])
+        return NSMakeRect(rect.origin.x + 2, rect.origin.y + 3, MAX(0, rect.size.width - 4), MAX(0, rect.size.height - 5));
+    return rect;
 }
 
 /* A rounded bezel keeps its text clear of the ends. */
@@ -199,7 +208,13 @@
 
 - (NSRect)titleRectForBounds:(NSRect)rect
 {
-    return [self drawingRectForBounds:rect];
+    NSRect r = [self drawingRectForBounds:rect];
+    if ([self isBezeled] && _bezelStyle == NSTextFieldRoundedBezel) {
+        /* a rounded field's title spans it; its text is drawn clear of the ends */
+        r.origin.x = rect.origin.x;
+        r.size.width = rect.size.width;
+    }
+    return r;
 }
 
 - (NSSize)cellSizeForBounds:(NSRect)rect
@@ -229,7 +244,7 @@
     NSAttributedString *s = [self attributedStringValue];
     if (![s length] && [_placeholder length])
         s = [self _finchPlaceholder];
-    FinchDrawCellText(s, NSInsetRect([self titleRectForBounds:frame], 2, 0), [controlView isFlipped]);
+    FinchDrawCellText(s, NSInsetRect([self drawingRectForBounds:frame], 2, 0), [controlView isFlipped]);
 }
 
 - (void)drawWithFrame:(NSRect)frame inView:(NSView *)controlView
@@ -251,7 +266,8 @@
         NSRectFill(frame);
     }
     [self drawInteriorWithFrame:frame inView:controlView];
-    if ([self _finchIsEditing] && [self focusRingType] != NSFocusRingTypeNone && ([self isBezeled] || [self isBordered])) {
+    if ([self _finchIsEditing] && [self focusRingType] != NSFocusRingTypeNone && ([self isBezeled] || [self isBordered]) &&
+        [[controlView window] isKeyWindow]) {
         CGFloat r = [self isBezeled] && _bezelStyle == NSTextFieldRoundedBezel ? frame.size.height / 2 : 3;
         NSBezierPath *p = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(frame, 1, 1) xRadius:r yRadius:r];
         [p setLineWidth:2];

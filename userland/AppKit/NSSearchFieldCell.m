@@ -231,6 +231,20 @@ search_layout(NSSearchFieldCell *self, NSRect r, BOOL hasSearch, BOOL hasCancel)
     size.height = [self controlSize] == NSControlSizeLarge ? 28 : [self controlSize] == NSControlSizeSmall ? 20 : [self controlSize] == NSControlSizeMini ? 16 : 24;
     return size;
 }
+/* With no placeholder of its own, an empty search field says "Search", as Apple's does. */
+- (void)drawInteriorWithFrame:(NSRect)frame inView:(NSView *)view
+{
+    if (![[self stringValue] length] && ![self placeholderString] && ![self placeholderAttributedString] && ![self _finchIsEditing]) {
+        NSDictionary *a = @{NSFontAttributeName : [self font] ?: [NSFont systemFontOfSize:0],
+                            NSForegroundColorAttributeName : [NSColor placeholderTextColor]};
+        NSString *word = [[NSBundle bundleForClass:[NSSearchFieldCell class]] localizedStringForKey:@"Search" value:@"Search" table:nil];
+        FinchDrawCellText([[[NSAttributedString alloc] initWithString:word attributes:a] autorelease],
+                          NSInsetRect([self drawingRectForBounds:frame], 2, 0), [view isFlipped]);
+        return;
+    }
+    [super drawInteriorWithFrame:frame inView:view];
+}
+
 - (void)drawWithFrame:(NSRect)frame inView:(NSView *)view
 {
     [super drawWithFrame:frame inView:view];
