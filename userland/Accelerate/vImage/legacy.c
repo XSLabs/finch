@@ -100,54 +100,12 @@ vImage_Error vImageScale_Planar8(const vImage_Buffer *src, const vImage_Buffer *
     return scale_image(src, dest, 1, flags);
 }
 
-static uint8_t clamp_byte(int64_t value)
-{
-    if (value < 0) return 0;
-    if (value > 255) return 255;
-    return (uint8_t)value;
-}
 
 
 
 
 
 
-vImage_Error vImageMatrixMultiply_ARGB8888(const vImage_Buffer *src, const vImage_Buffer *dest,
-                                           const int16_t matrix[16], int32_t divisor,
-                                           const int16_t *preBias, const int32_t *postBias,
-                                           vImage_Flags flags)
-{
-    size_t x, y;
-    unsigned int row, col;
-    if (!src || !dest || !matrix) return kvImageNullPointerArgument;
-    if (!buffer_ok(src, 4) || !buffer_ok(dest, 4) ||
-        src->width != dest->width || src->height != dest->height)
-        return kvImageInvalidParameter;
-    if (!has_only(flags, kvImageLeaveAlphaUnchanged | kvImageDoNotTile))
-        return kvImageUnknownFlagsBit;
-    if (!divisor) divisor = 1;
-    for (y = 0; y < src->height; ++y) {
-        const Pixel_8888 *in = (const Pixel_8888 *)((const uint8_t *)src->data + y * src->rowBytes);
-        Pixel_8888 *out = (Pixel_8888 *)((uint8_t *)dest->data + y * dest->rowBytes);
-        for (x = 0; x < src->width; ++x) {
-            for (row = 0; row < 4; ++row) {
-                int64_t total = postBias ? postBias[row] : 0;
-                if (row == 0 && (flags & kvImageLeaveAlphaUnchanged)) {
-                    out[x][row] = in[x][row];
-                    continue;
-                }
-                for (col = 0; col < 4; ++col) {
-                    int64_t value = (int64_t)in[x][col] + (preBias ? preBias[col] : 0);
-                    total += value * matrix[row * 4 + col];
-                }
-                if (total >= 0) total = (total + divisor / 2) / divisor;
-                else total = (total - divisor / 2) / divisor;
-                out[x][row] = clamp_byte(total);
-            }
-        }
-    }
-    return kvImageNoError;
-}
 
 
 

@@ -622,6 +622,163 @@ static void convolutions(void)
              vImageRichardsonLucyDeConvolve_ARGB8888(&s8, &d, NULL, 0, 0, psf8, psf8, 3, 3, 3, 3, 16, 16, bg8, 1, kvImageEdgeExtend));
 }
 
+static void transforms(void)
+{
+    const int16_t m16[16] = {256, 0, 30, -40, 10, 200, -60, 70, 0, 25, 180, 90, -20, 15, 5, 300};
+    const float mF[16] = {1, 0, 0.25f, -0.5f, 0.125f, 0.75f, -0.25f, 0.5f, 0, 0.25f, 0.5f, 0.375f, -0.125f, 0.125f, 0.0625f, 1};
+    const int16_t pre16[4] = {0, -16, -128, 5};
+    const int32_t post32[4] = {128, 4224, -500, 32896};
+    const float preF[4] = {0, -0.125f, 0.25f, 0}, postF[4] = {0.5f, 0, -0.25f, 0.125f};
+    T1(MatrixMultiply_ARGB8888, d, 4, vImageMatrixMultiply_ARGB8888(&s8, &d, m16, 256, pre16, post32, 0));
+    T1(MatrixMultiply_ARGB8888-nullbias, d, 4, vImageMatrixMultiply_ARGB8888(&s8, &d, m16, 300, NULL, NULL, 0));
+    T1(MatrixMultiply_ARGBFFFF, d, 16, vImageMatrixMultiply_ARGBFFFF(&sF, &d, mF, preF, postF, 0));
+    T1(MatrixMultiply_ARGB8888ToPlanar8, d, 1,
+       vImageMatrixMultiply_ARGB8888ToPlanar8(&s8, &d, m16, 300, pre16, 150, 0));
+    T1(MatrixMultiply_ARGBFFFFToPlanarF, d, 4, vImageMatrixMultiply_ARGBFFFFToPlanarF(&sF, &d, mF, preF, 0.5f, 0));
+    {
+        const vImage_Buffer *srcs8[3] = {&s8, &s8b, &s8c}, *srcsF[3] = {&sF, &sFb, &sFc}, *srcs16[3] = {&sQ12, &sQ12b, &sQ12c};
+        /* (Apple's PlanarF and Planar16S read the pre-bias's matrix terms past a non-square
+           matrix; a zero last pre-bias keeps those terms out) */
+        const int16_t pre3[3] = {7, -16, 0};
+        const float preF3[3] = {0.125f, -0.25f, 0};
+        TN(MatrixMultiply_Planar8, 2, 1, vImageMatrixMultiply_Planar8(srcs8, (const vImage_Buffer *[]){&o[0], &o[1]}, 3, 2, m16, 100, pre16, NULL, 0));
+        TN(MatrixMultiply_PlanarF, 2, 4, vImageMatrixMultiply_PlanarF(srcsF, (const vImage_Buffer *[]){&o[0], &o[1]}, 3, 2, mF, preF3, postF, 0));
+        TN(MatrixMultiply_Planar16S, 2, 2, vImageMatrixMultiply_Planar16S(srcs16, (const vImage_Buffer *[]){&o[0], &o[1]}, 3, 2, m16, 64, pre3, post32, 0));
+    }
+
+    for (int t = 0; t < 12; ++t) {
+        GammaFunction g = vImageCreateGammaFunction(t < 2 ? 1.7f : 0, t, 0);
+        char name[64];
+        snprintf(name, sizeof(name), "Gamma type %d", t);
+        vImage_Buffer d1 = make(4, KZERO), d2 = make(1, KZERO), d3 = make(4, KZERO);
+        vImage_Error e1 = vImageGamma_Planar8toPlanarF(&s8, &d1, g, 0), e2 = vImageGamma_PlanarFtoPlanar8(&sF, &d2, g, 0),
+                     e3 = vImageGamma_PlanarF(&sF, &d3, g, 0);
+        /* (the fixed-exponent half-precision gammas are Apple's polynomial approximations;
+           only their result codes are compared) */
+        if (t < 2)
+            printf("%s (coarse): %ld %ld %ld %ld %ld %ld\n", name, (long)e1, coarse(&d1, 4, 4), (long)e2,
+                   coarse(&d2, 1, 1), (long)e3, coarse(&d3, 4, 4));
+        else
+            printf("%s: %ld %ld %ld\n", name, (long)e1, (long)e2, (long)e3);
+        vImageDestroyGammaFunction(g);
+        free(d1.data);
+        free(d2.data);
+        free(d3.data);
+    }
+
+    const float ec[3] = {1.0f / 1.055f, 0.055f / 1.055f, 0}, lc[2] = {1.0f / 12.92f, 0};
+    TOLERANT(PiecewiseGamma_Planar8, 1, 1, vImagePiecewiseGamma_Planar8(&s8, &d, ec, 2.4f, lc, 10, 0));
+    TOLERANT(PiecewiseGamma_Planar8toPlanar16Q12, 2, 2, vImagePiecewiseGamma_Planar8toPlanar16Q12(&s8, &d, ec, 2.4f, lc, 10, 0));
+    TOLERANT(PiecewiseGamma_Planar8toPlanarF, 4, 4, vImagePiecewiseGamma_Planar8toPlanarF(&s8, &d, ec, 2.4f, lc, 10, 0));
+    TOLERANT(PiecewiseGamma_Planar16Q12, 2, 2, vImagePiecewiseGamma_Planar16Q12(&sQ12, &d, ec, 2.4f, lc, 160, 0));
+    TOLERANT(PiecewiseGamma_Planar16Q12toPlanar8, 1, 1, vImagePiecewiseGamma_Planar16Q12toPlanar8(&sQ12, &d, ec, 2.4f, lc, 160, 0));
+    TOLERANT(PiecewiseGamma_PlanarF, 4, 4, vImagePiecewiseGamma_PlanarF(&sF, &d, ec, 2.4f, lc, 0.04f, 0));
+    TOLERANT(PiecewiseGamma_PlanarFtoPlanar8, 1, 1, vImagePiecewiseGamma_PlanarFtoPlanar8(&sF, &d, ec, 2.4f, lc, 0.04f, 0));
+    TOLERANT(SymmetricPiecewiseGamma_PlanarF, 4, 4, vImageSymmetricPiecewiseGamma_PlanarF(&sF, &d, ec, 2.4f, lc, 0.04f, 0));
+    TOLERANT(SymmetricPiecewiseGamma_Planar16Q12, 2, 2,
+             vImageSymmetricPiecewiseGamma_Planar16Q12(&sQ12, &d, ec, 2.4f, lc, 160, 0));
+
+    const float c0[3] = {0.5f, 0.25f, 0.125f}, c1[3] = {-0.25f, 1, 0.5f}, c2[3] = {1, -0.5f, 0.25f}, c3[3] = {0, 0.125f, 1};
+    const float *coefs[4] = {c0, c1, c2, c3};
+    const float bounds[5] = {-0.125f, 0.25f, 0.5f, 0.75f, 1.125f}, bounds8[5] = {0, 64, 128, 192, 255};
+    T1(PiecewisePolynomial_PlanarF, d, 4, vImagePiecewisePolynomial_PlanarF(&sF, &d, coefs, bounds, 2, 2, 0));
+    T1(PiecewisePolynomial_Planar8toPlanarF, d, 4, vImagePiecewisePolynomial_Planar8toPlanarF(&s8, &d, coefs, bounds8, 2, 2, 0));
+    TOLERANT(PiecewisePolynomial_PlanarFtoPlanar8, 1, 1, vImagePiecewisePolynomial_PlanarFtoPlanar8(&sF, &d, coefs, bounds, 2, 2, 0));
+    T1(SymmetricPiecewisePolynomial_PlanarF, d, 4, vImageSymmetricPiecewisePolynomial_PlanarF(&sF, &d, coefs, bounds, 2, 2, 0));
+    const float t0[2] = {1, 0.5f}, b0[2] = {2, 0.25f};
+    const float *tops[1] = {t0}, *bots[1] = {b0};
+    const float bounds1[2] = {-0.5f, 1.5f};
+    TOLERANT(PiecewiseRational_PlanarF, 4, 4, vImagePiecewiseRational_PlanarF(&sF, &d, tops, bots, bounds1, 1, 1, 0, 0));
+
+    Pixel_16U t16[256];
+    Pixel_F tF[257];
+    uint32_t t24[256];
+    uint64_t t64[256];
+    Pixel_FFFF t128[256];
+    static Pixel_8 t4096[4096];
+    static Pixel_16U t65536[65536];
+    for (int i = 0; i < 256; ++i) {
+        t16[i] = (Pixel_16U)(i * 251);
+        tF[i] = (float)i / 64 - 1;
+        t24[i] = 0x01020304u * (uint32_t)i;
+        t64[i] = 0x0001000200030004ull * (uint64_t)(i + 1);
+        for (int c = 0; c < 4; ++c)
+            t128[i][c] = (float)(i * (c + 1)) / 8;
+    }
+    tF[256] = 3;
+    for (int i = 0; i < 4096; ++i)
+        t4096[i] = (Pixel_8)(i * 7 / 16);
+    for (int i = 0; i < 65536; ++i)
+        t65536[i] = (Pixel_16U)(65535 - i);
+    T1(LookupTable_Planar8toPlanar16, d, 2, vImageLookupTable_Planar8toPlanar16(&s8, &d, t16, 0));
+    T1(LookupTable_Planar8toPlanarF, d, 4, vImageLookupTable_Planar8toPlanarF(&s8, &d, tF, 0));
+    T1(LookupTable_Planar8toPlanar24, d, 3, vImageLookupTable_Planar8toPlanar24(&s8, &d, t24, 0));
+    T1(LookupTable_Planar8toPlanar48, d, 6, vImageLookupTable_Planar8toPlanar48(&s8, &d, t64, 0));
+    T1(LookupTable_Planar8toPlanar96, d, 12, vImageLookupTable_Planar8toPlanar96(&s8, &d, t128, 0));
+    T1(LookupTable_Planar8toPlanar128, d, 16, vImageLookupTable_Planar8toPlanar128(&s8, &d, t128, 0));
+    T1(LookupTable_8to64U, d, 8, vImageLookupTable_8to64U(&s8, &d, t64, 0));
+    T1(LookupTable_PlanarFtoPlanar8, d, 1, vImageLookupTable_PlanarFtoPlanar8(&sF, &d, t4096, 0));
+    T1(LookupTable_Planar16, d, 2, vImageLookupTable_Planar16(&s16U, &d, t65536, 0));
+    T1(InterpolatedLookupTable_PlanarF, d, 4, vImageInterpolatedLookupTable_PlanarF(&sF, &d, tF, 256, 1.0f, -0.125f, 0));
+
+    {
+        /* a 3D table of 5x5x5 with two outputs */
+        static uint16_t table[5 * 5 * 5 * 2];
+        for (int i = 0; i < 5 * 5 * 5 * 2; ++i)
+            table[i] = (uint16_t)((i * 7919) % 65536);
+        const uint8_t dims[3] = {5, 5, 5};
+        vImage_Error err = 1;
+        vImage_MultidimensionalTable mt = vImageMultidimensionalTable_Create(table, 3, 2, dims,
+                                                                             kvImageMDTableHint_Float | kvImageMDTableHint_16Q12, 0, &err);
+        printf("MultidimensionalTable_Create: %ld %d\n", (long)err, mt != NULL);
+        const vImage_Buffer srcs[3] = {sF, sFb, sFc}, q12[3] = {sQ12, sQ12b, sQ12c};
+        for (int m = 0; m < 3 && mt; ++m) {
+            vImage_Buffer outs[2] = {make(4, KZERO), make(4, KZERO)}, outq[2] = {make(2, KZERO), make(2, KZERO)};
+            vImage_Error e1 = vImageMultiDimensionalInterpolatedLookupTable_PlanarF(srcs, outs, NULL, mt, (vImage_InterpolationMethod)m, 0);
+            vImage_Error e2 = vImageMultiDimensionalInterpolatedLookupTable_Planar16Q12(q12, outq, NULL, mt, (vImage_InterpolationMethod)m, 0);
+            printf("MDLookup method %d (coarse): %ld %ld %ld %ld %ld %ld\n", m, (long)e1, coarse(&outs[0], 4, 4),
+                   coarse(&outs[1], 4, 4), (long)e2, coarse(&outq[0], 2, 2), coarse(&outq[1], 2, 2));
+            for (int i = 0; i < 2; ++i) {
+                free(outs[i].data);
+                free(outq[i].data);
+            }
+        }
+        vImageMultidimensionalTable_Retain(mt);
+        vImageMultidimensionalTable_Release(mt);
+        vImageMultidimensionalTable_Release(mt);
+    }
+
+    {
+        /* flood fill a coarse image with regions */
+        vImage_Buffer img8 = make(1, KZERO), img16 = make(2, KZERO), img32 = make(4, KZERO), img64 = make(8, KZERO);
+        for (vImagePixelCount y = 0; y < H; ++y)
+            for (vImagePixelCount x = 0; x < W; ++x) {
+                uint8_t v = (uint8_t)(((x / 3) + (y / 2)) % 3 == 0 || (x == y) ? 1 : 0);
+                ((uint8_t *)img8.data)[y * img8.rowBytes + x] = v;
+                ((uint16_t *)((uint8_t *)img16.data + y * img16.rowBytes))[x] = v;
+                memset((uint8_t *)img32.data + y * img32.rowBytes + 4 * x, v, 4);
+                memset((uint8_t *)img64.data + y * img64.rowBytes + 8 * x, v, 8);
+            }
+        size_t b1 = 1, b2 = 2, b4 = 4, b8 = 8;
+        vImage_Error e = vImageFloodFill_Planar8(&img8, NULL, 0, 0, 9, 4, 0);
+        report("FloodFill_Planar8", e, 1, &img8, &b1);
+        /* (Apple's Planar16U fill writes the value's low byte twice in its 4-pixel vector
+           stores, so only the result code is compared) */
+        e = vImageFloodFill_Planar16U(&img16, NULL, 4, 2, 999, 8, 0);
+        printf("FloodFill_Planar16U: %ld\n", (long)e);
+        (void)b2;
+        e = vImageFloodFill_ARGB8888(&img32, NULL, 12, 4, (Pixel_8888){1, 2, 3, 4}, 8, 0);
+        report("FloodFill_ARGB8888", e, 1, &img32, &b4);
+        e = vImageFloodFill_ARGB16U(&img64, NULL, 6, 1, (Pixel_ARGB_16U){5, 6, 7, 8}, 4, 0);
+        report("FloodFill_ARGB16U", e, 1, &img64, &b8);
+        printf("FloodFill connectivity 6: %ld\n", (long)vImageFloodFill_Planar8(&img8, NULL, 0, 0, 9, 6, 0));
+        free(img8.data);
+        free(img16.data);
+        free(img32.data);
+        free(img64.data);
+    }
+}
+
 int main(void)
 {
     dump_name = getenv("VIMAGE_DUMP");
@@ -644,5 +801,6 @@ int main(void)
     alpha();
     histograms_and_morphology();
     convolutions();
+    transforms();
     return 0;
 }
