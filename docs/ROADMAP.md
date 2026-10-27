@@ -49,7 +49,7 @@ a user-facing requirement. Each check needs the evidence listed.
 
 ### Frameworks
 Measured per framework against the SDK baseline ([COMPATIBILITY.md](COMPATIBILITY.md)).
-- [ ] Accelerate: LAPACK in full (needs a permissively licensed implementation built in), BNNS, sparse solvers, LinearAlgebra, Quadrature, the rest of vImage. Done: vDSP, vMisc and BLAS in every ABI.
+- [ ] Accelerate: LAPACK in full (needs a permissively licensed implementation built in), BNNS, sparse solvers. Done: vDSP, vMisc and BLAS in every ABI, all of vImage, Quadrature, LinearAlgebra.
 - [ ] Foundation: the rest of the public API, by what apps use.
 - [ ] CoreGraphics, CoreText, ImageIO: tagged PDF; HEIF reading, XMP, GIF writing; CoreText justification as Apple's, colour glyphs, font fallback details.
 - [ ] AppKit: `NSTreeController`, outline-view bindings, Core Data's controllers; every public class and method, as Apple's answer them.

@@ -1,7 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Finch's Accelerate, laid out as Apple's: the Accelerate umbrella re-exports vecLib and
-# vImage, and vecLib re-exports its libraries (libvDSP, libvMisc, libBLAS, libLAPACK).
+# vImage, and vecLib re-exports its libraries (libvDSP, libvMisc, libBLAS, libLAPACK, libQuadrature, libLinearAlgebra).
 # Each library exports what Apple's .tbd lists and Finch defines (tbd-exports.py).
 #
 #   userland/Accelerate/build.sh
@@ -42,7 +42,7 @@ compile() {
     shift
     mkdir -p "${OBJ}/${name}"
     for source in "$@"; do
-        "${CC}" "${CFLAGS[@]}" -c "${source}" -o "${OBJ}/${name}/$(basename "${source%.c}").o"
+        "${CC}" "${CFLAGS[@]}" -c "${source}" -o "${OBJ}/${name}/$(basename "${source%.*}").o"
     done
 }
 
@@ -68,6 +68,7 @@ compile BLAS "${HERE}/BLAS/blas.c" "${OBJ}/blas-abi.c"
 compile LAPACK "${HERE}"/LAPACK/*.c
 compile vImage "${HERE}"/vImage/*.c
 compile Quadrature "${HERE}"/Quadrature/*.c
+compile LinearAlgebra "${HERE}"/LinearAlgebra/*.c "${HERE}"/LinearAlgebra/*.m
 
 library "${VECLIB}/libvDSP.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libvDSP.tbd" 1126.100.7 "${OBJ}/vDSP"
 library "${VECLIB}/libvMisc.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libvMisc.tbd" 1126.100.7 "${OBJ}/vMisc"
@@ -76,6 +77,8 @@ library "${VECLIB}/libLAPACK.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libLA
     "${ROOT}${VECLIB}/libBLAS.dylib"
 library "${VECLIB}/libQuadrature.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libQuadrature.tbd" 1126.100.7 \
     "${OBJ}/Quadrature"
+library "${VECLIB}/libLinearAlgebra.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libLinearAlgebra.tbd" 1126.100.7 \
+    "${OBJ}/LinearAlgebra" -lobjc
 
 # umbrella NAME INSTALL CURRENT BUNDLE_ID SHORT REEXPORT...
 umbrella() {
@@ -94,7 +97,8 @@ umbrella() {
 
 umbrella vecLib "${VECLIB}/vecLib" 1126.100.7 com.apple.Accelerate.vecLib 3.11 \
     "${ROOT}${VECLIB}/libvMisc.dylib" "${ROOT}${VECLIB}/libvDSP.dylib" "${ROOT}${VECLIB}/libBLAS.dylib" \
-    "${ROOT}${VECLIB}/libLAPACK.dylib" "${ROOT}${VECLIB}/libQuadrature.dylib"
+    "${ROOT}${VECLIB}/libLAPACK.dylib" "${ROOT}${VECLIB}/libQuadrature.dylib" \
+    "${ROOT}${VECLIB}/libLinearAlgebra.dylib"
 
 log "linking vImage"
 "${HERE}/tbd-exports.py" "${SDK_FW}/vImage.framework/Versions/A/vImage.tbd" "${OBJ}/vImage"/*.o > "${OBJ}/vImage.exports"

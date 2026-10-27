@@ -11,6 +11,8 @@ Accelerate.framework/Versions/A/Accelerate          re-exports vecLib and vImage
     libvMisc.dylib    vForce, vfp, vBasicOps, vBigNum, vectorOps
     libBLAS.dylib     BLAS levels 1-3: CBLAS and Fortran, in every ABI
     libLAPACK.dylib   LAPACK (the calls apps import)
+    libQuadrature.dylib     quadrature_integrate
+    libLinearAlgebra.dylib  la_object_t matrices, vectors and splats
   Frameworks/vImage.framework/Versions/A/vImage     vImage (the calls apps import)
 ```
 
@@ -185,11 +187,34 @@ nodes and weights are mathematical constants, computed at high precision by
 QUADPACK) in evaluations and statuses; Apple's QAGS is its own adaptive
 scheme, which Finch's agrees with in result and status.
 
+## LinearAlgebra
+
+`userland/Accelerate/LinearAlgebra/` is libLinearAlgebra, all 42 `la_*`
+functions. Objects are `OS_la_object`, an `OS_object` subclass as on macOS,
+so they work under ARC and with `la_retain`/`la_release`. As on macOS they
+are lazy: argument errors are found when an object is made, its elements
+only when something reads them, so a singular `la_solve` reports
+`LA_SINGULAR_ERROR` after its first read (objects already built on it read
+zeros and are not told). The checks, their order and the statuses follow
+macOS rather than the headers where the two differ: error objects carry no
+scalar type, so one passed as a right operand reports a precision mismatch;
+`la_vector_length` of any matrix is its row count (or column count for one
+row); an inner product's left operand may be any matrix, read in row-major
+order; non-square systems are refused with a dimension mismatch; hints are
+ignored. `la_solve` factors as macOS does (Cholesky for a symmetric matrix
+with a positive diagonal, else LU of the transpose, as its row-major buffer
+reaches `dgetrf`), with its own loops, so results can differ from Apple's in
+the last bits. Matrix L2 norms are dlange's scaled sum, vector ones a plain
+sum of squares, as macOS. Apple's own faults are not copied: a negative splat
+index reads outside the vector, storing with stride 0 aborts in
+`cblas_dcopy`, and a right-hand side made from a splat is solved in place on
+its single element.
+
 ## The rest
 
 LAPACK has only the calls imported by the apps found on this Mac: `dgels_`,
-`dgetrf_`, `dgetri_` and `dgtsv_` (`LAPACK/lapack.c`). BNNS, sparse solvers
-and LinearAlgebra are not implemented. Complete LAPACK is planned
+`dgetrf_`, `dgetri_` and `dgtsv_` (`LAPACK/lapack.c`). BNNS and the sparse
+solvers are not implemented. Complete LAPACK is planned
 from a permissively licensed implementation.
 
 ## Build and check
