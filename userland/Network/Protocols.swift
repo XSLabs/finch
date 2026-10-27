@@ -71,6 +71,13 @@ public class NWProtocolTCP: NWProtocol, @unchecked Sendable {
             return value
         }
     }
+
+    @_objcRuntimeName(_TtCC7Network14_NWProtocolTCP8Metadata)
+    public class Metadata: NWProtocolMetadata, @unchecked Sendable {
+        public internal(set) var availableReceiveBuffer: UInt32 = 0
+        public internal(set) var availableSendBuffer: UInt32 = 0
+        init() { super.init(definition: NWProtocolTCP.definition) }
+    }
 }
 
 @_objcRuntimeName(_TtC7Network14_NWProtocolUDP)
@@ -86,6 +93,52 @@ public class NWProtocolUDP: NWProtocol, @unchecked Sendable {
             value.preferNoChecksum = preferNoChecksum
             return value
         }
+    }
+
+    @_objcRuntimeName(_TtCC7Network14_NWProtocolUDP8Metadata)
+    public class Metadata: NWProtocolMetadata, @unchecked Sendable {
+        public init() { super.init(definition: NWProtocolUDP.definition) }
+    }
+}
+
+/* IP: the version and per-packet settings a stack's internet protocol carries. */
+@_objcRuntimeName(_TtC7Network13_NWProtocolIP)
+public class NWProtocolIP: NWProtocol, @unchecked Sendable {
+    public static let definition = NWProtocolDefinition(name: "IP")
+
+    public enum Version: Equatable, Hashable, Sendable { case any, v4, v6 }
+    public enum LocalAddressPreference: Equatable, Hashable, Sendable { case `default`, temporary, stable }
+    public enum ECN: Equatable, Hashable, Sendable { case nonECT, ect0, ect1, ce }
+
+    @_objcRuntimeName(_TtCC7Network13_NWProtocolIP7Options)
+    public class Options: NWProtocolOptions, @unchecked Sendable {
+        public var version: Version = .any
+        public var hopLimit: UInt8 = 0
+        public var useMinimumMTU = false
+        public var disableFragmentation = false
+        public var shouldCalculateReceiveTime = false
+        public var localAddressPreference: LocalAddressPreference = .default
+        public var disableMulticastLoopback = false
+        public override init() { super.init() }
+        func copy() -> Options {
+            let value = Options()
+            value.version = version
+            value.hopLimit = hopLimit
+            value.useMinimumMTU = useMinimumMTU
+            value.disableFragmentation = disableFragmentation
+            value.shouldCalculateReceiveTime = shouldCalculateReceiveTime
+            value.localAddressPreference = localAddressPreference
+            value.disableMulticastLoopback = disableMulticastLoopback
+            return value
+        }
+    }
+
+    @_objcRuntimeName(_TtCC7Network13_NWProtocolIP8Metadata)
+    public class Metadata: NWProtocolMetadata, @unchecked Sendable {
+        public var ecnFlag: ECN = .nonECT
+        public var serviceClass: NWParameters.ServiceClass = .bestEffort
+        public internal(set) var receiveTime: UInt64 = 0
+        public init() { super.init(definition: NWProtocolIP.definition) }
     }
 }
 
@@ -137,7 +190,42 @@ public final class NWParameters: CustomDebugStringConvertible, @unchecked Sendab
     var tlsOptions: NWProtocolTLS.Options?
     var tcpOptions = NWProtocolTCP.Options()
     var udpOptions = NWProtocolUDP.Options()
+    var ipOptions = NWProtocolIP.Options()
+    /* (application protocols other than TLS, kept in order for the stack's list) */
+    var otherApplicationProtocols: [NWProtocolOptions] = []
     var requiresApplicationService = false
+
+    /* The protocols a connection uses: application protocols over a transport over IP. */
+    @_objcRuntimeName(_TtCC7Network13_NWParameters13ProtocolStack)
+    public final class ProtocolStack: @unchecked Sendable {
+        let parameters: NWParameters
+        init(_ parameters: NWParameters) { self.parameters = parameters }
+
+        public var applicationProtocols: [NWProtocolOptions] {
+            get { (parameters.tlsOptions.map { [$0 as NWProtocolOptions] } ?? []) + parameters.otherApplicationProtocols }
+            set {
+                parameters.tlsOptions = newValue.first { $0 is NWProtocolTLS.Options } as? NWProtocolTLS.Options
+                parameters.otherApplicationProtocols = newValue.filter { !($0 is NWProtocolTLS.Options) }
+            }
+        }
+
+        public var transportProtocol: NWProtocolOptions? {
+            get { parameters.transport == .tcp ? parameters.tcpOptions : parameters.udpOptions }
+            set {
+                if let tcp = newValue as? NWProtocolTCP.Options {
+                    parameters.transport = .tcp
+                    parameters.tcpOptions = tcp
+                } else if let udp = newValue as? NWProtocolUDP.Options {
+                    parameters.transport = .udp
+                    parameters.udpOptions = udp
+                }
+            }
+        }
+
+        public var internetProtocol: NWProtocolOptions? { parameters.ipOptions }
+    }
+
+    public var defaultProtocolStack: ProtocolStack { ProtocolStack(self) }
 
     public var requiredInterface: NWInterface?
     public var requiredInterfaceType: NWInterface.InterfaceType = .other
@@ -205,6 +293,8 @@ public final class NWParameters: CustomDebugStringConvertible, @unchecked Sendab
         copy.tlsOptions = tlsOptions?.copy()
         copy.tcpOptions = tcpOptions.copy()
         copy.udpOptions = udpOptions.copy()
+        copy.ipOptions = ipOptions.copy()
+        copy.otherApplicationProtocols = otherApplicationProtocols
         copy.requiresApplicationService = requiresApplicationService
         copy.requiredInterface = requiredInterface
         copy.requiredInterfaceType = requiredInterfaceType

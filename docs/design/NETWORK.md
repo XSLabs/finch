@@ -4,9 +4,12 @@ Date: 2026-10-17
 
 ## What this covers
 
-Finch's Network.framework Swift API lives in `userland/Network`. Swift code provides the
-public types and callbacks. A small Objective-C file provides the C path-monitor entry
-points and DNS-SD calls. TCP and UDP traffic uses Darwin sockets. Bonjour uses Finch's
+Finch's Network.framework lives in `userland/Network`. Swift code provides the public
+types and callbacks, and the C API (`nw_*`, CAPI*.swift, 2026-10-27) over them: each
+`nw_*_t` is an object of a class conforming to its `OS_nw_*` protocol that holds the Swift
+value, create and copy functions return it retained (as the headers' `NW_RETURNS_RETAINED`
+says), and the headers' macros name the well-known content contexts and configuration
+blocks (NetworkGlobals.m). A small Objective-C file provides DNS-SD calls. TCP and UDP traffic uses Darwin sockets. Bonjour uses Finch's
 `libsystem_dnssd`, and client TLS uses Finch's Secure Transport in Security.framework.
 
 The overlay fills the Network symbols missing from three local apps. Their missing import
@@ -29,6 +32,17 @@ count is zero.
   also works as an async sequence.
 - A UDP `NWConnectionGroup` can send and receive unicast traffic or join one multicast
   group. It can extract a peer connection and put that peer back into group handling.
+- The C API covers endpoints, TXT records, parameters and protocol stacks (TCP, UDP, TLS
+  and IP options and metadata), content contexts, errors (and their CFErrors), paths and
+  path monitors, connections with their establishment and data-transfer reports,
+  listeners, browsers and their descriptors and results, advertising, connection groups,
+  and privacy, proxy and resolver configurations; `finch-network-c-test`, built with ARC,
+  matches Apple's. As on Apple's, a connection refused, timed out or unreachable waits
+  (with its POSIX error) for a restart rather than failing, a name that resolves to
+  nothing waits with DNS's no-such-record, a final content context takes no further
+  changes, and an address endpoint's hostname is its address.
+- `NWParameters.ProtocolStack` (application protocols, transport, IP) and
+  `NWProtocolIP` options and metadata, and TCP and UDP metadata, are present.
 - `NWParameters.acceptLocalOnly` checks accepted peer addresses against the local
   interface subnets. `requiredLocalEndpoint`, local endpoint reuse, service class, and TCP
   socket options are applied to sockets.
@@ -48,6 +62,11 @@ count is zero.
   proxy configurations are not applied. A connection or listener that requests one of
   these unsupported rules fails with `EOPNOTSUPP`. Direct sockets do not apply system
   proxy settings.
+- QUIC, WebSocket and custom framers: their options, metadata, requests, responses and
+  messages (C API) hold and give back their settings, but Finch's connections don't speak
+  these protocols yet, so a connection whose stack names one fails with
+  `EPROTONOSUPPORT`; a framer's runtime calls only keep what they're given. Raw Ethernet
+  channels report `EOPNOTSUPP` when started.
 - Multicast groups with more than one member, a source filter, or unicast rejection fail
   with `EOPNOTSUPP`. One unfiltered multicast group is supported.
 - Path snapshots report interfaces and IP support. They do not yet report Low Data Mode,

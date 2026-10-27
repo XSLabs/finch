@@ -205,7 +205,9 @@ final public class NWConnection: CustomDebugStringConvertible, @unchecked Sendab
 
     final public func restart() {
         let (queue, fd, source) = lock.withLock { () -> (DispatchQueue?, Int32, DispatchSourceRead?) in
-            guard currentState == .cancelled || isFailed(currentState) else { return (nil, -1, nil) }
+            var waiting = false
+            if case .waiting = currentState { waiting = true }
+            guard currentState == .cancelled || isFailed(currentState) || waiting else { return (nil, -1, nil) }
             let queue = workQueue
             let fd = descriptor
             let source = readSource
@@ -431,7 +433,8 @@ final public class NWConnection: CustomDebugStringConvertible, @unchecked Sendab
             return
         }
         let addresses = networkAddresses(for: endpoint, socketType: Int32(type))
-        guard !addresses.isEmpty else { transition(to: .failed(networkError(EHOSTUNREACH))); return }
+        /* (as Apple's: a name that resolves to nothing waits, with DNS's no-such-record) */
+        guard !addresses.isEmpty else { transition(to: .waiting(.dns(-65554))); return }
 
         var lastError: Int32 = EHOSTUNREACH
         for address in addresses {
@@ -489,7 +492,10 @@ final public class NWConnection: CustomDebugStringConvertible, @unchecked Sendab
             notifyPath()
             return
         }
-        transition(to: .failed(networkError(lastError)))
+        /* (as Apple's: a refusal, timeout or unreachable network waits for a better path or a
+           restart; other errors fail) */
+        let transient: Set<Int32> = [ECONNREFUSED, ETIMEDOUT, ENETUNREACH, EHOSTUNREACH, ENETDOWN, EHOSTDOWN]
+        transition(to: transient.contains(lastError) ? .waiting(networkError(lastError)) : .failed(networkError(lastError)))
     }
 
     private func bindLocal(_ fd: Int32, family: Int32) -> Bool {
