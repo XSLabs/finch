@@ -824,6 +824,16 @@ static vImage_Buffer make_size(vImagePixelCount w, vImagePixelCount h, size_t bp
         free(d.data);                                                                                    \
     } while (0)
 
+/* a resampling filter in a buffer of our own, with room past the size Apple asks for:
+   its filter setup writes 8 bytes beyond it at most scales */
+static ResamplingFilter new_filter(float scale, vImage_Flags flags)
+{
+    size_t size = vImageGetResamplingFilterSize(scale, NULL, 0, flags);
+    ResamplingFilter k = calloc(1, size + 64);
+    vImageNewResamplingFilterForFunctionUsingBuffer(k, scale, NULL, 0, NULL, flags);
+    return k;
+}
+
 static void geometry(void)
 {
     char n[96];
@@ -850,21 +860,30 @@ static void geometry(void)
 #undef EXACT
     TD("Rotate90 bad constant", W, H, 1, vImageRotate90_Planar8(&s8, &d, 9, 0, 0));
 
-    /* resampling filters */
-    for (int i = 0; i < 6; ++i) {
-        const float scales[6] = {2, 1, 0.75f, 0.45f, 0.3f, 0.1f};
+    /* resampling filters (Apple's vImageNewResamplingFilter writes 8 bytes past its own
+       allocation at most scales; these are ones where it does not) */
+    for (int i = 0; i < 3; ++i) {
+        const float scales[3] = {0.75f, 0.45f, 0.25f};
         ResamplingFilter k = vImageNewResamplingFilter(scales[i], 0), hq = vImageNewResamplingFilter(scales[i], kvImageHighQualityResampling);
         printf("ResamplingFilterExtent %g: %lu %lu\n", scales[i], (unsigned long)vImageGetResamplingFilterExtent(k, 0),
                (unsigned long)vImageGetResamplingFilterExtent(hq, 0));
         vImageDestroyResamplingFilter(k);
         vImageDestroyResamplingFilter(hq);
     }
+    for (int i = 0; i < 4; ++i) {
+        const float scales[4] = {2, 1, 0.3f, 0.1f};
+        ResamplingFilter k = new_filter(scales[i], 0), hq = new_filter(scales[i], kvImageHighQualityResampling);
+        printf("ResamplingFilterExtent %g: %lu %lu\n", scales[i], (unsigned long)vImageGetResamplingFilterExtent(k, 0),
+               (unsigned long)vImageGetResamplingFilterExtent(hq, 0));
+        free(k);
+        free(hq);
+    }
 
     /* shears: float exactly, the integer formats coarsely */
     const float filterScales[3] = {1, 0.6f, 1.7f};
     for (int i = 0; i < 3; ++i) {
-        ResamplingFilter k = vImageNewResamplingFilter(filterScales[i], 0);
-        ResamplingFilter hq = vImageNewResamplingFilter(filterScales[i], kvImageHighQualityResampling);
+        ResamplingFilter k = new_filter(filterScales[i], 0);
+        ResamplingFilter hq = new_filter(filterScales[i], kvImageHighQualityResampling);
         vImage_Flags bg = kvImageBackgroundColorFill, ex = kvImageEdgeExtend;
         snprintf(n, sizeof(n), "HorizontalShear_PlanarF %d", i);
         TDF(n, W - 2, H - 1, 4, vImageHorizontalShear_PlanarF(&sF, &d, 1, 1, 1.25f, 0.3f, k, 0.5f, bg));
@@ -884,15 +903,15 @@ static void geometry(void)
         TDC(n, W, H, 4, 1, vImageVerticalShear_ARGB8888(&s8, &d, 0, 0, 0.75f, 0.2f, k, (Pixel_8888){1, 2, 3, 4}, ex));
         snprintf(n, sizeof(n), "HorizontalShearD_ARGB16S %d", i);
         TDC(n, W, H, 8, 2, vImageHorizontalShearD_ARGB16S(&sQ12, &d, 0, 0, 0.4, 0.1, k, (Pixel_ARGB_16S){1, 2, 3, 4}, bg));
-        vImageDestroyResamplingFilter(k);
-        vImageDestroyResamplingFilter(hq);
+        free(k);
+        free(hq);
     }
     {
-        ResamplingFilter k = vImageNewResamplingFilter(1, 0);
+        ResamplingFilter k = new_filter(1, 0);
         TDF("HorizontalShear both edges", W, H, 4, vImageHorizontalShear_PlanarF(&sF, &d, 0, 0, 0, 0, k, 0, kvImageEdgeExtend | kvImageBackgroundColorFill));
         TDF("HorizontalShear ROI too tall", W, H, 4, vImageHorizontalShear_PlanarF(&sF, &d, 0, 1, 0, 0, k, 0, kvImageEdgeExtend));
         TDF("VerticalShear ROI too wide", W, H, 4, vImageVerticalShear_PlanarF(&sF, &d, 1, 0, 0, 0, k, 0, kvImageEdgeExtend));
-        vImageDestroyResamplingFilter(k);
+        free(k);
     }
 
     /* scaling */
@@ -1067,8 +1086,8 @@ static void conversions_dithered(void)
         p16[i] = (Pixel_8)(i * i);
     for (int m = 0; m <= 5; ++m) {
         /* (Apple's 2- and 4-bit forms step dest by src's rowBytes when not diffusing, so
-           dest gets src's rowBytes here; its Floyd-Steinberg treats the right edge its own
-           way) */
+           dest always gets src's rowBytes here; its Floyd-Steinberg treats the right edge
+           its own way) */
         bool exact = m == kvImageConvert_DitherNone || (m == kvImageConvert_DitherAtkinson);
 #define BITS(name, bits, call)                                                                           \
     snprintf(n, sizeof(n), #name " %d", m);                                                              \
@@ -1080,7 +1099,7 @@ static void conversions_dithered(void)
         report(n, e, 1, &d, &one);                                                                       \
         free(d.data);                                                                                    \
     } else {                                                                                             \
-        vImage_Buffer d = make(1, KZERO);                                                                \
+        vImage_Buffer d = make(16, KZERO);                                                               \
         printf("%s: %ld\n", n, (long)(call));                                                            \
         free(d.data);                                                                                    \
     }
@@ -1239,6 +1258,111 @@ static void conversions_ycbcr(void)
     }
 }
 
+/* vImage_Utilities.h: buffers, formats, converters. Conversions within a colour space
+   compare exactly; across colour spaces Apple's colour management and ColorSync's differ
+   in the last bits, Apple's dithers 5- and 6-bit results, and its conversions between
+   8 bits and half precision lose low bits, so those compare coarsely. (The formats' trailing fields are left to
+   their zero defaults.) */
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmissing-field-initializers"
+static void utilities(void)
+{
+    vImage_Buffer b;
+    for (uint32_t bits = 8; bits <= 128; bits *= 2)
+        for (vImagePixelCount w = 1; w < 5000; w = w * 3 + 7)
+            printf("Buffer_Init %u %lu: %ld %zu\n", bits, (unsigned long)w,
+                   (long)vImageBuffer_Init(&b, 3, w, bits, kvImageNoAllocate), b.rowBytes);
+    CGSize size = vImageBuffer_GetSize(&s8);
+    printf("Buffer_GetSize: %g %g\n", size.width, size.height);
+
+    CGColorSpaceRef srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB), gray = CGColorSpaceCreateWithName(kCGColorSpaceGenericGrayGamma2_2),
+                    cmyk = CGColorSpaceCreateDeviceCMYK(), p3 = CGColorSpaceCreateWithName(kCGColorSpaceDisplayP3);
+    const uint8_t table[12] = {0, 0, 0, 255, 0, 0, 0, 255, 0, 10, 20, 30};
+    CGColorSpaceRef indexed = CGColorSpaceCreateIndexed(srgb, 3, table);
+    const CGFloat inverted[2] = {1, 0};
+    const CGFloat bg[4] = {0.25, 0.5, 0.75, 1};
+    struct { const char *name; vImage_CGImageFormat from, to; size_t fromBytes, toBytes; vImage_Buffer *src; bool exact; } cases[] = {
+        {"ARGB8888 to BGRA8888", {8, 32, srgb, kCGImageAlphaFirst}, {8, 32, srgb, kCGImageAlphaFirst | kCGBitmapByteOrder32Little}, 4, 4, &s8, true},
+        {"RGBA8888 premultiplied to straight", {8, 32, srgb, kCGImageAlphaPremultipliedLast}, {8, 32, srgb, kCGImageAlphaLast}, 4, 4, &s8, true},
+        {"RGBA8888 straight to premultiplied", {8, 32, srgb, kCGImageAlphaLast}, {8, 32, srgb, kCGImageAlphaPremultipliedFirst}, 4, 4, &s8, true},
+        {"ARGB8888 to RGB888", {8, 32, srgb, kCGImageAlphaFirst}, {8, 24, srgb, kCGImageAlphaNone}, 4, 3, &s8, true},
+        {"RGB888 to XRGB8888", {8, 24, srgb, kCGImageAlphaNone}, {8, 32, srgb, kCGImageAlphaNoneSkipFirst}, 3, 4, &s8, true},
+        {"RGB888 to ARGB8888", {8, 24, srgb, kCGImageAlphaNone}, {8, 32, srgb, kCGImageAlphaFirst}, 3, 4, &s8, true},
+        {"RGBA8888 to RGBA16 big", {8, 32, srgb, kCGImageAlphaLast}, {16, 64, srgb, kCGImageAlphaLast}, 4, 8, &s8, true},
+        {"RGBA8888 to RGBA16 little", {8, 32, srgb, kCGImageAlphaLast}, {16, 64, srgb, kCGImageAlphaLast | kCGBitmapByteOrder16Little}, 4, 8, &s8, true},
+        {"RGBA16 little to RGBA8888", {16, 64, srgb, kCGImageAlphaLast | kCGBitmapByteOrder16Little}, {8, 32, srgb, kCGImageAlphaLast}, 8, 4, &s16U, true},
+        {"RGBA16 big premultiplied to RGBA8888", {16, 64, srgb, kCGImageAlphaPremultipliedLast}, {8, 32, srgb, kCGImageAlphaLast}, 8, 4, &s16U, true},
+        {"RGBA8888 to RGBAFFFF", {8, 32, srgb, kCGImageAlphaLast}, {32, 128, srgb, kCGImageAlphaLast | kCGBitmapFloatComponents | kCGBitmapByteOrder32Little}, 4, 16, &s8, true},
+        {"RGBAFFFF to RGBA8888", {32, 128, srgb, kCGImageAlphaLast | kCGBitmapFloatComponents | kCGBitmapByteOrder32Little}, {8, 32, srgb, kCGImageAlphaLast}, 16, 4, &sF, true},
+        {"RGBA16F to RGBA8888", {16, 64, srgb, kCGImageAlphaLast | kCGBitmapFloatComponents | kCGBitmapByteOrder16Little}, {8, 32, srgb, kCGImageAlphaLast}, 8, 4, &sHalf, false},
+        {"RGBA8888 to RGBA16F", {8, 32, srgb, kCGImageAlphaLast}, {16, 64, srgb, kCGImageAlphaLast | kCGBitmapFloatComponents | kCGBitmapByteOrder16Little}, 4, 8, &s8, false},
+        {"RGB565 to RGBA8888", {5, 16, srgb, kCGImageAlphaNone | kCGBitmapByteOrder16Little}, {8, 32, srgb, kCGImageAlphaLast}, 2, 4, &s8, true},
+        {"RGBA8888 to RGB565", {8, 32, srgb, kCGImageAlphaNoneSkipLast}, {5, 16, srgb, kCGImageAlphaNone | kCGBitmapByteOrder16Little}, 4, 2, &s8, false},
+        {"ARGB1555 to ARGB8888", {5, 16, srgb, kCGImageAlphaFirst | kCGBitmapByteOrder16Little}, {8, 32, srgb, kCGImageAlphaFirst}, 2, 4, &s8, true},
+        {"Gray8 to Gray16", {8, 8, gray, kCGImageAlphaNone}, {16, 16, gray, kCGImageAlphaNone | kCGBitmapByteOrder16Little}, 1, 2, &s8, true},
+        {"Gray8 inverted to Gray8", {8, 8, gray, kCGImageAlphaNone, 0, inverted}, {8, 8, gray, kCGImageAlphaNone}, 1, 1, &s8, true},
+        {"CMYK8 to CMYK16", {8, 32, cmyk, kCGImageAlphaNone}, {16, 64, cmyk, kCGImageAlphaNone}, 4, 8, &s8, true},
+        {"Indexed2 to RGB888", {2, 2, indexed, kCGImageAlphaNone}, {8, 24, srgb, kCGImageAlphaNone}, 1, 3, &s8, true},
+        {"Gray8 to RGB888", {8, 8, gray, kCGImageAlphaNone}, {8, 24, srgb, kCGImageAlphaNone}, 1, 3, &s8, false},
+        {"RGB888 to Gray8", {8, 24, srgb, kCGImageAlphaNone}, {8, 8, gray, kCGImageAlphaNone}, 3, 1, &s8, false},
+        {"sRGB to Display P3", {8, 32, srgb, kCGImageAlphaNoneSkipLast}, {8, 32, p3, kCGImageAlphaNoneSkipLast}, 4, 4, &s8, false},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+        vImage_Error e;
+        vImageConverterRef c = vImageConverter_CreateWithCGImageFormat(&cases[i].from, &cases[i].to, bg, 0, &e);
+        if (!c) {
+            printf("%s: create %ld\n", cases[i].name, (long)e);
+            continue;
+        }
+        vImage_Buffer d = make_size(W, H, cases[i].toBytes);
+        vImage_Error r = vImageConvert_AnyToAny(c, cases[i].src, &d, NULL, 0);
+        if (cases[i].exact) {
+            size_t bpp = cases[i].toBytes;
+            report(cases[i].name, r, 1, &d, &bpp);
+        } else
+            printf("%s (coarse): %ld %ld\n", cases[i].name, (long)r, coarse(&d, cases[i].toBytes, 1) / 8);
+        printf("%s: buffers %lu %lu order %u %u in place %ld\n", cases[i].name, vImageConverter_GetNumberOfSourceBuffers(c),
+               vImageConverter_GetNumberOfDestinationBuffers(c), vImageConverter_GetSourceBufferOrder(c)[0],
+               vImageConverter_GetDestinationBufferOrder(c)[0], (long)vImageConverter_MustOperateOutOfPlace(c, NULL, NULL, 0));
+        free(d.data);
+        vImageConverter_Release(c);
+    }
+    {
+        vImage_Error e = 0;
+        vImage_CGImageFormat ok = {8, 32, srgb, kCGImageAlphaFirst}, badBits = {7, 32, srgb, kCGImageAlphaFirst},
+                             badFloat = {8, 32, srgb, kCGImageAlphaFirst | kCGBitmapFloatComponents};
+        printf("Converter bad bits: %p %ld\n", (void *)vImageConverter_CreateWithCGImageFormat(&badBits, &ok, NULL, 0, &e), (long)e);
+        printf("Converter bad float: %p %ld\n", (void *)vImageConverter_CreateWithCGImageFormat(&badFloat, &ok, NULL, 0, &e), (long)e);
+        printf("Converter bad flags: %p %ld\n", (void *)vImageConverter_CreateWithCGImageFormat(&ok, &ok, NULL, 0x100000, &e), (long)e);
+        vImageConverterRef c = vImageConverter_CreateWithCGImageFormat(&ok, &ok, NULL, 0, &e);
+        vImage_Buffer small = s8;
+        small.width = 3;
+        printf("AnyToAny size mismatch: %ld\n", (long)vImageConvert_AnyToAny(c, &small, &s8b, NULL, 0));
+        printf("AnyToAny wants a temp buffer: %d\n", vImageConvert_AnyToAny(c, &s8, &s8b, NULL, kvImageGetTempBufferSize) > 0);
+        printf("MustOperateOutOfPlace half null: %ld\n", (long)vImageConverter_MustOperateOutOfPlace(c, &s8, NULL, 0));
+        vImageConverter_Release(c);
+    }
+
+    /* the PNG decompression filter, each type, on 3 bytes a pixel */
+    for (uint32_t type = 0; type <= 4; ++type) {
+        vImage_Buffer d = make(4, KZERO);
+        for (vImagePixelCount y = 0; y < H; ++y)
+            memcpy((uint8_t *)d.data + y * d.rowBytes, (const uint8_t *)s8.data + y * s8.rowBytes, W * 4);
+        char n[64];
+        snprintf(n, sizeof(n), "PNGDecompressionFilter %u", type);
+        size_t bpp = 3;
+        d.width = W * 4 / 3;
+        report(n, vImagePNGDecompressionFilter(&d, 1, H - 1, 24, 0, type, 0), 1, &d, &bpp);
+        free(d.data);
+    }
+    CGColorSpaceRelease(srgb);
+    CGColorSpaceRelease(gray);
+    CGColorSpaceRelease(cmyk);
+    CGColorSpaceRelease(p3);
+    CGColorSpaceRelease(indexed);
+}
+#pragma clang diagnostic pop
+
 int main(void)
 {
     dump_name = getenv("VIMAGE_DUMP");
@@ -1266,5 +1390,6 @@ int main(void)
     conversions_10bit();
     conversions_dithered();
     conversions_ycbcr();
+    utilities();
     return 0;
 }

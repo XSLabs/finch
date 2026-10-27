@@ -21,10 +21,12 @@ VECLIB="${PREFIX}/Frameworks/vecLib.framework/Versions/A"
 VIMAGE="${PREFIX}/Frameworks/vImage.framework/Versions/A"
 log() { echo "==> $*"; }
 
-[[ -f "${FWS}/CoreGraphics.framework/Versions/A/CoreGraphics" ]] || {
-    echo "build CoreGraphics first: userland/CoreGraphics/build.sh" >&2
-    exit 1
-}
+for dep in CoreGraphics ColorSync; do
+    [[ -f "${FWS}/${dep}.framework/Versions/A/${dep}" ]] || {
+        echo "build ${dep} first: userland/${dep}/build.sh" >&2
+        exit 1
+    }
+done
 
 CFLAGS=(-arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -O2 -g -fno-common -fblocks
     -std=c17 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-nonnull -Wno-pointer-bool-conversion
@@ -95,7 +97,7 @@ log "linking vImage"
 "${HERE}/tbd-exports.py" "${SDK_FW}/vImage.framework/Versions/A/vImage.tbd" "${OBJ}/vImage"/*.o > "${OBJ}/vImage.exports"
 "${CC}" "${LDFLAGS[@]}" -install_name "${VIMAGE}/vImage" -current_version 632.100.6 -compatibility_version 1 \
     "${OBJ}/vImage"/*.o -o "${ROOT}${VIMAGE}/vImage" -Wl,-exported_symbols_list,"${OBJ}/vImage.exports" \
-    "${ROOT}${VECLIB}/libvMisc.dylib" -F"${FWS}" -framework CoreGraphics -framework CoreFoundation -lm
+    "${ROOT}${VECLIB}/libvMisc.dylib" -F"${FWS}" -framework CoreGraphics -framework ColorSync -framework CoreFoundation -lm
 ln -sfn A "${ROOT}${VIMAGE%/A}/Current"
 ln -sfn Versions/Current/vImage "${ROOT}${VIMAGE%/Versions/A}/vImage"
 "${FINCH_ROOT}/tools/mkframeworkplist.sh" "${ROOT}${VIMAGE%/Versions/A}" A vImage com.apple.Accelerate.vImage \

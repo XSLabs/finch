@@ -144,8 +144,20 @@ for Y'CbCr to 8-bit RGB and for 8-bit RGB to 8-bit Y'CbCr, single precision
 elsewhere (one apart from Apple's in a few 10- and 16-bit samples). The
 generated conversions are Finch's own layout of the opaque structures.
 
-Still missing: `vImage_Utilities.h` (15 calls), `vImage_CVUtilities.h` (30)
-and `BasicImageTypes.h` (1).
+`utilities.c` has `vImage_Utilities.h` and `BasicImageTypes.h`: buffer
+allocation (with Apple's row padding), the `vImage_CGImageFormat` helpers, the
+PNG decompression filter, and `vImageConverter` with `vImageConvert_AnyToAny`.
+A converter reads any CG pixel format (byte orders, packed 16- and 32-bit
+pixels, indexed colour, half and single floats, decode arrays) as double
+precision, converts colour through ColorSync when the spaces differ, and
+handles alpha as vImage's integer functions do (8- and 16-bit unpremultiplying,
+narrowing first to an 8-bit destination). Within a colour space its results
+match Apple's; Apple's dithers 5- and 6-bit destinations and rounds between 8
+bits and half floats its own way. ColorSync code fragments and
+`CGColorConversionInfo` converters run between the formats' own colour spaces.
+vImage links ColorSync, which the system build now makes before Accelerate.
+
+Still missing: `vImage_CVUtilities.h` (30 calls).
 
 ## The rest
 

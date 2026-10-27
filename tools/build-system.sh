@@ -123,14 +123,16 @@ steps=(
     "ImageIO|userland/ImageIO/build.sh"
     # Caption settings and image-caption metadata over Finch's media frameworks.
     "MediaAccessibility|userland/MediaAccessibility/build.sh"
-    # Accelerate (vecLib: all of vDSP; vImage) on the CPU, over CoreGraphics and CoreFoundation.
+    # ColorSync (over skcms), which vImage's converters use
+    "ColorSync|userland/ColorSync/build.sh"
+    # Accelerate (vecLib: all of vDSP; vImage) on the CPU, over CoreGraphics, ColorSync and
+    # CoreFoundation.
     "Accelerate|userland/Accelerate/build.sh"
     # CoreImage: images as recipes, filters rendered on the CPU
     "CoreImage|userland/CoreImage/build.sh"
     # QuartzCore re-exports CoreImage, so link it after that framework is built.
     "QuartzCore|userland/QuartzCore/build.sh"
-    # ColorSync (over skcms) and HIServices, which ApplicationServices re-exports
-    "ColorSync|userland/ColorSync/build.sh"
+    # HIServices, which ApplicationServices re-exports (with ColorSync, built above)
     "HIServices|userland/HIServices/build.sh"
     "PrintCore|userland/PrintCore/build.sh"
     # ATS (font validation keys, libFontRegistry) and FontServices (libFontParser): for font managers
