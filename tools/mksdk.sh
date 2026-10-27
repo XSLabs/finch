@@ -56,6 +56,10 @@ cp "${XNU_ROOT}/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHea
 mkdir -p "${INC}/IOKit"
 cp "${XNU_ROOT}/System/Library/Frameworks/IOKit.framework/Versions/A/PrivateHeaders/IOKitKeysPrivate.h" \
     "${INC}/IOKit/"
+# zprint's: the kernel's memory-accounting names (VM_KERN_*), which only the
+# kernel's private <mach/vm_statistics.h> has, included by its bare name.
+# (Its <IOKit/kext/OSKext.h> comes with Finch's IOKit, userland/IOKit/build.sh.)
+cp "${XNU_ROOT}/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders/mach/vm_statistics.h" "${INC}/"
 
 chmod -R u+w "${SDK}"   # xnu installs headers read-only
 

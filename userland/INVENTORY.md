@@ -117,7 +117,6 @@ exactly them to fail.
 | Tool | Project | Blocker |
 |---|---|---|
 | bintrans tests (not the command) | text_cmds | Apple-internal `darwintest.h`; `bintrans` itself is built and staged |
-| zprint, zlog | system_cmds | CoreSymbolication (closed) |
 
 su and login build and use Finch's PAM: libpam from Apple's OpenPAM, the pam_modules
 that don't need closed frameworks (rootok, uwtmp, self, env, group, nologin, sacl),
@@ -136,9 +135,10 @@ chpass, chsh and chfn change account details through Finch's OpenDirectory
 directly, otherwise through the setuid helper `/usr/libexec/finch-account-update`,
 which plays opendirectoryd's part for the local node (users change their own
 shell and finger information with their password; administrators and root
-anything chpass shows). zprint and zlog stay deferred: they're kernel debugging
-tools over CoreSymbolication's kernel symbolicator, not needed by the installer
-or desktop.
+anything chpass shows). zprint and zlog build (2026-10-26) over Finch's own
+CoreSymbolication (userland/CoreSymbolication): the running kernel's symbols from
+Finch's kernel file in /System/Library/Kernels, matched by UUID and placed by
+kas_info(); and Finch's IOKit gained OSKextCopyLoadedKextInfo for zprint's kext names.
 Finch writes its own `/sbin/kextload` (userland/kextload): with no
 kernelmanagerd, it asks the kernel to start a kext already in the boot
 collection (`LoadFromKC`), which is what the filesystem helpers need.

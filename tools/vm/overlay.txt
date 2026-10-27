@@ -258,6 +258,7 @@ build/userland/finch-security-trust-settings-test /usr/local/bin/finch-security-
 build/userland/finch-openpanel-test /usr/local/bin/finch-openpanel-test
 build/userland/finch-authorization-dialog-test /usr/local/bin/finch-authorization-dialog-test
 build/userland/finch-settings-notify-test /usr/local/bin/finch-settings-notify-test
+build/userland/finch-coresymbolication-test /usr/local/bin/finch-coresymbolication-test
 userland/securityagent/org.finch.securityagent.plist /System/Library/Finch/LaunchAgents/org.finch.securityagent.plist
 build/userland/apps/OpenPanelTest.app/Contents/MacOS/OpenPanelTest /usr/local/share/finch/apps/OpenPanelTest.app/Contents/MacOS/OpenPanelTest
 build/userland/apps/OpenPanelTest.app/Contents/Info.plist /usr/local/share/finch/apps/OpenPanelTest.app/Contents/Info.plist
@@ -346,3 +347,5 @@ build/userland/finch-notify-path-cancel-test /usr/local/bin/finch-notify-path-ca
 build/userland/finch-notify-path-permission-test /usr/local/bin/finch-notify-path-permission-test
 build/userland/finch-bootstrap-failure-test /usr/local/bin/finch-bootstrap-failure-test
 build/userland/finch-volume-setup /usr/local/bin/finch-volume-setup
+# The running kernel's symbols (Finch's own build, which the boot collection links), for CoreSymbolication
+build/xnu-work/build/xnu.sym/kernel.development.t8132 /System/Library/Kernels/kernel.development.t8132

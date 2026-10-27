@@ -92,7 +92,7 @@ srcs=(
 )
 srcs+=(network.subproj/IONetworkLib.c)
 srcs=("${srcs[@]/#/${SRC}/}")
-srcs+=("${HERE}/IOHIDData_Finch.c")
+srcs+=("${HERE}/IOHIDData_Finch.c" "${HERE}/OSKextLoaded_Finch.c")
 srcs+=("${SRC}"/pwr_mgt.subproj/*.c "${SRC}"/ps.subproj/*.c "${SRC}"/platform.subproj/*.c "${OBJ}/gen/powermanagementUser.c" "${SRC}/IOTrap.s")
 
 CFLAGS=(-arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -Os -g -fblocks
@@ -132,4 +132,8 @@ ln -sfn A "${FW}/Versions/Current"
 ln -sfn Versions/Current/IOKit "${FW}/IOKit"
 "${FINCH_ROOT}/tools/mkframeworkplist.sh" "${FW}" A IOKit com.apple.framework.IOKit "I/O Kit Framework" 2.0.2 "" English
 codesign -f -s - -i com.apple.framework.IOKit "${FW}/Versions/A/IOKit" 2>/dev/null
+# IOKitUser's <IOKit/kext/OSKext.h> in the build SDK, for system_cmds' zprint
+# (OSKextCopyLoadedKextInfo is OSKextLoaded_Finch.c's).
+mkdir -p "${SDK}/include/IOKit/kext"
+cp "${SRC}/kext.subproj/OSKext.h" "${SDK}/include/IOKit/kext/"
 log "installed ${FW#"${FINCH_ROOT}/"}"

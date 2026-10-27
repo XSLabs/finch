@@ -31,3 +31,5 @@ userland/openandsavepanel/org.finch.openandsavepanel.plist /System/Library/Finch
 userland/openandsavepanel/org.finch.openandsavepanel.root.plist /System/Library/Finch/LaunchDaemons/org.finch.openandsavepanel.root.plist
 userland/securityagent/org.finch.securityagent.plist /System/Library/Finch/LaunchAgents/org.finch.securityagent.plist
 userland/LaunchDaemons/com.apple.diskarbitrationd.plist /System/Library/Finch/LaunchDaemons/com.apple.diskarbitrationd.plist
+# The running kernel's symbols (Finch's own build, which the boot collection links), for CoreSymbolication
+build/xnu-work/build/xnu.sym/kernel.development.t8132 /System/Library/Kernels/kernel.development.t8132

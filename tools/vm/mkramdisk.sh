@@ -53,7 +53,8 @@ trap 'hdiutil detach "${mnt}" >/dev/null; rmdir "${mnt}"' EXIT
 add_hashes() {
     local a
     for a in $(lipo -archs "$1" 2>/dev/null); do
-        codesign -a "$a" -d -vvv "$1" 2>&1 | grep -i '^CDHash=' | cut -d= -f2
+        # (an unsigned Mach-O, such as the kernel file kept for its symbols, has none)
+        { codesign -a "$a" -d -vvv "$1" 2>&1 || true; } | { grep -i '^CDHash=' || true; } | cut -d= -f2
     done >> "${OUT}/all_hashes"
 }
 is_macho() { file -b "$1" | grep -q '^Mach-O'; }

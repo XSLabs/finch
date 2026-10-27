@@ -196,22 +196,26 @@ Apple's is closed. Developed in the emulated M4 first. The map is
 - [x] **1.1 Finch PID 1.** `finch-init` replaces the closed launchd: console, OS version
       sysctls, rc script, respawning shell, orphan reaping. The default PID 1 of Finch's VM image
       (2026-10-06).
-- [ ] **1.2 Commands from source.** Build shell_cmds, file_cmds, text_cmds, system_cmds and
+- [x] **1.2 Commands from source.** Build shell_cmds, file_cmds, text_cmds, system_cmds and
       bash/zsh ourselves, replacing darwin-vm's prebuilt sysroot.
   - [x] file_cmds, shell_cmds, text_cmds, adv_cmds, system_cmds: 188 binaries build and
         run under finch-init (`tools/build-oss.sh`, 2026-10-06)
   - [x] bash 3.2 (bash-144), zsh 5.9 + modules (zsh-118, via `userland/oss/zsh.build.sh`),
         bc/dc. zsh is the console shell.
   - [x] libiconv, libcharset and the i18n modules and tables (`/usr/lib/i18n`, `/usr/share/i18n`)
-  - [ ] Deferred tools (see `userland/INVENTORY.md`). chpass, chsh and chfn work over
+  - [x] Deferred tools (see `userland/INVENTORY.md`). chpass, chsh and chfn work over
         Finch's OpenDirectory (tools/vm/test-chpass.sh, 2026-10-26); zprint and zlog
-        (kernel debugging, CoreSymbolication) remain.
+        build over Finch's CoreSymbolication, which reads the running kernel's symbols
+        from Finch's kernel file (tools/vm/test-zprint.sh, 2026-10-26).
   - [x] `reboot` / `halt` / `shutdown` from system_cmds, through finch-init's shutdown
         sequence (`reboot3`)
   - [x] Ramdisk grown to 600 MiB without sudo (raw APFS resize); writable tmpfs for /tmp
         and /var/{tmp,run,log,root}
-  - [ ] Root-owned files in dev images (they arrive as uid 99; the root fs can't be
-        remounted read-write). Build release images with root.
+  - [x] Root-owned files in dev images (they arrive as uid 99; the root fs can't be
+        remounted read-write). Build release images with root. The persistent VM's
+        system image gets every file's owner and mode as root in the guest
+        (tools/vm/mkpersistent.sh, tools/vm/image-owners.py), no sudo needed; no file
+        on it is left owned by uid 99 (tools/vm/test-persistence.sh, 2026-10-26).
   - [x] Writable /var/db: System Policy (the sandbox's platform profile) refuses a mount
         there, so it's a link into a tmpfs at `/private/var/rw` (2026-10-08)
 - [x] **1.3 Open libSystem from source.** Swap dylibs one at a time, starting with

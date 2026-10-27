@@ -164,6 +164,8 @@ steps=(
     # AOSKit (private): iCloud account calls, with no account; AppleSRP (private): SRP-6a client
     "AOSKit|userland/AOSKit/build.sh"
     "AppleSRP|userland/AppleSRP/build.sh"
+    # CoreSymbolication (private): the running kernel's symbols, for system_cmds' zprint and zlog
+    "CoreSymbolication|userland/CoreSymbolication/build.sh"
     # MagnifierSupport (private): Finch's Magnifier, in SwiftUI (needs userland/SwiftUI/build.sh)
     "MagnifierSupport|userland/MagnifierSupport/build.sh"
     # Calculate (private): Calculator's engine (keys, evaluation, units)
