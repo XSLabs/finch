@@ -56,7 +56,12 @@ Calculator, TextEdit and Stickies are checked further by `tools/vm/test-calculat
 run sandboxed, as on macOS (all 19 still come up): TextEdit opens, saves, autosaves and
 exports to PDF from its container; Stickies keeps its notes there, asks its own XPC
 service where they live, and copies to and pastes from the pasteboard (`pbcopy` and
-`pbpaste` on the other side).
+`pbpaste` on the other side). Open: Calculator's scientific mode crashes intermittently (about one
+run in three in `test-calculator.sh`, 2026-10-26) in SwiftUI's attribute comparison:
+Compute's `compare_existential_values` reads an existential whose type field isn't
+metadata. Building CoreFoundation and Foundation from before that day's changes doesn't
+stop it, so it isn't theirs; upstream Compute's newer partial-comparison fix (516a0fd)
+overlaps Finch's own patch (`userland/SwiftUI/patches/Compute`).
 
 **As of 2026-10-15:**
 
