@@ -97,6 +97,48 @@ main(void)
         [f setFloatingPointFormat:NO left:3 right:1];
         f.doubleValue = 7;
         T(f.stringValue);
+        /* combo boxes, segmented controls, menus */
+ T(@([NSComboBoxCell new].isEditable)); T(@([[NSComboBoxCell alloc] initTextCell:@"x"].isEditable)); T(@([[NSComboBox alloc] initWithFrame:NSMakeRect(0,0,100,20)].isEditable)); T(@([[[NSComboBox alloc] initWithFrame:NSMakeRect(0,0,100,20)].cell isEditable])); T(@([NSTextFieldCell new].isEditable)); T(@([[NSTextFieldCell alloc] initTextCell:@"x"].isEditable));
+ NSSegmentedControl *s=[NSSegmentedControl segmentedControlWithLabels:@[@"A",@"B"] trackingMode:NSSegmentSwitchTrackingSelectOne target:nil action:nil];
+ for (int i=-1;i<3;i++){ T(@([s imageScalingForSegment:i])); T(@([s tagForSegment:i])); T(@([s isSelectedForSegment:i])); T(@([s widthForSegment:i])); T([s labelForSegment:i]); T(@([s isEnabledForSegment:i])); }
+ T(([s setSelected:YES forSegment:-1], @"ok")); T(([s setSelected:YES forSegment:5], @"ok")); T(([s setLabel:@"Z" forSegment:5], @"ok")); T(([s setTag:3 forSegment:7], @"ok")); T(([s setWidth:3 forSegment:7], @"ok"));
+ NSSegmentedControl *e=[NSSegmentedControl new]; T(@(e.segmentCount)); T(@([e imageScalingForSegment:0]));
+ T([NSString stringWithFormat:@"%p", [NSMenu menuZone]]==nil?@"nil":@"nonnull");
+ NSMenu *m=[NSMenu new]; T(([m insertItem:[NSMenuItem new] atIndex:3], @"ok"));
+
+        /* pasteboard types and pattern detection */
+        {
+ NSPasteboard *pb=[NSPasteboard pasteboardWithUniqueName];
+ [pb clearContents]; [pb setString:@"x" forType:NSPasteboardTypeString]; printf("clear+setString: %s\n", [[pb.types componentsJoinedByString:@","] UTF8String]);
+ [pb declareTypes:@[NSPasteboardTypeString] owner:nil]; [pb setString:@"x" forType:NSPasteboardTypeString]; printf("declare: %s\n", [[pb.types componentsJoinedByString:@","] UTF8String]);
+ [pb clearContents]; [pb writeObjects:@[@"x"]]; printf("writeObjects: %s\n", [[pb.types componentsJoinedByString:@","] UTF8String]);
+ [pb declareTypes:@[NSStringPboardType] owner:nil]; [pb setString:@"x" forType:NSStringPboardType]; printf("declare legacy: %s\n", [[pb.types componentsJoinedByString:@","] UTF8String]);
+ [pb clearContents]; [pb setData:[NSData data] forType:NSPasteboardTypePNG]; printf("png: %s\n", [[pb.types componentsJoinedByString:@","] UTF8String]);
+ [pb declareTypes:@[NSPasteboardTypePNG] owner:nil]; printf("declare png: %s\n", [[pb.types componentsJoinedByString:@","] UTF8String]);
+
+        }
+        {
+ NSSet *all=[NSSet setWithObjects:NSPasteboardDetectionPatternProbableWebURL,NSPasteboardDetectionPatternProbableWebSearch,NSPasteboardDetectionPatternNumber,NSPasteboardDetectionPatternLink,NSPasteboardDetectionPatternPhoneNumber,NSPasteboardDetectionPatternEmailAddress,nil];
+ for (NSString *str in @[@"https://example.com/a",@"hello world",@"42",@"1,234.5",@"mail me at a@b.com",@"call 555-123-4567",@"see http://x.org and http://y.org"]) {
+  NSPasteboard *pb=[NSPasteboard pasteboardWithUniqueName]; [pb clearContents]; [pb setString:str forType:NSPasteboardTypeString];
+  __block NSSet *got=nil; [pb detectPatternsForPatterns:all completionHandler:^(NSSet *s, NSError *e __attribute__((unused))){ got=s?:[NSSet set]; }];
+  NSDate *u=[NSDate dateWithTimeIntervalSinceNow:5]; while(!got && [u timeIntervalSinceNow]>0) [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+  NSMutableArray *names=[NSMutableArray array]; for (NSString *p in got) [names addObject:[p componentsSeparatedByString:@"."].lastObject]; [names sortUsingSelector:@selector(compare:)];
+  printf("%s: %s\n", str.UTF8String, [names componentsJoinedByString:@","].UTF8String);
+  [pb releaseGlobally]; }
+
+        }
+        {
+            NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:2 pixelsHigh:2 bitsPerSample:8
+                                                                     samplesPerPixel:4 hasAlpha:YES isPlanar:NO
+                                                                      colorSpaceName:NSDeviceRGBColorSpace bytesPerRow:0 bitsPerPixel:0];
+            NSPasteboard *pb = [NSPasteboard pasteboardWithUniqueName];
+            [pb clearContents];
+            [pb setData:[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] forType:NSPasteboardTypePNG];
+            NSBitmapImageRep *back = [NSBitmapImageRep imageRepWithData:[pb dataForType:NSPasteboardTypeTIFF]];
+            printf("tiff from png: %ldx%ld\n", (long)back.pixelsWide, (long)back.pixelsHigh);
+            [pb releaseGlobally];
+        }
     }
     return 0;
 }

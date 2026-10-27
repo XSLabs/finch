@@ -35,7 +35,7 @@
     if (!(self = [super initTextCell:s])) return nil;
     _items = [NSMutableArray new]; _selected = -1; _visible = 5;
     _spacing = NSMakeSize(17, 0); _itemHeight = 18; _scroller = YES; _buttonBordered = YES;
-    [self setEditable:YES]; [self setSelectable:YES]; [self setBezeled:YES];
+    [self setSelectable:YES]; [self setBezeled:YES]; /* (not editable until a combo box makes it so, as Apple's) */
     [self setDrawsBackground:YES]; [self setScrollable:YES]; [self setLineBreakMode:NSLineBreakByClipping];
     return self;
 }

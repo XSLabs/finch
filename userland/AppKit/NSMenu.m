@@ -276,9 +276,10 @@ post(NSMenu *menu, NSString *name, NSInteger index)
 static void
 check_index(NSMenu *self, NSInteger index, NSUInteger limit)
 {
+    /* (Apple's assertion: "<=" where an insertion may go at the end) */
     if (index < 0 || (NSUInteger)index >= limit)
         [NSException raise:NSInternalInconsistencyException
-                    format:@"Invalid parameter not satisfying: index < [_itemArray count]"];
+                    format:@"Invalid parameter not satisfying: index %@ [_itemArray count]", limit > [self->_items count] ? @"<=" : @"<"];
 }
 
 - (void)insertItem:(NSMenuItem *)item atIndex:(NSInteger)index

@@ -454,7 +454,7 @@ NSRect FinchAppKitSwiftRectForRegion(NSView *view, NSInteger kind, NSInteger axi
 
 /* (graphics states and focus-ring masks from older AppKit: nothing to keep) */
 - (void)allocateGState {}
-- (void)releaseGState {}
+- (oneway void)releaseGState {}
 - (void)renewGState {}
 - (void)setUpGState {}
 - (NSInteger)gState { return 0; }
@@ -753,7 +753,7 @@ FinchAppKitSwiftRowResizeCursor(NSUInteger directions)
 
 @implementation NSMenu (FinchWindowingMore)
 + (void)setMenuZone:(NSZone *)zone {}
-+ (NSZone *)menuZone { return NULL; }
++ (NSZone *)menuZone { return NSDefaultMallocZone(); }
 - (NSPoint)locationForSubmenu:(NSMenu *)submenu { return NSZeroPoint; }
 - (id)menuRepresentation { return nil; }
 - (void)setMenuRepresentation:(id)menuRep {}

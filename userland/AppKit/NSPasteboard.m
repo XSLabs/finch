@@ -84,6 +84,8 @@ translations(NSString *type)
           NSPasteboardTypeString : @[ NSStringPboardType ],
           NSPasteboardTypePDF : @[ NSPDFPboardType ],
           NSPasteboardTypeTIFF : @[ NSTIFFPboardType ],
+          /* (as Apple's: a PNG is offered as TIFF too, converted when read) */
+          NSPasteboardTypePNG : @[ @"Apple PNG pasteboard type", NSPasteboardTypeTIFF, NSTIFFPboardType ],
           NSPasteboardTypeRTF : @[ NSRTFPboardType ],
           NSPasteboardTypeRTFD : @[ NSRTFDPboardType ],
           NSPasteboardTypeHTML : @[ NSHTMLPboardType ],
@@ -125,6 +127,8 @@ data_in_old_form(NSData *d, NSString *modern, NSString *name)
 {
     if (!d)
         return nil;
+    if ([modern isEqualToString:NSPasteboardTypePNG] && ([name isEqualToString:NSPasteboardTypeTIFF] || [name isEqualToString:NSTIFFPboardType]))
+        return [[NSBitmapImageRep imageRepWithData:d] TIFFRepresentation];
     NSString *text = [[[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] autorelease];
     if ([name isEqualToString:NSURLPboardType] || [name hasPrefix:@"dyn.ah62d4rv4gu8yc6durvwwaznwmuuha2pxsvw0e55bsmwca7d3sbwu"])
         /* (an array of the URL and its title, as the old type held it) */
@@ -771,4 +775,112 @@ NSGetFileTypes(NSArray<NSPasteboardType> *pboardTypes)
 @implementation NSPasteboard (FinchSourceIdentity)
 /* The signing identifier of the app that wrote the contents (private); not known on Finch's in-process pasteboard. */
 - (NSString *)_sourceSigningIdentifier { return nil; }
+@end
+
+/* MARK: - Filtering and detection */
+
+@implementation NSPasteboard (FinchFilteringAndDetection)
+
+/* (Finch has no filter services: the pasteboard holds what was given as it is) */
++ (NSPasteboard *)pasteboardByFilteringFile:(NSString *)filename
+{
+    NSPasteboard *pb = [NSPasteboard pasteboardWithUniqueName];
+    [pb declareTypes:@[ NSFilenamesPboardType ] owner:nil];
+    [pb setPropertyList:filename ? @[ filename ] : @[] forType:NSFilenamesPboardType];
+    return pb;
+}
+
++ (NSPasteboard *)pasteboardByFilteringData:(NSData *)data ofType:(NSPasteboardType)type
+{
+    NSPasteboard *pb = [NSPasteboard pasteboardWithUniqueName];
+    if (type) {
+        [pb clearContents];
+        [pb setData:data forType:type];
+    }
+    return pb;
+}
+
++ (NSPasteboard *)pasteboardByFilteringTypesInPasteboard:(NSPasteboard *)pboard { return pboard; }
+
+/* What the pasteboard's text looks like, by the patterns asked about. */
+static NSDictionary *
+detect_values(NSPasteboard *pb, NSSet *patterns)
+{
+    NSString *s = [pb stringForType:NSPasteboardTypeString];
+    NSMutableDictionary *found = [NSMutableDictionary dictionary];
+    if (![s length]) return found;
+    NSString *trimmed = [s stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    /* (a web URL when there's an http(s) link in it; a search when there isn't, on one line) */
+    BOOL web = NO;
+    NSString *firstWeb = nil;
+    for (NSTextCheckingResult *r in [[NSDataDetector dataDetectorWithTypes:NSTextCheckingTypeLink error:NULL] matchesInString:s options:0
+                                                                                                                      range:NSMakeRange(0, [s length])]) {
+        NSString *scheme = [[r.URL scheme] lowercaseString];
+        if ([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"]) {
+            web = YES;
+            firstWeb = [r.URL absoluteString];
+            break;
+        }
+    }
+    if ([patterns containsObject:NSPasteboardDetectionPatternProbableWebURL] && web) found[NSPasteboardDetectionPatternProbableWebURL] = firstWeb;
+    if ([patterns containsObject:NSPasteboardDetectionPatternProbableWebSearch] && !web && [trimmed length] &&
+        [trimmed rangeOfCharacterFromSet:[NSCharacterSet newlineCharacterSet]].location == NSNotFound)
+        found[NSPasteboardDetectionPatternProbableWebSearch] = trimmed;
+    if ([patterns containsObject:NSPasteboardDetectionPatternNumber]) {
+        NSNumberFormatter *f = [[[NSNumberFormatter alloc] init] autorelease];
+        f.numberStyle = NSNumberFormatterDecimalStyle;
+        NSNumber *n = [f numberFromString:trimmed];
+        if (n) found[NSPasteboardDetectionPatternNumber] = n;
+    }
+    NSTextCheckingTypes types = 0;
+    if ([patterns containsObject:NSPasteboardDetectionPatternLink] || [patterns containsObject:NSPasteboardDetectionPatternEmailAddress])
+        types |= NSTextCheckingTypeLink;
+    if ([patterns containsObject:NSPasteboardDetectionPatternPhoneNumber]) types |= NSTextCheckingTypePhoneNumber;
+    if (types) {
+        NSDataDetector *d = [NSDataDetector dataDetectorWithTypes:types error:NULL];
+        NSMutableArray *links = [NSMutableArray array], *emails = [NSMutableArray array], *phones = [NSMutableArray array];
+        for (NSTextCheckingResult *r in [d matchesInString:s options:0 range:NSMakeRange(0, [s length])]) {
+            if (r.resultType == NSTextCheckingTypePhoneNumber) [phones addObject:r.phoneNumber];
+            else if ([[r.URL scheme] isEqualToString:@"mailto"]) [emails addObject:[r.URL resourceSpecifier]];
+            else if (r.URL) [links addObject:r.URL];
+        }
+        if ([patterns containsObject:NSPasteboardDetectionPatternLink] && [links count]) found[NSPasteboardDetectionPatternLink] = links;
+        if ([patterns containsObject:NSPasteboardDetectionPatternEmailAddress] && [emails count])
+            found[NSPasteboardDetectionPatternEmailAddress] = emails;
+        if ([patterns containsObject:NSPasteboardDetectionPatternPhoneNumber] && [phones count])
+            found[NSPasteboardDetectionPatternPhoneNumber] = phones;
+    }
+    return found;
+}
+
+- (void)detectPatternsForPatterns:(NSSet<NSPasteboardDetectionPattern> *)patterns
+                completionHandler:(void (^)(NSSet<NSPasteboardDetectionPattern> *, NSError *))completionHandler
+{
+    NSSet *found = [NSSet setWithArray:[detect_values(self, patterns) allKeys]];
+    completionHandler = [[completionHandler copy] autorelease];
+    dispatch_async(dispatch_get_global_queue(0, 0), ^{ completionHandler(found, nil); });
+}
+
+- (void)detectValuesForPatterns:(NSSet<NSPasteboardDetectionPattern> *)patterns
+              completionHandler:(void (^)(NSDictionary<NSPasteboardDetectionPattern, id> *, NSError *))completionHandler
+{
+    NSDictionary *found = detect_values(self, patterns);
+    completionHandler = [[completionHandler copy] autorelease];
+    dispatch_async(dispatch_get_global_queue(0, 0), ^{ completionHandler(found, nil); });
+}
+
+- (void)detectMetadataForTypes:(NSSet<NSPasteboardMetadataType> *)types
+             completionHandler:(void (^)(NSDictionary<NSPasteboardMetadataType, id> *, NSError *))completionHandler
+{
+    NSMutableDictionary *metadata = [NSMutableDictionary dictionary];
+    NSString *type = [[self types] firstObject];
+    Class utType = NSClassFromString(@"UTType");
+    id contentType = [types containsObject:NSPasteboardMetadataTypeContentType] && type && utType
+                         ? [utType performSelector:@selector(typeWithIdentifier:) withObject:type]
+                         : nil;
+    if (contentType) metadata[NSPasteboardMetadataTypeContentType] = contentType;
+    completionHandler = [[completionHandler copy] autorelease];
+    dispatch_async(dispatch_get_global_queue(0, 0), ^{ completionHandler(metadata, nil); });
+}
+
 @end

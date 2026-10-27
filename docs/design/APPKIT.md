@@ -842,3 +842,11 @@ draws (`userland/tests/app-test.c`).
   bounds given, the old floating-point formats pad with "_", and TIFF compression
   types have Apple's names, all as Apple's. `finch-appkit-edges-test` matches Apple's;
   the generated AppKit comparison went from 7457 to 7526 verified items (89.1%).
+- 2026-10-27: combo-box cells aren't editable until a combo box makes them so;
+  segmented controls scale images "none" by default, tag out-of-range segments -1
+  and range-check selection with Apple's message; menus' insertion assertion and
+  `menuZone` are Apple's. Pasteboards filter files and data (no filter services
+  yet) and detect web URLs, searches, numbers, links, emails and phone numbers in
+  their text; a PNG is offered under its legacy name and as TIFF, converted when
+  read, as Apple's is. The generated AppKit comparison is at 7546 verified items
+  (89.4%); `finch-appkit-edges-test` is 98 lines.

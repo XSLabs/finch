@@ -30,7 +30,7 @@
 {
     self = [super init];
     if (self) {
-        _imageScaling = NSImageScaleProportionallyDown;
+        _imageScaling = NSImageScaleNone;
         _alignment = NSTextAlignmentCenter;
     }
     return self;
@@ -271,7 +271,7 @@ segmented_defaults(NSSegmentedCell *self)
 - (void)setImage:(NSImage *)image forSegment:(NSInteger)s { [self _item:s].image = image; [self _finchChanged]; }
 - (NSImage *)imageForSegment:(NSInteger)s { return [self _item:s].image; }
 - (void)setImageScaling:(NSImageScaling)v forSegment:(NSInteger)s { [self _item:s].imageScaling = v; }
-- (NSImageScaling)imageScalingForSegment:(NSInteger)s { return [self _item:s] ? [self _item:s].imageScaling : 0; }
+- (NSImageScaling)imageScalingForSegment:(NSInteger)s { return [self _item:s] ? [self _item:s].imageScaling : NSImageScaleNone; }
 - (void)setLabel:(NSString *)label forSegment:(NSInteger)s { [self _item:s].label = label; [self _finchChanged]; }
 - (NSString *)labelForSegment:(NSInteger)s { return [self _item:s].label; }
 - (void)setMenu:(NSMenu *)menu forSegment:(NSInteger)s { [self _item:s].menu = menu; }
@@ -279,7 +279,17 @@ segmented_defaults(NSSegmentedCell *self)
 - (void)setToolTip:(NSString *)tip forSegment:(NSInteger)s { [self _item:s].toolTip = tip; }
 - (NSString *)toolTipForSegment:(NSInteger)s { return [self _item:s].toolTip; }
 - (void)setTag:(NSInteger)tag forSegment:(NSInteger)s { [self _item:s].tag = tag; }
-- (NSInteger)tagForSegment:(NSInteger)s { return [self _item:s].tag; }
+- (NSInteger)tagForSegment:(NSInteger)s { return [self _item:s] ? [self _item:s].tag : -1; }
+
+/* (Apple's range check for a segment's selection) */
+static void
+check_segment(NSSegmentedCell *self, SEL cmd, NSInteger s)
+{
+    NSInteger n = [self segmentCount];
+    if (s < 0 || s >= n)
+        [NSException raise:NSRangeException format:@"-[NSSegmentedCell %s]: index (%ld) beyond bounds (%ld)", sel_getName(cmd), (long)s,
+                     (long)n - 1];
+}
 - (void)setShowsMenuIndicator:(BOOL)f forSegment:(NSInteger)s { [self _item:s].showsMenuIndicator = f; }
 - (BOOL)showsMenuIndicatorForSegment:(NSInteger)s { return [self _item:s].showsMenuIndicator; }
 - (void)setAlignment:(NSTextAlignment)a forSegment:(NSInteger)s { [self _item:s].alignment = a; }
@@ -287,6 +297,7 @@ segmented_defaults(NSSegmentedCell *self)
 
 - (void)setSelected:(BOOL)selected forSegment:(NSInteger)s
 {
+    check_segment(self, _cmd, s);
     NSSegmentItem *item = [self _item:s];
     if (!item)
         return;
@@ -313,7 +324,11 @@ segmented_defaults(NSSegmentedCell *self)
     [self _finchChanged];
 }
 
-- (BOOL)isSelectedForSegment:(NSInteger)s { return [self _item:s].selected; }
+- (BOOL)isSelectedForSegment:(NSInteger)s
+{
+    check_segment(self, _cmd, s);
+    return [self _item:s].selected;
+}
 
 - (void)setEnabled:(BOOL)enabled forSegment:(NSInteger)s
 {
