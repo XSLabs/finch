@@ -5,7 +5,10 @@
 + (instancetype)persistentStoreDescriptionWithURL:(NSURL *)url {
     return [[[self alloc] initWithURL:url] autorelease];
 }
-- (instancetype)init { return [self initWithURL:[NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:@"Finch.sqlite"]]]; }
+- (NSPersistentCloudKitContainerOptions *)cloudKitContainerOptions { return CDGet(self, @"cloudKitContainerOptions"); }
+- (void)setCloudKitContainerOptions:(NSPersistentCloudKitContainerOptions *)options { CDSet(self, @"cloudKitContainerOptions", options); }
+- (instancetype)init { return [self initWithURL:[NSURL fileURLWithPath:@"/dev/null"]]; }
+- (NSString *)description { return [NSString stringWithFormat:@"<%@: %p> (type: %@, url: %@)", [self class], self, self.type, self.URL]; }
 - (instancetype)initWithURL:(NSURL *)url {
     self = [super init];
     if (self) {
@@ -13,9 +16,9 @@
         CDSet(self, @"type", NSSQLiteStoreType);
         CDSet(self, @"options", [NSMutableDictionary dictionary]);
         CDSet(self, @"sqlitePragmas", [NSMutableDictionary dictionary]);
-        CDSet(self, @"timeout", [NSNumber numberWithDouble:5.0]);
-        CDSet(self, @"shouldMigrateStoreAutomatically", [NSNumber numberWithBool:YES]);
-        CDSet(self, @"shouldInferMappingModelAutomatically", [NSNumber numberWithBool:YES]);
+        CDSet(self, @"timeout", [NSNumber numberWithDouble:240.0]);
+        [self setOption:[NSNumber numberWithBool:YES] forKey:NSMigratePersistentStoresAutomaticallyOption];
+        [self setOption:[NSNumber numberWithBool:YES] forKey:NSInferMappingModelAutomaticallyOption];
     }
     return self;
 }
@@ -41,10 +44,11 @@
 }
 - (BOOL)shouldAddStoreAsynchronously { return [CDGet(self, @"shouldAddStoreAsynchronously") boolValue]; }
 - (void)setShouldAddStoreAsynchronously:(BOOL)value { CDSet(self, @"shouldAddStoreAsynchronously", [NSNumber numberWithBool:value]); }
-- (BOOL)shouldMigrateStoreAutomatically { return CDGet(self, @"shouldMigrateStoreAutomatically") ? [CDGet(self, @"shouldMigrateStoreAutomatically") boolValue] : YES; }
-- (void)setShouldMigrateStoreAutomatically:(BOOL)value { CDSet(self, @"shouldMigrateStoreAutomatically", [NSNumber numberWithBool:value]); }
-- (BOOL)shouldInferMappingModelAutomatically { return CDGet(self, @"shouldInferMappingModelAutomatically") ? [CDGet(self, @"shouldInferMappingModelAutomatically") boolValue] : YES; }
-- (void)setShouldInferMappingModelAutomatically:(BOOL)value { CDSet(self, @"shouldInferMappingModelAutomatically", [NSNumber numberWithBool:value]); }
+// The migration switches live in the options, as Core Data keeps them.
+- (BOOL)shouldMigrateStoreAutomatically { return [(NSNumber *)[self.options objectForKey:NSMigratePersistentStoresAutomaticallyOption] boolValue]; }
+- (void)setShouldMigrateStoreAutomatically:(BOOL)value { [self setOption:[NSNumber numberWithBool:value] forKey:NSMigratePersistentStoresAutomaticallyOption]; }
+- (BOOL)shouldInferMappingModelAutomatically { return [(NSNumber *)[self.options objectForKey:NSInferMappingModelAutomaticallyOption] boolValue]; }
+- (void)setShouldInferMappingModelAutomatically:(BOOL)value { [self setOption:[NSNumber numberWithBool:value] forKey:NSInferMappingModelAutomaticallyOption]; }
 - (id)copyWithZone:(NSZone *)zone {
     NSPersistentStoreDescription *copy = [[[self class] allocWithZone:zone] initWithURL:self.URL];
     copy.type = self.type;
@@ -54,6 +58,7 @@
     copy.shouldAddStoreAsynchronously = self.shouldAddStoreAsynchronously;
     copy.shouldMigrateStoreAutomatically = self.shouldMigrateStoreAutomatically;
     copy.shouldInferMappingModelAutomatically = self.shouldInferMappingModelAutomatically;
+    copy.cloudKitContainerOptions = self.cloudKitContainerOptions;
     for (NSString *key in self.options) [copy setOption:[self.options objectForKey:key] forKey:key];
     for (NSString *key in self.sqlitePragmas) [copy setValue:[self.sqlitePragmas objectForKey:key] forPragmaNamed:key];
     return copy;

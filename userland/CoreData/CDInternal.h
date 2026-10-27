@@ -57,3 +57,22 @@ id CDObjectValue(NSManagedObject *object, NSString *key);
 sqlite3 *CDStoreDatabase(NSPersistentStore *store);
 NSString *CDTableName(NSEntityDescription *entity);
 NSInteger CDEntityID(NSPersistentStore *store, NSEntityDescription *entity);
+BOOL CDIsCustomStore(NSPersistentStore *store);
+BOOL CDLoadCustomStore(NSPersistentStore *store, NSString *type, NSError **error);
+NSDictionary *CDModelMetadata(NSManagedObjectModel *model);
+BOOL CDFireCustomFault(NSManagedObject *object, NSError **error);
+NSArray *CDCustomStoreFetch(NSManagedObjectContext *context, NSPersistentStore *store, NSFetchRequest *request,
+                            NSEntityDescription *entity, NSError **error);
+BOOL CDCustomStoreSave(NSManagedObjectContext *context, NSPersistentStore *store, NSArray *inserted, NSArray *updated,
+                       NSArray *deleted, NSError **error);
+BOOL CDObtainCustomIDs(NSPersistentStore *store, NSArray *objects, NSError **error);
+id CDCustomReferenceFromURIKey(NSString *key);
+void CDRekeyRegisteredObjects(NSManagedObjectContext *context);
+BOOL CDFireSQLiteFault(NSManagedObject *object, NSError **error);
+id CDLoadSQLiteToMany(NSManagedObject *object, NSRelationshipDescription *relationship);
+BOOL CDFireFault(NSManagedObject *object, NSError **error);
+BOOL CDMigrateWithMapping(NSMigrationManager *manager, NSURL *sourceURL, NSString *sourceType, NSDictionary *sourceOptions,
+                          NSMappingModel *mapping, NSURL *destinationURL, NSString *destinationType,
+                          NSDictionary *destinationOptions, NSError **error);
+NSPersistentStoreResult *CDExecuteBatchInsert(NSPersistentStoreCoordinator *coordinator, NSBatchInsertRequest *request, NSError **error);
+NSPersistentStoreResult *CDExecuteCloudKitEventRequest(NSPersistentCloudKitContainerEventRequest *request);

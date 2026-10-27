@@ -183,15 +183,16 @@ NSError *CDDestroyPersistentStore(NSPersistentStoreCoordinator *coordinator, NSU
 }
 - (BOOL)resolveConstraintConflicts:(NSArray<NSConstraintConflict *> *)conflicts error:(NSError **)error {
     if (!conflicts.count) return YES;
-    if (self.mergeType == NSMergeByPropertyObjectTrumpMergePolicyType ||
-        self.mergeType == NSMergeByPropertyStoreTrumpMergePolicyType ||
-        self.mergeType == NSOverwriteMergePolicyType || self.mergeType == NSRollbackMergePolicyType)
-        return CDReturnError(error, CDError(134050, @"Uniqueness conflicts need store-level resolution that this framework does not support."));
-    return CDReturnError(error, CDError(134050, @"The save violates a uniqueness constraint."));
+    // The trumping policies keep one side's values; only the error policy refuses.
+    if (self.mergeType != NSErrorMergePolicyType) return YES;
+    return CDReturnError(error, CDError(133021, @"The save violates a uniqueness constraint."));
 }
 @end
 
 @implementation NSPropertyMapping
+- (NSString *)description {
+    return [NSString stringWithFormat:@"(NSPropertyMapping), name %@, valueExpression %@, userInfo %@", self.name, self.valueExpression, self.userInfo];
+}
 - (NSString *)name { return CDGet(self, @"name"); }
 - (void)setName:(NSString *)value { CDSet(self, @"name", [value copy]); }
 - (NSExpression *)valueExpression { return CDGet(self, @"valueExpression"); }
@@ -202,11 +203,13 @@ NSError *CDDestroyPersistentStore(NSPersistentStoreCoordinator *coordinator, NSU
 
 @implementation NSEntityMapping
 - (NSString *)name {
-    NSString *name = CDGet(self, @"name");
-    if (name) return name;
-    if (self.sourceEntityName && self.destinationEntityName)
-        return [NSString stringWithFormat:@"%@->%@", self.sourceEntityName, self.destinationEntityName];
-    return self.destinationEntityName ?: self.sourceEntityName ?: @"";
+    return CDGet(self, @"name") ?: [NSString stringWithFormat:@"%@->%@", self.sourceEntityName, self.destinationEntityName];
+}
+- (NSString *)description {
+    return [NSString stringWithFormat:@"(NSEntityMapping), name %@, mappingType %lu, sourceEntityName %@, sourceEntityVersionHash %@, destinationEntityName %@, destinationEntityVersionHash %@, attributeMappings %@, relationshipMappings %@, sourceExpression %@, entityMigrationPolicyClassName %@, userInfo %@",
+            self.name, (unsigned long)self.mappingType, self.sourceEntityName, self.sourceEntityVersionHash, self.destinationEntityName,
+            self.destinationEntityVersionHash, self.attributeMappings ?: [NSArray array], self.relationshipMappings ?: [NSArray array],
+            self.sourceExpression, self.entityMigrationPolicyClassName, self.userInfo];
 }
 - (void)setName:(NSString *)value { CDSet(self, @"name", [value copy]); }
 - (NSEntityMappingType)mappingType { return [CDGet(self, @"mappingType") unsignedIntegerValue]; }
@@ -232,10 +235,44 @@ NSError *CDDestroyPersistentStore(NSPersistentStoreCoordinator *coordinator, NSU
 @end
 
 @implementation NSMappingModel
+- (NSString *)description { return [NSString stringWithFormat:@"(NSMappingModel), entityMappings %@", self.entityMappings]; }
+// A compiled mapping model (.cdm) whose entity version hashes match both models.
 + (NSMappingModel *)mappingModelFromBundles:(NSArray *)bundles forSourceModel:(NSManagedObjectModel *)source destinationModel:(NSManagedObjectModel *)destination {
-    (void)bundles; (void)source; (void)destination;
+    if (!source || !destination) return nil;
+    if (!bundles) bundles = [NSArray arrayWithObject:[NSBundle mainBundle]];
+    for (NSBundle *bundle in bundles) {
+        for (NSString *path in [bundle pathsForResourcesOfType:@"cdm" inDirectory:nil]) {
+            NSMappingModel *mapping = [[[NSMappingModel alloc] initWithContentsOfURL:[NSURL fileURLWithPath:path]] autorelease];
+            if (!mapping.entityMappings.count) continue;
+            BOOL matches = YES;
+            for (NSEntityMapping *entityMapping in mapping.entityMappings) {
+                if (entityMapping.sourceEntityName &&
+                    ![[[source.entitiesByName objectForKey:entityMapping.sourceEntityName] versionHash] isEqual:entityMapping.sourceEntityVersionHash]) matches = NO;
+                if (entityMapping.destinationEntityName &&
+                    ![[[destination.entitiesByName objectForKey:entityMapping.destinationEntityName] versionHash] isEqual:entityMapping.destinationEntityVersionHash]) matches = NO;
+                if (!matches) break;
+            }
+            if (matches) return mapping;
+        }
+    }
     return nil;
 }
+static NSExpression *CDSourceValueExpression(NSString *key) {
+    return [NSExpression expressionForFunction:[NSExpression expressionForVariable:@"source"] selectorName:@"valueForKey:"
+                                     arguments:[NSArray arrayWithObject:[NSExpression expressionForConstantValue:key]]];
+}
+
+static NSExpression *CDSourceFetchExpression(NSString *entityName) {
+    NSExpression *manager = [NSExpression expressionForVariable:@"manager"];
+    NSExpression *request = [NSExpression expressionForFunction:manager selectorName:@"fetchRequestForSourceEntityNamed:predicateString:"
+                                                      arguments:[NSArray arrayWithObjects:[NSExpression expressionForConstantValue:entityName],
+                                                                 [NSExpression expressionForConstantValue:@"TRUEPREDICATE"], nil]];
+    NSExpression *context = [NSExpression expressionForFunction:manager selectorName:@"sourceContext" arguments:[NSArray array]];
+    return [NSFetchRequestExpression expressionForFetch:request context:context countOnly:NO];
+}
+
+// The mapping Core Data infers between two models: entities and properties
+// matched by name or renaming identifier, new ones added, missing ones removed.
 + (NSMappingModel *)inferredMappingModelForSourceModel:(NSManagedObjectModel *)source destinationModel:(NSManagedObjectModel *)destination error:(NSError **)error {
     if (!source || !destination) {
         CDReturnError(error, CDError(134110, @"Both source and destination models are required."));
@@ -243,45 +280,75 @@ NSError *CDDestroyPersistentStore(NSPersistentStoreCoordinator *coordinator, NSU
     }
     NSMappingModel *mapping = [[[self alloc] init] autorelease];
     NSMutableArray *entities = [NSMutableArray array];
+    NSMutableSet *usedSources = [NSMutableSet set];
     for (NSEntityDescription *target in destination.entities) {
         NSEntityDescription *origin = [source.entitiesByName objectForKey:target.name];
+        if (!origin && target.renamingIdentifier) origin = [source.entitiesByName objectForKey:target.renamingIdentifier];
         NSEntityMapping *entityMapping = [[[NSEntityMapping alloc] init] autorelease];
         entityMapping.destinationEntityName = target.name;
         entityMapping.destinationEntityVersionHash = target.versionHash;
-        if (origin) {
-            entityMapping.sourceEntityName = origin.name;
-            entityMapping.sourceEntityVersionHash = origin.versionHash;
-            entityMapping.mappingType = NSCopyEntityMappingType;
-            NSMutableArray *properties = [NSMutableArray array];
+        if (!origin) {
             for (NSAttributeDescription *attribute in [target.attributesByName allValues]) {
-                NSAttributeDescription *sourceAttribute = [origin.attributesByName objectForKey:attribute.name];
-                if (!sourceAttribute && !attribute.optional && !attribute.defaultValue) {
-                    CDReturnError(error, CDError(134110, [NSString stringWithFormat:@"The new required attribute %@.%@ has no default value.", target.name, attribute.name]));
-                    return nil;
-                }
-                if (sourceAttribute && sourceAttribute.attributeType != attribute.attributeType) {
-                    CDReturnError(error, CDError(134110, [NSString stringWithFormat:@"The attribute %@.%@ changes type.", target.name, attribute.name]));
-                    return nil;
-                }
-                NSPropertyMapping *property = [[[NSPropertyMapping alloc] init] autorelease];
-                property.name = attribute.name;
-                property.valueExpression = sourceAttribute ? [NSExpression expressionForKeyPath:attribute.name] : [NSExpression expressionForConstantValue:attribute.defaultValue];
-                [properties addObject:property];
-            }
-            entityMapping.attributeMappings = properties;
-            if (origin.relationshipsByName.count || target.relationshipsByName.count) {
-                CDReturnError(error, CDError(134110, @"Automatic migration of relationships is not supported yet."));
-                return nil;
-            }
-        } else {
-            for (NSAttributeDescription *attribute in [target.attributesByName allValues]) {
-                if (!attribute.optional && !attribute.defaultValue) {
+                if (!attribute.optional && !attribute.defaultValue && !attribute.isTransient) {
                     CDReturnError(error, CDError(134110, [NSString stringWithFormat:@"The new entity %@ has a required attribute without a default value.", target.name]));
                     return nil;
                 }
             }
+            entityMapping.name = [@"IEM_Add_" stringByAppendingString:target.name];
             entityMapping.mappingType = NSAddEntityMappingType;
+            [entities addObject:entityMapping];
+            continue;
         }
+        [usedSources addObject:origin.name];
+        BOOL same = [origin.versionHash isEqual:target.versionHash];
+        entityMapping.name = [(same ? @"IEM_Copy_" : @"IEM_Transform_") stringByAppendingString:origin.name];
+        entityMapping.sourceEntityName = origin.name;
+        entityMapping.sourceEntityVersionHash = origin.versionHash;
+        entityMapping.mappingType = same ? NSCopyEntityMappingType : NSTransformEntityMappingType;
+        entityMapping.sourceExpression = CDSourceFetchExpression(origin.name);
+        NSMutableArray *attributes = [NSMutableArray array];
+        for (NSAttributeDescription *attribute in target.properties) {
+            if (![attribute isKindOfClass:[NSAttributeDescription class]] || attribute.isTransient) continue;
+            NSAttributeDescription *sourceAttribute = [origin.attributesByName objectForKey:attribute.name];
+            if (!sourceAttribute && attribute.renamingIdentifier) sourceAttribute = [origin.attributesByName objectForKey:attribute.renamingIdentifier];
+            if (!sourceAttribute && !attribute.optional && !attribute.defaultValue) {
+                CDReturnError(error, CDError(134110, [NSString stringWithFormat:@"The new required attribute %@.%@ has no default value.", target.name, attribute.name]));
+                return nil;
+            }
+            if (sourceAttribute && sourceAttribute.attributeType != attribute.attributeType) {
+                CDReturnError(error, CDError(134110, [NSString stringWithFormat:@"The attribute %@.%@ changes type.", target.name, attribute.name]));
+                return nil;
+            }
+            NSPropertyMapping *property = [[[NSPropertyMapping alloc] init] autorelease];
+            property.name = attribute.name;
+            if (sourceAttribute) property.valueExpression = CDSourceValueExpression(sourceAttribute.name);
+            [attributes addObject:property];
+        }
+        NSMutableArray *relationships = [NSMutableArray array];
+        for (NSRelationshipDescription *relationship in target.properties) {
+            if (![relationship isKindOfClass:[NSRelationshipDescription class]] || relationship.isTransient) continue;
+            NSRelationshipDescription *sourceRelationship = [origin.relationshipsByName objectForKey:relationship.name];
+            if (!sourceRelationship && relationship.renamingIdentifier) sourceRelationship = [origin.relationshipsByName objectForKey:relationship.renamingIdentifier];
+            NSPropertyMapping *property = [[[NSPropertyMapping alloc] init] autorelease];
+            property.name = relationship.name;
+            if (sourceRelationship)
+                property.valueExpression = [NSExpression expressionForFunction:[NSExpression expressionForVariable:@"manager"]
+                                                                  selectorName:@"destinationInstancesForSourceRelationshipNamed:sourceInstances:"
+                                                                     arguments:[NSArray arrayWithObjects:[NSExpression expressionForConstantValue:sourceRelationship.name],
+                                                                                CDSourceValueExpression(sourceRelationship.name), nil]];
+            [relationships addObject:property];
+        }
+        entityMapping.attributeMappings = attributes;
+        entityMapping.relationshipMappings = relationships;
+        [entities addObject:entityMapping];
+    }
+    for (NSEntityDescription *origin in source.entities) {
+        if ([usedSources containsObject:origin.name]) continue;
+        NSEntityMapping *entityMapping = [[[NSEntityMapping alloc] init] autorelease];
+        entityMapping.name = [@"IEM_Remove_" stringByAppendingString:origin.name];
+        entityMapping.sourceEntityName = origin.name;
+        entityMapping.sourceEntityVersionHash = origin.versionHash;
+        entityMapping.mappingType = NSRemoveEntityMappingType;
         [entities addObject:entityMapping];
     }
     mapping.entityMappings = entities;
@@ -317,16 +384,16 @@ NSError *CDDestroyPersistentStore(NSPersistentStoreCoordinator *coordinator, NSU
     return self;
 }
 - (BOOL)migrateStoreFromURL:(NSURL *)sourceURL type:(NSString *)sourceType options:(NSDictionary *)sourceOptions withMappingModel:(NSMappingModel *)mapping toDestinationURL:(NSURL *)destinationURL destinationType:(NSString *)destinationType destinationOptions:(NSDictionary *)destinationOptions error:(NSError **)error {
-    (void)sourceOptions; (void)destinationOptions;
-    if (![sourceType isEqualToString:NSSQLiteStoreType] || ![destinationType isEqualToString:NSSQLiteStoreType])
-        return CDReturnError(error, CDError(134110, @"This migration manager can copy SQLite stores only."));
-    if (!self.sourceModel || !self.destinationModel || !sourceURL.isFileURL || !destinationURL.isFileURL)
-        return CDReturnError(error, CDError(134110, @"Migration needs two models and file URLs."));
+    if (!self.sourceModel || !self.destinationModel)
+        return CDReturnError(error, CDError(134110, @"Migration needs a source and a destination model."));
     BOOL sameModel = [self.sourceModel.entityVersionHashesByName isEqual:self.destinationModel.entityVersionHashesByName];
-    if (!sameModel)
-        return CDReturnError(error, CDError(134110, @"Changing a store's model needs a mapping engine that is not available yet."));
-    if (mapping && mapping.entityMappings.count == 0)
-        return CDReturnError(error, CDError(134110, @"The supplied mapping model has no entity mappings."));
+    BOOL sqliteCopy = [sourceType isEqualToString:NSSQLiteStoreType] && [destinationType isEqualToString:NSSQLiteStoreType] &&
+                      sourceURL.isFileURL && destinationURL.isFileURL;
+    if (!sameModel || !sqliteCopy) {
+        if (!mapping) mapping = [NSMappingModel inferredMappingModelForSourceModel:self.sourceModel destinationModel:self.destinationModel error:error];
+        if (!mapping) return NO;
+        return CDMigrateWithMapping(self, sourceURL, sourceType, sourceOptions, mapping, destinationURL, destinationType, destinationOptions, error);
+    }
 
     sqlite3 *source = NULL, *destination = NULL;
     if (sqlite3_open_v2([sourceURL fileSystemRepresentation], &source, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, NULL) != SQLITE_OK) {
@@ -351,7 +418,13 @@ NSError *CDDestroyPersistentStore(NSPersistentStoreCoordinator *coordinator, NSU
 }
 - (BOOL)usesStoreSpecificMigrationManager { return CDGet(self, @"usesStoreManager") ? [CDGet(self, @"usesStoreManager") boolValue] : YES; }
 - (void)setUsesStoreSpecificMigrationManager:(BOOL)value { CDSet(self, @"usesStoreManager", [NSNumber numberWithBool:value]); }
-- (void)reset { CDSet(self, @"associations", [NSMutableDictionary dictionary]); CDSet(self, @"currentMapping", nil); CDSet(self, @"migrationProgress", [NSNumber numberWithFloat:0]); }
+- (void)reset {
+    CDSet(self, @"associations", [NSMutableDictionary dictionary]);
+    CDSet(self, @"reverseAssociations", [NSMutableDictionary dictionary]);
+    CDSet(self, @"currentMapping", nil);
+    CDSet(self, @"cancelledError", nil);
+    CDSet(self, @"migrationProgress", [NSNumber numberWithFloat:0]);
+}
 - (NSMappingModel *)mappingModel { return CDGet(self, @"mappingModel"); }
 - (NSManagedObjectModel *)sourceModel { return CDGet(self, @"sourceModel"); }
 - (NSManagedObjectModel *)destinationModel { return CDGet(self, @"destinationModel"); }
@@ -367,9 +440,42 @@ NSError *CDDestroyPersistentStore(NSPersistentStoreCoordinator *coordinator, NSU
     NSMutableArray *destinations = [map objectForKey:[[source.objectID URIRepresentation] absoluteString]];
     if (!destinations) { destinations = [NSMutableArray array]; [map setObject:destinations forKey:[[source.objectID URIRepresentation] absoluteString]]; }
     [destinations addObject:destination];
+    NSMutableDictionary *reverse = CDGet(self, @"reverseAssociations");
+    if (!reverse) { reverse = [NSMutableDictionary dictionary]; CDSet(self, @"reverseAssociations", reverse); }
+    NSMutableDictionary *back = [reverse objectForKey:mapping.name];
+    if (!back) { back = [NSMutableDictionary dictionary]; [reverse setObject:back forKey:mapping.name]; }
+    NSValue *key = [NSValue valueWithNonretainedObject:destination];
+    NSMutableArray *sources = [back objectForKey:key];
+    if (!sources) { sources = [NSMutableArray array]; [back setObject:sources forKey:key]; }
+    [sources addObject:source];
+}
+// The destination objects made from the far side of the current mapping's
+// source relationship.
+- (NSArray *)destinationInstancesForSourceRelationshipNamed:(NSString *)name sourceInstances:(id)sources {
+    NSEntityDescription *entity = [self.sourceModel.entitiesByName objectForKey:self.currentEntityMapping.sourceEntityName];
+    NSString *target = [[entity.relationshipsByName objectForKey:name] destinationEntity].name;
+    if (!target || !sources || sources == [NSNull null]) return [NSArray array];
+    NSMutableArray *result = [NSMutableArray array];
+    for (NSEntityMapping *mapping in self.mappingModel.entityMappings) {
+        if (![mapping.sourceEntityName isEqualToString:target] || mapping.mappingType == NSRemoveEntityMappingType) continue;
+        [result addObjectsFromArray:[self destinationInstancesForEntityMappingNamed:mapping.name sourceInstances:sources]];
+    }
+    return result;
+}
+- (NSFetchRequest *)fetchRequestForSourceEntityNamed:(NSString *)entityName predicateString:(NSString *)predicateString {
+    return [self fetchRequestForSourceEntityNamed:entityName predicateString:predicateString includesSubentities:NO];
+}
+- (NSFetchRequest *)fetchRequestForSourceEntityNamed:(NSString *)entityName predicateString:(NSString *)predicateString includesSubentities:(BOOL)subentities {
+    NSFetchRequest *request = [NSFetchRequest fetchRequestWithEntityName:entityName];
+    if (predicateString.length && ![predicateString isEqualToString:@"TRUEPREDICATE"])
+        request.predicate = [NSPredicate predicateWithFormat:predicateString];
+    request.includesSubentities = subentities;
+    return request;
 }
 - (NSArray *)destinationInstancesForEntityMappingNamed:(NSString *)name sourceInstances:(NSArray *)sources {
     NSDictionary *map = [CDGet(self, @"associations") objectForKey:name];
+    if ([sources isKindOfClass:[NSManagedObject class]]) sources = [NSArray arrayWithObject:sources];
+    else if ([sources isKindOfClass:[NSSet class]] || [sources isKindOfClass:[NSOrderedSet class]]) sources = [(id)sources allObjects] ?: [(id)sources array];
     if (sources) {
         NSMutableArray *result = [NSMutableArray array];
         for (NSManagedObject *source in sources) [result addObjectsFromArray:[map objectForKey:[[source.objectID URIRepresentation] absoluteString]] ?: [NSArray array]];
@@ -380,15 +486,16 @@ NSError *CDDestroyPersistentStore(NSPersistentStoreCoordinator *coordinator, NSU
     return result;
 }
 - (NSArray *)sourceInstancesForEntityMappingNamed:(NSString *)name destinationInstances:(NSArray *)destinations {
-    NSDictionary *map = [CDGet(self, @"associations") objectForKey:name];
+    NSDictionary *back = [CDGet(self, @"reverseAssociations") objectForKey:name];
     NSMutableArray *result = [NSMutableArray array];
-    for (NSString *key in map) {
-        NSArray *items = [map objectForKey:key];
-        if (!destinations || [[NSSet setWithArray:items] intersectsSet:[NSSet setWithArray:destinations]]) {
-            for (NSManagedObject *source in self.sourceContext.registeredObjects)
-                if ([[[source.objectID URIRepresentation] absoluteString] isEqualToString:key]) [result addObject:source];
-        }
+    if (!destinations) {
+        for (NSArray *sources in [back allValues])
+            for (id source in sources) if (![result containsObject:source]) [result addObject:source];
+        return result;
     }
+    for (NSManagedObject *destination in destinations)
+        for (id source in [back objectForKey:[NSValue valueWithNonretainedObject:destination]] ?: [NSArray array])
+            if (![result containsObject:source]) [result addObject:source];
     return result;
 }
 - (NSEntityMapping *)currentEntityMapping { return CDGet(self, @"currentMapping"); }

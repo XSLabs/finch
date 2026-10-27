@@ -25,18 +25,35 @@ void CDObjectSetValue(NSManagedObject *object, id value, NSString *key, BOOL mar
     if (context && !object.isInserted && !object.isDeleted) [CDGet(context, @"updatedObjects") addObject:object];
 }
 
+void CDRekeyRegisteredObjects(NSManagedObjectContext *context) {
+    NSMutableDictionary *registered = CDGet(context, @"registeredObjects");
+    NSDictionary *objects = [[registered copy] autorelease];
+    [registered removeAllObjects];
+    for (NSManagedObject *object in [objects allValues]) [registered setObject:object forKey:CDObjectKey(object.objectID)];
+}
+
+BOOL CDFireFault(NSManagedObject *object, NSError **error) {
+    if (!object.isFault) return YES;
+    if (CDIsCustomStore(object.objectID.persistentStore)) return CDFireCustomFault(object, error);
+    return CDFireSQLiteFault(object, error);
+}
+
 id CDObjectValue(NSManagedObject *object, NSString *key) {
+    if (object.isFault) CDFireFault(object, NULL);
     id value = [CDGet(object, @"values") objectForKey:key];
+    if (!value) {
+        NSRelationshipDescription *relationship = [object.entity.relationshipsByName objectForKey:key];
+        if (relationship.isToMany) {
+            value = CDLoadSQLiteToMany(object, relationship) ?:
+                (relationship.isOrdered ? (id)[NSMutableOrderedSet orderedSet] : (id)[NSMutableSet set]);
+            CDObjectSetValue(object, value, key, NO);
+            NSMutableDictionary *committed = [[CDGet(object, @"committedValues") mutableCopy] autorelease];
+            if (committed) { [committed setObject:value forKey:key]; CDSet(object, @"committedValues", committed); }
+        }
+    }
     if ([value isKindOfClass:[NSManagedObjectID class]]) {
         NSManagedObjectContext *context = object.managedObjectContext;
-        if (context) {
-            NSManagedObject *related = [context objectWithID:value];
-            if (related.isFault) {
-                NSManagedObject *loaded = [context existingObjectWithID:value error:NULL];
-                if (loaded) return loaded;
-            }
-            return related;
-        }
+        if (context) return [context objectWithID:value];
     }
     return value;
 }
@@ -45,11 +62,70 @@ static id CDObjectGetter(NSManagedObject *object, SEL selector) {
     return CDObjectValue(object, NSStringFromSelector(selector));
 }
 
-static void CDObjectSetter(NSManagedObject *object, SEL selector, id value) {
-    NSString *key = CDKeyForSetter(selector);
+static void CDSetWithNotice(NSManagedObject *object, id value, NSString *key) {
     [object willChangeValueForKey:key];
     CDObjectSetValue(object, value, key, YES);
     [object didChangeValueForKey:key];
+}
+
+static id CDMutableToMany(NSManagedObject *object, NSRelationshipDescription *relationship) {
+    id current = CDObjectValue(object, relationship.name);
+    if (relationship.isOrdered) {
+        NSMutableOrderedSet *copy = [NSMutableOrderedSet orderedSet];
+        for (id item in current) [copy addObject:item];
+        return copy;
+    }
+    NSMutableSet *copy = [NSMutableSet set];
+    for (id item in current) [copy addObject:item];
+    return copy;
+}
+
+// Keeps the other side of a relationship in step when one side changes.
+static void CDInverseRemove(NSManagedObject *other, NSRelationshipDescription *inverse, NSManagedObject *object) {
+    if (inverse.isToMany) {
+        id set = CDMutableToMany(other, inverse);
+        if (![set containsObject:object]) return;
+        [set removeObject:object];
+        CDSetWithNotice(other, set, inverse.name);
+    } else if (CDObjectValue(other, inverse.name) == object) {
+        CDSetWithNotice(other, nil, inverse.name);
+    }
+}
+
+static void CDInverseAdd(NSManagedObject *other, NSRelationshipDescription *inverse, NSManagedObject *object) {
+    if (inverse.isToMany) {
+        id set = CDMutableToMany(other, inverse);
+        if ([set containsObject:object]) return;
+        [set addObject:object];
+        CDSetWithNotice(other, set, inverse.name);
+        return;
+    }
+    NSManagedObject *previous = CDObjectValue(other, inverse.name);
+    if (previous == object) return;
+    if ([previous isKindOfClass:[NSManagedObject class]] && inverse.inverseRelationship)
+        CDInverseRemove(previous, inverse.inverseRelationship, other);
+    CDSetWithNotice(other, object, inverse.name);
+}
+
+static void CDObjectSetter(NSManagedObject *object, SEL selector, id value) {
+    NSString *key = CDKeyForSetter(selector);
+    NSRelationshipDescription *relationship = [object.entity.relationshipsByName objectForKey:key];
+    NSRelationshipDescription *inverse = relationship.inverseRelationship;
+    if (!inverse || !object.managedObjectContext) { CDSetWithNotice(object, value, key); return; }
+    id old = CDObjectValue(object, key);
+    if (!relationship.isToMany) {
+        if (old == value) { CDSetWithNotice(object, value, key); return; }
+        if ([old isKindOfClass:[NSManagedObject class]]) CDInverseRemove(old, inverse, object);
+        CDSetWithNotice(object, value, key);
+        if ([value isKindOfClass:[NSManagedObject class]]) CDInverseAdd(value, inverse, object);
+        return;
+    }
+    NSMutableArray *removed = [NSMutableArray array], *added = [NSMutableArray array];
+    for (id item in old) if (![value containsObject:item]) [removed addObject:item];
+    for (id item in value) if (![old containsObject:item]) [added addObject:item];
+    for (NSManagedObject *item in removed) CDInverseRemove(item, inverse, object);
+    CDSetWithNotice(object, value, key);
+    for (NSManagedObject *item in added) CDInverseAdd(item, inverse, object);
 }
 
 static BOOL CDBooleanGetter(NSManagedObject *object, SEL selector) {
@@ -158,7 +234,7 @@ static BOOL CDAddModeledAccessor(Class cls, SEL selector, NSAttributeDescription
 - (NSEntityDescription *)entity { return CDGet(self, @"entity"); }
 - (NSManagedObjectID *)objectID { return CDGet(self, @"objectID"); }
 - (BOOL)isInserted { return [CDGet(self, @"inserted") boolValue]; }
-- (BOOL)isUpdated { return [CDGet(self, @"updated") boolValue] || ([CDGet(self, @"updatedObjects") containsObject:self]); }
+- (BOOL)isUpdated { return [CDGet(self, @"updated") boolValue] || [CDGet(self.managedObjectContext, @"updatedObjects") containsObject:self]; }
 - (BOOL)isDeleted { return [CDGet(self, @"deleted") boolValue]; }
 - (BOOL)hasChanges { return self.isInserted || self.isUpdated || self.isDeleted; }
 - (BOOL)hasPersistentChangedValues { return self.isInserted || self.isDeleted || self.isUpdated; }
@@ -183,7 +259,10 @@ static BOOL CDAddModeledAccessor(Class cls, SEL selector, NSAttributeDescription
     if ([self.entity.propertiesByName objectForKey:key]) { CDObjectSetter(self, NSSelectorFromString([NSString stringWithFormat:@"set%@%@:", [[key substringToIndex:1] uppercaseString], [key substringFromIndex:1]]), value); return; }
     [super setValue:value forKey:key];
 }
-- (id)primitiveValueForKey:(NSString *)key { return [CDGet(self, @"values") objectForKey:key]; }
+- (id)primitiveValueForKey:(NSString *)key {
+    if (self.isFault) CDFireFault(self, NULL);
+    return [CDGet(self, @"values") objectForKey:key];
+}
 - (void)setPrimitiveValue:(id)value forKey:(NSString *)key { CDObjectSetValue(self, value, key, NO); }
 - (NSDictionary *)committedValuesForKeys:(NSArray *)keys {
     NSDictionary *values = CDGet(self, @"committedValues") ?: CDGet(self, @"values") ?: [NSDictionary dictionary];
@@ -263,7 +342,12 @@ NSManagedObjectID *CDMakeObjectID(NSEntityDescription *entity, NSPersistentStore
     CDSet(objectID, @"persistentStore", store);
     CDSet(objectID, @"primaryKey", [NSNumber numberWithInteger:primaryKey]);
     CDSet(objectID, @"temporary", [NSNumber numberWithBool:temporary]);
-    CDSet(objectID, @"temporaryToken", [[NSUUID UUID] UUIDString]);
+    static NSString *session;
+    static long counter;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ session = [[[NSUUID UUID] UUIDString] retain]; });
+    long serial = __atomic_add_fetch(&counter, 1, __ATOMIC_RELAXED);
+    CDSet(objectID, @"temporaryToken", [NSString stringWithFormat:@"%@%ld", session, serial]);
     return objectID;
 }
 
@@ -432,6 +516,10 @@ void CDObjectDidPersist(NSManagedObject *object, NSPersistentStore *store) {
 - (NSManagedObject *)existingObjectWithID:(NSManagedObjectID *)objectID error:(NSError **)error {
     NSManagedObject *registered = [self objectRegisteredForID:objectID];
     if (registered && !registered.isFault) return registered;
+    if (!objectID.isTemporaryID && (CDIsCustomStore(objectID.persistentStore) || CDStoreDatabase(objectID.persistentStore))) {
+        NSManagedObject *object = [self objectWithID:objectID];
+        return CDFireFault(object, error) ? object : nil;
+    }
     NSFetchRequest *request = [NSFetchRequest fetchRequestWithEntityName:objectID.entity.name];
     NSArray *objects = [self executeFetchRequest:request error:error];
     for (NSManagedObject *object in objects) if ([object.objectID isEqual:objectID]) return object;
@@ -439,6 +527,12 @@ void CDObjectDidPersist(NSManagedObject *object, NSPersistentStore *store) {
     return nil;
 }
 - (NSArray *)executeFetchRequest:(NSFetchRequest *)request error:(NSError **)error {
+    if (!CDGet(request, @"entity") && request.entityName) {
+        NSManagedObjectContext *owner = self;
+        while (owner && !owner.persistentStoreCoordinator) owner = owner.parentContext;
+        NSEntityDescription *entity = [owner.persistentStoreCoordinator.managedObjectModel.entitiesByName objectForKey:request.entityName];
+        if (entity) CDSet(request, @"entity", entity);
+    }
     NSArray *persisted = CDStoreFetch(self, request, error);
     if (!persisted) return nil;
     NSMutableArray *result = [NSMutableArray arrayWithArray:persisted];
@@ -570,7 +664,20 @@ void CDObjectDidPersist(NSManagedObject *object, NSPersistentStore *store) {
 - (BOOL)obtainPermanentIDsForObjects:(NSArray *)objects error:(NSError **)error {
     for (NSManagedObject *object in objects) if (!object.isInserted || object.managedObjectContext != self)
         return CDReturnError(error, CDError(134080, @"Only inserted objects in this context can receive permanent IDs."));
-    return CDReturnError(error, CDError(134190, @"Permanent IDs are assigned when the SQLite transaction commits."));
+    NSArray *stores = self.persistentStoreCoordinator.persistentStores;
+    NSMutableDictionary *byStore = [NSMutableDictionary dictionary];
+    for (NSManagedObject *object in objects) {
+        if (!object.objectID.isTemporaryID) continue;
+        NSPersistentStore *store = object.objectID.persistentStore ?: [stores firstObject];
+        if (!CDIsCustomStore(store))
+            return CDReturnError(error, CDError(134190, @"Permanent IDs are assigned when the SQLite transaction commits."));
+        NSValue *key = [NSValue valueWithNonretainedObject:store];
+        if (![byStore objectForKey:key]) [byStore setObject:[NSMutableArray array] forKey:key];
+        [[byStore objectForKey:key] addObject:object];
+    }
+    for (NSValue *key in byStore)
+        if (!CDObtainCustomIDs([key nonretainedObjectValue], [byStore objectForKey:key], error)) return NO;
+    return YES;
 }
 - (id)initWithCoder:(NSCoder *)coder { (void)coder; return [self initWithConcurrencyType:NSMainQueueConcurrencyType]; }
 - (void)encodeWithCoder:(NSCoder *)coder { [coder encodeObject:self.name forKey:@"NSName"]; }

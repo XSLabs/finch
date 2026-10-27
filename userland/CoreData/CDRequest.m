@@ -30,12 +30,20 @@
     if (self) CDSet(self, @"entityName", [name copy]);
     return self;
 }
-- (NSEntityDescription *)entity { return CDGet(self, @"entity"); }
+// Like Core Data, a request made from an entity name cannot say which entity
+// it means until a context has run it.
+- (NSEntityDescription *)entity {
+    NSEntityDescription *entity = CDGet(self, @"entity");
+    if (!entity && CDGet(self, @"entityName"))
+        [NSException raise:NSObjectInaccessibleException format:@"This fetch request (%p) was created with a string name (%@), and cannot respond to -entity until used by an NSManagedObjectContext",
+         self, CDGet(self, @"entityName")];
+    return entity;
+}
 - (void)setEntity:(NSEntityDescription *)entity {
     CDSet(self, @"entity", entity);
     if (entity.name) CDSet(self, @"entityName", [entity.name copy]);
 }
-- (NSString *)entityName { return CDGet(self, @"entityName") ?: self.entity.name; }
+- (NSString *)entityName { return CDGet(self, @"entityName") ?: [CDGet(self, @"entity") name]; }
 - (NSPredicate *)predicate { return CDGet(self, @"predicate"); }
 - (void)setPredicate:(NSPredicate *)value { CDSet(self, @"predicate", [value copy]); }
 - (NSArray *)sortDescriptors { return CDGet(self, @"sortDescriptors"); }
@@ -43,7 +51,32 @@
 - (NSUInteger)fetchLimit { return [CDGet(self, @"fetchLimit") unsignedIntegerValue]; }
 - (void)setFetchLimit:(NSUInteger)value { CDSet(self, @"fetchLimit", [NSNumber numberWithUnsignedInteger:value]); }
 - (NSFetchRequestResultType)resultType { return [CDGet(self, @"resultType") unsignedIntegerValue]; }
-- (void)setResultType:(NSFetchRequestResultType)value { CDSet(self, @"resultType", [NSNumber numberWithUnsignedInteger:value]); }
+- (void)setResultType:(NSFetchRequestResultType)value {
+    CDSet(self, @"resultType", [NSNumber numberWithUnsignedInteger:value]);
+    if (value == NSManagedObjectIDResultType || value == NSCountResultType) self.includesPropertyValues = NO;
+}
+- (NSString *)description {
+    static NSString *const types[] = { @"NSManagedObjectResultType", @"NSManagedObjectIDResultType", @"NSDictionaryResultType", @"", @"NSCountResultType" };
+    NSUInteger type = self.resultType;
+    NSMutableString *text = [NSMutableString stringWithFormat:@"<NSFetchRequest: %p> (entity: %@; predicate: (%@); sortDescriptors: (%@); ",
+                             self, self.entityName, self.predicate, self.sortDescriptors];
+    if (self.fetchLimit) [text appendFormat:@"limit: %lu; ", (unsigned long)self.fetchLimit];
+    if (self.fetchOffset) [text appendFormat:@"offset: %lu; ", (unsigned long)self.fetchOffset];
+    if (self.fetchBatchSize) [text appendFormat:@"batch size: %lu; ", (unsigned long)self.fetchBatchSize];
+    [text appendFormat:@"type: %@; ", type < 5 ? types[type] : @""];
+    if (!self.includesSubentities) [text appendString:@"includesSubentities: NO; "];
+    if (!self.includesPropertyValues) [text appendString:@"includesPropertyValues: NO; "];
+    if (!self.returnsObjectsAsFaults) [text appendString:@"returnsObjectsAsFaults: NO; "];
+    if (!self.includesPendingChanges) [text appendString:@"includesPendingChanges: NO; "];
+    if (self.returnsDistinctResults) [text appendString:@"returnsDistinctResults: YES; "];
+    if (self.shouldRefreshRefetchedObjects) [text appendString:@"shouldRefreshRefetchedObjects: YES; "];
+    if (self.relationshipKeyPathsForPrefetching.count) [text appendFormat:@"relationshipKeyPathsForPrefetching: (%@); ", self.relationshipKeyPathsForPrefetching];
+    if (self.propertiesToFetch.count) [text appendFormat:@"propertiesToFetch: (%@); ", self.propertiesToFetch];
+    if (self.havingPredicate) [text appendFormat:@"havingPredicate: (%@); ", self.havingPredicate];
+    if (self.propertiesToGroupBy.count) [text appendFormat:@"propertiesToGroupBy: (%@); ", self.propertiesToGroupBy];
+    [text appendString:@")"];
+    return text;
+}
 - (BOOL)includesSubentities { return CDGet(self, @"includesSubentities") ? [CDGet(self, @"includesSubentities") boolValue] : YES; }
 - (void)setIncludesSubentities:(BOOL)value { CDSet(self, @"includesSubentities", [NSNumber numberWithBool:value]); }
 - (BOOL)includesPropertyValues { return CDGet(self, @"includesPropertyValues") ? [CDGet(self, @"includesPropertyValues") boolValue] : YES; }
@@ -70,13 +103,18 @@
 - (void)setHavingPredicate:(NSPredicate *)value { CDSet(self, @"havingPredicate", [value copy]); }
 - (NSArray *)affectedStores { return [super affectedStores]; }
 - (NSPersistentStoreRequestType)requestType { return NSFetchRequestType; }
+// Runs in the context whose perform block is current.
 - (NSArray *)execute:(NSError **)error {
-    CDReturnError(error, CDError(134091, @"A fetch request must be executed by a managed object context."));
+    NSManagedObjectContext *context = (NSManagedObjectContext *)dispatch_get_specific(@selector(_finchContextQueue));
+    if (context) return [context executeFetchRequest:self error:error];
+    CDReturnError(error, [NSError errorWithDomain:NSCocoaErrorDomain code:134060 userInfo:[NSDictionary dictionaryWithObjectsAndKeys:
+        @"A Core Data error occurred.", NSLocalizedDescriptionKey,
+        @"Cannot fetch without an NSManagedObjectContext in scope", @"message", nil]]);
     return nil;
 }
 - (id)copyWithZone:(NSZone *)zone {
     NSFetchRequest *copy = [[[self class] allocWithZone:zone] initWithEntityName:self.entityName];
-    copy.entity = self.entity;
+    if (CDGet(self, @"entity")) copy.entity = CDGet(self, @"entity");
     copy.predicate = self.predicate;
     copy.sortDescriptors = self.sortDescriptors;
     copy.fetchLimit = self.fetchLimit;
@@ -121,10 +159,21 @@
 - (instancetype)init { return [self initWithFetchRequest:[[[NSFetchRequest alloc] init] autorelease]]; }
 - (instancetype)initWithFetchRequest:(NSFetchRequest *)fetch {
     self = [super init];
-    if (self) { CDSet(self, @"fetchRequest", [fetch copy]); self.resultType = NSBatchDeleteResultTypeStatusOnly; }
+    if (self) {
+        NSFetchRequest *request = [[fetch copy] autorelease];
+        request.resultType = NSManagedObjectIDResultType;
+        request.includesPropertyValues = NO;
+        request.includesPendingChanges = NO;
+        CDSet(self, @"fetchRequest", request);
+        self.resultType = NSBatchDeleteResultTypeStatusOnly;
+    }
     return self;
 }
 - (instancetype)initWithObjectIDs:(NSArray *)objects {
+    if (!objects.count) {
+        [self release];
+        [NSException raise:NSInvalidArgumentException format:@"Must supply a non-zero number of objectIDs to request during initialization"];
+    }
     self = [self initWithFetchRequest:[[[NSFetchRequest alloc] init] autorelease]];
     if (self) CDSet(self, @"objectIDs", [objects copy]);
     return self;
@@ -162,8 +211,14 @@
     }
     return self;
 }
-- (NSString *)entityName { return CDGet(self, @"entityName") ?: self.entity.name; }
-- (NSEntityDescription *)entity { return CDGet(self, @"entity"); }
+- (NSString *)entityName { return CDGet(self, @"entityName") ?: [CDGet(self, @"entity") name]; }
+- (NSEntityDescription *)entity {
+    NSEntityDescription *entity = CDGet(self, @"entity");
+    if (!entity && [CDGet(self, @"entityName") length])
+        [NSException raise:NSObjectInaccessibleException format:@"This batch update request (%p) was created with a string name (%@), and cannot respond to -entity until used by an NSManagedObjectContext",
+         self, CDGet(self, @"entityName")];
+    return entity;
+}
 - (NSPredicate *)predicate { return CDGet(self, @"predicate"); }
 - (void)setPredicate:(NSPredicate *)value { CDSet(self, @"predicate", [value copy]); }
 - (BOOL)includesSubentities { return CDGet(self, @"includesSubentities") ? [CDGet(self, @"includesSubentities") boolValue] : YES; }
@@ -175,7 +230,7 @@
 - (NSPersistentStoreRequestType)requestType { return NSBatchUpdateRequestType; }
 - (id)copyWithZone:(NSZone *)zone {
     NSBatchUpdateRequest *copy = [[[self class] allocWithZone:zone] initWithEntityName:self.entityName];
-    CDSet(copy, @"entity", self.entity);
+    CDSet(copy, @"entity", CDGet(self, @"entity"));
     copy.predicate = self.predicate;
     copy.includesSubentities = self.includesSubentities;
     copy.resultType = self.resultType;
@@ -225,4 +280,14 @@
 @implementation NSAsynchronousFetchResult
 - (NSAsynchronousFetchRequest *)fetchRequest { return CDGet(self, @"fetchRequest"); }
 - (NSArray *)finalResult { return CDGet(self, @"finalResult"); }
+@end
+
+// The objects a fetch can return, as Core Data declares them.
+@implementation NSNumber (NSFetchedResultSupport)
+@end
+@implementation NSDictionary (NSFetchedResultSupport)
+@end
+@implementation NSManagedObject (NSFetchedResultSupport)
+@end
+@implementation NSManagedObjectID (NSFetchedResultSupport)
 @end

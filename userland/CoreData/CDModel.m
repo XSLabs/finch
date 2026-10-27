@@ -2,11 +2,22 @@
 #import "CDInternal.h"
 #import <CommonCrypto/CommonDigest.h>
 
-static NSData *CDHash(NSString *text) {
+// Version hashes are Core Data's: SHA-256 digests over the same fields in the
+// same order, so stores and mapping models made on macOS match Finch's models.
+static void CDDigestString(CC_SHA256_CTX *context, NSString *text) {
+    const char *bytes = [text UTF8String];
+    if (bytes) CC_SHA256_Update(context, bytes, (CC_LONG)strlen(bytes));
+}
+
+static NSData *CDDigestData(CC_SHA256_CTX *context) {
     unsigned char digest[CC_SHA256_DIGEST_LENGTH];
-    NSData *input = [text dataUsingEncoding:NSUTF8StringEncoding];
-    CC_SHA256([input bytes], (CC_LONG)[input length], digest);
+    CC_SHA256_Final(digest, context);
     return [NSData dataWithBytes:digest length:sizeof(digest)];
+}
+
+static NSInteger CDCompareNames(id a, id b, void *context) {
+    (void)context;
+    return [[a name] compare:[b name]];
 }
 
 static NSURL *CDResolveModelURL(NSURL *url) {
@@ -34,12 +45,12 @@ static NSURL *CDResolveModelURL(NSURL *url) {
 - (NSString *)name { return CDGet(self, @"name"); }
 - (void)setName:(NSString *)name { CDSet(self, @"name", [name copy]); }
 - (NSEntityDescription *)entity { return CDGet(self, @"entity"); }
-- (BOOL)isOptional { return [CDGet(self, @"optional") boolValue]; }
+- (BOOL)isOptional { NSNumber *value = CDGet(self, @"optional"); return value ? value.boolValue : YES; }
 - (void)setOptional:(BOOL)value { CDSet(self, @"optional", [NSNumber numberWithBool:value]); }
 - (BOOL)isTransient { return [CDGet(self, @"transient") boolValue]; }
 - (void)setTransient:(BOOL)value { CDSet(self, @"transient", [NSNumber numberWithBool:value]); }
-- (NSDictionary *)userInfo { return CDGet(self, @"userInfo"); }
-- (void)setUserInfo:(NSDictionary *)value { CDSet(self, @"userInfo", [value copy]); }
+- (NSDictionary *)userInfo { return CDGet(self, @"userInfo") ?: [NSDictionary dictionary]; }
+- (void)setUserInfo:(NSDictionary *)value { CDSet(self, @"userInfo", [[value copy] autorelease]); }
 - (BOOL)isIndexed { return [CDGet(self, @"indexed") boolValue]; }
 - (void)setIndexed:(BOOL)value { CDSet(self, @"indexed", [NSNumber numberWithBool:value]); }
 - (BOOL)isIndexedBySpotlight { return [CDGet(self, @"indexedBySpotlight") boolValue]; }
@@ -48,19 +59,44 @@ static NSURL *CDResolveModelURL(NSURL *url) {
 - (void)setStoredInExternalRecord:(BOOL)value { CDSet(self, @"storedInExternalRecord", [NSNumber numberWithBool:value]); }
 - (NSString *)versionHashModifier { return CDGet(self, @"versionHashModifier"); }
 - (void)setVersionHashModifier:(NSString *)value { CDSet(self, @"versionHashModifier", [value copy]); }
-- (NSString *)renamingIdentifier { return CDGet(self, @"renamingIdentifier"); }
+- (NSString *)renamingIdentifier { return CDGet(self, @"renamingIdentifier") ?: self.name; }
 - (void)setRenamingIdentifier:(NSString *)value { CDSet(self, @"renamingIdentifier", [value copy]); }
 - (NSArray *)validationPredicates { return CDGet(self, @"validationPredicates") ?: [NSArray array]; }
 - (NSArray *)validationWarnings { return CDGet(self, @"validationWarnings") ?: [NSArray array]; }
 - (void)setValidationPredicates:(NSArray *)predicates withValidationWarnings:(NSArray *)warnings {
+    if (predicates.count != warnings.count)
+        [NSException raise:NSInvalidArgumentException format:@"Mismatch between length of validation predicates and warnings"];
     CDSet(self, @"validationPredicates", [predicates copy]);
     CDSet(self, @"validationWarnings", [warnings copy]);
 }
 - (NSData *)versionHash {
-    NSString *value = [NSString stringWithFormat:@"%@|%d|%d|%@", self.name ?: @"", self.optional,
-                       self.transient, self.versionHashModifier ?: @""];
-    return CDHash(value);
+    CC_SHA256_CTX context;
+    CC_SHA256_Init(&context);
+    CDDigestString(&context, self.name);
+    uint16_t flags = (self.optional ? 1 : 0) | (self.transient ? 2 : 0) |
+                     ([self isKindOfClass:[NSDerivedAttributeDescription class]] ? 4 : 0);
+    CC_SHA256_Update(&context, &flags, sizeof(flags));
+    CDDigestString(&context, self.versionHashModifier);
+    return CDDigestData(&context);
 }
+static BOOL CDSame(id a, id b) { return a == b || [a isEqual:b]; }
+static NSString *CDYesNo(BOOL value) { return value ? @"YES" : @"NO"; }
+- (NSString *)description {
+    return [NSString stringWithFormat:@"(<%@: %p>), name %@, isOptional %d, isTransient %d, entity %@, renamingIdentifier %@, validation predicates %@, warnings %@, versionHashModifier %@\n userInfo %@",
+            [self class], self, self.name, self.optional, self.transient, self.entity.name, self.renamingIdentifier,
+            self.validationPredicates, self.validationWarnings, self.versionHashModifier, self.userInfo ?: [NSDictionary dictionary]];
+}
+- (BOOL)isEqual:(id)other {
+    if (other == self) return YES;
+    if (![other isKindOfClass:[self class]] || ![self isKindOfClass:[other class]]) return NO;
+    NSPropertyDescription *property = other;
+    return CDSame(self.name, property.name) && self.optional == property.optional && self.transient == property.transient &&
+           CDSame(self.userInfo, property.userInfo) && CDSame(self.versionHashModifier, property.versionHashModifier) &&
+           CDSame(CDGet(self, @"renamingIdentifier"), CDGet(property, @"renamingIdentifier")) &&
+           CDSame(self.validationPredicates, property.validationPredicates) && CDSame(self.validationWarnings, property.validationWarnings) &&
+           self.indexed == property.indexed;
+}
+- (NSUInteger)hash { return [self.name hash]; }
 - (id)copyWithZone:(NSZone *)zone {
     NSPropertyDescription *copy = [[[self class] allocWithZone:zone] init];
     [copy setName:self.name];
@@ -70,7 +106,8 @@ static NSURL *CDResolveModelURL(NSURL *url) {
     [copy setIndexed:self.indexed];
     [copy setIndexedBySpotlight:self.indexedBySpotlight];
     [copy setVersionHashModifier:self.versionHashModifier];
-    [copy setRenamingIdentifier:self.renamingIdentifier];
+    [copy setRenamingIdentifier:CDGet(self, @"renamingIdentifier")];
+    [copy setValidationPredicates:self.validationPredicates withValidationWarnings:self.validationWarnings];
     return copy;
 }
 - (id)initWithCoder:(NSCoder *)coder {
@@ -99,8 +136,53 @@ static NSURL *CDResolveModelURL(NSURL *url) {
 
 @implementation NSAttributeDescription
 - (NSAttributeType)attributeType { return [CDGet(self, @"attributeType") unsignedIntegerValue]; }
-- (void)setAttributeType:(NSAttributeType)value { CDSet(self, @"attributeType", [NSNumber numberWithUnsignedInteger:value]); }
-- (NSString *)attributeValueClassName { return CDGet(self, @"attributeValueClassName"); }
+- (void)setAttributeType:(NSAttributeType)value {
+    if (value == NSUndefinedAttributeType && !self.isTransient)
+        [NSException raise:NSInvalidArgumentException format:@"Can't set attribute type to undefined for non-transient attribute."];
+    if (value == NSObjectIDAttributeType)
+        [NSException raise:NSInvalidArgumentException format:@"'NSObjectIDAttributeType' is only supported for use with 'NSExpressionDescription'."];
+    CDSet(self, @"attributeType", [NSNumber numberWithUnsignedInteger:value]);
+}
+- (NSString *)attributeValueClassName {
+    NSString *name = CDGet(self, @"attributeValueClassName");
+    if (name) return name;
+    switch (self.attributeType) {
+        case NSInteger16AttributeType: case NSInteger32AttributeType: case NSInteger64AttributeType:
+        case NSDoubleAttributeType: case NSFloatAttributeType: case NSBooleanAttributeType: return @"NSNumber";
+        case NSDecimalAttributeType: return @"NSDecimalNumber";
+        case NSStringAttributeType: return @"NSString";
+        case NSDateAttributeType: return @"NSDate";
+        case NSBinaryDataAttributeType: return @"NSData";
+        case NSUUIDAttributeType: return @"NSUUID";
+        case NSURIAttributeType: return @"NSURL";
+        default: return nil;
+    }
+}
+- (NSString *)description {
+    return [NSString stringWithFormat:@"%@, attributeType %lu , attributeValueClassName %@, defaultValue %@, preservesValueInHistoryOnDeletion %@, allowsCloudEncryption %@",
+            [super description], (unsigned long)self.attributeType, self.attributeValueClassName, self.defaultValue,
+            CDYesNo(self.preservesValueInHistoryOnDeletion), CDYesNo(self.allowsCloudEncryption)];
+}
+- (BOOL)isEqual:(id)other {
+    if (![super isEqual:other]) return NO;
+    NSAttributeDescription *attribute = other;
+    return self.attributeType == attribute.attributeType && CDSame(self.defaultValue, attribute.defaultValue) &&
+           CDSame(self.attributeValueClassName, attribute.attributeValueClassName) &&
+           CDSame(self.valueTransformerName, attribute.valueTransformerName) &&
+           self.allowsExternalBinaryDataStorage == attribute.allowsExternalBinaryDataStorage;
+}
+- (NSUInteger)hash { return [super hash]; }
+- (id)copyWithZone:(NSZone *)zone {
+    NSAttributeDescription *copy = [super copyWithZone:zone];
+    CDSet(copy, @"attributeType", CDGet(self, @"attributeType"));
+    copy.attributeValueClassName = CDGet(self, @"attributeValueClassName");
+    copy.defaultValue = self.defaultValue;
+    copy.valueTransformerName = self.valueTransformerName;
+    copy.allowsExternalBinaryDataStorage = self.allowsExternalBinaryDataStorage;
+    copy.preservesValueInHistoryOnDeletion = self.preservesValueInHistoryOnDeletion;
+    copy.allowsCloudEncryption = self.allowsCloudEncryption;
+    return copy;
+}
 - (void)setAttributeValueClassName:(NSString *)value { CDSet(self, @"attributeValueClassName", [value copy]); }
 - (id)defaultValue { return CDGet(self, @"defaultValue"); }
 - (void)setDefaultValue:(id)value { CDSet(self, @"defaultValue", value); }
@@ -113,8 +195,16 @@ static NSURL *CDResolveModelURL(NSURL *url) {
 - (BOOL)allowsCloudEncryption { return [CDGet(self, @"allowsCloudEncryption") boolValue]; }
 - (void)setAllowsCloudEncryption:(BOOL)value { CDSet(self, @"allowsCloudEncryption", [NSNumber numberWithBool:value]); }
 - (NSData *)versionHash {
-    return CDHash([NSString stringWithFormat:@"%@|%lu|%@", [super versionHash],
-                   (unsigned long)self.attributeType, self.attributeValueClassName ?: @""]);
+    CC_SHA256_CTX context;
+    CC_SHA256_Init(&context);
+    NSData *property = [super versionHash];
+    CC_SHA256_Update(&context, property.bytes, (CC_LONG)property.length);
+    uint32_t type = (uint32_t)self.attributeType;
+    CC_SHA256_Update(&context, &type, sizeof(type));
+    uint8_t one = 1;
+    if (self.allowsExternalBinaryDataStorage) CC_SHA256_Update(&context, &one, 1);
+    if (self.preservesValueInHistoryOnDeletion) CC_SHA256_Update(&context, &one, 1);
+    return CDDigestData(&context);
 }
 - (id)initWithCoder:(NSCoder *)coder {
     self = [super initWithCoder:coder];
@@ -145,16 +235,38 @@ static NSURL *CDResolveModelURL(NSURL *url) {
 - (void)setMaxCount:(NSUInteger)value { CDSet(self, @"maxCount", [NSNumber numberWithUnsignedInteger:value]); }
 - (NSUInteger)minCount { return [CDGet(self, @"minCount") unsignedIntegerValue]; }
 - (void)setMinCount:(NSUInteger)value { CDSet(self, @"minCount", [NSNumber numberWithUnsignedInteger:value]); }
-- (NSDeleteRule)deleteRule { return [CDGet(self, @"deleteRule") unsignedIntegerValue]; }
+- (NSDeleteRule)deleteRule { NSNumber *rule = CDGet(self, @"deleteRule"); return rule ? rule.unsignedIntegerValue : NSNullifyDeleteRule; }
+- (NSString *)description {
+    return [NSString stringWithFormat:@"%@, destination entity %@, inverseRelationship %@, minCount %lu, maxCount %lu, isOrdered %d, deleteRule %lu",
+            [super description], self.destinationEntity.name, self.inverseRelationship.name, (unsigned long)self.minCount,
+            (unsigned long)self.maxCount, self.isOrdered, (unsigned long)self.deleteRule];
+}
+- (BOOL)isEqual:(id)other {
+    if (![super isEqual:other]) return NO;
+    NSRelationshipDescription *relationship = other;
+    return CDSame(self.destinationEntity.name, relationship.destinationEntity.name) &&
+           CDSame(self.inverseRelationship.name, relationship.inverseRelationship.name) && self.minCount == relationship.minCount &&
+           self.maxCount == relationship.maxCount && self.deleteRule == relationship.deleteRule && self.isOrdered == relationship.isOrdered;
+}
+- (NSUInteger)hash { return [super hash]; }
 - (void)setDeleteRule:(NSDeleteRule)value { CDSet(self, @"deleteRule", [NSNumber numberWithUnsignedInteger:value]); }
 - (BOOL)isToMany { return self.maxCount == 0 || self.maxCount > 1; }
 - (BOOL)isOrdered { return [CDGet(self, @"ordered") boolValue]; }
 - (void)setOrdered:(BOOL)value { CDSet(self, @"ordered", [NSNumber numberWithBool:value]); }
 - (NSData *)versionHash {
-    return CDHash([NSString stringWithFormat:@"%@|%@|%@|%lu|%lu|%lu", [super versionHash],
-                   self.destinationEntity.name ?: @"", self.inverseRelationship.name ?: @"",
-                   (unsigned long)self.minCount, (unsigned long)self.maxCount,
-                   (unsigned long)self.deleteRule]);
+    CC_SHA256_CTX context;
+    CC_SHA256_Init(&context);
+    NSData *property = [super versionHash];
+    CC_SHA256_Update(&context, property.bytes, (CC_LONG)property.length);
+    CDDigestString(&context, self.destinationEntity.name ?: CDGet(self, @"destinationName"));
+    NSRelationshipDescription *inverse = self.inverseRelationship;
+    if (inverse && inverse != self) CDDigestString(&context, inverse.name);
+    else if (!inverse) CDDigestString(&context, CDGet(self, @"inverseName"));
+    uint32_t counts[2] = { (uint32_t)self.maxCount, (uint32_t)self.minCount };
+    CC_SHA256_Update(&context, counts, sizeof(counts));
+    uint16_t ordered = 1;
+    if (self.isOrdered) CC_SHA256_Update(&context, &ordered, sizeof(ordered));
+    return CDDigestData(&context);
 }
 - (id)initWithCoder:(NSCoder *)coder {
     self = [super initWithCoder:coder];
@@ -222,6 +334,10 @@ static NSURL *CDResolveModelURL(NSURL *url) {
 
 @implementation NSFetchIndexElementDescription
 - (instancetype)initWithProperty:(NSPropertyDescription *)property collationType:(NSFetchIndexElementType)type {
+    if (!property.name.length) {
+        [self release];
+        [NSException raise:NSInvalidArgumentException format:@"Can't create an index element with an unnamed property"];
+    }
     self = [super init];
     if (self) { CDSet(self, @"property", property); self.collationType = type; }
     return self;
@@ -229,7 +345,14 @@ static NSURL *CDResolveModelURL(NSURL *url) {
 - (NSPropertyDescription *)property { return CDGet(self, @"property"); }
 - (NSString *)propertyName { return self.property.name ?: CDGet(self, @"propertyName"); }
 - (NSFetchIndexElementType)collationType { return [CDGet(self, @"collationType") unsignedIntegerValue]; }
-- (void)setCollationType:(NSFetchIndexElementType)value { CDSet(self, @"collationType", [NSNumber numberWithUnsignedInteger:value]); }
+- (void)setCollationType:(NSFetchIndexElementType)value {
+    if (value == NSFetchIndexElementTypeRTree && [self.property isKindOfClass:[NSAttributeDescription class]]) {
+        NSAttributeType type = [(NSAttributeDescription *)self.property attributeType];
+        if (type != NSInteger16AttributeType && type != NSFloatAttributeType && type != NSDoubleAttributeType)
+            [NSException raise:NSInvalidArgumentException format:@"Invalid collation type (rtree indexes can only be created for floats or integers < 32 bit)."];
+    }
+    CDSet(self, @"collationType", [NSNumber numberWithUnsignedInteger:value]);
+}
 - (BOOL)isAscending { return CDGet(self, @"ascending") ? [CDGet(self, @"ascending") boolValue] : YES; }
 - (void)setAscending:(BOOL)value { CDSet(self, @"ascending", [NSNumber numberWithBool:value]); }
 - (NSFetchIndexDescription *)indexDescription { return CDGet(self, @"indexDescription"); }
@@ -258,7 +381,12 @@ static NSURL *CDResolveModelURL(NSURL *url) {
 
 @implementation NSEntityDescription
 + (NSEntityDescription *)entityForName:(NSString *)name inManagedObjectContext:(NSManagedObjectContext *)context {
-    return [context.persistentStoreCoordinator.managedObjectModel.entitiesByName objectForKey:name];
+    NSManagedObjectContext *owner = context;
+    while (owner && !owner.persistentStoreCoordinator) owner = owner.parentContext;
+    NSManagedObjectModel *model = owner.persistentStoreCoordinator.managedObjectModel;
+    if (!model)
+        [NSException raise:NSInvalidArgumentException format:@"+entityForName: nil is not a legal NSPersistentStoreCoordinator for searching for entity name '%@'", name];
+    return [model.entitiesByName objectForKey:name];
 }
 + (NSManagedObject *)insertNewObjectForEntityForName:(NSString *)name inManagedObjectContext:(NSManagedObjectContext *)context {
     NSEntityDescription *entity = [self entityForName:name inManagedObjectContext:context];
@@ -272,8 +400,21 @@ static NSURL *CDResolveModelURL(NSURL *url) {
 - (NSEntityDescription *)superentity { return CDGet(self, @"superentity"); }
 - (void)setSuperentity:(NSEntityDescription *)value { CDSet(self, @"superentity", value); }
 - (NSArray *)subentities { return CDGet(self, @"subentities") ?: [NSArray array]; }
-- (void)setSubentities:(NSArray *)value { CDSet(self, @"subentities", [value copy]); }
-- (NSArray *)properties { return CDGet(self, @"properties") ?: [NSArray array]; }
+- (void)setSubentities:(NSArray *)value {
+    CDSet(self, @"subentities", [[value copy] autorelease]);
+    for (NSEntityDescription *entity in value) CDSet(entity, @"superentity", self);
+}
+// A subentity's properties are its own followed by those it inherits.
+- (NSArray *)properties {
+    NSArray *own = CDGet(self, @"properties") ?: [NSArray array];
+    NSEntityDescription *parent = self.superentity;
+    if (!parent || parent == self) return own;
+    NSMutableArray *all = [NSMutableArray arrayWithArray:own];
+    NSSet *names = [NSSet setWithArray:[own valueForKey:@"name"]];
+    for (NSPropertyDescription *property in parent.properties)
+        if (![names containsObject:property.name]) [all addObject:property];
+    return all;
+}
 - (NSUInteger)countByEnumeratingWithState:(NSFastEnumerationState *)state objects:(id __unsafe_unretained [])buffer count:(NSUInteger)length {
     return [self.properties countByEnumeratingWithState:state objects:buffer count:length];
 }
@@ -283,6 +424,8 @@ static NSURL *CDResolveModelURL(NSURL *url) {
     for (NSPropertyDescription *property in properties) {
         CDSet(property, @"entity", self);
         if ([property isKindOfClass:[NSFetchIndexDescription class]]) CDSet(property, @"entity", self);
+        if ([property isKindOfClass:[NSCompositeAttributeDescription class]])
+            for (NSPropertyDescription *element in [(NSCompositeAttributeDescription *)property elements]) CDSet(element, @"entity", self);
     }
     [properties release];
 }
@@ -316,11 +459,18 @@ static NSURL *CDResolveModelURL(NSURL *url) {
 }
 - (BOOL)isAbstract { return [CDGet(self, @"abstract") boolValue]; }
 - (void)setAbstract:(BOOL)value { CDSet(self, @"abstract", [NSNumber numberWithBool:value]); }
-- (NSDictionary *)userInfo { return CDGet(self, @"userInfo"); }
+- (NSDictionary *)userInfo { return CDGet(self, @"userInfo") ?: [NSDictionary dictionary]; }
+- (NSString *)description {
+    NSMutableDictionary *properties = [NSMutableDictionary dictionary];
+    for (NSPropertyDescription *property in self.properties) if (property.name) [properties setObject:property forKey:property.name];
+    return [NSString stringWithFormat:@"(<%@: %p>) name %@, managedObjectClassName %@, renamingIdentifier %@, isAbstract %d, superentity name %@, properties %@, subentities %@, userInfo %@, versionHashModifier %@, uniquenessConstraints %@",
+            [self class], self, self.name, self.managedObjectClassName, self.renamingIdentifier, self.isAbstract, self.superentity.name,
+            properties, self.subentitiesByName, self.userInfo, self.versionHashModifier, self.uniquenessConstraints];
+}
 - (void)setUserInfo:(NSDictionary *)value { CDSet(self, @"userInfo", [value copy]); }
 - (NSString *)versionHashModifier { return CDGet(self, @"versionHashModifier"); }
 - (void)setVersionHashModifier:(NSString *)value { CDSet(self, @"versionHashModifier", [value copy]); }
-- (NSString *)renamingIdentifier { return CDGet(self, @"renamingIdentifier"); }
+- (NSString *)renamingIdentifier { return CDGet(self, @"renamingIdentifier") ?: self.name; }
 - (void)setRenamingIdentifier:(NSString *)value { CDSet(self, @"renamingIdentifier", [value copy]); }
 - (NSArray *)indexes { return CDGet(self, @"indexes") ?: [NSArray array]; }
 - (void)setIndexes:(NSArray *)value { CDSet(self, @"indexes", [value copy]); }
@@ -335,14 +485,31 @@ static NSURL *CDResolveModelURL(NSURL *url) {
     return NO;
 }
 - (NSData *)versionHash {
-    NSMutableArray *parts = [NSMutableArray arrayWithObjects:self.name ?: @"", self.managedObjectClassName ?: @"",
-                              self.versionHashModifier ?: @"", self.isAbstract ? @"1" : @"0", nil];
-    NSArray *names = [[self.propertiesByName allKeys] sortedArrayUsingSelector:@selector(compare:)];
-    for (NSString *name in names) {
-        NSPropertyDescription *property = [self.propertiesByName objectForKey:name];
-        [parts addObject:[NSString stringWithFormat:@"%@:%@", name, property.versionHash]];
+    CC_SHA256_CTX context;
+    CC_SHA256_Init(&context);
+    CDDigestString(&context, self.name);
+    uint8_t abstract = self.isAbstract ? 1 : 0;
+    CC_SHA256_Update(&context, &abstract, 1);
+    if (self.superentity) {
+        NSData *parent = self.superentity.versionHash;
+        CC_SHA256_Update(&context, parent.bytes, (CC_LONG)parent.length);
     }
-    return CDHash([parts componentsJoinedByString:@"|"]);
+    for (NSPropertyDescription *property in [self.properties sortedArrayUsingFunction:CDCompareNames context:NULL]) {
+        if (property.isTransient) continue;
+        if (![property isKindOfClass:[NSAttributeDescription class]] && ![property isKindOfClass:[NSRelationshipDescription class]]) continue;
+        NSData *hash = property.versionHash;
+        CC_SHA256_Update(&context, hash.bytes, (CC_LONG)hash.length);
+    }
+    CDDigestString(&context, self.versionHashModifier);
+    NSMutableArray *constraints = [NSMutableArray array];
+    for (NSArray *constraint in self.uniquenessConstraints) {
+        NSMutableArray *names = [NSMutableArray array];
+        for (id item in constraint) [names addObject:[item isKindOfClass:[NSString class]] ? item : [item name]];
+        [constraints addObject:[names componentsJoinedByString:@"."]];
+    }
+    [constraints sortUsingSelector:@selector(compare:)];
+    for (NSString *constraint in constraints) if (constraint.length) CDDigestString(&context, constraint);
+    return CDDigestData(&context);
 }
 - (id)copyWithZone:(NSZone *)zone {
     NSEntityDescription *copy = [[[self class] allocWithZone:zone] init];
@@ -352,7 +519,7 @@ static NSURL *CDResolveModelURL(NSURL *url) {
     copy.properties = self.properties;
     copy.userInfo = self.userInfo;
     copy.versionHashModifier = self.versionHashModifier;
-    copy.renamingIdentifier = self.renamingIdentifier;
+    copy.renamingIdentifier = CDGet(self, @"renamingIdentifier");
     return copy;
 }
 - (id)initWithCoder:(NSCoder *)coder {
@@ -360,8 +527,10 @@ static NSURL *CDResolveModelURL(NSURL *url) {
     if (self) {
         self.name = [coder decodeObjectForKey:@"NSEntityName"];
         self.managedObjectClassName = [coder decodeObjectForKey:@"NSClassNameForEntity"];
-        self.properties = [[coder decodeObjectForKey:@"NSProperties"] allValues];
-        self.subentities = [[coder decodeObjectForKey:@"NSSubentities"] allValues];
+        id properties = [coder decodeObjectForKey:@"NSProperties"];
+        self.properties = [properties isKindOfClass:[NSDictionary class]] ? [properties allValues] : properties;
+        id subentities = [coder decodeObjectForKey:@"NSSubentities"];
+        self.subentities = [subentities isKindOfClass:[NSDictionary class]] ? [subentities allValues] : subentities;
         self.superentity = [coder decodeObjectForKey:@"NSSuperentity"];
         self.userInfo = [coder decodeObjectForKey:@"NSUserInfo"];
         self.versionHashModifier = [coder decodeObjectForKey:@"NSVersionHashModifier"];
@@ -374,8 +543,10 @@ static NSURL *CDResolveModelURL(NSURL *url) {
 - (void)encodeWithCoder:(NSCoder *)coder {
     [coder encodeObject:self.name forKey:@"NSEntityName"];
     [coder encodeObject:self.managedObjectClassName forKey:@"NSClassNameForEntity"];
-    [coder encodeObject:self.properties forKey:@"NSProperties"];
-    [coder encodeObject:self.subentities forKey:@"NSSubentities"];
+    NSMutableDictionary *own = [NSMutableDictionary dictionary];
+    for (NSPropertyDescription *property in CDGet(self, @"properties")) if (property.name) [own setObject:property forKey:property.name];
+    [coder encodeObject:own forKey:@"NSProperties"];
+    if (self.subentities.count) [coder encodeObject:self.subentitiesByName forKey:@"NSSubentities"];
     [coder encodeObject:self.superentity forKey:@"NSSuperentity"];
     [coder encodeObject:self.userInfo forKey:@"NSUserInfo"];
     [coder encodeObject:self.versionHashModifier forKey:@"NSVersionHashModifier"];
@@ -429,6 +600,10 @@ static NSURL *CDResolveModelURL(NSURL *url) {
     [map setObject:[[entities copy] autorelease] forKey:configuration];
 }
 - (NSDictionary *)fetchRequestTemplatesByName { return CDGet(self, @"templates") ?: [NSDictionary dictionary]; }
+- (NSString *)description {
+    return [NSString stringWithFormat:@"(<%@: %p>) isEditable %d, entities %@, fetch request templates %@", [self class], self,
+            ![CDGet(self, @"inUse") boolValue], self.entitiesByName, self.fetchRequestTemplatesByName];
+}
 - (void)setFetchRequestTemplate:(NSFetchRequest *)request forName:(NSString *)name {
     NSMutableDictionary *map = CDGet(self, @"templates");
     if (!map) { map = [NSMutableDictionary dictionary]; CDSet(self, @"templates", map); }
@@ -450,12 +625,16 @@ static NSURL *CDResolveModelURL(NSURL *url) {
     for (NSEntityDescription *entity in self.entities) if (entity.name) [hashes setObject:entity.versionHash forKey:entity.name];
     return hashes;
 }
-- (NSString *)versionChecksum {
-    NSMutableArray *items = [NSMutableArray array];
-    for (NSString *key in [[self.entityVersionHashesByName allKeys] sortedArrayUsingSelector:@selector(compare:)])
-        [items addObject:[NSString stringWithFormat:@"%@:%@", key, [[self.entityVersionHashesByName objectForKey:key] base64EncodedStringWithOptions:0]]];
-    return [items componentsJoinedByString:@";"];
+- (NSData *)versionHash {
+    CC_SHA256_CTX context;
+    CC_SHA256_Init(&context);
+    for (NSEntityDescription *entity in [self.entities sortedArrayUsingFunction:CDCompareNames context:NULL]) {
+        NSData *hash = entity.versionHash;
+        CC_SHA256_Update(&context, hash.bytes, (CC_LONG)hash.length);
+    }
+    return CDDigestData(&context);
 }
+- (NSString *)versionChecksum { return [self.versionHash base64EncodedStringWithOptions:0]; }
 - (BOOL)isConfiguration:(NSString *)configuration compatibleWithStoreMetadata:(NSDictionary *)metadata {
     NSDictionary *stored = [metadata objectForKey:@"NSStoreModelVersionHashes"];
     if (![stored isKindOfClass:[NSDictionary class]]) return NO;
@@ -517,18 +696,56 @@ static NSURL *CDResolveModelURL(NSURL *url) {
     }
     return models.count ? [self modelByMergingModels:models] : nil;
 }
+// Every model a bundle holds: plain .mom files and each version inside a .momd.
+static NSArray *CDModelsInBundles(NSArray *bundles) {
+    if (!bundles) bundles = [NSArray arrayWithObject:[NSBundle mainBundle]];
+    NSMutableArray *models = [NSMutableArray array];
+    for (NSBundle *bundle in bundles) {
+        NSString *resources = [bundle resourcePath];
+        for (NSString *file in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:resources error:NULL]) {
+            NSString *path = [resources stringByAppendingPathComponent:file];
+            NSArray *candidates = [NSArray array];
+            if ([[file pathExtension] isEqualToString:@"mom"]) candidates = [NSArray arrayWithObject:path];
+            else if ([[file pathExtension] isEqualToString:@"momd"]) {
+                NSMutableArray *versions = [NSMutableArray array];
+                for (NSString *version in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:path error:NULL])
+                    if ([[version pathExtension] isEqualToString:@"mom"]) [versions addObject:[path stringByAppendingPathComponent:version]];
+                candidates = versions;
+            }
+            for (NSString *candidate in candidates) {
+                NSManagedObjectModel *model = [[[NSManagedObjectModel alloc] initWithContentsOfURL:[NSURL fileURLWithPath:candidate]] autorelease];
+                if (model) [models addObject:model];
+            }
+        }
+    }
+    return models;
+}
+
 + (NSManagedObjectModel *)mergedModelFromBundles:(NSArray *)bundles forStoreMetadata:(NSDictionary *)metadata {
     NSManagedObjectModel *merged = [self mergedModelFromBundles:bundles];
-    return [merged isConfiguration:nil compatibleWithStoreMetadata:metadata] ? merged : nil;
+    if ([merged isConfiguration:nil compatibleWithStoreMetadata:metadata]) return merged;
+    for (NSManagedObjectModel *model in CDModelsInBundles(bundles))
+        if ([model isConfiguration:nil compatibleWithStoreMetadata:metadata]) return model;
+    return nil;
 }
 + (NSManagedObjectModel *)modelByMergingModels:(NSArray *)models forStoreMetadata:(NSDictionary *)metadata {
     NSManagedObjectModel *merged = [self modelByMergingModels:models];
     return [merged isConfiguration:nil compatibleWithStoreMetadata:metadata] ? merged : nil;
 }
+// Each version's checksum in a .momd, by version name (a lone .mom by its own name).
 + (NSDictionary *)checksumsForVersionedModelAtURL:(NSURL *)url error:(NSError **)error {
-    NSManagedObjectModel *model = [[[self alloc] initWithContentsOfURL:url] autorelease];
-    if (!model) { CDReturnError(error, CDError(134100, @"The compiled model could not be read.")); return nil; }
-    return [NSDictionary dictionaryWithObject:model.versionChecksum forKey:@"current"];
+    (void)error;
+    NSMutableDictionary *checksums = [NSMutableDictionary dictionary];
+    NSString *path = url.path;
+    NSArray *files = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:path error:NULL];
+    NSMutableArray *models = [NSMutableArray array];
+    if (files) { for (NSString *file in files) if ([[file pathExtension] isEqualToString:@"mom"]) [models addObject:[path stringByAppendingPathComponent:file]]; }
+    else if (path && [[NSFileManager defaultManager] fileExistsAtPath:path]) [models addObject:path];
+    for (NSString *file in models) {
+        NSManagedObjectModel *model = [[[self alloc] initWithContentsOfURL:[NSURL fileURLWithPath:file]] autorelease];
+        if (model) [checksums setObject:model.versionChecksum forKey:[[file lastPathComponent] stringByDeletingPathExtension]];
+    }
+    return checksums;
 }
 @end
 

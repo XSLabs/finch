@@ -307,7 +307,7 @@ joined(NSArray *expressions)
     if (_operand) {
         if ([f isEqualToString:@"valueForKeyPath:"]) return [NSString stringWithFormat:@"%@.%@", _operand, [[_arguments firstObject] constantValue]];
         NSMutableString *s = [NSMutableString stringWithFormat:@"FUNCTION(%@, %@", _operand, quoted(f)];
-        for (NSExpression *a in _arguments) [s appendFormat:@", %@", a];
+        for (NSUInteger i = 0; i < [_arguments count]; i++) [s appendFormat:i ? @", %@" : @" , %@", _arguments[i]];
         [s appendString:@")"];
         return s;
     }
@@ -516,11 +516,13 @@ cast(id value, NSString *type)
         if ([_value isEqualToString:@"valueForKeyPath:"]) return [target valueForKeyPath:[args firstObject]];
         SEL sel = NSSelectorFromString(_value);
         if (![target respondsToSelector:sel]) return nil;
-        id (*send)(id, SEL, ...) = (id (*)(id, SEL, ...))objc_msgSend;
+        /* arm64 passes variadic arguments on the stack: call through exact types */
         switch ([args count]) {
-        case 0: return send(target, sel);
-        case 1: return send(target, sel, args[0]);
-        default: return send(target, sel, args[0], args[1]);
+        case 0: return ((id (*)(id, SEL))objc_msgSend)(target, sel);
+        case 1: return ((id (*)(id, SEL, id))objc_msgSend)(target, sel, args[0]);
+        case 2: return ((id (*)(id, SEL, id, id))objc_msgSend)(target, sel, args[0], args[1]);
+        case 3: return ((id (*)(id, SEL, id, id, id))objc_msgSend)(target, sel, args[0], args[1], args[2]);
+        default: return ((id (*)(id, SEL, id, id, id, id))objc_msgSend)(target, sel, args[0], args[1], args[2], args[3]);
         }
     }
     if ([_value isEqualToString:@"objectFrom:withIndex:"]) return index_into(args[0] == [NSNull null] ? nil : args[0], args[1]);

@@ -10,7 +10,9 @@ disk; persistent installation, boot recovery and supported-device checks remain
 open. [The release checks](ROADMAP.md#finch-10-release-checks) separate those
 requirements from library comparisons and app import counts.
 
-**As of 2026-10-27:** `logger` (remote_cmds) sends syslog messages that reach the
+**As of 2026-10-27:** CoreData runs custom persistent stores, migrates stores
+(lightweight and through mapping models) and computes macOS's model version hashes.
+`logger` (remote_cmds) sends syslog messages that reach the
 unified log, as on macOS. Finch's sandbox is its own: `libsandbox.1` compiles macOS's
 profile language (SBPL) and the `FinchSandbox` kernel policy enforces the compiled
 profiles at file, process, sysctl, IPC, socket, IOKit and system-call hooks.
@@ -216,8 +218,9 @@ on the host with Finch's frameworks and headless window server. It shows English
 strings, its title bar, an empty toolbar and an empty device list. The framework
 comparison also passes in the VM; the Tier 2 display and input work remains.
 
-CoreData now reads compiled models and supports basic SQLite and in-memory
-stores, contexts, fetches, and to-one relationships. Its host comparison opens
+CoreData now reads compiled models and supports SQLite, in-memory and custom
+(incremental and atomic) stores, contexts, fetches, relationships with inverses,
+lightweight and mapping-model migration, and macOS's version hashes. Its host comparison opens
 a simple Apple-created store in Finch and a Finch-created store in Apple.
 The 2026-10-17 development VM check also writes and reopens its own store in
 separate processes, with records matching Apple's run. That image still uses
@@ -297,7 +300,7 @@ block-beta
         iokit["IOKit.framework<br/>(IOKitUser)"]
         gcore["GCoreFramework<br/>(gcore, on Finch Foundation)"]
         sysconfig["SystemConfiguration<br/>preferences and network reads;<br/>shared store via Finch configd;<br/>manual IPv4 and DNS apply"]
-        coredata["CoreData<br/>compiled models, contexts,<br/>fetches, to-one relationships,<br/>SQLite and memory stores"]
+        coredata["CoreData<br/>compiled models, contexts,<br/>fetches, relationships, migration,<br/>SQLite, memory and custom stores"]
     end
     block:L4
         columns 4
