@@ -60,8 +60,10 @@ through the save panel as a .scpt and runs again with osascript),
 from the screen), `tools/vm/test-grapher.sh` (a graph made from the template chooser
 with a typed equation is saved as a .gcx and opens again) and
 `tools/vm/test-color-meter.sh` (Digital Color Meter copies the colour under the pointer,
-the window server's own, at two places) and `tools/vm/test-console.sh` (Console streams the
-live log, a logger(1) message and os_log ones among it, and copies them). When Terminal started again and restored its last session, a line typed soon after
+the window server's own, at two places) `tools/vm/test-console.sh` (Console streams the
+live log, a logger(1) message and os_log ones among it, and copies them) and
+`tools/vm/test-magnifier.sh` (Magnifier shows the menu bar under the pointer magnified,
+and inverted when asked). When Terminal started again and restored its last session, a line typed soon after
 used to be lost: Finch's
 CoreGraphics gave each string drawn with a shadow set a page-sized layer, and the
 restored window's frames took long
