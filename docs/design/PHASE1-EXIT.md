@@ -6,15 +6,21 @@ guessed. `finch-images` (`userland/devtools`) prints every image a minimal libSy
 program loads: 45 images, of which 12 were Finch-built when this plan was written
 (2026-10-06), plus dyld itself.
 
-**Status (2026-10-25): open.** The 2026-10-07 check found 94 eagerly linked
+**Status (2026-10-26): reached.** The 2026-10-07 check found 94 eagerly linked
 images supplied by Finch. That was a file and dependency check, not proof that
 all boot services worked with those files, and it missed libraries opened later
 with `dlopen`: a fresh image on 2026-10-17 showed notifyd needed the base
 image's sandbox compiler. Since 2026-10-25 Finch compiles and enforces sandbox
 profiles itself and notifyd starts under its profile with nothing borrowed
-(`docs/design/SECURITY.md`, "The sandbox"); the full VM suite runs on that
-image. The rest of the list below must be re-measured on it before this exit is
-reached. Kexts remain Apple's below the kernel boundary.
+(`docs/design/SECURITY.md`, "The sandbox"). The exit is now measured in the
+running VM: `tools/vm/check-loaded-images.py` boots the image, waits for its
+services, and runs `finch-images --all`, which reads every process's image
+list from dyld (programs, linked libraries and dlopen()ed ones) over read-only
+task ports. On 2026-10-26 all 97 images loaded by the 12 processes running at
+the shell (finch-init, cron, syslogd, mdnsd, finch-logd, diskarbitrationd,
+configd, notifyd with its sandbox compiler, aslmanager, zsh and the tools
+running the check) were Finch's, and every process's list was readable. Kexts
+remain Apple's below the kernel boundary.
 
 Each closed library's effort is sized by how many of its exports anything in the stock
 image imports. A Finch replacement (`userland/libsystem/<name>`) exports exactly Apple's
@@ -96,3 +102,4 @@ export lists (`userland/llvm/exports`). Finch code fills the gaps upstream leave
 | 2026-10-07 | 45 | libsystem_trace is Finch's in the image: 197/197 exports and Apple's identity and dependencies. It boots under finch-init with notifyd, zsh and every in-VM suite passing (log 10/10, crypto 14/14, libSystem, objc 23/23, cxx 11/11). Fixed a notifyd deadlock: preference watching now starts only once a process is multithreaded, as in Apple's |
 | 2026-10-07 | 46 | `/bin/sh` and `mount_tmpfs` are Finch's: the shell variant launcher, and tmpfs mounting with macOS's options, sizing and mount arguments. The rc script runs on them and mounts all five tmpfs file systems |
 | 2026-10-07 | 47 | **Phase 1 exit reached.** libutil, libbsm and libncurses are built from Apple's open source. libbsm adds the 31 interfaces macOS gained after OpenBSM-21 (180/180 exports, 31,316 checks against Apple's), which Apple frameworks in the shared cache import. `tools/check-boot-path.py`: 94 boot-path images, all Finch-built. OpenBSM and ncurses notices install with them |
+| 2026-10-26 | all loaded | **Exit reached again, measured at runtime.** `tools/vm/check-loaded-images.py`: 97 images in 12 running processes, dlopen()ed ones included, all Finch's; none from the base image |

@@ -11,10 +11,11 @@ $(OUT)/finch-trace: finch-trace.c
 	$(CC) $(CFLAGS) -o $@ $<
 	codesign -f -s - -i org.finch.trace $@
 
-$(OUT)/finch-images: finch-images.c
+# Allowed to read other processes' image lists (a platform binary in the VM).
+$(OUT)/finch-images: finch-images.c finch-images.entitlements
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -o $@ $<
-	codesign -f -s - -i org.finch.images $@
+	codesign -f -s - -i org.finch.images --entitlements finch-images.entitlements $@
 
 # Allowed to handle exceptions of hardened processes (a platform binary in the VM).
 $(OUT)/finch-excwatch: finch-excwatch.c finch-excwatch.entitlements

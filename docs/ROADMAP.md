@@ -323,22 +323,30 @@ Apple's is closed. Developed in the emulated M4 first. The map is
         - [x] FAT32 formatting and a read-only filesystem check pass on a new
               guest-local image in VZ with Finch's tools (2026-10-11). This uses
               Apple's guest kernel and does not prove mounting under Finch.
-        - [ ] Finish configd preference storage and network apply, and prove
-              disk probing and mounting.
+        - [x] Finish configd preference storage and network apply, and prove
+              disk probing and mounting. System preferences persist and notify
+              (tools/vm/test-settings-notify.sh) and disks are probed and mounted
+              (tools/vm/test-disks.sh), 2026-10-26. Applying settings to a real
+              interface waits for a machine with one.
   - [x] libmalloc no longer depends on libcorecrypto
   - [x] libsystem_featureflags, coreservices, darwindirectory, eligibility, symptoms,
         trial, secinit, sanitizers, libRosetta: Finch's own (`userland/libsystem`)
-  - [ ] Finish the strict Phase 1 exit: `docs/design/PHASE1-EXIT.md`.
+  - [x] Finish the strict Phase 1 exit: `docs/design/PHASE1-EXIT.md`.
         The earlier 94/94 linked-image check missed the sandbox compiler loaded
         at runtime. Replaced, and notifyd's startup proven without it
-        (2026-10-25); the rest of the exit list stays open.
+        (2026-10-25). Re-measured in the running VM (2026-10-26):
+        `tools/vm/check-loaded-images.py` reads every process's image list,
+        dlopen()ed libraries included; all 97 images of the 12 processes running
+        at the shell are Finch's.
 - [x] **1.5 dyld from source.** dyld-1376.6 boots the VM (`tools/build-system.sh`)
 - [ ] Finch root image on its own APFS volume (bare-metal Tier 3)
 
 **Exit:** the VM boots to a shell with no closed-source Apple binaries above the kernel.
-**Still open** (`docs/design/PHASE1-EXIT.md`): the 2026-10-07 claim was withdrawn
-after the fresh-image sandbox failure; the sandbox compiler is Finch's since
-2026-10-25. The unchecked items above continue alongside Phase 2.
+**Reached again (2026-10-26)** (`docs/design/PHASE1-EXIT.md`): the 2026-10-07 claim
+was withdrawn after the fresh-image sandbox failure; the sandbox compiler is Finch's
+since 2026-10-25, and every image loaded in the booted VM, dlopen()ed ones included,
+is Finch's (`tools/vm/check-loaded-images.py`). The unchecked items above continue
+alongside Phase 2.
 
 ## Phase 2: Open graphics stack and first app
 Nothing closed is borrowed (2026-10-08). Unmodified Mac apps need Foundation,

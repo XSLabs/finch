@@ -5,15 +5,101 @@
  * finch-images: print every image loaded in this process (what a minimal
  * libSystem program pulls in), one path per line, optionally after dlopen()ing
  * extra libraries given as arguments.
+ *
+ * finch-images --all (as root): every image every running process has loaded,
+ * dlopen()ed ones included, as "pid<TAB>program<TAB>image" lines, read from
+ * each process's dyld_all_image_infos over a read-only task port. Processes
+ * whose port is refused are listed with the image "?" (tools/vm/check-loaded-images.py).
  */
 
 #include <dlfcn.h>
+#include <libproc.h>
 #include <mach-o/dyld.h>
+#include <mach-o/dyld_images.h>
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* A read-only task port (a Mach trap libsystem_kernel exports; the SDK header leaves it out). */
+kern_return_t task_read_for_pid(mach_port_name_t target, int pid, mach_port_name_t *task);
+
+static int
+read_task(task_t task, mach_vm_address_t address, void *buffer, mach_vm_size_t size)
+{
+	mach_vm_size_t got = 0;
+	return mach_vm_read_overwrite(task, address, size, (mach_vm_address_t)buffer, &got) == KERN_SUCCESS &&
+	    got == size ? 0 : -1;
+}
+
+/* A NUL-terminated path in the task, read a page-bounded piece at a time. */
+static int
+read_path(task_t task, mach_vm_address_t address, char *path, size_t size)
+{
+	size_t done = 0;
+	while (done + 1 < size) {
+		size_t chunk = 4096 - (size_t)((address + done) & 4095);
+		if (chunk > size - 1 - done)
+			chunk = size - 1 - done;
+		if (read_task(task, address + done, path + done, chunk) != 0)
+			return -1;
+		if (memchr(path + done, '\0', chunk))
+			return 0;
+		done += chunk;
+	}
+	path[size - 1] = '\0';
+	return 0;
+}
+
+static void
+list_process(pid_t pid)
+{
+	char program[PROC_PIDPATHINFO_MAXSIZE];
+	if (proc_pidpath(pid, program, sizeof(program)) <= 0)
+		return;
+	task_read_t task = MACH_PORT_NULL;
+	struct task_dyld_info dinfo;
+	mach_msg_type_number_t count = TASK_DYLD_INFO_COUNT;
+	struct dyld_all_image_infos infos;
+	if (task_read_for_pid(mach_task_self(), pid, &task) != KERN_SUCCESS ||
+	    task_info(task, TASK_DYLD_INFO, (task_info_t)&dinfo, &count) != KERN_SUCCESS ||
+	    read_task(task, dinfo.all_image_info_addr, &infos, sizeof(infos)) != 0) {
+		printf("%d\t%s\t?\n", pid, program);
+		if (task != MACH_PORT_NULL)
+			mach_port_deallocate(mach_task_self(), task);
+		return;
+	}
+	printf("%d\t%s\t%s\n", pid, program, program);
+	struct dyld_image_info *images = calloc(infos.infoArrayCount, sizeof(*images));
+	if (images && infos.infoArray &&
+	    read_task(task, (mach_vm_address_t)infos.infoArray, images,
+	        infos.infoArrayCount * sizeof(*images)) == 0) {
+		for (uint32_t i = 0; i < infos.infoArrayCount; i++) {
+			char path[PATH_MAX];
+			if (images[i].imageFilePath &&
+			    read_path(task, (mach_vm_address_t)images[i].imageFilePath, path, sizeof(path)) == 0 &&
+			    strcmp(path, program) != 0)
+				printf("%d\t%s\t%s\n", pid, program, path);
+		}
+	}
+	free(images);
+	mach_port_deallocate(mach_task_self(), task);
+}
 
 int
 main(int argc, char **argv)
 {
+	if (argc == 2 && strcmp(argv[1], "--all") == 0) {
+		int n = proc_listallpids(NULL, 0);
+		pid_t *pids = calloc((size_t)n + 64, sizeof(pid_t));
+		n = proc_listallpids(pids, (int)(((size_t)n + 64) * sizeof(pid_t)));
+		for (int i = 0; i < n; i++)
+			if (pids[i] > 0)
+				list_process(pids[i]);
+		free(pids);
+		return 0;
+	}
 	for (int i = 1; i < argc; i++) {
 		if (dlopen(argv[i], RTLD_NOW) == NULL) {
 			fprintf(stderr, "finch-images: %s\n", dlerror());
