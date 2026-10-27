@@ -401,8 +401,9 @@ is set up and reachable with `tools/vz/ssh` (2026-10-08).
         (libxml2-39.10, built by Finch with Apple's exports) (2026-10-08)
   - [x] NSXPCConnection, NSXPCListener, NSXPCInterface and NSXPCCoder over Finch's
         libxpc; `finch-nsxpc-test` and its bundled XPC service match Apple's on the
-        host and in the VM (2026-10-09). App-bundled `.xpc` services still need a job
-        plist (finch-init doesn't look in apps' `Contents/XPCServices` yet).
+        host and in the VM (2026-10-09). App-bundled `.xpc` services start on demand
+        from the app's `Contents/XPCServices` (libxpc has finch-init load their jobs), and
+        sandboxed apps may reach their own (Stickies' migration service, 2026-10-26).
   - [ ] The rest, by what apps use (`tools/check-framework-api.py` lists it):
         the URL loading system (Phase 4), NSFileVersion. (The system-wide distributed
         notification center landed 2026-10-27.)
