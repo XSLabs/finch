@@ -495,6 +495,9 @@ offset_in_line(UIFLine *ln, NSUInteger index)
 
 - (NSRange)glyphRangeForTextContainer:(NSTextContainer *)container
 {
+    if (![[self textContainers] containsObject:container])
+        [NSException raise:NSInvalidArgumentException
+                    format:@"*** -[NSLayoutManager glyphRangeForTextContainer:]: given container does not appear in the list of containers for this NSLayoutManager."];
     ContainerLayout *cl = layout_for(self, container);
     return cl ? cl->range : NSMakeRange(NSNotFound, 0);
 }

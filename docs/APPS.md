@@ -60,8 +60,12 @@ through the save panel as a .scpt and runs again with osascript),
 from the screen), `tools/vm/test-grapher.sh` (a graph made from the template chooser
 with a typed equation is saved as a .gcx and opens again) and
 `tools/vm/test-color-meter.sh` (Digital Color Meter copies the colour under the pointer,
-the window server's own, at two places). Open: when Terminal starts again and restores its last session, a line
-typed soon after loses everything past its first word. Since 2026-10-26 Apple's apps
+the window server's own, at two places). When Terminal started again and restored its last session, a line typed soon after
+used to be lost: Finch's
+CoreGraphics gave each string drawn with a shadow set a page-sized layer, and the
+restored window's frames took long
+enough for the keys to queue behind it. The layer now covers only the glyphs and the
+shadow's reach (2026-10-27), and `test-terminal.sh` checks a restored session. Since 2026-10-26 Apple's apps
 run sandboxed, as on macOS (all 19 still come up): TextEdit opens, saves, autosaves and
 exports to PDF from its container; Stickies keeps its notes there, asks its own XPC
 service where they live, and copies to and pastes from the pasteboard (`pbcopy` and

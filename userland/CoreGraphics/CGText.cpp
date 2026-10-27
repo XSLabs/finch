@@ -13,6 +13,7 @@
 #include "include/core/SkColorFilter.h"
 #include "include/core/SkPaint.h"
 #include <pthread.h>
+#include <algorithm>
 #include <math.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -94,9 +95,18 @@ paint_outlines(CGContextRef c, CGPathRef path, CGPathRef clip_path)
         c->canvas->save();
         c->canvas->resetMatrix();
         bool shadow = CGContextState(c).shadow_color && CGColorGetAlpha(CGContextState(c).shadow_color) > 0;
-        c->canvas->saveLayer(CGRectIsNull(box) || shadow ? nullptr : &bounds, &lp);
+        if (shadow) {
+            /* (a shadow's reach: its offset and blur, in base space, at up to the device's scale; a
+               page-sized layer per string made every frame of a terminal slow) */
+            CGGState &g = CGContextState(c);
+            CGAffineTransform d = CGContextUserToDevice(c);
+            double scale = std::max(2.0, std::max(hypot(d.a, d.b), hypot(d.c, d.d)));
+            float reach = (float)((fabs(g.shadow_offset.width) + fabs(g.shadow_offset.height) + 3 * g.shadow_blur + 2) * scale);
+            bounds = bounds.makeOutset(reach, reach);
+        }
+        c->canvas->saveLayer(CGRectIsNull(box) ? nullptr : &bounds, &lp);
         layer = true;
-        synced = CGRectIsNull(box) || shadow ? SkIRect::MakeWH((int)c->width, (int)c->height) : bounds.roundOut();
+        synced = CGRectIsNull(box) ? SkIRect::MakeWH((int)c->width, (int)c->height) : bounds.roundOut();
     }
     switch (mode) {
     case kCGTextFill:
