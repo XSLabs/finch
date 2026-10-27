@@ -1101,6 +1101,144 @@ static void conversions_dithered(void)
     }
 }
 
+/* the sum of the 10-bit samples in 32-bit words (at bit 2, 12 and 22 for v410, 0, 10 and
+   20 for v210) or of 16-bit samples, in units of 256 */
+static long samples_sum(const vImage_Buffer *b, int kind)
+{
+    long sum = 0;
+    for (vImagePixelCount y = 0; y < b->height; ++y) {
+        const uint8_t *row = (const uint8_t *)b->data + y * b->rowBytes;
+        size_t bytes = kind == 16 ? b->width * 8 : kind == 410 ? b->width * 4 : b->width / 6 * 16;
+        for (size_t i = 0; i + 4 <= bytes; i += kind == 16 ? 2 : 4) {
+            uint32_t w;
+            memcpy(&w, row + i, 4);
+            if (kind == 16)
+                sum += w & 0xffff;
+            else
+                for (int k = 0; k < 3; ++k)
+                    sum += (w >> (kind == 410 ? 2 + 10 * k : 10 * k)) & 0x3ff;
+        }
+    }
+    return sum / 256;
+}
+
+/* Y'CbCr: each conversion with the ITU-R 601 and 709 matrices, video and full range, on
+   even sizes (12 x 4) so that 4:2:2 and 4:2:0 pair whole pixels. RGB to 10 and 16 bits
+   is single precision where Apple's is fixed point, one apart in a few samples, so those
+   compare sums. */
+static void conversions_ycbcr(void)
+{
+    const vImage_YpCbCrPixelRange r8[2] = {{16, 128, 235, 240, 255, 0, 255, 0}, {0, 128, 255, 255, 255, 1, 255, 0}},
+                                  r10[2] = {{64, 512, 940, 960, 1023, 0, 1023, 0}, {0, 512, 1023, 1023, 1023, 0, 1023, 0}},
+                                  r16[2] = {{4096, 32768, 60160, 61440, 65535, 0, 65535, 0}, {0, 32768, 65535, 65535, 65535, 0, 65535, 0}};
+    const vImage_YpCbCrToARGBMatrix *toRGB[2] = {kvImage_YpCbCrToARGBMatrix_ITU_R_601_4, kvImage_YpCbCrToARGBMatrix_ITU_R_709_2};
+    const vImage_ARGBToYpCbCrMatrix *toYUV[2] = {kvImage_ARGBToYpCbCrMatrix_ITU_R_601_4, kvImage_ARGBToYpCbCrMatrix_ITU_R_709_2};
+    const uint8_t bgra[4] = {3, 2, 1, 0};
+    vImage_Buffer src8 = s8, src16 = s16U, srcQ = sQ12;
+    src8.width = src16.width = srcQ.width = 12;
+    src8.height = src16.height = srcQ.height = 4;
+    char n[128];
+    for (int m = 0; m < 2; ++m)
+        for (int r = 0; r < 2; ++r) {
+            vImage_YpCbCrToARGB in;
+            vImage_ARGBToYpCbCr out;
+#define TO_RGB(name, YT, AT, RANGE, BPP, call)                                                           \
+    vImageConvert_YpCbCrToARGB_GenerateConversion(toRGB[m], &RANGE[r], &in, YT, AT, 0);                    \
+    snprintf(n, sizeof(n), #name " %d %d", m, r);                                                        \
+    TD(n, 12, 4, BPP, call)
+#define TO_YUV(name, AT, YT, RANGE, BPP, W, call)                                                        \
+    vImageConvert_ARGBToYpCbCr_GenerateConversion(toYUV[m], &RANGE[r], &out, AT, YT, 0);                   \
+    snprintf(n, sizeof(n), #name " %d %d", m, r);                                                        \
+    TD(n, W, 4, BPP, call)
+#define TO_YUV_SUM(name, AT, YT, RANGE, BPP, W, KIND, call)                                              \
+    vImageConvert_ARGBToYpCbCr_GenerateConversion(toYUV[m], &RANGE[r], &out, AT, YT, 0);                   \
+    {                                                                                                    \
+        vImage_Buffer d = make_size(W, 4, BPP);                                                          \
+        vImage_Error e = call;                                                                           \
+        printf(#name " %d %d (sum): %ld %ld\n", m, r, (long)e, samples_sum(&d, KIND));                   \
+        free(d.data);                                                                                    \
+    }
+            TO_RGB(422YpCbYpCr8ToARGB8888, kvImage422YpCbYpCr8, kvImageARGB8888, r8, 4,
+                   vImageConvert_422YpCbYpCr8ToARGB8888(&src8, &d, &in, bgra, 200, 0));
+            TO_RGB(422CbYpCrYp8ToARGB8888, kvImage422CbYpCrYp8, kvImageARGB8888, r8, 4,
+                   vImageConvert_422CbYpCrYp8ToARGB8888(&src8, &d, &in, NULL, 7, 0));
+            TO_RGB(422CbYpCrYp8_AA8ToARGB8888, kvImage422CbYpCrYp8_AA8, kvImageARGB8888, r8, 4,
+                   vImageConvert_422CbYpCrYp8_AA8ToARGB8888(&src8, &s8b, &d, &in, NULL, 0));
+            TO_RGB(444AYpCbCr8ToARGB8888, kvImage444AYpCbCr8, kvImageARGB8888, r8, 4,
+                   vImageConvert_444AYpCbCr8ToARGB8888(&src8, &d, &in, bgra, 0));
+            TO_RGB(444CbYpCrA8ToARGB8888, kvImage444CbYpCrA8, kvImageARGB8888, r8, 4,
+                   vImageConvert_444CbYpCrA8ToARGB8888(&src8, &d, &in, NULL, 0));
+            TO_RGB(444CrYpCb8ToARGB8888, kvImage444CrYpCb8, kvImageARGB8888, r8, 4,
+                   vImageConvert_444CrYpCb8ToARGB8888(&src8, &d, &in, NULL, 99, 0));
+            TO_RGB(420Yp8_Cb8_Cr8ToARGB8888, kvImage420Yp8_Cb8_Cr8, kvImageARGB8888, r8, 4,
+                   vImageConvert_420Yp8_Cb8_Cr8ToARGB8888(&src8, &s8b, &s8c, &d, &in, NULL, 255, 0));
+            TO_RGB(420Yp8_CbCr8ToARGB8888, kvImage420Yp8_CbCr8, kvImageARGB8888, r8, 4,
+                   vImageConvert_420Yp8_CbCr8ToARGB8888(&src8, &s8b, &d, &in, bgra, 255, 0));
+            TO_RGB(444CrYpCb10ToARGB8888, kvImage444CrYpCb10, kvImageARGB8888, r10, 4,
+                   vImageConvert_444CrYpCb10ToARGB8888(&src8, &d, &in, NULL, 255, 0));
+            TO_RGB(444CrYpCb10ToARGB16Q12, kvImage444CrYpCb10, kvImageARGB16Q12, r10, 8,
+                   vImageConvert_444CrYpCb10ToARGB16Q12(&src8, &d, &in, NULL, 4096, 0));
+            TO_RGB(422CrYpCbYpCbYpCbYpCrYpCrYp10ToARGB8888, kvImage422CrYpCbYpCbYpCbYpCrYpCrYp10, kvImageARGB8888, r10, 4,
+                   vImageConvert_422CrYpCbYpCbYpCbYpCrYpCrYp10ToARGB8888(&src8, &d, &in, NULL, 255, 0));
+            TO_RGB(422CrYpCbYpCbYpCbYpCrYpCrYp10ToARGB16Q12, kvImage422CrYpCbYpCbYpCbYpCrYpCrYp10, kvImageARGB16Q12, r10, 8,
+                   vImageConvert_422CrYpCbYpCbYpCbYpCrYpCrYp10ToARGB16Q12(&src8, &d, &in, bgra, 4096, 0));
+            TO_RGB(422CbYpCrYp16ToARGB8888, kvImage422CbYpCrYp16, kvImageARGB8888, r16, 4,
+                   vImageConvert_422CbYpCrYp16ToARGB8888(&src16, &d, &in, NULL, 255, 0));
+            TO_RGB(422CbYpCrYp16ToARGB16U, kvImage422CbYpCrYp16, kvImageARGB16U, r16, 8,
+                   vImageConvert_422CbYpCrYp16ToARGB16U(&src16, &d, &in, NULL, 65535, 0));
+            TO_RGB(444AYpCbCr16ToARGB8888, kvImage444AYpCbCr16, kvImageARGB8888, r16, 4,
+                   vImageConvert_444AYpCbCr16ToARGB8888(&src16, &d, &in, NULL, 0));
+            TO_RGB(444AYpCbCr16ToARGB16U, kvImage444AYpCbCr16, kvImageARGB16U, r16, 8,
+                   vImageConvert_444AYpCbCr16ToARGB16U(&src16, &d, &in, bgra, 0));
+
+            TO_YUV(ARGB8888To422YpCbYpCr8, kvImageARGB8888, kvImage422YpCbYpCr8, r8, 2, 12,
+                   vImageConvert_ARGB8888To422YpCbYpCr8(&src8, &d, &out, bgra, 0));
+            TO_YUV(ARGB8888To422CbYpCrYp8, kvImageARGB8888, kvImage422CbYpCrYp8, r8, 2, 12,
+                   vImageConvert_ARGB8888To422CbYpCrYp8(&src8, &d, &out, NULL, 0));
+            TO_YUV(ARGB8888To444AYpCbCr8, kvImageARGB8888, kvImage444AYpCbCr8, r8, 4, 12,
+                   vImageConvert_ARGB8888To444AYpCbCr8(&src8, &d, &out, NULL, 0));
+            TO_YUV(ARGB8888To444CbYpCrA8, kvImageARGB8888, kvImage444CbYpCrA8, r8, 4, 12,
+                   vImageConvert_ARGB8888To444CbYpCrA8(&src8, &d, &out, bgra, 0));
+            TO_YUV(ARGB8888To444CrYpCb8, kvImageARGB8888, kvImage444CrYpCb8, r8, 3, 12,
+                   vImageConvert_ARGB8888To444CrYpCb8(&src8, &d, &out, NULL, 0));
+            TO_YUV_SUM(ARGB8888To444CrYpCb10, kvImageARGB8888, kvImage444CrYpCb10, r10, 4, 12, 410,
+                   vImageConvert_ARGB8888To444CrYpCb10(&src8, &d, &out, NULL, 0));
+            TO_YUV_SUM(ARGB16Q12To444CrYpCb10, kvImageARGB16Q12, kvImage444CrYpCb10, r10, 4, 12, 410,
+                   vImageConvert_ARGB16Q12To444CrYpCb10(&srcQ, &d, &out, NULL, 0));
+            TO_YUV_SUM(ARGB8888To422CrYpCbYpCbYpCbYpCrYpCrYp10, kvImageARGB8888, kvImage422CrYpCbYpCbYpCbYpCrYpCrYp10, r10, 3, 12, 210,
+                   vImageConvert_ARGB8888To422CrYpCbYpCbYpCbYpCrYpCrYp10(&src8, &d, &out, NULL, 0));
+            TO_YUV_SUM(ARGB16Q12To422CrYpCbYpCbYpCbYpCrYpCrYp10, kvImageARGB16Q12, kvImage422CrYpCbYpCbYpCbYpCrYpCrYp10, r10, 3, 12, 210,
+                   vImageConvert_ARGB16Q12To422CrYpCbYpCbYpCbYpCrYpCrYp10(&srcQ, &d, &out, bgra, 0));
+            TO_YUV(ARGB8888To422CbYpCrYp16, kvImageARGB8888, kvImage422CbYpCrYp16, r16, 4, 12,
+                   vImageConvert_ARGB8888To422CbYpCrYp16(&src8, &d, &out, NULL, 0));
+            TO_YUV(ARGB16UTo422CbYpCrYp16, kvImageARGB16U, kvImage422CbYpCrYp16, r16, 4, 12,
+                   vImageConvert_ARGB16UTo422CbYpCrYp16(&src16, &d, &out, NULL, 0));
+            TO_YUV(ARGB8888To444AYpCbCr16, kvImageARGB8888, kvImage444AYpCbCr16, r16, 8, 12,
+                   vImageConvert_ARGB8888To444AYpCbCr16(&src8, &d, &out, NULL, 0));
+            TO_YUV_SUM(ARGB16UTo444AYpCbCr16, kvImageARGB16U, kvImage444AYpCbCr16, r16, 8, 12, 16,
+                   vImageConvert_ARGB16UTo444AYpCbCr16(&src16, &d, &out, bgra, 0));
+            vImageConvert_ARGBToYpCbCr_GenerateConversion(toYUV[m], &r8[r], &out, kvImageARGB8888, kvImage422CbYpCrYp8_AA8, 0);
+            snprintf(n, sizeof(n), "ARGB8888To422CbYpCrYp8_AA8 %d %d", m, r);
+            TN(n, 2, 2, vImageConvert_ARGB8888To422CbYpCrYp8_AA8(&src8, &o[0], &o[1], &out, NULL, 0));
+            vImageConvert_ARGBToYpCbCr_GenerateConversion(toYUV[m], &r8[r], &out, kvImageARGB8888, kvImage420Yp8_Cb8_Cr8, 0);
+            snprintf(n, sizeof(n), "ARGB8888To420Yp8_Cb8_Cr8 %d %d", m, r);
+            TN(n, 3, 1, vImageConvert_ARGB8888To420Yp8_Cb8_Cr8(&src8, &o[0], &o[1], &o[2], &out, NULL, 0));
+            vImageConvert_ARGBToYpCbCr_GenerateConversion(toYUV[m], &r8[r], &out, kvImageARGB8888, kvImage420Yp8_CbCr8, 0);
+            snprintf(n, sizeof(n), "ARGB8888To420Yp8_CbCr8 %d %d", m, r);
+            TN(n, 2, 1, vImageConvert_ARGB8888To420Yp8_CbCr8(&src8, &o[0], &o[1], &out, bgra, 0));
+#undef TO_RGB
+#undef TO_YUV
+#undef TO_YUV_SUM
+        }
+    {
+        vImage_YpCbCrToARGB in;
+        printf("YpCbCrToARGB 8-bit to 16U: %ld\n", (long)vImageConvert_YpCbCrToARGB_GenerateConversion(
+                   toRGB[0], &r8[0], &in, kvImage422YpCbYpCr8, kvImageARGB16U, 0));
+        printf("YpCbCrToARGB unknown flag: %ld\n", (long)vImageConvert_YpCbCrToARGB_GenerateConversion(
+                   toRGB[0], &r8[0], &in, kvImage422YpCbYpCr8, kvImageARGB8888, 0x100000));
+    }
+}
+
 int main(void)
 {
     dump_name = getenv("VIMAGE_DUMP");
@@ -1127,5 +1265,6 @@ int main(void)
     geometry();
     conversions_10bit();
     conversions_dithered();
+    conversions_ycbcr();
     return 0;
 }

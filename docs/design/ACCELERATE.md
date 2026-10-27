@@ -103,14 +103,14 @@ than zeroing it.
 ## vImage
 
 `userland/Accelerate/vImage/` is Finch's vImage, one file per header area:
-`convert.c`, `convert-channels.c`, `convert-10bit.c` and `convert-dither.c`
-(`Conversion.h` but for YpCbCr),
+`convert.c`, `convert-channels.c`, `convert-10bit.c`, `convert-dither.c` and
+`convert-ycbcr.c` (`Conversion.h`),
 `alpha.c`, `morphology.c`, `histogram.c`, `convolution.c`, `transform.c`
 (matrix multiply, gamma, lookup tables, piecewise functions) and `geometry.c`;
 `common.h` holds the buffer checks and sample conversions they share, and
 `legacy.c` the CoreGraphics interop (`vImageBuffer_InitWithCGImage`,
 `vImageCreateCGImageFromBuffer`). `Alpha.h`, `Convolution.h`, `Histogram.h`,
-`Morphology.h`, `Transform.h` and `Geometry.h` are complete.
+`Morphology.h`, `Transform.h`, `Geometry.h` and `Conversion.h` are complete.
 
 vImage's results are matched to Apple's, quirks included: its vector loops
 (groups of four pixels) and scalar tails compute some operations differently,
@@ -138,9 +138,14 @@ Apple's in kind, not sample for sample. Apple's 2- and 4-bit conversions step
 the destination by the source's `rowBytes` when not diffusing, writing past
 a narrower destination; Finch's use the destination's.
 
-Still missing: `Conversion.h`'s YpCbCr formats (34 calls),
-`vImage_Utilities.h` (15), `vImage_CVUtilities.h` (30) and
-`BasicImageTypes.h` (1).
+`convert-ycbcr.c` has the Y'CbCr conversions (4:4:4, 4:2:2 and 4:2:0; 8, 10
+and 16 bits) with Apple's arithmetic, worked out from its results: fixed point
+for Y'CbCr to 8-bit RGB and for 8-bit RGB to 8-bit Y'CbCr, single precision
+elsewhere (one apart from Apple's in a few 10- and 16-bit samples). The
+generated conversions are Finch's own layout of the opaque structures.
+
+Still missing: `vImage_Utilities.h` (15 calls), `vImage_CVUtilities.h` (30)
+and `BasicImageTypes.h` (1).
 
 ## The rest
 
