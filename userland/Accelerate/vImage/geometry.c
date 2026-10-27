@@ -15,7 +15,7 @@
  * matches Apple's; the affine warp samples the inverse map with the 2D kernel, within
  * about a level of Apple's, which decomposes it into shears. Coordinates follow the
  * header: the origin is at the bottom left of each image.
- */ */
+ */
 #include "common.h"
 
 /* MARK: - Formats */
