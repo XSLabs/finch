@@ -123,7 +123,7 @@ steps=(
     "ImageIO|userland/ImageIO/build.sh"
     # Caption settings and image-caption metadata over Finch's media frameworks.
     "MediaAccessibility|userland/MediaAccessibility/build.sh"
-    # The app-imported CPU parts of Accelerate, over CoreGraphics and CoreFoundation.
+    # Accelerate (vecLib: all of vDSP; vImage) on the CPU, over CoreGraphics and CoreFoundation.
     "Accelerate|userland/Accelerate/build.sh"
     # CoreImage: images as recipes, filters rendered on the CPU
     "CoreImage|userland/CoreImage/build.sh"

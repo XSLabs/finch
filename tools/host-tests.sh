@@ -27,7 +27,7 @@ export FINCH_TEST_SECURITY_IMAGE="${FINCH_TRIAL:-${R}/Frameworks}/Security.frame
 FW="${FINCH_TRIAL:+${FINCH_TRIAL}:}${R}/Frameworks:${IOS_R}/Frameworks:${R}/PrivateFrameworks:${R}/Frameworks/Quartz.framework/Frameworks"
 FW="${FW}:${R}/Frameworks/CoreServices.framework/Versions/A/Frameworks:${R}/Frameworks/ApplicationServices.framework/Versions/A/Frameworks"
 FW="${FW}:${R}/Frameworks/Carbon.framework/Versions/A/Frameworks"
-FW="${FW}:${R}/Frameworks/OpenDirectory.framework/Versions/A/Frameworks"
+FW="${FW}:${R}/Frameworks/OpenDirectory.framework/Versions/A/Frameworks:${R}/Frameworks/Accelerate.framework/Versions/A/Frameworks"
 SERVER=build/root/usr/libexec/finch-windowserver
 TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT
@@ -38,7 +38,7 @@ for l in libMobileGestalt libDiagnosticMessagesClient; do ln -s "${FINCH_ROOT}/b
 ln -s "${FINCH_ROOT}/build/root/usr/lib/system/libfinchaccount.dylib" "${TMP}/lib/"
 ln -s "${FINCH_ROOT}/build/root/usr/lib/system/libsystem_dnssd.dylib" "${TMP}/lib/"
 ln -s "${FINCH_ROOT}/build/root/usr/lib/libsandbox.1.dylib" "${TMP}/lib/"
-LIBS="build/root/usr/lib/swift:${TMP}/lib:${R}/Frameworks/OpenGL.framework/Versions/A/Libraries"
+LIBS="build/root/usr/lib/swift:${TMP}/lib:${R}/Frameworks/OpenGL.framework/Versions/A/Libraries:${R}/Frameworks/Accelerate.framework/Versions/A/Frameworks/vecLib.framework/Versions/A"
 
 # name|arguments: comparison tests (arguments are relative to the repo root)
 COMPARE=(
@@ -51,7 +51,7 @@ COMPARE=(
     "cf-classes-test|" "distnotify-test|" "file-replace-test|" "new-classes-test|" "websocket-test|" "do-test|" "foundation-edges-test|" "appkit-edges-test|" "appkit-classes-test|" "archive-test|" "predicate-test|" "measurement-test|" "bridge-test|" "streams-test|" "documents-test|"
     "files-test|" "xmlparser-test|" "cfnotify-test|" "l10n-test|" "uti-test|" "cg-test|" "cg-overlay-test|" "cg-private-test|" "cg-region-test|" "foundation-overlay-test|" \
     "cg-draw-test|userland/tests/cg-draw-reference.bin" "cgpdf-test|" "imageio-test|"
-    "ct-test|" "quartzcore-test|" "calayer-test|" "uifoundation-test|userland/tests/uifoundation-reference.bin" "appkit-core-test|" "appkit-gaps-test|" "appkit-draw-test|userland/tests/appkit-draw-reference.bin" "accelerate-test|"
+    "ct-test|" "quartzcore-test|" "calayer-test|" "uifoundation-test|userland/tests/uifoundation-reference.bin" "appkit-core-test|" "appkit-gaps-test|" "appkit-draw-test|userland/tests/appkit-draw-reference.bin" "accelerate-test|" "vdsp-test|"
     "appkit-containers-test|" "appkit-controls-test|${B}/controls-test.nib" "appkit-menu-test|${B}/menu-test.nib"
     "appkit-text-test|${B}/appkit-text-test.nib" "appkit-document-test|${B}" "nib-test|${B}/nib-test.nib"
     "appkit-layout-test|${B}" "appkit-bindings-test|${B}/appkit-bindings-test.nib" "appkit-panels-test|"

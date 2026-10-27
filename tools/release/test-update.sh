@@ -19,7 +19,8 @@ ln -s "${FINCH_ROOT}/build/root/usr/lib/libsandbox.1.dylib" "${T}/lib/"
 FW="${FINCH_TRIAL:+${FINCH_TRIAL}:}${R}/Frameworks:${IOS_R}/Frameworks:${R}/PrivateFrameworks:${R}/Frameworks/Quartz.framework/Frameworks"
 FW="${FW}:${R}/Frameworks/CoreServices.framework/Versions/A/Frameworks:${R}/Frameworks/ApplicationServices.framework/Versions/A/Frameworks"
 FW="${FW}:${R}/Frameworks/Carbon.framework/Versions/A/Frameworks:${R}/Frameworks/OpenDirectory.framework/Versions/A/Frameworks"
-LIBS="${FINCH_ROOT}/build/root/usr/lib/swift:${T}/lib:${R}/Frameworks/OpenGL.framework/Versions/A/Libraries"
+FW="${FW}:${R}/Frameworks/Accelerate.framework/Versions/A/Frameworks"
+LIBS="${FINCH_ROOT}/build/root/usr/lib/swift:${T}/lib:${R}/Frameworks/OpenGL.framework/Versions/A/Libraries:${R}/Frameworks/Accelerate.framework/Versions/A/Frameworks/vecLib.framework/Versions/A"
 server=
 trap '[[ -n "${server}" ]] && { kill "${server}"; wait "${server}"; } 2>/dev/null; if [[ -z "${FINCH_UPDATE_KEEP_TMP:-}" ]]; then rm -rf "${T}"; else echo "test files kept at ${T}"; fi' EXIT
 fails=0

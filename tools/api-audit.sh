@@ -27,8 +27,8 @@ for l in usr/lib/libMobileGestalt usr/lib/libDiagnosticMessagesClient usr/lib/li
          usr/lib/system/libfinchaccount usr/lib/system/libsystem_dnssd; do
     ln -s "${FINCH_ROOT}/build/root/${l}.dylib" "${TMP}/lib/"
 done
-DYLD_FRAMEWORK_PATH="${R}/Frameworks:${R}/PrivateFrameworks:${R}/Frameworks/Quartz.framework/Frameworks:${R}/Frameworks/CoreServices.framework/Versions/A/Frameworks:${R}/Frameworks/ApplicationServices.framework/Versions/A/Frameworks:${R}/Frameworks/Carbon.framework/Versions/A/Frameworks" \
-    DYLD_LIBRARY_PATH="${FINCH_ROOT}/build/root/usr/lib/swift:${TMP}/lib" FINCH_THEME=Classic \
+DYLD_FRAMEWORK_PATH="${R}/Frameworks:${R}/PrivateFrameworks:${R}/Frameworks/Quartz.framework/Frameworks:${R}/Frameworks/CoreServices.framework/Versions/A/Frameworks:${R}/Frameworks/ApplicationServices.framework/Versions/A/Frameworks:${R}/Frameworks/Carbon.framework/Versions/A/Frameworks:${R}/Frameworks/Accelerate.framework/Versions/A/Frameworks" \
+    DYLD_LIBRARY_PATH="${FINCH_ROOT}/build/root/usr/lib/swift:${TMP}/lib:${R}/Frameworks/Accelerate.framework/Versions/A/Frameworks/vecLib.framework/Versions/A" FINCH_THEME=Classic \
     "${OUT}/api-audit-responds" < "${TMP}/declared" 2>/dev/null | sort > "${TMP}/finch"
 comm -13 "${TMP}/apple" "${TMP}/finch" > "${TMP}/gaps"
 [[ "${SUMMARY}" -eq 0 ]] && cat "${TMP}/gaps"

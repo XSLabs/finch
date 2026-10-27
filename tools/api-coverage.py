@@ -1005,7 +1005,8 @@ def objc_responses(spec, items, binary, build_root):
         system / "Frameworks/Quartz.framework/Frameworks",
         system / "Frameworks/CoreServices.framework/Versions/A/Frameworks",
         system / "Frameworks/ApplicationServices.framework/Versions/A/Frameworks",
-        system / "Frameworks/Carbon.framework/Versions/A/Frameworks"))
+        system / "Frameworks/Carbon.framework/Versions/A/Frameworks",
+        system / "Frameworks/Accelerate.framework/Versions/A/Frameworks"))
     with tempfile.TemporaryDirectory() as standalone:
         # Finch's standalone libraries, alone on the library path, as tools/host-tests.sh
         # has them (all of usr/lib would swap in Finch's libSystem as well).
@@ -1016,6 +1017,7 @@ def objc_responses(spec, items, binary, build_root):
         env["DYLD_LIBRARY_PATH"] = ":".join(str(path) for path in (
             build_root / "usr/lib/swift", Path(standalone),
             build_root / "System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries",
+            build_root / "System/Library/Frameworks/Accelerate.framework/Versions/A/Frameworks/vecLib.framework/Versions/A",
         ) if path.is_dir())
         env["FINCH_THEME"] = "Classic"
         result = command([str(RESPONDER), str(binary)], input="\n".join(lines) + "\n", env=env)

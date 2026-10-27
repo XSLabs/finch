@@ -2,26 +2,26 @@
 
 SDK baseline: macOS SDK 26.4 (arm64e).
 
-This report compares public C declarations and SDK export lists, Objective-C classes, methods and properties, and Swift declarations from the SDK interfaces. It follows public TAPI re-exports, checks C symbols and Swift API declarations against Finch's built Swift modules where they exist, and checks Swift symbols otherwise. It asks Finch's loaded classes whether they answer the listed selectors. These checks show API presence; they do not prove matching behavior. Public framework bundles, including nested subframeworks, and public dylib stubs under usr/lib, including its subfolders, are included. PrivateFrameworks and underscore-named framework bundles are excluded.
+This report compares public C declarations and SDK export lists, Objective-C classes, methods and properties, and Swift declarations from the SDK interfaces. It follows public TAPI re-exports, checks C symbols and Swift API declarations against Finch's built Swift modules where they exist, and checks Swift symbols otherwise. It asks Finch's loaded classes whether they answer the listed selectors. A library's re-exported symbols and classes (libSystem's, for one) are read from the Finch images it re-exports, on disk, since loading Finch's libSystem into the host process is not possible. These checks show API presence; they do not prove matching behavior. Public framework bundles, including nested subframeworks, and public dylib stubs under usr/lib, including its subfolders, are included. PrivateFrameworks and underscore-named framework bundles are excluded.
 
 Behavior-verified counts come from item IDs in build/compat-results/*.json. Generated comparison records count only when the item's run matches the saved SDK, test code, and Finch image for this report, the Finch image was loaded during the run, and both sides produced output. Standalone verified IDs without item records are kept as history but are not counted. These checks cover the recorded safe inputs, not every input an API can accept. Constant checks also merge into the framework files. The full name-by-name report is kept in build/api-coverage.json.
 
-Overall: **48.3%** (258,945 of 535,953 API items across 842 parsed frameworks or dylibs).
+Overall: **48.9%** (262,241 of 535,953 API items across 842 parsed frameworks or dylibs).
 
 7 frameworks or dylibs had a parse or load issue and are left out of the overall percentage. 141 parsed successfully but had no public macOS API items.
 
 | Framework or dylib | API items | Present | Missing | Coverage | Behavior verified | Status |
 |---|---:|---:|---:|---:|---:|---|
-| Accelerate | 13,547 | 53 | 13,494 | 0.4% | 0/13547 | complete |
-| Accelerate/vecLib | 12,956 | 0 | 12,956 | 0.0% | 0/12956 | complete |
+| Accelerate | 13,547 | 491 | 13,056 | 3.6% | 4/13547 | complete |
+| Accelerate/vecLib | 12,956 | 481 | 12,475 | 3.7% | 0/12956 | complete |
 | Accelerate/vecLib/libBNNS | 269 | 0 | 269 | 0.0% | 0/269 | complete |
 | Accelerate/vecLib/libLinearAlgebra | 42 | 0 | 42 | 0.0% | 0/42 | complete |
 | Accelerate/vecLib/libQuadrature | 1 | 0 | 1 | 0.0% | 0/1 | complete |
 | Accelerate/vecLib/libSparse | 4 | 0 | 4 | 0.0% | 0/4 | complete |
 | Accelerate/vecLib/libSparseBLAS | 127 | 0 | 127 | 0.0% | 0/127 | complete |
-| Accelerate/vecLib/libvDSP | 469 | 0 | 469 | 0.0% | 0/469 | complete |
-| Accelerate/vecLib/libvMisc | 582 | 0 | 582 | 0.0% | 0/582 | complete |
-| Accelerate/vImage | 591 | 0 | 591 | 0.0% | 0/591 | complete |
+| Accelerate/vecLib/libvDSP | 469 | 469 | 0 | 100.0% | 0/469 | complete |
+| Accelerate/vecLib/libvMisc | 582 | 3 | 579 | 0.5% | 0/582 | complete |
+| Accelerate/vImage | 591 | 10 | 581 | 1.7% | 0/591 | complete |
 | Accessibility | 318 | 301 | 17 | 94.7% | 14/318 | complete |
 | Accounts | 70 | 41 | 29 | 58.6% | 16/70 | complete |
 | ACIPCBTLib | 0 | 0 | 0 | 0.0% | 0/0 | empty |
@@ -30,7 +30,7 @@ Overall: **48.3%** (258,945 of 535,953 API items across 842 parsed frameworks or
 | AdServices | 4 | 0 | 4 | 0.0% | 0/4 | complete |
 | AdSupport | 3 | 0 | 3 | 0.0% | 0/3 | complete |
 | AppIntents | 4,043 | 995 | 3,048 | 24.6% | 0/4043 | complete |
-| AppKit | 18,585 | 16,427 | 2,158 | 88.4% | 2248/18585 | complete |
+| AppKit | 18,585 | 16,514 | 2,071 | 88.9% | 2248/18585 | complete |
 | AppleConvergedTransport | 14 | 0 | 14 | 0.0% | 0/14 | complete |
 | AppleScriptKit | 96 | 0 | 96 | 0.0% | 0/96 | complete |
 | AppleScriptObjC | 1 | 0 | 1 | 0.0% | 0/1 | complete |
@@ -156,7 +156,7 @@ Overall: **48.3%** (258,945 of 535,953 API items across 842 parsed frameworks or
 | FinanceKitUI | 11 | 0 | 11 | 0.0% | 0/11 | complete |
 | FinderSync | 25 | 0 | 25 | 0.0% | 0/25 | complete |
 | ForceFeedback | 20 | 0 | 20 | 0.0% | 0/20 | complete |
-| Foundation | 13,636 | 12,327 | 1,309 | 90.4% | 946/13636 | complete |
+| Foundation | 13,636 | 12,327 | 1,309 | 90.4% | 396/13636 | complete |
 | FoundationModels | 442 | 0 | 442 | 0.0% | 0/442 | complete |
 | FSKit | 317 | 0 | 317 | 0.0% | 0/317 | complete |
 | GameController | 907 | 545 | 362 | 60.1% | 0/907 | complete |
@@ -257,7 +257,7 @@ Overall: **48.3%** (258,945 of 535,953 API items across 842 parsed frameworks or
 | libAXSpeechManager | 6 | 0 | 6 | 0.0% | 0/6 | complete |
 | libBacktraceRecording | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | libBASupport | 3 | 0 | 3 | 0.0% | 0/3 | complete |
-| libblas | 1,464 | 0 | 1,464 | 0.0% | 0/1464 | complete |
+| libblas | 1,464 | 5 | 1,459 | 0.3% | 0/1464 | complete |
 | libBootCacheLib | 7 | 0 | 7 | 0.0% | 0/7 | complete |
 | libbootpolicy | 105 | 0 | 105 | 0.0% | 0/105 | complete |
 | libboringssl | 447 | 0 | 447 | 0.0% | 0/447 | complete |
@@ -273,13 +273,13 @@ Overall: **48.3%** (258,945 of 535,953 API items across 842 parsed frameworks or
 | libc++.1 | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | libc++abi | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | libcache | 34 | 34 | 0 | 100.0% | 0/34 | complete |
-| libcblas | 1,464 | 0 | 1,464 | 0.0% | 0/1464 | complete |
+| libcblas | 1,464 | 5 | 1,459 | 0.3% | 0/1464 | complete |
 | libchannel | 32 | 0 | 32 | 0.0% | 0/32 | complete |
 | libcharset | 2 | 2 | 0 | 100.0% | 0/2 | complete |
 | libcharset.1 | 2 | 2 | 0 | 100.0% | 0/2 | complete |
 | libCheckFix | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | libChineseTokenizer | 8 | 0 | 8 | 0.0% | 0/8 | complete |
-| libclapack | 9,998 | 0 | 9,998 | 0.0% | 0/9998 | complete |
+| libclapack | 9,998 | 4 | 9,994 | 0.0% | 0/9998 | complete |
 | libcmark-gfm | 223 | 0 | 223 | 0.0% | 0/223 | complete |
 | libcmph | 32 | 0 | 32 | 0.0% | 0/32 | complete |
 | libcodedirectory | 39 | 0 | 39 | 0.0% | 0/39 | complete |
@@ -343,7 +343,7 @@ Overall: **48.3%** (258,945 of 535,953 API items across 842 parsed frameworks or
 | libexslt | 17 | 0 | 17 | 0.0% | 0/17 | complete |
 | libexslt.0 | 17 | 0 | 17 | 0.0% | 0/17 | complete |
 | libextension | 2,916 | 2,631 | 285 | 90.2% | 0/2916 | complete |
-| libf77lapack | 9,998 | 0 | 9,998 | 0.0% | 0/9998 | complete |
+| libf77lapack | 9,998 | 4 | 9,994 | 0.0% | 0/9998 | complete |
 | libfakelink | 12 | 0 | 12 | 0.0% | 0/12 | complete |
 | libFDR | 293 | 0 | 293 | 0.0% | 0/293 | complete |
 | libFDR_osx | 293 | 0 | 293 | 0.0% | 0/293 | complete |
@@ -397,7 +397,7 @@ Overall: **48.3%** (258,945 of 535,953 API items across 842 parsed frameworks or
 | libktrace | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | libkxld | 13 | 0 | 13 | 0.0% | 0/13 | complete |
 | liblangid | 14 | 0 | 14 | 0.0% | 0/14 | complete |
-| liblapack | 9,998 | 0 | 9,998 | 0.0% | 0/9998 | complete |
+| liblapack | 9,998 | 4 | 9,994 | 0.0% | 0/9998 | complete |
 | liblaunch | 83 | 0 | 83 | 0.0% | 0/83 | complete |
 | libLaunchServicesSupport | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | liblber | 294 | 0 | 294 | 0.0% | 0/294 | complete |
@@ -444,7 +444,7 @@ Overall: **48.3%** (258,945 of 535,953 API items across 842 parsed frameworks or
 | libnetsnmpmibs.25 | 806 | 0 | 806 | 0.0% | 0/806 | complete |
 | libnetsnmptrapd | 40 | 0 | 40 | 0.0% | 0/40 | complete |
 | libnetsnmptrapd.25 | 40 | 0 | 40 | 0.0% | 0/40 | complete |
-| libnetwork | 4,649 | 11 | 4,638 | 0.2% | 0/4649 | complete |
+| libnetwork | 4,649 | 439 | 4,210 | 9.4% | 0/4649 | complete |
 | libnetworkextension | 97 | 0 | 97 | 0.0% | 0/97 | complete |
 | libNFC_Comet | 231 | 0 | 231 | 0.0% | 0/231 | complete |
 | libNFC_HAL | 135 | 0 | 135 | 0.0% | 0/135 | complete |
@@ -651,7 +651,7 @@ Overall: **48.3%** (258,945 of 535,953 API items across 842 parsed frameworks or
 | NaturalLanguage | 247 | 0 | 247 | 0.0% | 0/247 | complete |
 | NearbyInteraction | 73 | 0 | 73 | 0.0% | 0/73 | complete |
 | NetFS | 5 | 0 | 5 | 0.0% | 0/5 | complete |
-| Network | 1,921 | 633 | 1,288 | 33.0% | 4/1921 | complete |
+| Network | 1,921 | 1,082 | 839 | 56.3% | 4/1921 | complete |
 | NetworkExtension | 5,292 | 0 | 5,292 | 0.0% | 0/5292 | complete |
 | NotificationCenter | 38 | 0 | 38 | 0.0% | 0/38 | complete |
 | OpenAL | 98 | 0 | 98 | 0.0% | 0/98 | complete |
@@ -777,7 +777,7 @@ Overall: **48.3%** (258,945 of 535,953 API items across 842 parsed frameworks or
 | swift/libswiftModelIO | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftNaturalLanguage | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftNearbyInteraction | 73 | 0 | 73 | 0.0% | 0/73 | complete |
-| swift/libswiftNetwork | 4,649 | 11 | 4,638 | 0.2% | 0/4649 | complete |
+| swift/libswiftNetwork | 4,649 | 439 | 4,210 | 9.4% | 0/4649 | complete |
 | swift/libswiftObjectiveC | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftObservation | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | swift/libswiftOpenCL | 0 | 0 | 0 | 0.0% | 0/0 | empty |
@@ -847,7 +847,7 @@ Overall: **48.3%** (258,945 of 535,953 API items across 842 parsed frameworks or
 | usd/libusd_ms | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | UserNotifications | 144 | 118 | 26 | 81.9% | 7/144 | complete |
 | UserNotificationsUI | 12 | 0 | 12 | 0.0% | 0/12 | complete |
-| vecLib | 12,956 | 0 | 12,956 | 0.0% | 0/12956 | complete |
+| vecLib | 12,956 | 481 | 12,475 | 3.7% | 0/12956 | complete |
 | VideoDecodeAcceleration | 8 | 0 | 8 | 0.0% | 0/8 | complete |
 | VideoSubscriberAccount | 214 | 0 | 214 | 0.0% | 0/214 | complete |
 | VideoToolbox | 578 | 504 | 74 | 87.2% | 323/578 | complete |
@@ -869,11 +869,6 @@ These SDK frameworks or dylibs have no Finch image. The size column is the numbe
 | Framework or dylib | API items missing |
 |---|---:|
 | Matter | 18,058 |
-| Accelerate/vecLib | 12,956 |
-| vecLib | 12,956 |
-| libclapack | 9,998 |
-| libf77lapack | 9,998 |
-| liblapack | 9,998 |
 | NetworkExtension | 5,292 |
 | GameKit | 4,585 |
 | RealityKit | 4,501 |
@@ -889,8 +884,6 @@ These SDK frameworks or dylibs have no Finch image. The size column is the numbe
 | swift/libswiftHealthKit | 1,770 |
 | libcoreroutine | 1,631 |
 | MetalPerformanceShaders/MPSNeuralNetwork | 1,541 |
-| libblas | 1,464 |
-| libcblas | 1,464 |
 | MusicKit | 1,370 |
 | DiscRecording | 1,267 |
 | BackgroundAssets | 1,174 |
@@ -935,12 +928,10 @@ These SDK frameworks or dylibs have no Finch image. The size column is the numbe
 | Photos | 613 |
 | swift/libswiftPhotos | 613 |
 | libramrod | 598 |
-| Accelerate/vImage | 591 |
 | libodmodule | 590 |
 | Tcl | 587 |
 | libtk | 585 |
 | libtk8.5 | 585 |
-| Accelerate/vecLib/libvMisc | 582 |
 | MLCompute | 573 |
 | libapr-1 | 510 |
 | libapr-1.0 | 510 |
@@ -948,7 +939,6 @@ These SDK frameworks or dylibs have no Finch image. The size column is the numbe
 | swift/libswiftSpeech | 503 |
 | CoreDisplay | 495 |
 | libamsupport | 493 |
-| Accelerate/vecLib/libvDSP | 469 |
 | libcups | 451 |
 | libcups.2 | 451 |
 | GameplayKit | 448 |
@@ -1361,7 +1351,7 @@ Priority score is missing API items multiplied by the number of apps app-sweep.p
 |---|---:|---:|---:|
 | WebKit | 2,908 | 34 | 98,872 |
 | SwiftUI | 3,515 | 25 | 87,875 |
-| AppKit | 2,158 | 23 | 49,634 |
+| AppKit | 2,071 | 23 | 47,633 |
 | AppIntents | 3,048 | 15 | 45,720 |
 | MetalPerformanceShaders | 2,675 | 7 | 18,725 |
 | Carbon | 1,494 | 12 | 17,928 |
