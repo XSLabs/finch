@@ -6,13 +6,13 @@ This report compares public C declarations and SDK export lists, Objective-C cla
 
 Behavior-verified counts come from item IDs in build/compat-results/*.json. Generated comparison records count only when the item's run matches the saved SDK, test code, and Finch image for this report, the Finch image was loaded during the run, and both sides produced output. Standalone verified IDs without item records are kept as history but are not counted. These checks cover the recorded safe inputs, not every input an API can accept. Constant checks also merge into the framework files. The full name-by-name report is kept in build/api-coverage.json.
 
-Overall: **50.5%** (270,472 of 535,953 API items across 842 parsed frameworks or dylibs).
+Overall: **50.6%** (271,370 of 535,953 API items across 842 parsed frameworks or dylibs).
 
 7 frameworks or dylibs had a parse or load issue and are left out of the overall percentage. 141 parsed successfully but had no public macOS API items.
 
 | Framework or dylib | API items | Present | Missing | Coverage | Behavior verified | Status |
 |---|---:|---:|---:|---:|---:|---|
-| Accelerate | 13,547 | 2,245 | 11,302 | 16.6% | 0/13547 | complete |
+| Accelerate | 13,547 | 2,694 | 10,853 | 19.9% | 0/13547 | complete |
 | Accelerate/vecLib | 12,956 | 2,235 | 10,721 | 17.3% | 0/12956 | complete |
 | Accelerate/vecLib/libBNNS | 269 | 0 | 269 | 0.0% | 0/269 | complete |
 | Accelerate/vecLib/libLinearAlgebra | 42 | 0 | 42 | 0.0% | 0/42 | complete |
@@ -21,7 +21,7 @@ Overall: **50.5%** (270,472 of 535,953 API items across 842 parsed frameworks or
 | Accelerate/vecLib/libSparseBLAS | 127 | 0 | 127 | 0.0% | 0/127 | complete |
 | Accelerate/vecLib/libvDSP | 469 | 469 | 0 | 100.0% | 0/469 | complete |
 | Accelerate/vecLib/libvMisc | 582 | 542 | 40 | 93.1% | 0/582 | complete |
-| Accelerate/vImage | 591 | 10 | 581 | 1.7% | 0/591 | complete |
+| Accelerate/vImage | 591 | 459 | 132 | 77.7% | 0/591 | complete |
 | Accessibility | 318 | 301 | 17 | 94.7% | 14/318 | complete |
 | Accounts | 70 | 41 | 29 | 58.6% | 16/70 | complete |
 | ACIPCBTLib | 0 | 0 | 0 | 0.0% | 0/0 | empty |

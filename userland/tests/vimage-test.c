@@ -779,6 +779,186 @@ static void transforms(void)
     }
 }
 
+/* a w x h output, for the geometry functions */
+static vImage_Buffer make_size(vImagePixelCount w, vImagePixelCount h, size_t bpp)
+{
+    vImage_Buffer b = {calloc(h * (w * bpp + 8), 1), h, w, w * bpp + 8};
+    return b;
+}
+
+#define TD(name, w, h, BPP, call)                                                                        \
+    do {                                                                                                 \
+        vImage_Buffer d = make_size(w, h, BPP);                                                          \
+        vImage_Error e = call;                                                                           \
+        size_t bpp = BPP;                                                                                \
+        report(name, e, 1, &d, &bpp);                                                                    \
+        free(d.data);                                                                                    \
+    } while (0)
+
+/* Apple's 8- and 16-bit resamplers round their own way (fixed-point weights); their
+   outputs are compared coarsely (16-bit ones in units of 1024) */
+#define TDC(name, w, h, BPP, kind, call)                                                                 \
+    do {                                                                                                 \
+        vImage_Buffer d = make_size(w, h, BPP);                                                          \
+        vImage_Error e = call;                                                                           \
+        long c = coarse(&d, BPP, kind);                                                                  \
+        printf("%s (coarse): %ld %ld\n", name, (long)e, kind == 2 ? lround(c / 16.0) : c);              \
+        free(d.data);                                                                                    \
+    } while (0)
+
+/* resampled float outputs: Apple's arithmetic orders differ from Finch's in the last
+   bits, so these print the sums of the samples, unweighted and weighted by column and
+   by row (scaled by 7.3, so that sums of the dyadic test data never round from a tie) */
+#define TDF(name, w, h, BPP, call)                                                                       \
+    do {                                                                                                 \
+        vImage_Buffer d = make_size(w, h, BPP);                                                          \
+        vImage_Error e = call;                                                                           \
+        double sum[3] = {0};                                                                             \
+        for (vImagePixelCount y = 0; y < d.height; ++y)                                                  \
+            for (size_t i = 0; i < d.width * (BPP) / 4; ++i) {                                           \
+                double v = ((const float *)((const uint8_t *)d.data + y * d.rowBytes))[i];               \
+                sum[0] += v, sum[1] += v * (double)(i * 4 / (BPP) + 1), sum[2] += v * (double)(y + 1);   \
+            }                                                                                            \
+        printf("%s (sums): %ld %ld %ld %ld\n", name, (long)e, lround(sum[0] * 7.3), lround(sum[1] * 7.3), \
+               lround(sum[2] * 7.3));                                                                     \
+        free(d.data);                                                                                    \
+    } while (0)
+
+static void geometry(void)
+{
+    char n[96];
+    /* exact copies: reflections and quarter turns, in every format that has them */
+#define EXACT(F, BPP, SRC, BG)                                                                           \
+    TD("HorizontalReflect_" #F, W, H, BPP, vImageHorizontalReflect_##F(&SRC, &d, 0));                   \
+    TD("VerticalReflect_" #F, W, H, BPP, vImageVerticalReflect_##F(&SRC, &d, 0));                       \
+    for (uint8_t r = 0; r < 5; ++r) {                                                                    \
+        snprintf(n, sizeof(n), "Rotate90_" #F " %d", r);                                                 \
+        TD(n, W, H, BPP, vImageRotate90_##F(&SRC, &d, r, BG, 0));                                        \
+        snprintf(n, sizeof(n), "Rotate90_" #F " %d turned", r);                                          \
+        TD(n, H + 1, W - 2, BPP, vImageRotate90_##F(&SRC, &d, r, BG, 0));                                \
+    }
+    EXACT(Planar8, 1, s8, 7)
+    EXACT(Planar16U, 2, s16U, 999)
+    EXACT(PlanarF, 4, sF, 0.25f)
+    EXACT(ARGB8888, 4, s8, ((Pixel_8888){1, 2, 3, 4}))
+    EXACT(ARGB16U, 8, s16U, ((Pixel_ARGB_16U){1, 2, 3, 4}))
+    EXACT(ARGB16S, 8, s16S, ((Pixel_ARGB_16S){1, -2, 3, -4}))
+    EXACT(ARGBFFFF, 16, sF, ((Pixel_FFFF){0.5f, 0.25f, 0, 1}))
+    EXACT(Planar16F, 2, sHalf, 0x3c00)
+    EXACT(CbCr16F, 4, sHalf, ((Pixel_16F16F){0x3c00, 0x3800}))
+    EXACT(ARGB16F, 8, sHalf, ((Pixel_ARGB_16F){0x3c00, 0x3800, 0, 0x3c00}))
+#undef EXACT
+    TD("Rotate90 bad constant", W, H, 1, vImageRotate90_Planar8(&s8, &d, 9, 0, 0));
+
+    /* resampling filters */
+    for (int i = 0; i < 6; ++i) {
+        const float scales[6] = {2, 1, 0.75f, 0.45f, 0.3f, 0.1f};
+        ResamplingFilter k = vImageNewResamplingFilter(scales[i], 0), hq = vImageNewResamplingFilter(scales[i], kvImageHighQualityResampling);
+        printf("ResamplingFilterExtent %g: %lu %lu\n", scales[i], (unsigned long)vImageGetResamplingFilterExtent(k, 0),
+               (unsigned long)vImageGetResamplingFilterExtent(hq, 0));
+        vImageDestroyResamplingFilter(k);
+        vImageDestroyResamplingFilter(hq);
+    }
+
+    /* shears: float exactly, the integer formats coarsely */
+    const float filterScales[3] = {1, 0.6f, 1.7f};
+    for (int i = 0; i < 3; ++i) {
+        ResamplingFilter k = vImageNewResamplingFilter(filterScales[i], 0);
+        ResamplingFilter hq = vImageNewResamplingFilter(filterScales[i], kvImageHighQualityResampling);
+        vImage_Flags bg = kvImageBackgroundColorFill, ex = kvImageEdgeExtend;
+        snprintf(n, sizeof(n), "HorizontalShear_PlanarF %d", i);
+        TDF(n, W - 2, H - 1, 4, vImageHorizontalShear_PlanarF(&sF, &d, 1, 1, 1.25f, 0.3f, k, 0.5f, bg));
+        snprintf(n, sizeof(n), "HorizontalShearD_PlanarF %d", i);
+        TDF(n, W + 4, H, 4, vImageHorizontalShearD_PlanarF(&sF, &d, 0, 0, -0.7, -0.45, hq, 0.5f, ex));
+        snprintf(n, sizeof(n), "VerticalShear_PlanarF %d", i);
+        TDF(n, W - 3, H + 3, 4, vImageVerticalShear_PlanarF(&sF, &d, 2, 1, 0.75f, 0.2f, k, 0.5f, bg));
+        snprintf(n, sizeof(n), "VerticalShearD_PlanarF %d", i);
+        TDF(n, W, H - 2, 4, vImageVerticalShearD_PlanarF(&sF, &d, 0, 2, -1.1, -0.15, hq, 0.5f, ex));
+        snprintf(n, sizeof(n), "HorizontalShear_ARGBFFFF %d", i);
+        TDF(n, W, H, 16, vImageHorizontalShear_ARGBFFFF(&sF, &d, 0, 0, 0.6f, 0.4f, k, (Pixel_FFFF){1, 0, 0.5f, 0.25f}, bg));
+        snprintf(n, sizeof(n), "VerticalShearD_ARGBFFFF %d", i);
+        TDF(n, W, H, 16, vImageVerticalShearD_ARGBFFFF(&sF, &d, 0, 0, 0.6, -0.4, k, (Pixel_FFFF){1, 0, 0.5f, 0.25f}, ex));
+        snprintf(n, sizeof(n), "HorizontalShear_Planar8 %d", i);
+        TDC(n, W, H, 1, 1, vImageHorizontalShear_Planar8(&s8, &d, 0, 0, 1.25f, 0.3f, k, 7, bg));
+        snprintf(n, sizeof(n), "VerticalShear_ARGB8888 %d", i);
+        TDC(n, W, H, 4, 1, vImageVerticalShear_ARGB8888(&s8, &d, 0, 0, 0.75f, 0.2f, k, (Pixel_8888){1, 2, 3, 4}, ex));
+        snprintf(n, sizeof(n), "HorizontalShearD_ARGB16S %d", i);
+        TDC(n, W, H, 8, 2, vImageHorizontalShearD_ARGB16S(&sQ12, &d, 0, 0, 0.4, 0.1, k, (Pixel_ARGB_16S){1, 2, 3, 4}, bg));
+        vImageDestroyResamplingFilter(k);
+        vImageDestroyResamplingFilter(hq);
+    }
+    {
+        ResamplingFilter k = vImageNewResamplingFilter(1, 0);
+        TDF("HorizontalShear both edges", W, H, 4, vImageHorizontalShear_PlanarF(&sF, &d, 0, 0, 0, 0, k, 0, kvImageEdgeExtend | kvImageBackgroundColorFill));
+        TDF("HorizontalShear ROI too tall", W, H, 4, vImageHorizontalShear_PlanarF(&sF, &d, 0, 1, 0, 0, k, 0, kvImageEdgeExtend));
+        TDF("VerticalShear ROI too wide", W, H, 4, vImageVerticalShear_PlanarF(&sF, &d, 1, 0, 0, 0, k, 0, kvImageEdgeExtend));
+        vImageDestroyResamplingFilter(k);
+    }
+
+    /* scaling */
+    const int sizes[5][2] = {{7, 9}, {20, 3}, {W, H}, {26, 10}, {5, 2}};
+    for (int i = 0; i < 5; ++i) {
+        int w = sizes[i][0], h = sizes[i][1];
+        snprintf(n, sizeof(n), "Scale_PlanarF %dx%d", w, h);
+        TDF(n, w, h, 4, vImageScale_PlanarF(&sF, &d, NULL, 0));
+        snprintf(n, sizeof(n), "Scale_PlanarF HQ %dx%d", w, h);
+        TDF(n, w, h, 4, vImageScale_PlanarF(&sF, &d, NULL, kvImageHighQualityResampling));
+        snprintf(n, sizeof(n), "Scale_ARGBFFFF %dx%d", w, h);
+        TDF(n, w, h, 16, vImageScale_ARGBFFFF(&sF, &d, NULL, 0));
+        snprintf(n, sizeof(n), "Scale_Planar8 %dx%d", w, h);
+        TDC(n, w, h, 1, 1, vImageScale_Planar8(&s8, &d, NULL, 0));
+        snprintf(n, sizeof(n), "Scale_ARGB8888 %dx%d", w, h);
+        TDC(n, w, h, 4, 1, vImageScale_ARGB8888(&s8, &d, NULL, 0));
+        snprintf(n, sizeof(n), "Scale_ARGB16S %dx%d", w, h);
+        TDC(n, w, h, 8, 2, vImageScale_ARGB16S(&sQ12, &d, NULL, 0));
+    }
+
+    /* rotation */
+    /* (not exact quarter turns: in single precision those leave Apple a residual turn of
+       about 1e-8 radians, where its rounding of sample positions is its own) */
+    const float angles[6] = {0, 0.4f, 1.2f, 2.0f, 3.0f, -1.0f};
+    for (int i = 0; i < 6; ++i) {
+        snprintf(n, sizeof(n), "Rotate_PlanarF %g", angles[i]);
+        TDF(n, W, H, 4, vImageRotate_PlanarF(&sF, &d, NULL, angles[i], 0.5f, kvImageBackgroundColorFill));
+        snprintf(n, sizeof(n), "Rotate_PlanarF %g extend", angles[i]);
+        TDF(n, H + 2, W, 4, vImageRotate_PlanarF(&sF, &d, NULL, angles[i], 0.5f, kvImageEdgeExtend));
+        snprintf(n, sizeof(n), "Rotate_ARGBFFFF %g", angles[i]);
+        TDF(n, W, H, 16, vImageRotate_ARGBFFFF(&sF, &d, NULL, angles[i], (Pixel_FFFF){0, 1, 0.5f, 0}, kvImageBackgroundColorFill));
+        snprintf(n, sizeof(n), "Rotate_Planar8 %g", angles[i]);
+        TDC(n, W, H, 1, 1, vImageRotate_Planar8(&s8, &d, NULL, angles[i], 7, kvImageBackgroundColorFill));
+        snprintf(n, sizeof(n), "Rotate_ARGB16U %g", angles[i]);
+        TDC(n, W, H, 8, 2, vImageRotate_ARGB16U(&s16U, &d, NULL, angles[i], (Pixel_ARGB_16U){0, 9, 99, 999}, kvImageBackgroundColorFill));
+    }
+
+    /* perspective warps (Finch's affine warps agree with Apple's to about a level, so only
+       their result codes are compared) */
+    const vImage_PerpsectiveTransform warps[3] = {{1, 0, 0, 1, 2, 1, 0, 0, 1}, {1.3f, 0.2f, 0.1f, 0.7f, 0.5f, 0.3f, 0.01f, 0.02f, 1},
+                                                  {1, 0, 0, 1, 0, 0, 0.02f, 0, 1}};
+    for (int i = 0; i < 3; ++i)
+        for (int interp = 0; interp < 2; ++interp) {
+            snprintf(n, sizeof(n), "PerspectiveWarp_Planar8 %d %d", i, interp);
+            TDC(n, W, H, 1, 1, vImagePerspectiveWarp_Planar8(&s8, &d, NULL, &warps[i], interp, 7, kvImageBackgroundColorFill));
+            snprintf(n, sizeof(n), "PerspectiveWarp_ARGB8888 %d %d", i, interp);
+            TDC(n, W, H, 4, 1, vImagePerspectiveWarp_ARGB8888(&s8, &d, NULL, &warps[i], interp, (Pixel_8888){1, 2, 3, 4}, kvImageEdgeExtend));
+        }
+    TD("PerspectiveWarp no edge flag", W, H, 1, vImagePerspectiveWarp_Planar8(&s8, &d, NULL, &warps[0], 0, 7, 0));
+    {
+        const vImage_AffineTransform t = {1, 0.2f, 0.1f, 1, 0.5f, -0.25f};
+        vImage_Buffer d = make(4, KZERO);
+        printf("AffineWarp_PlanarF: %ld\n", (long)vImageAffineWarp_PlanarF(&sF, &d, NULL, &t, 0, kvImageBackgroundColorFill));
+        printf("AffineWarp both edges: %ld\n",
+               (long)vImageAffineWarp_PlanarF(&sF, &d, NULL, &t, 0, kvImageBackgroundColorFill | kvImageEdgeExtend));
+        free(d.data);
+    }
+    {
+        const float from[4][2] = {{0, 0}, {10, 0}, {10, 10}, {0, 10}}, to[4][2] = {{1, 2}, {12, 1}, {11, 9}, {2, 12}};
+        vImage_PerpsectiveTransform t;
+        vImage_Error e = vImageGetPerspectiveWarp(from, to, &t, 0);
+        printf("GetPerspectiveWarp: %ld %.5g %.5g %.5g %.5g %.5g %.5g %.5g %.5g %.5g\n", (long)e, t.a, t.b, t.c, t.d, t.tx, t.ty,
+               t.vx, t.vy, t.v);
+    }
+}
+
 int main(void)
 {
     dump_name = getenv("VIMAGE_DUMP");
@@ -802,5 +982,6 @@ int main(void)
     histograms_and_morphology();
     convolutions();
     transforms();
+    geometry();
     return 0;
 }

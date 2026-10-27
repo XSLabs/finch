@@ -100,12 +100,38 @@ Where Apple's departs from the reference BLAS, Finch's follows Apple's:
 `herk` and `her2k` keep beta times the imaginary part of the diagonal rather
 than zeroing it.
 
+## vImage
+
+`userland/Accelerate/vImage/` is Finch's vImage, one file per header area:
+`convert.c` and `convert-channels.c` (the first part of `Conversion.h`),
+`alpha.c`, `morphology.c`, `histogram.c`, `convolution.c`, `transform.c`
+(matrix multiply, gamma, lookup tables, piecewise functions) and `geometry.c`;
+`common.h` holds the buffer checks and sample conversions they share, and
+`legacy.c` the CoreGraphics interop (`vImageBuffer_InitWithCGImage`,
+`vImageCreateCGImageFromBuffer`). `Alpha.h`, `Convolution.h`, `Histogram.h`,
+`Morphology.h`, `Transform.h` and `Geometry.h` are complete.
+
+vImage's results are matched to Apple's, quirks included: its vector loops
+(groups of four pixels) and scalar tails compute some operations differently,
+and divisions use NEON's reciprocal estimate refined twice, so `common.h` has
+both. Geometry follows Apple's design, where shears are the resampling core:
+each line is resampled with a normalized Lanczos kernel at positions rounded to
+64 phases a pixel (fewer when shrinking), scaling is two shears and rotation an
+exact quarter turn then three shears. Those match Apple's in floating point;
+Apple's 8- and 16-bit resamplers use fixed-point weights and can differ from
+Finch's by one, and Finch's affine warp samples the inverse map directly,
+within about a level of Apple's. Where Apple's departs from its header through
+a bug (flood fills storing a 16-bit value's low byte twice, reads past a
+buffer's edge), Finch follows the header, and the tests compare only result
+codes there.
+
+Still missing: the rest of `Conversion.h` (YpCbCr, 10-bit and dithered
+formats, the any-to-any converters; 108 calls), `vImage_Utilities.h` (15),
+`vImage_CVUtilities.h` (31) and `BasicImageTypes.h` (1).
+
 ## The rest
 
-vImage and LAPACK still have only the calls imported by the apps found on
-this Mac: vImage
-scaling, convolution, channel transforms, table lookups, histograms and
-conversion between image buffers and CoreGraphics images; LAPACK's `dgels_`,
+LAPACK has only the calls imported by the apps found on this Mac: `dgels_`,
 `dgetrf_`, `dgetri_` and `dgtsv_` (`LAPACK/lapack.c`). BNNS, sparse solvers,
 LinearAlgebra and Quadrature are not implemented. Complete LAPACK is planned
 from a permissively licensed implementation.
@@ -118,7 +144,8 @@ use libSystem and the math library. Test runners put the nested frameworks
 (`Accelerate.framework/Versions/A/Frameworks`) on `DYLD_FRAMEWORK_PATH` and
 vecLib's folder on `DYLD_LIBRARY_PATH`, as dyld finds those by leaf name.
 
-`userland/tests/accelerate-test.c`, `vdsp-test.c`, `vmisc-test.c` and `blas-test.c` run the
+`userland/tests/accelerate-test.c`, `vdsp-test.c`, `vmisc-test.c`, `blas-test.c` and
+`vimage-test.c` run the
 same calls against Apple's framework and Finch's, and `tools/host-tests.sh`
 compares their printed results. All routines here were written for Finch. No
 Apple binary, closed Apple code or outside source code was copied, so
