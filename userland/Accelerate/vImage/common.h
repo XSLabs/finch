@@ -81,6 +81,21 @@ static inline uint8_t f_to_8(float v, float max, float min)
     return r >= 255 ? 255 : (uint8_t)r;
 }
 
+/* 1/x as Apple's vector code computes it: the NEON estimate refined by two Newton-Raphson steps */
+#include <arm_neon.h>
+static inline float recip(float x)
+{
+    float32x2_t v = vdup_n_f32(x), r = vrecpe_f32(v);
+    r = vmul_f32(r, vrecps_f32(v, r));
+    r = vmul_f32(r, vrecps_f32(v, r));
+    return vget_lane_f32(r, 0);
+}
+
+/* Apple's vector loops cover each row in groups of 4 pixels and finish the rest with
+   scalar code, which some functions compute differently (true division, the header's
+   rounding); VECTOR(x, width) says which part pixel x is in */
+#define VECTOR(x, width) ((x) < ((width) & ~(vImagePixelCount)3))
+
 /* one sample of a planar buffer */
 #define SAMPLE(T, buf, y, x) (((const T *)CROW(buf, y))[x])
 

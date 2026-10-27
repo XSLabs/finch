@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #define W 13
 #define H 5
@@ -68,6 +69,28 @@ static uint32_t hash(const vImage_Buffer *b, size_t bpp)
     }
     return h;
 }
+
+/* a coarse checksum for the few functions whose internal rounding Apple's differs from
+   Finch's by one in a small fraction of samples: the sum of the output samples (8 or
+   16 bits, or float) in units of 64 */
+static long coarse(const vImage_Buffer *b, size_t bpp, int kind)
+{
+    double sum = 0;
+    for (vImagePixelCount y = 0; y < b->height; ++y) {
+        const uint8_t *row = (const uint8_t *)b->data + y * b->rowBytes;
+        for (size_t i = 0; i < b->width * bpp; i += kind)
+            sum += kind == 1 ? row[i] : kind == 2 ? *(const int16_t *)(row + i) : *(const float *)(row + i) * 1024;
+    }
+    return lround(sum / 64);
+}
+
+#define TOLERANT(name, BPP, kind, call)                                                                  \
+    do {                                                                                                 \
+        vImage_Buffer d = make(BPP, KZERO);                                                              \
+        vImage_Error e = call;                                                                           \
+        printf("%s (coarse): %ld %ld\n", #name, (long)e, coarse(&d, BPP, kind));                         \
+        free(d.data);                                                                                    \
+    } while (0)
 
 static const char *dump_name;
 
@@ -331,6 +354,102 @@ static void conversions(void)
     T1(Indexed4toPlanar8, d, 1, vImageConvert_Indexed4toPlanar8(&s8, &d, colors, 0));
 }
 
+static void alpha(void)
+{
+    const uint8_t perm[4] = {1, 2, 3, 0};
+    /* premultiplied inputs for the premultiplied blends (colour at most alpha): Apple's
+       saturate invalid sums in their vector loops but wrap them in their scalar ones */
+    vImage_Buffer pA = make(4, KZERO), pB = make(4, KZERO), pR = make(4, KZERO), pS = make(4, KZERO),
+                  p8 = make(1, KZERO), p8c = make(1, KZERO);
+    vImagePremultiplyData_ARGB8888(&s8, &pA, 0);
+    vImagePremultiplyData_ARGB8888(&s8b, &pB, 0);
+    vImagePremultiplyData_RGBA8888(&s8, &pR, 0);
+    vImagePremultiplyData_RGBA8888(&s8b, &pS, 0);
+    vImagePremultiplyData_Planar8(&s8, &s8b, &p8, 0);
+    vImagePremultiplyData_Planar8(&s8c, &s8d, &p8c, 0);
+    T1(PremultiplyData_Planar8, d, 1, vImagePremultiplyData_Planar8(&s8, &s8b, &d, 0));
+    T1(PremultiplyData_PlanarF, d, 4, vImagePremultiplyData_PlanarF(&sF, &sFb, &d, 0));
+    T1(UnpremultiplyData_Planar8, d, 1, vImageUnpremultiplyData_Planar8(&s8, &s8b, &d, 0));
+    T1(UnpremultiplyData_PlanarF, d, 4, vImageUnpremultiplyData_PlanarF(&sF, &sFb, &d, 0));
+    T1(ClipToAlpha_Planar8, d, 1, vImageClipToAlpha_Planar8(&s8, &s8b, &d, 0));
+    T1(ClipToAlpha_PlanarF, d, 4, vImageClipToAlpha_PlanarF(&sF, &sFb, &d, 0));
+    T1(PremultiplyData_ARGB8888, d, 4, vImagePremultiplyData_ARGB8888(&s8, &d, 0));
+    T1(PremultiplyData_RGBA8888, d, 4, vImagePremultiplyData_RGBA8888(&s8, &d, 0));
+    T1(PremultiplyData_ARGBFFFF, d, 16, vImagePremultiplyData_ARGBFFFF(&sF, &d, 0));
+    T1(PremultiplyData_RGBAFFFF, d, 16, vImagePremultiplyData_RGBAFFFF(&sF, &d, 0));
+    T1(PremultiplyData_ARGB16U, d, 8, vImagePremultiplyData_ARGB16U(&s16U, &d, 0));
+    T1(PremultiplyData_RGBA16U, d, 8, vImagePremultiplyData_RGBA16U(&s16U, &d, 0));
+    T1(PremultiplyData_ARGB16Q12, d, 8, vImagePremultiplyData_ARGB16Q12(&sQ12, &d, 0));
+    T1(PremultiplyData_RGBA16Q12, d, 8, vImagePremultiplyData_RGBA16Q12(&sQ12, &d, 0));
+    T1(PremultiplyData_RGBA16F, d, 8, vImagePremultiplyData_RGBA16F(&sHalf, &d, 0));
+    T1(UnpremultiplyData_ARGB8888, d, 4, vImageUnpremultiplyData_ARGB8888(&s8, &d, 0));
+    T1(UnpremultiplyData_RGBA8888, d, 4, vImageUnpremultiplyData_RGBA8888(&s8, &d, 0));
+    T1(UnpremultiplyData_ARGBFFFF, d, 16, vImageUnpremultiplyData_ARGBFFFF(&sF, &d, 0));
+    T1(UnpremultiplyData_RGBAFFFF, d, 16, vImageUnpremultiplyData_RGBAFFFF(&sF, &d, 0));
+    T1(UnpremultiplyData_ARGB16U, d, 8, vImageUnpremultiplyData_ARGB16U(&s16U, &d, 0));
+    T1(UnpremultiplyData_RGBA16U, d, 8, vImageUnpremultiplyData_RGBA16U(&s16U, &d, 0));
+    TOLERANT(UnpremultiplyData_ARGB16Q12, 8, 2, vImageUnpremultiplyData_ARGB16Q12(&sQ12, &d, 0));
+    TOLERANT(UnpremultiplyData_RGBA16Q12, 8, 2, vImageUnpremultiplyData_RGBA16Q12(&sQ12, &d, 0));
+    T1(UnpremultiplyData_RGBA16F, d, 8, vImageUnpremultiplyData_RGBA16F(&sHalf, &d, 0));
+    T1(ClipToAlpha_ARGB8888, d, 4, vImageClipToAlpha_ARGB8888(&s8, &d, 0));
+    T1(ClipToAlpha_RGBA8888, d, 4, vImageClipToAlpha_RGBA8888(&s8, &d, 0));
+    T1(ClipToAlpha_ARGBFFFF, d, 16, vImageClipToAlpha_ARGBFFFF(&sF, &d, 0));
+    T1(ClipToAlpha_RGBAFFFF, d, 16, vImageClipToAlpha_RGBAFFFF(&sF, &d, 0));
+    {
+        /* the result alpha the planar non-premultiplied blends divide by */
+        vImage_Buffer na = make(1, KZERO), naF = make(4, KZERO);
+        for (vImagePixelCount y = 0; y < H; ++y)
+            for (vImagePixelCount x = 0; x < W; ++x) {
+                unsigned ta = ((uint8_t *)s8b.data)[y * s8b.rowBytes + x], ba = ((uint8_t *)s8d.data)[y * s8d.rowBytes + x];
+                ((uint8_t *)na.data)[y * na.rowBytes + x] = (uint8_t)(ta + ((255 - ta) * ba + 127) / 255);
+                float fta = ((float *)((uint8_t *)sFb.data + y * sFb.rowBytes))[x],
+                      fba = ((float *)((uint8_t *)sFd.data + y * sFd.rowBytes))[x];
+                ((float *)((uint8_t *)naF.data + y * naF.rowBytes))[x] = fta + (1 - fta) * fba;
+            }
+        T1(AlphaBlend_Planar8, d, 1, vImageAlphaBlend_Planar8(&s8, &s8b, &s8c, &s8d, &na, &d, 0));
+        T1(AlphaBlend_PlanarF, d, 4, vImageAlphaBlend_PlanarF(&sF, &sFb, &sFc, &sFd, &naF, &d, 0));
+        free(na.data);
+        free(naF.data);
+    }
+    TOLERANT(AlphaBlend_ARGB8888, 4, 1, vImageAlphaBlend_ARGB8888(&s8, &s8b, &d, 0));
+    T1(AlphaBlend_ARGBFFFF, d, 16, vImageAlphaBlend_ARGBFFFF(&sF, &sFb, &d, 0));
+    T1(PremultipliedAlphaBlend_Planar8, d, 1, vImagePremultipliedAlphaBlend_Planar8(&p8, &s8b, &p8c, &d, 0));
+    T1(PremultipliedAlphaBlend_PlanarF, d, 4, vImagePremultipliedAlphaBlend_PlanarF(&sF, &sFb, &sFc, &d, 0));
+    T1(PremultipliedAlphaBlend_ARGB8888, d, 4, vImagePremultipliedAlphaBlend_ARGB8888(&pA, &pB, &d, 0));
+    T1(PremultipliedAlphaBlend_BGRA8888, d, 4, vImagePremultipliedAlphaBlend_BGRA8888(&pR, &pS, &d, 0));
+    T1(PremultipliedAlphaBlend_ARGBFFFF, d, 16, vImagePremultipliedAlphaBlend_ARGBFFFF(&sF, &sFb, &d, 0));
+    T1(PremultipliedAlphaBlend_BGRAFFFF, d, 16, vImagePremultipliedAlphaBlend_BGRAFFFF(&sF, &sFb, &d, 0));
+    T1(PremultipliedAlphaBlendMultiply, d, 4, vImagePremultipliedAlphaBlendMultiply_RGBA8888(&pR, &pS, &d, 0));
+    T1(PremultipliedAlphaBlendScreen, d, 4, vImagePremultipliedAlphaBlendScreen_RGBA8888(&pR, &pS, &d, 0));
+    T1(PremultipliedAlphaBlendDarken, d, 4, vImagePremultipliedAlphaBlendDarken_RGBA8888(&pR, &pS, &d, 0));
+    T1(PremultipliedAlphaBlendLighten, d, 4, vImagePremultipliedAlphaBlendLighten_RGBA8888(&pR, &pS, &d, 0));
+    T1(PremultipliedAlphaBlendWithPermute_ARGB8888, d, 4,
+       vImagePremultipliedAlphaBlendWithPermute_ARGB8888(&pR, &pB, &d, perm, false, 0));
+    T1(PremultipliedAlphaBlendWithPermute_RGBA8888, d, 4,
+       vImagePremultipliedAlphaBlendWithPermute_RGBA8888(&pA, &pS, &d, perm, true, 0));
+    T1(PremultipliedConstAlphaBlend_Planar8, d, 1,
+       vImagePremultipliedConstAlphaBlend_Planar8(&p8, 200, &s8b, &p8c, &d, 0));
+    T1(PremultipliedConstAlphaBlend_PlanarF, d, 4,
+       vImagePremultipliedConstAlphaBlend_PlanarF(&sF, 0.75f, &sFb, &sFc, &d, 0));
+    T1(PremultipliedConstAlphaBlend_ARGB8888, d, 4, vImagePremultipliedConstAlphaBlend_ARGB8888(&pA, 77, &pB, &d, 0));
+    T1(PremultipliedConstAlphaBlend_ARGBFFFF, d, 16,
+       vImagePremultipliedConstAlphaBlend_ARGBFFFF(&sF, 0.5f, &sFb, &d, 0));
+    T1(NonpremultipliedToPremultiplied_Planar8, d, 1,
+       vImageAlphaBlend_NonpremultipliedToPremultiplied_Planar8(&s8, &s8b, &p8c, &d, 0));
+    T1(NonpremultipliedToPremultiplied_PlanarF, d, 4,
+       vImageAlphaBlend_NonpremultipliedToPremultiplied_PlanarF(&sF, &sFb, &sFc, &d, 0));
+    T1(NonpremultipliedToPremultiplied_ARGB8888, d, 4,
+       vImageAlphaBlend_NonpremultipliedToPremultiplied_ARGB8888(&s8, &pB, &d, 0));
+    T1(NonpremultipliedToPremultiplied_ARGBFFFF, d, 16,
+       vImageAlphaBlend_NonpremultipliedToPremultiplied_ARGBFFFF(&sF, &sFb, &d, 0));
+    free(pA.data);
+    free(pB.data);
+    free(pR.data);
+    free(pS.data);
+    free(p8.data);
+    free(p8c.data);
+}
+
 int main(void)
 {
     dump_name = getenv("VIMAGE_DUMP");
@@ -350,5 +469,6 @@ int main(void)
     sQ12c = make(16, KQ12);
     sQ12d = make(16, KQ12);
     conversions();
+    alpha();
     return 0;
 }
