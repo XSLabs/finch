@@ -450,6 +450,104 @@ static void alpha(void)
     free(p8c.data);
 }
 
+static void show_histogram(const char *name, const vImagePixelCount *h, unsigned n)
+{
+    uint32_t hash = 2166136261u;
+    for (unsigned i = 0; i < n; ++i)
+        hash = (hash ^ (uint32_t)h[i]) * 16777619u;
+    printf("%s: %08x\n", name, hash);
+}
+
+static void histograms_and_morphology(void)
+{
+    vImagePixelCount h[4][256];
+    vImagePixelCount *hp[4] = {h[0], h[1], h[2], h[3]};
+    vImageHistogramCalculation_Planar8(&s8, h[0], 0);
+    show_histogram("HistogramCalculation_Planar8", h[0], 256);
+    vImageHistogramCalculation_ARGB8888(&s8, hp, 0);
+    for (int c = 0; c < 4; ++c)
+        show_histogram("HistogramCalculation_ARGB8888", h[c], 256);
+    vImageHistogramCalculation_PlanarF(&sF, h[0], 37, -0.1f, 1.1f, 0);
+    show_histogram("HistogramCalculation_PlanarF", h[0], 37);
+    vImageHistogramCalculation_ARGBFFFF(&sF, hp, 20, 0, 1, 0);
+    for (int c = 0; c < 4; ++c)
+        show_histogram("HistogramCalculation_ARGBFFFF", h[c], 20);
+    vImagePixelCount want[4][256];
+    const vImagePixelCount *wp[4] = {want[0], want[1], want[2], want[3]};
+    for (int c = 0; c < 4; ++c)
+        for (int i = 0; i < 256; ++i)
+            want[c][i] = (vImagePixelCount)((i * (c + 3)) % 7 + (i > 128 ? 3 : 0));
+    const unsigned pl[4] = {5, 0, 10, 30}, ph[4] = {5, 20, 0, 10};
+    T1(Equalization_Planar8, d, 1, vImageEqualization_Planar8(&s8, &d, 0));
+    T1(Equalization_ARGB8888, d, 4, vImageEqualization_ARGB8888(&s8, &d, 0));
+    TOLERANT(HistogramSpecification_Planar8, 1, 1, vImageHistogramSpecification_Planar8(&s8, &d, want[0], 0));
+    TOLERANT(HistogramSpecification_ARGB8888, 4, 1, vImageHistogramSpecification_ARGB8888(&s8, &d, wp, 0));
+    T1(ContrastStretch_Planar8, d, 1, vImageContrastStretch_Planar8(&s8, &d, 0));
+    T1(ContrastStretch_ARGB8888, d, 4, vImageContrastStretch_ARGB8888(&s8, &d, 0));
+    T1(EndsInContrastStretch_Planar8, d, 1, vImageEndsInContrastStretch_Planar8(&s8, &d, 10, 20, 0));
+    T1(EndsInContrastStretch_ARGB8888, d, 4, vImageEndsInContrastStretch_ARGB8888(&s8, &d, pl, ph, 0));
+    T1(Equalization_PlanarF, d, 4, vImageEqualization_PlanarF(&sF, &d, NULL, 64, -0.2f, 1.2f, 0));
+    T1(Equalization_ARGBFFFF, d, 16, vImageEqualization_ARGBFFFF(&sF, &d, NULL, 32, 0, 1, 0));
+    /* (Apple's float specification picks a neighbouring bin for a few values; only the
+       result code is compared) */
+    {
+        vImage_Buffer d = make(16, KZERO);
+        printf("HistogramSpecification_PlanarF: %ld\n",
+               (long)vImageHistogramSpecification_PlanarF(&sF, &d, NULL, want[1], 256, -0.2f, 1.2f, 0));
+        printf("HistogramSpecification_ARGBFFFF: %ld\n",
+               (long)vImageHistogramSpecification_ARGBFFFF(&sF, &d, NULL, wp, 256, 0, 1, 0));
+        free(d.data);
+    }
+    T1(ContrastStretch_PlanarF, d, 4, vImageContrastStretch_PlanarF(&sF, &d, NULL, 64, 0, 1, 0));
+    TOLERANT(ContrastStretch_ARGBFFFF, 16, 4, vImageContrastStretch_ARGBFFFF(&sF, &d, NULL, 64, -1, 2, 0));
+    TOLERANT(EndsInContrastStretch_PlanarF, 4, 4,
+             vImageEndsInContrastStretch_PlanarF(&sF, &d, NULL, 10, 20, 64, -0.2f, 1.2f, 0));
+    TOLERANT(EndsInContrastStretch_ARGBFFFF, 16, 4,
+             vImageEndsInContrastStretch_ARGBFFFF(&sF, &d, NULL, pl, ph, 50, 0, 1, 0));
+
+    const unsigned char k8[15] = {0, 3, 9, 1, 0, 4, 2, 5, 0, 7, 0, 1, 2, 3, 4};
+    const float kF[15] = {0, 0.25f, 0.5f, 0.125f, 0, 0.75f, 0.0625f, 0.375f, 0, 0.5f, 0, 0.125f, 0.25f, 0.375f, 0.5f};
+    vImage_Buffer small8 = s8, smallF = sF;
+    T1(Dilate_Planar8, d, 1, vImageDilate_Planar8(&small8, &d, 0, 0, k8, 3, 5, 0));
+    T1(Dilate_PlanarF, d, 4, vImageDilate_PlanarF(&smallF, &d, 0, 0, kF, 5, 3, 0));
+    T1(Dilate_ARGB8888, d, 4, vImageDilate_ARGB8888(&small8, &d, 0, 0, k8, 3, 5, 0));
+    /* (Apple's ARGBFFFF dilate and erode read past the source's right edge, so these keep
+       the kernel inside it) */
+    {
+        vImage_Buffer d = make(16, KZERO);
+        d.width = W - 4;
+        size_t bpp = 16;
+        vImage_Error e = vImageDilate_ARGBFFFF(&smallF, &d, 2, 0, kF, 3, 5, 0);
+        report("Dilate_ARGBFFFF", e, 1, &d, &bpp);
+        e = vImageErode_ARGBFFFF(&smallF, &d, 2, 0, kF, 5, 3, 0);
+        report("Erode_ARGBFFFF", e, 1, &d, &bpp);
+        free(d.data);
+    }
+    T1(Erode_Planar8, d, 1, vImageErode_Planar8(&small8, &d, 0, 0, k8, 5, 3, 0));
+    T1(Erode_PlanarF, d, 4, vImageErode_PlanarF(&smallF, &d, 0, 0, kF, 3, 5, 0));
+    T1(Erode_ARGB8888, d, 4, vImageErode_ARGB8888(&small8, &d, 0, 0, k8, 5, 3, 0));
+    T1(Max_Planar8, d, 1, vImageMax_Planar8(&small8, &d, NULL, 0, 0, 3, 5, 0));
+    T1(Max_PlanarF, d, 4, vImageMax_PlanarF(&smallF, &d, NULL, 0, 0, 5, 3, 0));
+    T1(Max_ARGB8888, d, 4, vImageMax_ARGB8888(&small8, &d, NULL, 0, 0, 3, 3, 0));
+    T1(Max_ARGBFFFF, d, 16, vImageMax_ARGBFFFF(&smallF, &d, NULL, 0, 0, 1, 5, 0));
+    T1(Min_Planar8, d, 1, vImageMin_Planar8(&small8, &d, NULL, 0, 0, 3, 5, 0));
+    T1(Min_PlanarF, d, 4, vImageMin_PlanarF(&smallF, &d, NULL, 0, 0, 5, 3, 0));
+    T1(Min_ARGB8888, d, 4, vImageMin_ARGB8888(&small8, &d, NULL, 0, 0, 3, 3, 0));
+    T1(Min_ARGBFFFF, d, 16, vImageMin_ARGBFFFF(&smallF, &d, NULL, 0, 0, 5, 1, 0));
+    {
+        /* a tile: the ROI offset into a larger source */
+        vImage_Buffer d = make(1, KZERO);
+        d.width = 6;
+        d.height = 3;
+        size_t bpp = 1;
+        vImage_Error e = vImageMax_Planar8(&s8, &d, NULL, 4, 1, 3, 3, 0);
+        report("Max_Planar8-tile", e, 1, &d, &bpp);
+        e = vImageDilate_Planar8(&s8, &d, 5, 2, k8, 3, 5, 0);
+        report("Dilate_Planar8-tile", e, 1, &d, &bpp);
+        free(d.data);
+    }
+}
+
 int main(void)
 {
     dump_name = getenv("VIMAGE_DUMP");
@@ -470,5 +568,6 @@ int main(void)
     sQ12d = make(16, KQ12);
     conversions();
     alpha();
+    histograms_and_morphology();
     return 0;
 }

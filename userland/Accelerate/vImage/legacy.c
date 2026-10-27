@@ -258,65 +258,7 @@ vImage_Error vImageMatrixMultiply_ARGB8888(const vImage_Buffer *src, const vImag
     return kvImageNoError;
 }
 
-vImage_Error vImageHistogramCalculation_ARGB8888(const vImage_Buffer *src,
-                                                  vImagePixelCount *histogram[4],
-                                                  vImage_Flags flags)
-{
-    size_t x, y;
-    unsigned int c;
-    if (!src || !histogram) return kvImageNullPointerArgument;
-    if (!buffer_ok(src, 4)) return kvImageInvalidParameter;
-    if (!has_only(flags, kvImageLeaveAlphaUnchanged | kvImageDoNotTile))
-        return kvImageUnknownFlagsBit;
-    for (c = 0; c < 4; ++c) {
-        if (!histogram[c]) return kvImageNullPointerArgument;
-        if (c != 0 || !(flags & kvImageLeaveAlphaUnchanged))
-            memset(histogram[c], 0, 256 * sizeof(**histogram));
-    }
-    for (y = 0; y < src->height; ++y) {
-        const Pixel_8888 *row = (const Pixel_8888 *)((const uint8_t *)src->data + y * src->rowBytes);
-        for (x = 0; x < src->width; ++x)
-            for (c = 0; c < 4; ++c)
-                if (c != 0 || !(flags & kvImageLeaveAlphaUnchanged))
-                    ++histogram[c][row[x][c]];
-    }
-    return kvImageNoError;
-}
 
-vImage_Error vImageHistogramCalculation_ARGBFFFF(const vImage_Buffer *src,
-                                                  vImagePixelCount *histogram[4],
-                                                  unsigned int entries, Pixel_F minVal,
-                                                  Pixel_F maxVal, vImage_Flags flags)
-{
-    size_t x, y;
-    unsigned int c;
-    if (!src || !histogram) return kvImageNullPointerArgument;
-    if (!buffer_ok(src, 4 * sizeof(float))) return kvImageInvalidParameter;
-    if (!entries || !(maxVal > minVal)) return kvImageInvalidParameter;
-    if (!has_only(flags, kvImageLeaveAlphaUnchanged | kvImageDoNotTile))
-        return kvImageUnknownFlagsBit;
-    for (c = 0; c < 4; ++c) {
-        if (!histogram[c]) return kvImageNullPointerArgument;
-        if (c != 0 || !(flags & kvImageLeaveAlphaUnchanged))
-            memset(histogram[c], 0, entries * sizeof(**histogram));
-    }
-    for (y = 0; y < src->height; ++y) {
-        const float *row = (const float *)((const uint8_t *)src->data + y * src->rowBytes);
-        for (x = 0; x < src->width; ++x) {
-            for (c = 0; c < 4; ++c) {
-                double position;
-                unsigned int bin;
-                if (c == 0 && (flags & kvImageLeaveAlphaUnchanged)) continue;
-                position = entries * ((double)row[4 * x + c] - minVal) / ((double)maxVal - minVal);
-                if (isnan(position) || position <= 0.0) bin = 0;
-                else if (position >= entries) bin = entries - 1;
-                else bin = (unsigned int)position;
-                ++histogram[c][bin];
-            }
-        }
-    }
-    return kvImageNoError;
-}
 
 vImage_Error vImageBuffer_InitWithCGImage(vImage_Buffer *buf, vImage_CGImageFormat *format,
                                           const CGFloat *backgroundColor, CGImageRef image,
