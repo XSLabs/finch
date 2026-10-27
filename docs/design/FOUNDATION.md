@@ -170,6 +170,19 @@ GNUstep is LGPL and isn't copied (`docs/LICENSING.md`).
   bridges, Data, URL, dates, calendars, indexes, measurements, errors, Codable,
   logging and the tested AppKit Swift extensions. The Foundation, bridging,
   KVC, data, collections and archive comparisons also still match.
+- 2026-10-27: Distributed Objects (`NSDistributedObjects.m`). `NSConnection`,
+  `NSDistantObject`, `NSPortCoder`, `NSDistantObjectRequest` and the port name servers
+  are Finch's own, over `NSMachPort` and names in the bootstrap namespace
+  (`NSMachBootstrapServer`). A proxy's message travels as a request (target, selector,
+  types, arguments) and the caller runs its run loop in `NSConnectionReplyMode` until the
+  reply brings the result, out-parameters, or the remote exception, which is raised with
+  Apple's "[NOTE: this exception originated in the server.]" prefix. Values and
+  collections travel by copy, other objects as proxies, and an object that comes home
+  arrives as a local proxy, as with Apple's. Servers make a child connection per client,
+  so callbacks reach the client. The wire format is Finch's own (both ends run Finch).
+  `NSMessagePortNameServer` and `NSSocketPortNameServer` know no names, and
+  `NSMessagePort` and `NSSocketPort` are still missing. `finch-do-test` runs a server
+  and client process and matches Apple's run.
 
 ### The Swift overlays
 

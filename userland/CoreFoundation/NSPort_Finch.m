@@ -268,8 +268,10 @@ received(CFMachPortRef port, void *msg, CFIndex size, void *info)
     h->header.msgh_id = (mach_msg_id_t)msgID;
     h->body.msgh_descriptor_count = count;
     double wait = limitDate ? [limitDate timeIntervalSinceNow] : 0;
-    mach_msg_timeout_t timeout = wait > 0 ? (mach_msg_timeout_t)(wait * 1000) : 0;
-    kern_return_t kr = mach_msg(&h->header, MACH_SEND_MSG | MACH_SEND_TIMEOUT, h->header.msgh_size, 0, MACH_PORT_NULL, timeout, MACH_PORT_NULL);
+    /* a date beyond a mach timeout's reach means no timeout */
+    BOOL forever = wait * 1000 >= (double)UINT32_MAX;
+    mach_msg_timeout_t timeout = wait > 0 && !forever ? (mach_msg_timeout_t)(wait * 1000) : 0;
+    kern_return_t kr = mach_msg(&h->header, MACH_SEND_MSG | (forever ? 0 : MACH_SEND_TIMEOUT), h->header.msgh_size, 0, MACH_PORT_NULL, timeout, MACH_PORT_NULL);
     free(buf);
     if (kr == MACH_SEND_TIMED_OUT) __CFFinchRaise((NSString *)CFSTR("NSPortTimeoutException"), "[NSMachPort sendBeforeDate:] timed out");
     return kr == KERN_SUCCESS;
