@@ -25,6 +25,7 @@
  *   key:CODE,CHAR     press a key (macOS virtual key code, character as a number)
  *   cmd:CHAR          press Command-CHAR
  *   ctrlcmd:CHAR      press Control-Command-CHAR
+ *   shiftcmd:CHAR     press Shift-Command-CHAR (CHAR as typed with Shift: "C" for ⇧⌘C)
  *   sample:X,Y,LABEL  print the screen's colour at X,Y in the current window
  *   windows           print the window list (titles and sizes)
  *   frames            print the window list with where each window is
@@ -297,6 +298,8 @@ main(int argc, char **argv)
             key((uint16_t)(unsigned char)s[4], 0, kCGEventFlagMaskCommand);
         } else if (!strncmp(s, "ctrlcmd:", 8) && s[8]) {
             key((uint16_t)(unsigned char)s[8], 0, kCGEventFlagMaskCommand | kCGEventFlagMaskControl);
+        } else if (!strncmp(s, "shiftcmd:", 9) && s[9]) {
+            key((uint16_t)(unsigned char)s[9], 0, kCGEventFlagMaskCommand | kCGEventFlagMaskShift);
         } else if (sscanf(s, "sample:%lf,%lf,%63s", &x, &y, label) == 3) {
             usleep(200000);
             CGImageRef im = FWSCopyScreenImage();
