@@ -33,6 +33,18 @@ internal func _finchStringFromCocoaString(_ cocoaString: __owned AnyObject) -> S
 
 extension String {
   public init(_ cocoaString: NSString) {
+#if arch(arm64)
+    // Finch: tagged strings (CoreFoundation's NSTaggedPointerString and
+    // NSIndirectTaggedPointerString, which the standard library makes of its
+    // immortal ASCII strings) are copied here, as Apple's overlay does: the
+    // standard library takes only short tagged strings itself. On arm64 a
+    // tagged pointer has its top bit set.
+    if Int(bitPattern: unsafeBitCast(cocoaString, to: UInt.self)) < 0,
+       let utf8 = cocoaString.utf8String {
+      self = String(cString: utf8)
+      return
+    }
+#endif
     self = _finchStringFromCocoaString(cocoaString)
   }
 }

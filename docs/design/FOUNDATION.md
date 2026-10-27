@@ -575,3 +575,18 @@ optional attribute providers; it does not load a missing UI framework.
   imports across 61 names to 17 apps missing 77 imports across 53 names. The
   remaining top gaps are newer person-name, URL and measurement formatting APIs,
   along with extension and security classes.
+- 2026-10-26: CoreFoundation now exports every Objective-C class Apple's does
+  (41; it had 35). New in CF: `NSConstantData` and `NSConstantDate` with
+  Apple's instance layouts (`{isa, length, bytes}`, `{isa, double}`), immortal,
+  allocating NSData's or NSDate's placeholder; `NSTaggedPointerString` and
+  `NSIndirectTaggedPointerString`, registered with the runtime for NSString's
+  tag and the first Foundation extended tag, made by
+  `_CFStringCreateTaggedPointerString` (up to seven ASCII characters) and by
+  Swift, which now bridges its immortal ASCII strings to indirect ones as on
+  macOS (CF's own string functions still make ordinary strings);
+  `NSBlockInvocation`, invoking a block through the block's own invoke pointer
+  and refusing selector messages as Apple's does; and `NSSharedKeySet`, moved
+  from Foundation to CF where Apple has it, with indexes, chained key sets and
+  Apple's archive keys. The Swift overlay copies tagged strings when bridging
+  them back, as Apple's does. `finch-cf-classes-test` (55 lines) and the new
+  literal checks in `swift-overlay-test` match Apple's on the host.

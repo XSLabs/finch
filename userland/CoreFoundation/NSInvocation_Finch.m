@@ -674,6 +674,44 @@ check_index(NSInvocation *self, SEL _cmd, NSInteger idx, NSMethodSignature *sig)
 
 @end
 
+/* MARK: - Block invocations */
+
+/* An invocation of a block: argument 0 (the target) is the block, the rest are
+ * its arguments, and there is no selector. Apple's answers none of NSInvocation's
+ * selector messages, nor invokeUsingIMP: or invokeSuper, and invoking one
+ * without a block leaves the return value as it was. */
+@interface NSBlockInvocation : NSInvocation
+@end
+
+struct FinchBlockLayout {
+    void *isa;
+    int32_t flags;
+    int32_t reserved;
+    void (*invoke)(void *, ...);
+};
+
+@implementation NSBlockInvocation
+
+- (void)invoke
+{
+    struct FinchBlockLayout *block = (struct FinchBlockLayout *)[self target];
+    if (!block) return;
+    void *fn = (void *)block->invoke;
+#if __has_feature(ptrauth_calls)
+    /* Stored signed with the block-function key, diversified by its address
+       (libclosure's Block_private.h); signed again as a plain C function. */
+    fn = ptrauth_auth_function(fn, ptrauth_key_block_function, &block->invoke);
+#endif
+    [super invokeUsingIMP:(IMP)fn];
+}
+
+- (SEL)selector { [self doesNotRecognizeSelector:_cmd]; return NULL; }
+- (void)setSelector:(SEL)sel { [self doesNotRecognizeSelector:_cmd]; }
+- (void)invokeUsingIMP:(IMP)imp { [self doesNotRecognizeSelector:_cmd]; }
+- (void)invokeSuper { [self doesNotRecognizeSelector:_cmd]; }
+
+@end
+
 /* MARK: - Forwarding */
 
 static void

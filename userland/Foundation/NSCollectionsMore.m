@@ -170,30 +170,10 @@
 
 #pragma mark - NSDictionary
 
-/* A shared key set: the keys a family of dictionaries will use (Apple's speeds their
-   lookups; Finch's dictionaries take it as a hint). */
-@interface NSSharedKeySet : NSObject <NSCopying, NSSecureCoding> {
-@public
-    NSArray *_keys;
-}
-@end
-
-@implementation NSSharedKeySet
-+ (BOOL)supportsSecureCoding { return YES; }
-- (void)dealloc
-{
-    [_keys release];
-    [super dealloc];
-}
-- (id)copyWithZone:(NSZone *)zone { return [self retain]; }
-- (void)encodeWithCoder:(NSCoder *)coder { [coder encodeObject:_keys forKey:@"NS.keys"]; }
-- (instancetype)initWithCoder:(NSCoder *)coder
-{
-    if ((self = [super init]))
-        _keys = [[coder decodeObjectOfClasses:[NSSet setWithObjects:[NSArray class], [NSString class], nil] forKey:@"NS.keys"] copy];
-    return self;
-}
-- (NSUInteger)count { return [_keys count]; }
+/* A shared key set: the keys a family of dictionaries will use (CoreFoundation's
+   class, as Apple's; Finch's dictionaries take it as a hint). */
+@interface NSSharedKeySet : NSObject
++ (id)keySetWithKeys:(NSArray *)keys;
 @end
 
 @implementation NSDictionary (FinchAuditMethods)
@@ -221,9 +201,7 @@
 
 + (id)sharedKeySetForKeys:(NSArray *)keys
 {
-    NSSharedKeySet *s = [[[NSSharedKeySet alloc] init] autorelease];
-    s->_keys = [keys copy];
-    return s;
+    return [NSSharedKeySet keySetWithKeys:keys];
 }
 
 /* As a .strings file has it: "key" = "value"; per line. */

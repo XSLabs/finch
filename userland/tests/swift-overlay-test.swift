@@ -65,6 +65,15 @@ var native = "Plain"; native += " \u{2014} dash \u{1F426}"
 let appended = NSMutableString(); appended.append(native)
 show("append non-ASCII", appended as String == native)
 show("attributed non-ASCII", NSMutableAttributedString(string: native).string == native)
+// an immortal ASCII literal longer than a small string: CoreFoundation's indirect tagged string, and back
+let literal = "an immortal string literal over fifteen bytes"
+let bridgedLiteral = literal as NSString
+show("literal bridges to", String(cString: object_getClassName(bridgedLiteral)))
+show("literal round trip", bridgedLiteral as String == literal)
+show("literal as a key", ([bridgedLiteral: 1] as [NSString: Int])[literal as NSString] ?? 0)
+show("literal length and prefix", "\(bridgedLiteral.length) \(bridgedLiteral.hasPrefix("an immortal"))")
+let shortLiteral = "short" as NSString
+show("short literal round trip", shortLiteral as String == "short")
 
 // MARK: Data
 print("== data")

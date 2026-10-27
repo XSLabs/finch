@@ -242,7 +242,7 @@ Apple's is closed. Developed in the emulated M4 first. The map is
   - [x] libsystem_m (CORE-MATH and FreeBSD msun), dyld, libcorecrypto and CommonCrypto,
         libsystem_trace, libutil, libbsm, libncurses (2026-10-07)
   - [x] Finch CrashReporterClient (`__crash_info` annotations), linked by Libc and notifyd
-- [ ] **1.4 Finch replacements for closed libSystem pieces** (libxpc, libsystem_trace,
+- [x] **1.4 Finch replacements for closed libSystem pieces** (libxpc, libsystem_trace,
       sandbox, quarantine, …). Start with the subset our binaries actually import.
   - [x] **libxpc**: Apple-ABI-compatible XPC objects and
         connections, with the Mach bootstrap/service registry in finch-init. Mac apps and
@@ -262,28 +262,30 @@ Apple's is closed. Developed in the emulated M4 first. The map is
           `launch_activate_socket` and `launch_msg` check-in (2026-10-07)
     - [x] LaunchAgents and per-user domains (`user/<uid>`, entered through Apple's
           pam_launchd by `login` and `su -l`, or `launchctl asuser`; 2026-10-08)
-    - [ ] Run Apple's open-source daemons under it (notifyd, syslogd, configd, ...)
+    - [x] Run Apple's open-source daemons under it (notifyd, syslogd, configd, ...)
       - [x] notifyd; syslogd (checks in with `launch_msg`, which Finch's libxpc
             answers from finch-init's job; 2026-10-07). Notifyd starts under its
             profile with Finch's sandbox compiler (2026-10-25).
       - [x] finch-logd and `log show`/`log stream`: os_log over libdispatch's open-source
             firehose server (`docs/design/LOGD.md`, 2026-10-08)
       - [x] aslmanager (on demand), newsyslog, dynamic_pager (2026-10-08)
-      - [ ] Finish configd and diskarbitrationd. Cron and mDNSPosix now run in QEMU.
+      - [x] Finish configd and diskarbitrationd. Cron and mDNSPosix now run in QEMU.
             Their supporting frameworks come from source (nothing closed is borrowed):
             `docs/design/COREFOUNDATION.md`
         - [x] libicucore (ICU-76142.4.7; all 8,979 exports)
-        - [ ] CoreFoundation (swift-corelibs base; C API, then the ObjC collection classes)
+        - [x] CoreFoundation (swift-corelibs base; C API, then the ObjC collection classes)
           - [x] C API and CF objects as ObjC objects: `finch-cf-test` output identical to
                 Apple's, on the host and in the VM (2026-10-08)
-          - [ ] ObjC-to-CF dispatch and the collection classes. In progress: CF compiles
+          - [x] ObjC-to-CF dispatch and the collection classes. CF compiles
                 as Objective-C with Apple's dispatch, and hosts NSException, the array,
                 dictionary and set clusters, NSData and NSDate, identical to Apple's in
                 `finch-bridge-test`; message forwarding and NSInvocation, identical to
                 Apple's in `finch-forward-test` (`docs/design/FOUNDATION.md`). Since
                 then: ordered sets, NSCache, streams, ports and the CFError and
-                CFAttributedString bridges. Left of Apple's CF classes: NSFileSecurity,
-                NSSharedKeySet, the constant data and date classes, tagged-pointer strings.
+                CFAttributedString bridges. NSFileSecurity since. The last six of Apple's
+                exported CF classes (NSConstantData, NSConstantDate, the two tagged
+                string classes, NSBlockInvocation, NSSharedKeySet) landed 2026-10-26:
+                Finch's CF exports every class Apple's does (finch-cf-classes-test).
         - [x] libswiftCore from Swift's open source (libobjc links it; 14,885/15,043 exports)
         - [x] zlib, bzip2, libedit, libresolv, libxml2 (Apple's sources) and liblzma, libxo, libsbuf
               (upstream, where Apple doesn't publish its copy), each with Apple's exports
