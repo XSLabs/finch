@@ -10,8 +10,9 @@ disk; persistent installation, boot recovery and supported-device checks remain
 open. [The release checks](ROADMAP.md#finch-10-release-checks) separate those
 requirements from library comparisons and app import counts.
 
-**As of 2026-10-27:** CoreData runs custom persistent stores, migrates stores
-(lightweight and through mapping models) and computes macOS's model version hashes.
+**As of 2026-10-27:** CoreData runs custom persistent stores and macOS's XML store
+format, migrates stores (lightweight and through mapping models) and computes
+macOS's model version hashes; AppKit has NSPersistentDocument and NSTypesetter.
 `logger` (remote_cmds) sends syslog messages that reach the
 unified log, as on macOS. Finch's sandbox is its own: `libsandbox.1` compiles macOS's
 profile language (SBPL) and the `FinchSandbox` kernel policy enforces the compiled
@@ -218,7 +219,7 @@ on the host with Finch's frameworks and headless window server. It shows English
 strings, its title bar, an empty toolbar and an empty device list. The framework
 comparison also passes in the VM; the Tier 2 display and input work remains.
 
-CoreData now reads compiled models and supports SQLite, in-memory and custom
+CoreData now reads compiled models and supports SQLite, XML, in-memory and custom
 (incremental and atomic) stores, contexts, fetches, relationships with inverses,
 lightweight and mapping-model migration, and macOS's version hashes. Its host comparison opens
 a simple Apple-created store in Finch and a Finch-created store in Apple.
@@ -300,7 +301,7 @@ block-beta
         iokit["IOKit.framework<br/>(IOKitUser)"]
         gcore["GCoreFramework<br/>(gcore, on Finch Foundation)"]
         sysconfig["SystemConfiguration<br/>preferences and network reads;<br/>shared store via Finch configd;<br/>manual IPv4 and DNS apply"]
-        coredata["CoreData<br/>compiled models, contexts,<br/>fetches, relationships, migration,<br/>SQLite, memory and custom stores"]
+        coredata["CoreData<br/>compiled models, contexts,<br/>fetches, relationships, migration,<br/>SQLite, XML, memory<br/>and custom stores"]
     end
     block:L4
         columns 4

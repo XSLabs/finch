@@ -334,8 +334,60 @@ INFO_PROPERTY(NSNumber *, fileTotalCount, setFileTotalCount, NSProgressFileTotal
 INFO_PROPERTY(NSNumber *, fileCompletedCount, setFileCompletedCount, NSProgressFileCompletedCountKey)
 #undef INFO_PROPERTY
 
-- (void)publish { }
-- (void)unpublish { }
+/* Publishing reaches the subscribers in this process whose URL is the progress's file
+   or a folder holding it; each subscriber's handler returns what to call on unpublish. */
+static NSMutableArray *progress_subscribers;      /* @[url, handler] */
+static NSMapTable *progress_unpublishers;         /* progress -> blocks */
+
+static BOOL
+progress_url_matches(NSURL *subscribed, NSURL *file)
+{
+    if (!subscribed || !file) return NO;
+    NSString *a = [[subscribed URLByStandardizingPath] path], *b = [[file URLByStandardizingPath] path];
+    return [a isEqualToString:b] || [b hasPrefix:[a hasSuffix:@"/"] ? a : [a stringByAppendingString:@"/"]];
+}
+
++ (id)addSubscriberForFileURL:(NSURL *)url withPublishingHandler:(NSProgressPublishingHandler)publishingHandler
+{
+    NSArray *subscriber = [NSArray arrayWithObjects:[[url copy] autorelease], [[publishingHandler copy] autorelease], nil];
+    @synchronized ([NSProgress class]) {
+        if (!progress_subscribers) progress_subscribers = [[NSMutableArray alloc] init];
+        [progress_subscribers addObject:subscriber];
+    }
+    return subscriber;
+}
+
++ (void)removeSubscriber:(id)subscriber
+{
+    @synchronized ([NSProgress class]) { [progress_subscribers removeObjectIdenticalTo:subscriber]; }
+}
+
+- (void)publish
+{
+    NSArray *subscribers;
+    @synchronized ([NSProgress class]) { subscribers = [[progress_subscribers copy] autorelease]; }
+    NSMutableArray *unpublishers = [NSMutableArray array];
+    for (NSArray *subscriber in subscribers) {
+        if (!progress_url_matches([subscriber objectAtIndex:0], [self fileURL])) continue;
+        NSProgressPublishingHandler handler = [subscriber objectAtIndex:1];
+        NSProgressUnpublishingHandler unpublish = handler(self);
+        if (unpublish) [unpublishers addObject:[[unpublish copy] autorelease]];
+    }
+    @synchronized ([NSProgress class]) {
+        if (!progress_unpublishers) progress_unpublishers = [[NSMapTable strongToStrongObjectsMapTable] retain];
+        if ([unpublishers count]) [progress_unpublishers setObject:unpublishers forKey:self];
+    }
+}
+
+- (void)unpublish
+{
+    NSArray *unpublishers;
+    @synchronized ([NSProgress class]) {
+        unpublishers = [[[progress_unpublishers objectForKey:self] retain] autorelease];
+        [progress_unpublishers removeObjectForKey:self];
+    }
+    for (NSProgressUnpublishingHandler unpublish in unpublishers) unpublish();
+}
 
 - (NSString *)description
 {
@@ -512,7 +564,18 @@ iso_formatter(NSISO8601DateFormatOptions options, NSTimeZone *tz)
     return f;
 }
 
-- (NSString *)stringFromDate:(NSDate *)date { return [iso_formatter(_formatOptions, _timeZone) stringFromDate:date]; }
+/* A format of one option alone is empty, as Apple's is. */
+static BOOL
+iso_options_format(NSISO8601DateFormatOptions options)
+{
+    return __builtin_popcountll(options) > 1;
+}
+
+- (NSString *)stringFromDate:(NSDate *)date
+{
+    if (date && !iso_options_format(_formatOptions)) return @"";
+    return [iso_formatter(_formatOptions, _timeZone) stringFromDate:date];
+}
 
 - (NSDate *)dateFromString:(NSString *)string
 {
@@ -529,6 +592,7 @@ iso_formatter(NSISO8601DateFormatOptions options, NSTimeZone *tz)
 
 + (NSString *)stringFromDate:(NSDate *)date timeZone:(NSTimeZone *)timeZone formatOptions:(NSISO8601DateFormatOptions)formatOptions
 {
+    if (date && !iso_options_format(formatOptions)) return @"";
     return [iso_formatter(formatOptions, timeZone) stringFromDate:date];
 }
 
@@ -680,11 +744,16 @@ spelled(long n)
     return [f stringFromDateComponents:components];
 }
 
+/* As Apple's: only date components, and only ones with a field set. */
 - (NSString *)stringForObjectValue:(id)obj
 {
-    if ([obj isKindOfClass:[NSNumber class]]) return [self stringFromTimeInterval:[obj doubleValue]];
-    if ([obj isKindOfClass:[NSDateComponents class]]) return [self stringFromDateComponents:obj];
-    return nil;
+    if (![obj isKindOfClass:[NSDateComponents class]]) return nil;
+    NSDateComponents *c = obj;
+    if (c.day == NSDateComponentUndefined && c.hour == NSDateComponentUndefined && c.minute == NSDateComponentUndefined &&
+        c.second == NSDateComponentUndefined && c.weekOfMonth == NSDateComponentUndefined && c.month == NSDateComponentUndefined &&
+        c.year == NSDateComponentUndefined && c.nanosecond == NSDateComponentUndefined)
+        return nil;
+    return [self stringFromDateComponents:obj];
 }
 
 - (BOOL)getObjectValue:(id *)obj forString:(NSString *)string errorDescription:(NSString **)error { return NO; }
@@ -762,11 +831,11 @@ spelled(long n)
 - (instancetype)initWithInsertIndexes:(NSIndexSet *)inserts insertedObjects:(NSArray *)insertedObjects removeIndexes:(NSIndexSet *)removes
                        removedObjects:(NSArray *)removedObjects additionalChanges:(NSArray<NSOrderedCollectionChange *> *)changes
 {
-    if ([inserts count] != [insertedObjects count] && (insertedObjects || [inserts count])) {
+    if (insertedObjects && [inserts count] != [insertedObjects count]) {
         [self release];
         [NSException raise:NSInvalidArgumentException format:@"Count of inserted objects does not match count of inserted indexes"];
     }
-    if ([removes count] != [removedObjects count] && (removedObjects || [removes count])) {
+    if (removedObjects && [removes count] != [removedObjects count]) {
         [self release];
         [NSException raise:NSInvalidArgumentException format:@"Count of removed objects does not match count of removed indexes"];
     }

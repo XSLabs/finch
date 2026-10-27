@@ -18,6 +18,15 @@
 - (NSString *)editingStringForObjectValue:(id)obj { return [self stringForObjectValue:obj]; }
 - (BOOL)getObjectValue:(out id *)obj forString:(NSString *)string errorDescription:(out NSString **)error { FinchAbstract(self, _cmd); }
 - (BOOL)isPartialStringValid:(NSString *)partial newEditingString:(NSString **)newString errorDescription:(NSString **)error { return YES; }
+- (BOOL)isPartialStringValid:(NSString **)partialStringPtr proposedSelectedRange:(NSRangePointer)proposedSelRangePtr
+              originalString:(NSString *)origString originalSelectedRange:(NSRange)origSelRange errorDescription:(NSString **)error
+{
+    (void)proposedSelRangePtr; (void)origString; (void)origSelRange;
+    NSString *replacement = nil;
+    BOOL valid = [self isPartialStringValid:partialStringPtr ? *partialStringPtr : nil newEditingString:&replacement errorDescription:error];
+    if (!valid && replacement && partialStringPtr) *partialStringPtr = replacement;
+    return valid;
+}
 - (id)copyWithZone:(NSZone *)zone { return [self retain]; }
 - (instancetype)initWithCoder:(NSCoder *)c { return [self init]; }
 - (void)encodeWithCoder:(NSCoder *)c { }

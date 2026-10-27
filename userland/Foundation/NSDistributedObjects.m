@@ -493,6 +493,7 @@ BYCOPY(NSLocale)
 
 + (id)proxyWithTarget:(id)target connection:(NSConnection *)connection
 {
+    if (!connection) return nil;
     return [[[self alloc] initWithTarget:target connection:connection] autorelease];
 }
 
@@ -506,6 +507,7 @@ BYCOPY(NSLocale)
 
 + (id)proxyWithLocal:(id)target connection:(NSConnection *)connection
 {
+    if (!connection) return nil;
     return [[[self alloc] initWithLocal:target connection:connection] autorelease];
 }
 
@@ -1260,6 +1262,20 @@ encode_arguments(NSPortCoder *coder, NSInvocation *invocation, BOOL reply)
 @end
 
 /* MARK: - Port name servers */
+
+/* A connection's ports on a run loop. */
+@implementation NSPort (NSConnectionScheduling)
+- (void)addConnection:(NSConnection *)conn toRunLoop:(NSRunLoop *)runLoop forMode:(NSRunLoopMode)mode
+{
+    (void)conn;
+    [self scheduleInRunLoop:runLoop forMode:mode];
+}
+- (void)removeConnection:(NSConnection *)conn fromRunLoop:(NSRunLoop *)runLoop forMode:(NSRunLoopMode)mode
+{
+    (void)conn;
+    [self removeFromRunLoop:runLoop forMode:mode];
+}
+@end
 
 @implementation NSPortNameServer
 + (NSPortNameServer *)systemDefaultPortNameServer { return [NSMachBootstrapServer sharedInstance]; }

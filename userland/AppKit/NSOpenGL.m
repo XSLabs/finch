@@ -519,3 +519,123 @@ static char current_key;
 }
 
 @end
+
+/* A pixel buffer's description: Finch's software renderer draws into window and offscreen
+   buffers of its own, so a pbuffer keeps its texture target, format and size for the
+   context that is given it. */
+@implementation NSOpenGLPixelBuffer {
+    GLenum _target, _format;
+    GLint _maxLevel;
+    GLsizei _wide, _high;
+}
+
+- (instancetype)initWithTextureTarget:(GLenum)target textureInternalFormat:(GLenum)format textureMaxMipMapLevel:(GLint)maxLevel
+                           pixelsWide:(GLsizei)pixelsWide pixelsHigh:(GLsizei)pixelsHigh
+{
+    if (pixelsWide <= 0 || pixelsHigh <= 0 || maxLevel < 0) {
+        [self release];
+        return nil;
+    }
+    if ((self = [super init])) {
+        _target = target;
+        _format = format;
+        _maxLevel = maxLevel;
+        _wide = pixelsWide;
+        _high = pixelsHigh;
+    }
+    return self;
+}
+
+- (NSOpenGLPixelBuffer *)initWithCGLPBufferObj:(CGLPBufferObj)pbuffer
+{
+    (void)pbuffer;
+    [self release];
+    return nil;
+}
+
+- (CGLPBufferObj)CGLPBufferObj { return NULL; }
+- (GLsizei)pixelsWide { return _wide; }
+- (GLsizei)pixelsHigh { return _high; }
+- (GLenum)textureTarget { return _target; }
+- (GLenum)textureInternalFormat { return _format; }
+- (GLint)textureMaxMipMapLevel { return _maxLevel; }
+
+@end
+
+/* An OpenGL layer for AppKit views: CAOpenGLLayer's CGL hooks, answered with AppKit's
+   pixel format and context objects. */
+@implementation NSOpenGLLayer {
+    NSView *_view;          /* weak */
+    NSOpenGLPixelFormat *_pixelFormat;
+    NSOpenGLContext *_context;
+}
+
+- (void)dealloc
+{
+    [_pixelFormat release];
+    [_context release];
+    [super dealloc];
+}
+
+- (NSView *)view { return _view; }
+- (void)setView:(NSView *)view { _view = view; }
+- (NSOpenGLPixelFormat *)openGLPixelFormat { return _pixelFormat; }
+- (void)setOpenGLPixelFormat:(NSOpenGLPixelFormat *)format { [_pixelFormat autorelease]; _pixelFormat = [format retain]; }
+- (NSOpenGLContext *)openGLContext { return _context; }
+- (void)setOpenGLContext:(NSOpenGLContext *)context { [_context autorelease]; _context = [context retain]; }
+
+- (NSOpenGLPixelFormat *)openGLPixelFormatForDisplayMask:(uint32_t)mask
+{
+    NSOpenGLPixelFormatAttribute attributes[] = { NSOpenGLPFAScreenMask, mask, NSOpenGLPFAColorSize, 24, NSOpenGLPFAAlphaSize, 8,
+                                                  NSOpenGLPFADepthSize, 16, NSOpenGLPFADoubleBuffer, 0 };
+    return [[[NSOpenGLPixelFormat alloc] initWithAttributes:attributes] autorelease];
+}
+
+- (NSOpenGLContext *)openGLContextForPixelFormat:(NSOpenGLPixelFormat *)pixelFormat
+{
+    return [[[NSOpenGLContext alloc] initWithFormat:pixelFormat shareContext:nil] autorelease];
+}
+
+- (BOOL)canDrawInOpenGLContext:(NSOpenGLContext *)context pixelFormat:(NSOpenGLPixelFormat *)pixelFormat
+                  forLayerTime:(CFTimeInterval)t displayTime:(const CVTimeStamp *)ts
+{
+    (void)context; (void)pixelFormat; (void)t; (void)ts;
+    return YES;
+}
+
+- (void)drawInOpenGLContext:(NSOpenGLContext *)context pixelFormat:(NSOpenGLPixelFormat *)pixelFormat
+               forLayerTime:(CFTimeInterval)t displayTime:(const CVTimeStamp *)ts
+{
+    (void)pixelFormat; (void)t; (void)ts;
+    [context flushBuffer];
+}
+
+- (CGLPixelFormatObj)copyCGLPixelFormatForDisplayMask:(uint32_t)mask
+{
+    if (!_pixelFormat) [self setOpenGLPixelFormat:[self openGLPixelFormatForDisplayMask:mask]];
+    CGLPixelFormatObj format = [_pixelFormat CGLPixelFormatObj];
+    return format && load_cgl() ? cgl.retainFormat(format) : NULL;
+}
+
+- (CGLContextObj)copyCGLContextForPixelFormat:(CGLPixelFormatObj)pixelFormat
+{
+    (void)pixelFormat;
+    if (!_context) [self setOpenGLContext:[self openGLContextForPixelFormat:_pixelFormat]];
+    CGLContextObj context = [_context CGLContextObj];
+    return context && load_cgl() ? cgl.retainContext(context) : NULL;
+}
+
+- (BOOL)canDrawInCGLContext:(CGLContextObj)ctx pixelFormat:(CGLPixelFormatObj)pf forLayerTime:(CFTimeInterval)t displayTime:(const CVTimeStamp *)ts
+{
+    (void)ctx; (void)pf;
+    return [self canDrawInOpenGLContext:_context pixelFormat:_pixelFormat forLayerTime:t displayTime:ts];
+}
+
+- (void)drawInCGLContext:(CGLContextObj)ctx pixelFormat:(CGLPixelFormatObj)pf forLayerTime:(CFTimeInterval)t displayTime:(const CVTimeStamp *)ts
+{
+    (void)ctx; (void)pf;
+    [_context makeCurrentContext];
+    [self drawInOpenGLContext:_context pixelFormat:_pixelFormat forLayerTime:t displayTime:ts];
+}
+
+@end

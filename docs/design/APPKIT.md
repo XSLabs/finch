@@ -857,3 +857,18 @@ draws (`userland/tests/app-test.c`).
   text no longer moves right by 5 points when editing starts. Focus rings show only in
   the key window, and an empty search field says "Search" when it has no placeholder of
   its own, as Apple's do.
+- 2026-10-27: the missing public classes. `NSTypesetter` and `NSATSTypesetter` (the
+  shared system typesetter, as Apple's) keep the typesetter's settings and paragraph
+  state and answer its questions from the text's attributes, while Finch's layout
+  manager lays out the text; layout managers default to the 10.4 typesetter behaviour,
+  as Apple's do. `NSPersistentDocument` keeps its document in a Core Data store (XML by
+  default, Core Data reached at run time), saving, saving as (by migrating the store),
+  saving to and reverting. `NSTouch`, `NSCachedImageRep`, `NSEPSImageRep` (no rep from
+  EPS data, as on current macOS), `NSPICTImageRep` (measured only), Writing Tools'
+  coordinator, context, preview and animation parameters (Writing Tools reported
+  unavailable), `NSWorkspaceAuthorization` (through Finch's authorization service),
+  `NSAlignmentFeedbackFilter`, `NSBackgroundExtensionView`, `NSFontAssetRequest`,
+  `NSMediaLibraryBrowserController`, `NSMovie` (nil, as since 10.15),
+  `NSSpeechRecognizer` (hears nothing), `NSTextCheckingController`, `NSInputServer` and
+  `NSOpenGLPixelBuffer` are present (`finch-appkit-classes-test`). `NSOpenGLLayer`
+  waits for QuartzCore's `CAOpenGLLayer`.

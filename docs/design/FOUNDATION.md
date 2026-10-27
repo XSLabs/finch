@@ -186,6 +186,18 @@ GNUstep is LGPL and isn't copied (`docs/LICENSING.md`).
   over socket ports between processes. `NSSocketPortNameServer` knows no names, as
   Finch has no Bonjour-backed name service. `finch-do-test` runs server and client
   processes over Mach, message and socket ports and matches Apple's run.
+- 2026-10-27: a generated-comparison pass. `NSIntegralRectWithOptions` refuses options
+  that don't name exactly two of an axis's edges and length; an ISO 8601 format of a
+  single option is empty; `NSDateComponentsFormatter` formats only date components that
+  have a field; ordered sets indent their descriptions as Apple's and refuse whole-set
+  observation; ordered-collection differences accept nil object arrays; table intents
+  check their column count; regular-expression and orthography checking results check
+  their arguments. New: `NSProgress` file subscribers (in process), `+[NSAutoreleasePool
+  showPools]`, `encodeNXObject:`/`decodeNXObject`, `poseAsClass:` (does nothing),
+  `NSPort`'s connection scheduling, `-[NSPredicate allowEvaluationWithValidator:error:]`,
+  NSFormatter's selection-aware partial-string check and upload tasks'
+  `cancelByProducingResumeData:`; `NSNetService` and `NSTask` methods carry Apple's `out`
+  qualifiers.
 
 ### The Swift overlays
 

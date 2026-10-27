@@ -26,6 +26,7 @@ FINCH_OBJC_FLAGS="-Wno-deprecated-declarations" \
     "${HERE}/CDCustomStore.m" \
     "${HERE}/CDMigration.m" \
     "${HERE}/CDNewClasses.m" \
+    "${HERE}/CDXMLStore.m" \
     "${HERE}/CDContext.m" \
     "${HERE}/CDContainer.m" \
     "${HERE}/CDFetchedResultsController.m" \

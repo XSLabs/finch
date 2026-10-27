@@ -61,7 +61,7 @@ typedef struct {
         _limitsSuspicious = YES;
         _backgroundLayout = YES;
         _usesScreenFonts = NO;
-        _typesetterBehavior = NSTypesetterLatestBehavior;
+        _typesetterBehavior = NSTypesetterBehavior_10_4;   /* as Apple's */
         _attachmentScaling = NSImageScaleProportionallyDown;
     }
     return self;

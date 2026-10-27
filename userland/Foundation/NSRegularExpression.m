@@ -104,6 +104,7 @@ result(NSTextCheckingType type, NSRange range)
 
 + (NSTextCheckingResult *)orthographyCheckingResultWithRange:(NSRange)range orthography:(NSOrthography *)orthography
 {
+    if (!orthography) [NSException raise:NSInvalidArgumentException format:@"*** -[__NSArrayM insertObject:atIndex:]: object cannot be nil"];
     NSTextCheckingResult *r = result(NSTextCheckingTypeOrthography, range);
     r->_orthography = [orthography copy];
     return r;
@@ -157,6 +158,8 @@ substitution(NSTextCheckingType type, NSRange range, NSString *replacement, NSAr
 }
 + (NSTextCheckingResult *)regularExpressionCheckingResultWithRanges:(NSRangePointer)ranges count:(NSUInteger)count regularExpression:(NSRegularExpression *)regex
 {
+    if (!count)
+        [NSException raise:NSInvalidArgumentException format:@"-[NSComplexRegularExpressionCheckingResult initWithRangeArray:regularExpression:]: must have at least one range"];
     NSTextCheckingResult *r = result(NSTextCheckingTypeRegularExpression, count ? ranges[0] : NSMakeRange(NSNotFound, 0));
     if (count > 1) {
         r->_ranges = realloc(r->_ranges, count * sizeof(NSRange));

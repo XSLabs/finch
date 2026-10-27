@@ -76,3 +76,4 @@ BOOL CDMigrateWithMapping(NSMigrationManager *manager, NSURL *sourceURL, NSStrin
                           NSDictionary *destinationOptions, NSError **error);
 NSPersistentStoreResult *CDExecuteBatchInsert(NSPersistentStoreCoordinator *coordinator, NSBatchInsertRequest *request, NSError **error);
 NSPersistentStoreResult *CDExecuteCloudKitEventRequest(NSPersistentCloudKitContainerEventRequest *request);
+void CDRegisterBuiltInStores(NSMutableDictionary *classes);

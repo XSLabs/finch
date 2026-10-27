@@ -760,6 +760,7 @@ legacy_dependents(void)
     @end
 UNSUPPORTED(NSArray)
 UNSUPPORTED(NSSet)
+UNSUPPORTED(NSOrderedSet)
 
 @implementation NSArray (NSKeyValueObserverRegistration)
 - (void)addObserver:(NSObject *)observer toObjectsAtIndexes:(NSIndexSet *)indexes forKeyPath:(NSString *)keyPath

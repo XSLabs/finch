@@ -69,10 +69,17 @@ finds older model versions inside `.momd` bundles, and
 `mappingModelFromBundles:` finds Xcode-compiled `.cdm` mapping models by their
 hashes.
 
+The XML store (`NSXMLStoreType`, `NSXMLObjectStore`) is an atomic store in Core
+Data's XML format: the store's UUID, last object number and metadata plist, then one
+element per object with typed attributes and relationships by id reference. Text
+escapes `&`, `<`, `>` and UTF-16 surrogates as `\u` with the unit's bytes swapped, as
+Apple's does, so macOS reads Finch's files and Finch reads macOS's
+(`coredata-xml-test`, which saves and reads them through `NSPersistentDocument`).
+
 Several parts remain unsupported. Migrations that change an attribute's type,
 many-to-many relationship storage, persistent history, CloudKit mirroring,
 and Core Spotlight indexing return an error or report that they are
-unavailable. Binary and XML stores are also unavailable.
+unavailable. The binary store is also unavailable.
 
 Build the dependency and framework with:
 

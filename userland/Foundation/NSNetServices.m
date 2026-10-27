@@ -480,7 +480,7 @@ txt_reply(DNSServiceRef ref, DNSServiceFlags flags, uint32_t interfaceIndex, DNS
     STATE->monitor = nil;
 }
 
-- (BOOL)getInputStream:(NSInputStream **)inputStream outputStream:(NSOutputStream **)outputStream
+- (BOOL)getInputStream:(out NSInputStream **)inputStream outputStream:(out NSOutputStream **)outputStream
 {
     NSString *host = STATE->hostName;
     if (!host || STATE->port <= 0)

@@ -251,6 +251,12 @@ all_kind_of(id<NSFastEnumeration> objects, NSSet *classes)
 
 /* MARK: - Geometry */
 
+/* NeXTSTEP-era names for object coding. */
+@implementation NSCoder (NSTypedstreamCompatibility)
+- (void)encodeNXObject:(id)object { [self encodeObject:object]; }
+- (id)decodeNXObject { return [self decodeObject]; }
+@end
+
 @implementation NSCoder (NSGeometryCoding)
 /* As Apple's: floats, in one group ("ff", "ffff"). */
 - (void)encodePoint:(NSPoint)point

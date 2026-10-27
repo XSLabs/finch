@@ -2473,6 +2473,10 @@ _FinchURLTaskStartTLS(NSURLSessionTask *task, Connection *c, NSString *host)
 @implementation NSURLSessionDataTask
 @end
 @implementation NSURLSessionUploadTask
+- (void)cancelByProducingResumeData:(void (^)(NSData *))completionHandler
+{
+    [self _finchCancelProducingResumeData:completionHandler];
+}
 @end
 @implementation NSURLSessionDownloadTask
 - (void)cancelByProducingResumeData:(void (^)(NSData *))handler

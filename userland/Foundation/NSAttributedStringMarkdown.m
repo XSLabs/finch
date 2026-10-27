@@ -902,6 +902,8 @@ utf16_length_of_codepoint_at_utf8_offset(NSString *string, NSUInteger byteOffset
 + (instancetype)tableIntentWithIdentity:(NSInteger)identity columnCount:(NSInteger)columnCount alignments:(NSArray<NSNumber *> *)alignments
                       nestedInsideIntent:(NSPresentationIntent *)parent
 {
+    if ((NSUInteger)columnCount != [alignments count])
+        [NSException raise:NSInvalidArgumentException format:@"*** +[NSPresentationIntent tableIntentWithIdentity:columnCount:alignments:nestedInsideIntent:]: column count does not match count of alignments"];
     NSPresentationIntent *intent = [[[self alloc] initWithKind:NSPresentationIntentKindTable identity:identity parent:parent] autorelease];
     intent->_columnCount = columnCount;
     intent->_columnAlignments = [alignments copy];

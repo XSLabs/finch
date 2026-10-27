@@ -89,6 +89,19 @@ align_axis(CGFloat *origin, CGFloat *length, NSAlignmentOptions o, int shift, BO
 NSRect
 NSIntegralRectWithOptions(NSRect r, NSAlignmentOptions opts)
 {
+    /* each axis names exactly two of its edges and its length, as Apple's checks */
+    const NSAlignmentOptions x[3] = { NSAlignMinXInward | NSAlignMinXOutward | NSAlignMinXNearest,
+                                      NSAlignMaxXInward | NSAlignMaxXOutward | NSAlignMaxXNearest,
+                                      NSAlignWidthInward | NSAlignWidthOutward | NSAlignWidthNearest };
+    const NSAlignmentOptions y[3] = { NSAlignMinYInward | NSAlignMinYOutward | NSAlignMinYNearest,
+                                      NSAlignMaxYInward | NSAlignMaxYOutward | NSAlignMaxYNearest,
+                                      NSAlignHeightInward | NSAlignHeightOutward | NSAlignHeightNearest };
+    int nx = 0, ny = 0;
+    for (int i = 0; i < 3; i++) { nx += (opts & x[i]) != 0; ny += (opts & y[i]) != 0; }
+    if (nx != 2)
+        [NSException raise:NSInvalidArgumentException format:@"The options parameter is invalid. There should be specifiers for exactly two out of {minX, maxX, width}."];
+    if (ny != 2)
+        [NSException raise:NSInvalidArgumentException format:@"The options parameter is invalid. There should be specifiers for exactly two out of {minY, maxY, height}."];
     BOOL flipped = (opts & NSAlignRectFlipped) != 0;
     align_axis(&r.origin.x, &r.size.width, opts, 0, NO);
     align_axis(&r.origin.y, &r.size.height, opts, 1, flipped);

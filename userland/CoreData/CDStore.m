@@ -693,7 +693,10 @@ static BOOL CDDeleteRow(NSPersistentStore *store, NSManagedObject *object, NSErr
 static NSMutableDictionary *CDStoreClasses(void) {
     static NSMutableDictionary *classes;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ classes = [[NSMutableDictionary alloc] init]; });
+    dispatch_once(&once, ^{
+        classes = [[NSMutableDictionary alloc] init];
+        CDRegisterBuiltInStores(classes);
+    });
     return classes;
 }
 

@@ -403,8 +403,11 @@ counts_match(SEL cmd, NSUInteger objects, id indexes)
 /* Apple's: the array's form inside "{( ... )}". */
 - (id)descriptionWithLocale:(id)locale indent:(NSUInteger)level
 {
-    id a = [[self array] descriptionWithLocale:locale indent:level];
-    return [(id)CFStringCreateWithFormat(NULL, NULL, CFSTR("{%@}"), a) autorelease];
+    /* the indent goes before the braces, as Apple's: "    {(" */
+    NSString *a = [[self array] descriptionWithLocale:locale indent:level];
+    NSUInteger lead = 0;
+    while (lead < [a length] && [a characterAtIndex:lead] == ' ') lead++;
+    return [(id)CFStringCreateWithFormat(NULL, NULL, CFSTR("%@{%@}"), [a substringToIndex:lead], [a substringFromIndex:lead]) autorelease];
 }
 - (id)descriptionWithLocale:(id)locale { return [self descriptionWithLocale:locale indent:0]; }
 - (id)description { return [self descriptionWithLocale:nil indent:0]; }

@@ -309,8 +309,17 @@ NSLog(NSString *format, ...)
 
 /* MARK: - NSAutoreleasePool */
 
+/* Posing went with the 64-bit runtime; the method remains and does nothing. */
+@implementation NSObject (FinchPosing)
++ (void)poseAsClass:(Class)aClass { (void)aClass; }
+@end
+
+/* libobjc's: prints the thread's pools. */
+extern void _objc_autoreleasePoolPrint(void);
+
 @implementation NSAutoreleasePool
 
++ (void)showPools { _objc_autoreleasePoolPrint(); }
 + (void)addObject:(id)anObject { [anObject autorelease]; }
 - (void)addObject:(id)anObject { [anObject autorelease]; }
 

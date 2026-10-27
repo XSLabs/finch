@@ -560,7 +560,7 @@ raise_or_error(NSConcreteFileHandle *self, SEL cmd, int code, NSError **error)
     return t;
 }
 
-+ (NSTask *)launchedTaskWithExecutableURL:(NSURL *)url arguments:(NSArray<NSString *> *)arguments error:(NSError **)error
++ (NSTask *)launchedTaskWithExecutableURL:(NSURL *)url arguments:(NSArray<NSString *> *)arguments error:(out NSError **)error
                        terminationHandler:(void (^)(NSTask *))terminationHandler
 {
     NSTask *t = [[[NSTask alloc] init] autorelease];

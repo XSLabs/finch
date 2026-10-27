@@ -589,6 +589,14 @@ static NSPredicate *parse_predicate(NSString *format, NSArray *argumentArray, va
 - (BOOL)evaluateWithObject:(id)object { return [self evaluateWithObject:object substitutionVariables:nil]; }
 - (BOOL)evaluateWithObject:(id)object substitutionVariables:(NSDictionary<NSString *, id> *)bindings { FinchAbstract(self, _cmd); }
 - (void)allowEvaluation { }
+/* Evaluation is allowed once a validator has seen the predicate; Finch's validators
+   accept every predicate they are shown. */
+- (BOOL)allowEvaluationWithValidator:(id)validator error:(NSError **)error
+{
+    (void)validator; (void)error;
+    [self allowEvaluation];
+    return YES;
+}
 - (id)copyWithZone:(NSZone *)zone { return [self retain]; }
 - (instancetype)initWithCoder:(NSCoder *)coder { [self release]; return nil; }
 - (void)encodeWithCoder:(NSCoder *)coder { }
