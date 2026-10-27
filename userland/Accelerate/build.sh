@@ -59,7 +59,7 @@ library() {
 
 log "compiling vecLib's libraries and vImage"
 compile vDSP "${HERE}"/vDSP/*.c
-compile vMisc "${HERE}/vforce.c"
+compile vMisc "${HERE}"/vMisc/*.c
 compile BLAS "${HERE}/blaslapack.c"
 compile vImage "${HERE}/vimage.c"
 

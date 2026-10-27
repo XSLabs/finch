@@ -6,21 +6,21 @@ This report compares public C declarations and SDK export lists, Objective-C cla
 
 Behavior-verified counts come from item IDs in build/compat-results/*.json. Generated comparison records count only when the item's run matches the saved SDK, test code, and Finch image for this report, the Finch image was loaded during the run, and both sides produced output. Standalone verified IDs without item records are kept as history but are not counted. These checks cover the recorded safe inputs, not every input an API can accept. Constant checks also merge into the framework files. The full name-by-name report is kept in build/api-coverage.json.
 
-Overall: **48.9%** (262,241 of 535,953 API items across 842 parsed frameworks or dylibs).
+Overall: **49.3%** (264,397 of 535,953 API items across 842 parsed frameworks or dylibs).
 
 7 frameworks or dylibs had a parse or load issue and are left out of the overall percentage. 141 parsed successfully but had no public macOS API items.
 
 | Framework or dylib | API items | Present | Missing | Coverage | Behavior verified | Status |
 |---|---:|---:|---:|---:|---:|---|
-| Accelerate | 13,547 | 491 | 13,056 | 3.6% | 4/13547 | complete |
-| Accelerate/vecLib | 12,956 | 481 | 12,475 | 3.7% | 0/12956 | complete |
+| Accelerate | 13,547 | 1,030 | 12,517 | 7.6% | 0/13547 | complete |
+| Accelerate/vecLib | 12,956 | 1,020 | 11,936 | 7.9% | 0/12956 | complete |
 | Accelerate/vecLib/libBNNS | 269 | 0 | 269 | 0.0% | 0/269 | complete |
 | Accelerate/vecLib/libLinearAlgebra | 42 | 0 | 42 | 0.0% | 0/42 | complete |
 | Accelerate/vecLib/libQuadrature | 1 | 0 | 1 | 0.0% | 0/1 | complete |
 | Accelerate/vecLib/libSparse | 4 | 0 | 4 | 0.0% | 0/4 | complete |
 | Accelerate/vecLib/libSparseBLAS | 127 | 0 | 127 | 0.0% | 0/127 | complete |
 | Accelerate/vecLib/libvDSP | 469 | 469 | 0 | 100.0% | 0/469 | complete |
-| Accelerate/vecLib/libvMisc | 582 | 3 | 579 | 0.5% | 0/582 | complete |
+| Accelerate/vecLib/libvMisc | 582 | 542 | 40 | 93.1% | 0/582 | complete |
 | Accelerate/vImage | 591 | 10 | 581 | 1.7% | 0/591 | complete |
 | Accessibility | 318 | 301 | 17 | 94.7% | 14/318 | complete |
 | Accounts | 70 | 41 | 29 | 58.6% | 16/70 | complete |
@@ -847,7 +847,7 @@ Overall: **48.9%** (262,241 of 535,953 API items across 842 parsed frameworks or
 | usd/libusd_ms | 0 | 0 | 0 | 0.0% | 0/0 | empty |
 | UserNotifications | 144 | 118 | 26 | 81.9% | 7/144 | complete |
 | UserNotificationsUI | 12 | 0 | 12 | 0.0% | 0/12 | complete |
-| vecLib | 12,956 | 481 | 12,475 | 3.7% | 0/12956 | complete |
+| vecLib | 12,956 | 1,020 | 11,936 | 7.9% | 0/12956 | complete |
 | VideoDecodeAcceleration | 8 | 0 | 8 | 0.0% | 0/8 | complete |
 | VideoSubscriberAccount | 214 | 0 | 214 | 0.0% | 0/214 | complete |
 | VideoToolbox | 578 | 504 | 74 | 87.2% | 323/578 | complete |

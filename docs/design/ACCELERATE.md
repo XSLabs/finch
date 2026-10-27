@@ -8,7 +8,7 @@ matrix math and neural-network routines. Finch builds its own
 Accelerate.framework/Versions/A/Accelerate          re-exports vecLib and vImage
   Frameworks/vecLib.framework/Versions/A/vecLib     re-exports the libraries below
     libvDSP.dylib     all of vDSP
-    libvMisc.dylib    vForce (the calls apps import)
+    libvMisc.dylib    vForce, vfp, vBasicOps, vBigNum, vectorOps
     libBLAS.dylib     CBLAS and BLAS (the calls apps import)
     libLAPACK.dylib   LAPACK (the calls apps import)
   Frameworks/vImage.framework/Versions/A/vImage     vImage (the calls apps import)
@@ -55,10 +55,32 @@ found by running Apple's routines:
 Transforms are computed in double precision by a radix-2 FFT combined with a
 small DFT for the odd factor, so results agree with Apple's to rounding.
 
+## vMisc
+
+`userland/Accelerate/vMisc/` has all of libvMisc's public API:
+
+- `vforce.c`: vForce's array functions in both precisions, also under their
+  Fortran names (`vvexpf_`, `VVEXPF`, `VVEXPF_`);
+- `vfp.c`: the `vFloat` functions of `vfp.h`;
+- `bignum.c`: vBasicOps' lane arithmetic (8- to 128-bit lanes) and vBigNum's
+  128- to 1024-bit numbers, as little-endian words; where `vBasicOps.h` speaks
+  of big-endian "even" elements, those are the upper lanes, and shift counts
+  come from byte 0 (and byte 8), as on Apple's;
+- `vectorops.c`: vecLib's original BLAS over `vFloat` arrays.
+
+Apple's give +0 for `sinpi` and `tanpi` at the integers (except double
+`sinpi`, whose zero has the sign of x times (-1)^x) and +0 for zero
+remainders, and `vsincosf` returns cosines and stores sines; Finch's do the
+same. Apple's arm64 `vIsamax`, `vIsamin`, `vIsmax`, `vIsmin`, `vSnrm2`,
+`vSgevv`, `vSndot` and `vSnaxpy` do not compute what `vectorOps.h` describes
+(they return other indexes, a negative norm or leave their output alone);
+Finch's follow the header. The 50 libvMisc symbols with no public declaration
+(`vMultMatMat_4x4` and the like) are not provided.
+
 ## The rest
 
-vForce, vImage, BLAS and LAPACK still have only the calls imported by the apps
-found on this Mac: vForce's square root, sine/cosine and `atan2`; vImage
+vImage, BLAS and LAPACK still have only the calls imported by the apps
+found on this Mac: vImage
 scaling, convolution, channel transforms, table lookups, histograms and
 conversion between image buffers and CoreGraphics images; the imported CBLAS
 calls and the `sscal_`, `sgemv_`, `dgels_`, `dgetrf_`, `dgetri_` and `dgtsv_`
@@ -74,7 +96,7 @@ use libSystem and the math library. Test runners put the nested frameworks
 (`Accelerate.framework/Versions/A/Frameworks`) on `DYLD_FRAMEWORK_PATH` and
 vecLib's folder on `DYLD_LIBRARY_PATH`, as dyld finds those by leaf name.
 
-`userland/tests/accelerate-test.c` and `userland/tests/vdsp-test.c` run the
+`userland/tests/accelerate-test.c`, `vdsp-test.c` and `vmisc-test.c` run the
 same calls against Apple's framework and Finch's, and `tools/host-tests.sh`
 compares their printed results. All routines here were written for Finch. No
 Apple binary, closed Apple code or outside source code was copied, so
