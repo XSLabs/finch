@@ -831,9 +831,13 @@ schedule_view_dump(void)
                     openDocumentWithContentsOfURL:u
                                           display:YES
                                 completionHandler:^(NSDocument *doc, BOOL already, NSError *error) {
-                                    if (error)
+                                    if (error) {
+                                        NSLog(@"Couldn't open %@: %@", [u path], error);
                                         [self presentError:error];
+                                    }
                                 }];
+        } else {
+            NSLog(@"Nothing opens %@: the app has no document class and its delegate opens no files", urls);
         }
         return;
     }

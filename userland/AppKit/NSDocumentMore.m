@@ -64,25 +64,50 @@ finish_on_main(void (^handler)(NSError *), NSError *error)
         [self setDisplayName:str];
 }
 
-/* (each of these is what the current method would do; an app's override is what the
-   current one calls instead) */
+/* The older methods, as Apple's: a chain of their own, which never calls the current
+   methods (they call an app's overrides of these instead). Reading ends in
+   loadDataRepresentation:ofType:, writing in dataRepresentationOfType:, each a subclass's
+   to implement, so an app's override can call super (Grapher's readFromFile:ofType: does). */
 - (BOOL)readFromFile:(NSString *)fileName ofType:(NSString *)type
 {
-    return [self readFromURL:[NSURL fileURLWithPath:fileName] ofType:type error:NULL];
+    NSFileWrapper *w = [[[NSFileWrapper alloc] initWithURL:[NSURL fileURLWithPath:fileName] options:0 error:NULL] autorelease];
+    return w && [self loadFileWrapperRepresentation:w ofType:type];
 }
 
-- (BOOL)readFromURL:(NSURL *)url ofType:(NSString *)type { return [self readFromURL:url ofType:type error:NULL]; }
-- (BOOL)loadDataRepresentation:(NSData *)data ofType:(NSString *)type { return [self readFromData:data ofType:type error:NULL]; }
-- (NSData *)dataRepresentationOfType:(NSString *)type { return [self dataOfType:type error:NULL]; }
+- (BOOL)readFromURL:(NSURL *)url ofType:(NSString *)type { return [url isFileURL] && [self readFromFile:[url path] ofType:type]; }
 
 - (BOOL)loadFileWrapperRepresentation:(NSFileWrapper *)wrapper ofType:(NSString *)type
 {
-    return [self readFromFileWrapper:wrapper ofType:type error:NULL];
+    return [wrapper isRegularFile] && [self loadDataRepresentation:[wrapper regularFileContents] ofType:type];
 }
 
-- (NSFileWrapper *)fileWrapperRepresentationOfType:(NSString *)type { return [self fileWrapperOfType:type error:NULL]; }
-- (BOOL)writeToFile:(NSString *)fileName ofType:(NSString *)type { return [self writeToURL:[NSURL fileURLWithPath:fileName] ofType:type error:NULL]; }
-- (BOOL)writeToURL:(NSURL *)url ofType:(NSString *)type { return [self writeToURL:url ofType:type error:NULL]; }
+- (BOOL)loadDataRepresentation:(NSData *)data ofType:(NSString *)type
+{
+    [NSException raise:NSInternalInconsistencyException
+                format:@"loadDataRepresentation:ofType: is a subclass responsibility but has not been overridden."];
+    return NO;
+}
+
+- (NSData *)dataRepresentationOfType:(NSString *)type
+{
+    [NSException raise:NSInternalInconsistencyException
+                format:@"dataRepresentationOfType: is a subclass responsibility but has not been overridden."];
+    return nil;
+}
+
+- (NSFileWrapper *)fileWrapperRepresentationOfType:(NSString *)type
+{
+    NSData *d = [self dataRepresentationOfType:type];
+    return d ? [[[NSFileWrapper alloc] initRegularFileWithContents:d] autorelease] : nil;
+}
+
+- (BOOL)writeToFile:(NSString *)fileName ofType:(NSString *)type
+{
+    NSFileWrapper *w = [self fileWrapperRepresentationOfType:type];
+    return w && [w writeToURL:[NSURL fileURLWithPath:fileName] options:NSFileWrapperWritingAtomic originalContentsURL:nil error:NULL];
+}
+
+- (BOOL)writeToURL:(NSURL *)url ofType:(NSString *)type { return [url isFileURL] && [self writeToFile:[url path] ofType:type]; }
 
 - (BOOL)writeToFile:(NSString *)fullDocumentPath ofType:(NSString *)type originalFile:(NSString *)fullOriginalDocumentPath
       saveOperation:(NSSaveOperationType)saveOperationType

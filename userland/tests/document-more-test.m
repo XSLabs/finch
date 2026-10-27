@@ -48,6 +48,47 @@
 }
 @end
 
+/* One whose old-style overrides call super (as Grapher's readFromFile:ofType: does): NSDocument's
+   old methods are a chain of their own, ending in the data methods. */
+@interface SuperDoc : NSDocument
+@property (copy) NSString *text;
+@property NSMutableArray *calls;
+@end
+@implementation SuperDoc
+- (instancetype)init { if ((self = [super init])) self.calls = [NSMutableArray array]; return self; }
+- (BOOL)readFromFile:(NSString *)fileName ofType:(NSString *)type
+{
+    [self.calls addObject:@"readFromFile"];
+    if (self.calls.count > 5)
+        return NO;  /* (recursion: stop) */
+    return [super readFromFile:fileName ofType:type];
+}
+- (BOOL)loadDataRepresentation:(NSData *)data ofType:(NSString *)type
+{
+    [self.calls addObject:@"loadDataRepresentation"];
+    self.text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    return YES;
+}
+- (BOOL)writeToFile:(NSString *)fileName ofType:(NSString *)type
+{
+    [self.calls addObject:@"writeToFile"];
+    if (self.calls.count > 8)
+        return NO;
+    return [super writeToFile:fileName ofType:type];
+}
+- (NSData *)dataRepresentationOfType:(NSString *)type
+{
+    [self.calls addObject:@"dataRepresentation"];
+    return [self.text dataUsingEncoding:NSUTF8StringEncoding];
+}
+@end
+
+/* One that implements none of the old methods, called the old way: they're a subclass's. */
+@interface BareDoc : NSDocument
+@end
+@implementation BareDoc
+@end
+
 /* A current-style document. */
 @interface NewDoc : NSDocument
 @property (copy) NSString *text;
@@ -107,6 +148,18 @@ main(void)
         FileDoc *fd = [[FileDoc alloc] initWithContentsOfURL:a ofType:@"public.plain-text" error:&error];
         ok = [fd writeToURL:b ofType:@"public.plain-text" error:&error];
         printf("file doc: %d calls %s\n", ok, [fd.calls componentsJoinedByString:@","].UTF8String);
+        SuperDoc *sd = [[SuperDoc alloc] initWithContentsOfURL:a ofType:@"public.plain-text" error:&error];
+        printf("super doc read: %s calls %s\n", sd.text.UTF8String, [sd.calls componentsJoinedByString:@","].UTF8String);
+        [sd.calls removeAllObjects];
+        ok = [sd writeToURL:b ofType:@"public.plain-text" error:&error];
+        printf("super doc write: %d %s calls %s\n", ok, [NSString stringWithContentsOfURL:b encoding:NSUTF8StringEncoding error:nil].UTF8String,
+            [sd.calls componentsJoinedByString:@","].UTF8String);
+        @try {
+            [[[BareDoc alloc] init] readFromFile:a.path ofType:@"public.plain-text"];
+            printf("bare doc read: no exception\n");
+        } @catch (NSException *x) {
+            printf("bare doc read: %s %s\n", x.name.UTF8String, x.reason.UTF8String);
+        }
 
         /* synchronous saving */
         NewDoc *nd = [[NewDoc alloc] initWithType:@"public.plain-text" error:&error];

@@ -199,6 +199,26 @@ main(void)
             }
         }
 
+        /* a renamed class (encodeClassName:intoClassName:) is allowed by the name it decodes as */
+        for (int byArchived = 0; byArchived < 2; byArchived++) {
+            NSMutableData *rd = [NSMutableData data];
+            NSArchiver *ra = [[NSArchiver alloc] initForWritingWithMutableData:rd];
+            [ra encodeClassName:@"Versioned" intoClassName:@"OldVersioned"];
+            [ra encodeRootObject:@[[Versioned new]]];
+            NSUnarchiver *ru = [[NSUnarchiver alloc] initForReadingWithData:rd];
+            [ru decodeClassName:@"OldVersioned" asClassName:@"Versioned"];
+            id names = byArchived ? [NSSet setWithObjects:@"NSArray", @"OldVersioned", @"NSObject", nil]
+                                  : [NSSet setWithObjects:@"NSArray", @"Versioned", @"NSObject", nil];
+            ((void (*)(id, SEL, id))objc_msgSend)(ru, sel_registerName("_setAllowedClasses:"), names);
+            @try {
+                printf("allowed, renamed class by its %s name: %s\n", byArchived ? "archived" : "current",
+                    object_getClassName([[ru decodeObject] firstObject]));
+            } @catch (NSException *e) {
+                printf("allowed, renamed class by its %s name: %s %s\n", byArchived ? "archived" : "current",
+                    [[e name] UTF8String], [[e reason] UTF8String]);
+            }
+        }
+
         /* a class's version, set by the class, as archives carry it */
         [Versioned setVersion:7];
         NSUnarchiver *vu = [[NSUnarchiver alloc] initForReadingWithData:[NSArchiver archivedDataWithRootObject:[Versioned new]]];

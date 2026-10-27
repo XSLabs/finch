@@ -693,11 +693,13 @@ type_size(const char *t, NSUInteger *align)
     NSString *archived = [NSString stringWithUTF8String:[nameData bytes]];
     NSInteger version = (NSInteger)[self _int];
     [self _class];   /* the superclass chain, read and kept as entries */
-    if (_allowedClasses && ![_allowedClasses containsObject:archived])
-        FinchRaise(NSInvalidArgumentException, "*** data to unarchive contains class (%s) which has not been allowed",
-                   [archived UTF8String]);
     [_versions setObject:@(version) forKey:archived];
     NSString *name = [self classNameDecodedForArchiveClassName:archived];
+    /* The class it decodes as is the one allowed or not, as Apple's (an app's renamed
+       classes, decodeClassName:asClassName:, are allowed by their current names). */
+    if (_allowedClasses && ![_allowedClasses containsObject:name])
+        FinchRaise(NSInvalidArgumentException, "*** data to unarchive contains class (%s) which has not been allowed",
+                   [name UTF8String]);
     Class cls = NSClassFromString(name);
     if (!cls) FinchRaise(Inconsistency, "*** class error for '%s': class not loaded", [archived UTF8String]);
     [_objects replaceObjectAtIndex:index withObject:cls];
