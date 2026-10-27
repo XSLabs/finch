@@ -385,7 +385,12 @@ position_to_flags(NSCellImagePosition p)
 
 #pragma mark Values: the state
 
-- (id)objectValue { return @([self state]); }
+/* (Apple's: a boolean when on or off, the number when mixed) */
+- (id)objectValue
+{
+    NSControlStateValue state = [self state];
+    return state == NSControlStateValueOn ? (id)kCFBooleanTrue : state == NSControlStateValueOff ? (id)kCFBooleanFalse : @(state);
+}
 
 - (void)setObjectValue:(id)value
 {

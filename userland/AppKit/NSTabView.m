@@ -155,7 +155,7 @@ static char tab_state_key, tab_rect_key;
     self = [super initWithFrame:frame];
     if (self) {
         _items = [[NSMutableArray alloc] init];
-        _type = NSTopTabsBezelBorder;
+        [self _finchTakeType:NSTopTabsBezelBorder];
         _drawsBackground = YES;
     }
     return self;
@@ -170,7 +170,7 @@ static char tab_state_key, tab_rect_key;
             [item _finchSetTabView:self];
             [_items addObject:item];
         }
-        _type = [coder containsValueForKey:@"NSTvFlags"] ? ([coder decodeIntForKey:@"NSTvFlags"] & 7) : NSTopTabsBezelBorder;
+        [self _finchTakeType:[coder containsValueForKey:@"NSTvFlags"] ? ([coder decodeIntForKey:@"NSTvFlags"] & 7) : NSTopTabsBezelBorder];
         _drawsBackground = [coder containsValueForKey:@"NSDrawsBackground"] ? [coder decodeBoolForKey:@"NSDrawsBackground"] : YES;
         _font = [[coder decodeObjectForKey:@"NSFont"] retain];
         _delegate = [coder decodeObjectForKey:@"NSDelegate"];
@@ -192,12 +192,54 @@ static char tab_state_key, tab_rect_key;
 - (BOOL)isFlipped { return YES; }
 - (id<NSTabViewDelegate>)delegate { return _delegate; }
 - (void)setDelegate:(id<NSTabViewDelegate>)delegate { _delegate = delegate; }
+/* As Apple's: the tabs' position and the border are kept, and the type is what they
+   make (a position with no tabs takes its type from the border). */
+- (void)_finchTakeType:(NSTabViewType)type
+{
+    static const NSTabPosition positions[] = { NSTabPositionTop, NSTabPositionLeft, NSTabPositionBottom, NSTabPositionRight,
+                                               NSTabPositionNone, NSTabPositionNone, NSTabPositionNone };
+    static const NSTabViewBorderType borders[] = { NSTabViewBorderTypeBezel, NSTabViewBorderTypeBezel, NSTabViewBorderTypeBezel,
+                                                   NSTabViewBorderTypeBezel, NSTabViewBorderTypeBezel, NSTabViewBorderTypeLine,
+                                                   NSTabViewBorderTypeNone };
+    if (type > NSNoTabsNoBorder) type = NSTopTabsBezelBorder;
+    _position = positions[type];
+    _border = borders[type];
+    _type = type;
+}
+
+- (void)_finchDeriveType
+{
+    switch (_position) {
+    case NSTabPositionTop: _type = NSTopTabsBezelBorder; break;
+    case NSTabPositionLeft: _type = NSLeftTabsBezelBorder; break;
+    case NSTabPositionBottom: _type = NSBottomTabsBezelBorder; break;
+    case NSTabPositionRight: _type = NSRightTabsBezelBorder; break;
+    default:
+        _type = _border == NSTabViewBorderTypeBezel ? NSNoTabsBezelBorder : _border == NSTabViewBorderTypeLine ? NSNoTabsLineBorder
+                                                                                                              : NSNoTabsNoBorder;
+    }
+}
+
 - (NSTabViewType)tabViewType { return _type; }
-- (void)setTabViewType:(NSTabViewType)type { _type = type; [self _finchPlace]; }
+- (void)setTabViewType:(NSTabViewType)type
+{
+    [self _finchTakeType:type];
+    [self _finchPlace];
+}
 - (NSTabPosition)tabPosition { return _position; }
-- (void)setTabPosition:(NSTabPosition)p { _position = p; }
+- (void)setTabPosition:(NSTabPosition)p
+{
+    _position = p;
+    [self _finchDeriveType];
+    [self _finchPlace];
+}
 - (NSTabViewBorderType)tabViewBorderType { return _border; }
-- (void)setTabViewBorderType:(NSTabViewBorderType)b { _border = b; }
+- (void)setTabViewBorderType:(NSTabViewBorderType)b
+{
+    _border = b;
+    [self _finchDeriveType];
+    [self _finchPlace];
+}
 - (BOOL)drawsBackground { return _drawsBackground; }
 - (void)setDrawsBackground:(BOOL)f { _drawsBackground = f; }
 - (BOOL)allowsTruncatedLabels { return _allowsTruncatedLabels; }

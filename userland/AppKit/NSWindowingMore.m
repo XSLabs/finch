@@ -828,11 +828,20 @@ static char entry_key, tint_key;
 /* A number format with digits left and right of the point (old cells: a formatter). */
 - (void)setFloatingPointFormat:(BOOL)autoRange left:(NSUInteger)leftDigits right:(NSUInteger)rightDigits
 {
+    /* As Apple's: auto-ranged, the number as it is; otherwise the digits asked for, padded
+       on the left with "_" ("__7.0"). */
     NSNumberFormatter *f = [[[NSNumberFormatter alloc] init] autorelease];
     [f setNumberStyle:NSNumberFormatterDecimalStyle];
-    [f setMaximumIntegerDigits:leftDigits];
-    [f setMinimumFractionDigits:autoRange ? 0 : rightDigits];
-    [f setMaximumFractionDigits:rightDigits];
+    [f setUsesGroupingSeparator:NO];
+    if (autoRange) {
+        [f setMaximumFractionDigits:15];
+    } else {
+        [f setMinimumFractionDigits:rightDigits];
+        [f setMaximumFractionDigits:rightDigits];
+        [f setFormatWidth:leftDigits + (rightDigits ? 1 + rightDigits : 0)];
+        [f setPaddingCharacter:@"_"];
+        [f setPaddingPosition:NSNumberFormatterPadBeforePrefix];
+    }
     [self setFormatter:f];
 }
 @end

@@ -833,3 +833,12 @@ draws (`userland/tests/app-test.c`).
   and none crashed. The verified count stayed at 678 from the earlier run. Broad defaults
   on plain `NSObject` were left out because Apple does not give those methods to every
   object; they also changed menu validation and editing behavior in Finch.
+
+- 2026-10-27: pop-up button cells' state is their selected item's, with their numbers
+  and string following it (the object value is the index) and natural alignment; tab
+  views keep their tabs' position and border and derive their type from them; button
+  cells' object values are booleans when on or off; cells refuse to compare with
+  non-cells, `takeStringValueFrom:` refuses nil, text cells' sizes don't exceed the
+  bounds given, the old floating-point formats pad with "_", and TIFF compression
+  types have Apple's names, all as Apple's. `finch-appkit-edges-test` matches Apple's;
+  the generated AppKit comparison went from 7457 to 7526 verified items (89.1%).

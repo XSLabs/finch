@@ -948,12 +948,14 @@ release_data(void *info, const void *data, size_t size)
 + (NSString *)localizedNameForTIFFCompressionType:(NSTIFFCompression)compression
 {
     switch (compression) {
-    case NSTIFFCompressionNone: return @"No Compression";
-    case NSTIFFCompressionLZW: return @"LZW Compression";
-    case NSTIFFCompressionPackBits: return @"PackBits Compression";
-    case NSTIFFCompressionCCITTFAX3: return @"CCITTFAX3 Compression";
-    case NSTIFFCompressionCCITTFAX4: return @"CCITTFAX4 Compression";
-    case NSTIFFCompressionJPEG: return @"JPEG Compression";
+    /* (Apple's names) */
+    case NSTIFFCompressionNone: return @"None";
+    case NSTIFFCompressionLZW: return @"Lempel-Ziv & Welch";
+    case NSTIFFCompressionPackBits: return @"PackBits";
+    case NSTIFFCompressionCCITTFAX3: return @"CCITT Group 3";
+    case NSTIFFCompressionCCITTFAX4: return @"CCITT Group 4";
+    case NSTIFFCompressionJPEG: return @"JPEG";
+    case NSTIFFCompressionNEXT: return @"Obsolete NeXT 2bit";
     default: return nil;
     }
 }

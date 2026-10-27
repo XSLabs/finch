@@ -59,6 +59,7 @@ NSNotificationName NSPopUpButtonWillPopUpNotification = @"NSPopUpButtonWillPopUp
         return nil;
     [self setBordered:YES];
     [self setBezelStyle:NSBezelStylePush];
+    [self setAlignment:NSTextAlignmentNatural];
     _menu = [[NSMenu alloc] initWithTitle:@""];
     _edge = NSRectEdgeMinY;
     _arrow = NSPopUpArrowAtBottom;
@@ -207,10 +208,17 @@ NSNotificationName NSPopUpButtonWillPopUpNotification = @"NSPopUpButtonWillPopUp
         [self selectItemAtIndex:[value integerValue]];
 }
 
-- (NSInteger)integerValue { return [self indexOfSelectedItem]; }
-- (int)intValue { return (int)[self indexOfSelectedItem]; }
-- (void)setIntegerValue:(NSInteger)v { [self selectItemAtIndex:v]; }
-- (void)setIntValue:(int)v { [self selectItemAtIndex:v]; }
+/* As Apple's: the cell's state is its selected item's, and its numbers and string are
+   that state (the object value is the selected index). */
+- (NSControlStateValue)state { return _selected ? [_selected state] : NSControlStateValueOff; }
+- (void)setState:(NSControlStateValue)value { [_selected setState:value]; }
+- (NSInteger)integerValue { return [self state]; }
+- (int)intValue { return (int)[self state]; }
+- (double)doubleValue { return (double)[self state]; }
+- (float)floatValue { return (float)[self state]; }
+- (NSString *)stringValue { return [NSString stringWithFormat:@"%ld", (long)[self state]]; }
+- (void)setIntegerValue:(NSInteger)v { [self setState:v]; }
+- (void)setIntValue:(int)v { [self setState:v]; }
 
 #pragma mark - Items
 

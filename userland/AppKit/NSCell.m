@@ -1069,6 +1069,9 @@ number_string(NSNumber *n)
 
 - (NSComparisonResult)compare:(id)other
 {
+    if (![other isKindOfClass:[NSCell class]])
+        [NSException raise:NSBadComparisonException format:@"Attempt to compare instance of %@ class to instance of Cell class not allowed",
+                     NSStringFromClass([other class])];
     return [[self stringValue] compare:[other stringValue]];
 }
 
@@ -1106,7 +1109,12 @@ value_integer(id v)
 - (void)takeIntegerValueFrom:(id)sender { [self setIntegerValue:[sender integerValue]]; }
 - (void)takeFloatValueFrom:(id)sender { [self setFloatValue:[sender floatValue]]; }
 - (void)takeDoubleValueFrom:(id)sender { [self setDoubleValue:[sender doubleValue]]; }
-- (void)takeStringValueFrom:(id)sender { [self setStringValue:[sender stringValue] ?: @""]; }
+- (void)takeStringValueFrom:(id)sender
+{
+    NSString *s = [sender stringValue];
+    if (!s) [NSException raise:NSInternalInconsistencyException format:@"Invalid parameter not satisfying: aString != nil"];
+    [self setStringValue:s];
+}
 - (void)takeObjectValueFrom:(id)sender { [self setObjectValue:[sender objectValue]]; }
 
 - (NSAttributedString *)attributedStringValue
@@ -1190,7 +1198,8 @@ value_integer(id v)
     if (_type == NSTextCellType) {
         CGFloat width = [self wraps] && rect.size.width > 0 && rect.size.width < 1e6 ? rect.size.width - 4 - i : 0;
         NSSize s = FinchCellTextSize([self attributedStringValue], width);
-        return NSMakeSize(s.width + 4 + i, s.height + i);
+        /* (as Apple's: no larger than the bounds given) */
+        return NSMakeSize(MIN(s.width + 4 + i, rect.size.width), MIN(s.height + i, rect.size.height));
     }
     return NSMakeSize(40000, 40000);
 }
