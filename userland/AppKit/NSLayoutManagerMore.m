@@ -314,6 +314,8 @@ draw_line(NSLayoutManager *lm, NSRange glyphRange, NSInteger style, CGFloat y, N
 
 - (void)_finchSetPieces:(NSArray *)pieces separator:(NSString *)separator
 {
+    if (![pieces count])
+        return; /* (as Apple's: no pieces leave the text alone) */
     NSMutableAttributedString *all = [[[NSMutableAttributedString alloc] init] autorelease];
     for (NSUInteger i = 0; i < [pieces count]; i++) {
         id p = pieces[i];

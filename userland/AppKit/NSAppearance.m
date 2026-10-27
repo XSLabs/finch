@@ -132,14 +132,20 @@ known(NSAppearanceName name)
     }
 }
 
+/* As Apple's: the appearance itself, then what it falls back to (a high-contrast
+   appearance to its plain one, a vibrant one to Aqua or Dark Aqua); nothing else. */
 - (NSAppearanceName)bestMatchFromAppearancesWithNames:(NSArray<NSAppearanceName> *)names
 {
-    BOOL dark = [_name rangeOfString:@"Dark"].location != NSNotFound;
-    for (NSAppearanceName n in names)
-        if ([n isEqualToString:_name])
-            return n;
-    for (NSAppearanceName n in names)
-        if (([n rangeOfString:@"Dark"].location != NSNotFound) == dark)
+    NSDictionary *fallback = @{
+        NSAppearanceNameAccessibilityHighContrastAqua : NSAppearanceNameAqua,
+        NSAppearanceNameAccessibilityHighContrastDarkAqua : NSAppearanceNameDarkAqua,
+        NSAppearanceNameAccessibilityHighContrastVibrantLight : NSAppearanceNameVibrantLight,
+        NSAppearanceNameAccessibilityHighContrastVibrantDark : NSAppearanceNameVibrantDark,
+        NSAppearanceNameVibrantLight : NSAppearanceNameAqua,
+        NSAppearanceNameVibrantDark : NSAppearanceNameDarkAqua,
+    };
+    for (NSAppearanceName n = _name; n; n = fallback[n])
+        if ([names containsObject:n])
             return n;
     return nil;
 }

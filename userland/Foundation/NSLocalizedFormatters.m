@@ -408,11 +408,12 @@ initial(NSString *s)
     return [f stringFromPersonNameComponents:components];
 }
 
-/* As Apple's, by its rules if not its name lists: "Given Family", "Given Middle Family"
-   (given names taking all but the last two of four or more), "Family, Given", a title
+/* As Apple's, by its rules if not its name lists: "Given Family", "Given Family Family"
+   for three names, "Given... Middle Family" for four or more, "Family, Given", a title
    before and a suffix after (a title and one name is a family name), a name in CJK
-   script family first (a single word's first character), and nothing from text with no
-   letters or only Arabic letters. Words without letters are left out. */
+   script family first (an unspaced name of two or three characters split after its
+   first), and nothing from text with no letters or only Arabic letters. Words without
+   letters are left out. */
 static BOOL
 has_letter(NSString *w)
 {
@@ -447,7 +448,7 @@ is_arabic(NSString *w)
         if (words.count > 1) {
             c.familyName = words.firstObject;
             c.givenName = [[words subarrayWithRange:NSMakeRange(1, words.count - 1)] componentsJoinedByString:@" "];
-        } else if (s.length > 1) {
+        } else if (s.length == 2 || s.length == 3) {
             NSRange first = [s rangeOfComposedCharacterSequenceAtIndex:0];
             c.familyName = [s substringWithRange:first];
             c.givenName = [s substringFromIndex:NSMaxRange(first)];
@@ -482,8 +483,11 @@ is_arabic(NSString *w)
     else if (n == 2) {
         c.givenName = words.firstObject;
         c.familyName = words.lastObject;
-    } else if (n > 2) {
-        c.givenName = [[words subarrayWithRange:NSMakeRange(0, n == 3 ? 1 : n - 2)] componentsJoinedByString:@" "];
+    } else if (n == 3) {
+        c.givenName = words.firstObject;
+        c.familyName = [[words subarrayWithRange:NSMakeRange(1, 2)] componentsJoinedByString:@" "];
+    } else if (n > 3) {
+        c.givenName = [[words subarrayWithRange:NSMakeRange(0, n - 2)] componentsJoinedByString:@" "];
         c.middleName = [words objectAtIndex:n - 2];
         c.familyName = words.lastObject;
     }

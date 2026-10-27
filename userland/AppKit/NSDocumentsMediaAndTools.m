@@ -270,7 +270,21 @@ pict_offset(NSData *data)
     return -1;
 }
 
-+ (BOOL)canInitWithData:(NSData *)data { return pict_offset(data) >= 0; }
+/* (only data with a picture's version opcode: version 1's 0x1101 or version 2's
+   0x001102FF after the frame, so other images aren't taken for pictures) */
++ (BOOL)canInitWithData:(NSData *)data
+{
+    for (NSInteger offset = [data length] >= 512 + 14 ? 512 : 0;; offset = 0) {
+        if ((NSInteger)[data length] >= offset + 14) {
+            const uint8_t *b = (const uint8_t *)[data bytes] + offset + 10;
+            if ((b[0] == 0x11 && b[1] == 0x01) || (b[0] == 0x00 && b[1] == 0x11 && b[2] == 0x02 && b[3] == 0xFF))
+                return YES;
+        }
+        if (offset == 0)
+            return NO;
+    }
+}
++ (NSArray *)imageUnfilteredPasteboardTypes { return @[ @"Apple PICT pasteboard type" ]; }
 + (instancetype)imageRepWithData:(NSData *)pictData { return [[[self alloc] initWithData:pictData] autorelease]; }
 
 - (instancetype)initWithData:(NSData *)pictData

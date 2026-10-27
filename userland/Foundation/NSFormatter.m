@@ -13,7 +13,13 @@
 #include "Foundation_Finch.h"
 
 @implementation NSFormatter
-- (NSString *)stringForObjectValue:(id)obj { FinchAbstract(self, _cmd); }
+/* (Apple's words for it) */
+- (NSString *)stringForObjectValue:(id)obj
+{
+    [NSException raise:NSInvalidArgumentException format:@"*** -stringForObjectValue: cannot be sent to an abstract object of class %@: Create a concrete instance!",
+                       NSStringFromClass([self class])];
+    return nil;
+}
 - (NSAttributedString *)attributedStringForObjectValue:(id)obj withDefaultAttributes:(NSDictionary *)attrs { return nil; }
 - (NSString *)editingStringForObjectValue:(id)obj { return [self stringForObjectValue:obj]; }
 - (BOOL)getObjectValue:(out id *)obj forString:(NSString *)string errorDescription:(out NSString **)error { FinchAbstract(self, _cmd); }

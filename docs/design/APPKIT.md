@@ -871,4 +871,24 @@ draws (`userland/tests/app-test.c`).
   `NSMediaLibraryBrowserController`, `NSMovie` (nil, as since 10.15),
   `NSSpeechRecognizer` (hears nothing), `NSTextCheckingController`, `NSInputServer` and
   `NSOpenGLPixelBuffer` are present (`finch-appkit-classes-test`). `NSOpenGLLayer`
-  waits for QuartzCore's `CAOpenGLLayer`.
+  draws through QuartzCore's `CAOpenGLLayer`.
+- 2026-10-27: rich text and images on the pasteboard. A rich text view copies RTF (and
+  RTFD when its selection holds attachments) with plain text, and pastes RTF, RTFD,
+  HTML and plain text, keeping fonts and colours; a plain view pastes their characters.
+  Its readable and writable types are Apple's lists under the old names, and nothing is
+  writable without a selection. `NSImage` writes TIFF and reads any image type or an
+  image file named on the pasteboard (`initWithPasteboard:`, `readObjectsForClasses:`),
+  and image reps answer `canInitWithPasteboard:`/`imageRepsWithPasteboard:` with their
+  old pasteboard names, `NSPICTImageRep` registered as Apple's is
+  (`finch-pasteboard-rich-test`). Also from the generated comparison: a cell's image
+  is kept apart from its value (setting one leaves the other, as Apple's), cells show
+  numbers and dates in the user's locale (∞, grouping, full dates), controls without a
+  cell keep their alignment, continuity and action mask, tab views and segmented
+  controls refuse items and indexes they don't have, rulers need a client view for
+  markers, `propertiesToUpdate` answers only inside `menuNeedsUpdate:`, a separator box
+  has no content view, views' default focus ring is exterior, a column's maximum width
+  lowers its width, empty selection-range arrays raise, layout managers refuse
+  containers they don't hold, a drawer's edge before it opens is its axis's maximum,
+  and a menu representation is told its menu. CoreText reports a system font face's
+  weight and bold trait (semibold and heavier are bold, as Apple's) and fonts' family
+  class, so bold survives an RTF copy.

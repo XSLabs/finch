@@ -706,9 +706,14 @@ read_object(NSPasteboard *pb, NSPasteboardItem *item, Class c)
     return found;
 }
 
+/* (as Apple's: each class says what it reads, before anything is read) */
 - (BOOL)canReadObjectForClasses:(NSArray<Class> *)classArray options:(NSDictionary *)options
 {
-    return [[self readObjectsForClasses:classArray options:options] count] > 0;
+    BOOL any = NO;
+    for (Class c in classArray)
+        if ([[(id)c readableTypesForPasteboard:self] count])
+            any = YES;
+    return any && [[self readObjectsForClasses:classArray options:options] count] > 0;
 }
 
 - (BOOL)writeFileContents:(NSString *)filename

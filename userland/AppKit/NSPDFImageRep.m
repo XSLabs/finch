@@ -21,6 +21,7 @@
 + (BOOL)supportsSecureCoding { return YES; }
 
 + (NSArray<NSString *> *)imageUnfilteredTypes { return @[ @"com.adobe.pdf" ]; }
++ (NSArray<NSPasteboardType> *)imageUnfilteredPasteboardTypes { return @[ NSPDFPboardType ]; }
 + (NSArray<NSString *> *)imageUnfilteredFileTypes { return @[ @"pdf", @"PDF", @"'PDF '" ]; }
 
 + (BOOL)canInitWithData:(NSData *)data

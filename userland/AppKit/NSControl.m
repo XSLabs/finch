@@ -28,7 +28,11 @@ NSNotificationName NSControlTextDidChangeNotification = @"NSControlTextDidChange
         unsigned refusesFirstResponder : 1;
         unsigned expansionToolTips : 1;
         unsigned editingNotified : 1;
+        unsigned continuous : 1; /* without a cell */
+        unsigned actionMaskSet : 1; /* without a cell */
     } _ctl;
+    NSTextAlignment _alignment;  /* without a cell */
+    NSEventMask _actionMask;     /* without a cell; Apple's default is a left mouse up */
 }
 
 static NSMapTable *cell_classes;
@@ -160,8 +164,15 @@ static NSMapTable *cell_classes;
 
 - (BOOL)ignoresMultiClick { return _ctl.ignoresMultiClick; }
 - (void)setIgnoresMultiClick:(BOOL)flag { _ctl.ignoresMultiClick = flag; }
-- (BOOL)isContinuous { return [_cell isContinuous]; }
-- (void)setContinuous:(BOOL)flag { [_cell setContinuous:flag]; }
+- (BOOL)isContinuous { return _cell ? [_cell isContinuous] : _ctl.continuous; }
+
+- (void)setContinuous:(BOOL)flag
+{
+    if (_cell)
+        [_cell setContinuous:flag];
+    else
+        _ctl.continuous = flag;
+}
 - (BOOL)isEnabled { return _cell ? [_cell isEnabled] : !_ctl.disabled; }
 
 - (void)setEnabled:(BOOL)flag
@@ -210,13 +221,16 @@ static NSMapTable *cell_classes;
 - (void)setUsesSingleLineMode:(BOOL)flag { [_cell setUsesSingleLineMode:flag]; }
 - (NSLineBreakMode)lineBreakMode { return [_cell lineBreakMode]; }
 - (void)setLineBreakMode:(NSLineBreakMode)mode { [_cell setLineBreakMode:mode]; }
-- (NSTextAlignment)alignment { return [_cell alignment]; }
+- (NSTextAlignment)alignment { return _cell ? [_cell alignment] : _alignment; }
 
 - (void)setAlignment:(NSTextAlignment)alignment
 {
     if (_editor)
         [_editor setAlignment:alignment];
-    [_cell setAlignment:alignment];
+    if (_cell)
+        [_cell setAlignment:alignment];
+    else
+        _alignment = alignment;
 }
 
 - (NSWritingDirection)baseWritingDirection { return _cell ? [_cell baseWritingDirection] : NSWritingDirectionNatural; }
@@ -331,7 +345,12 @@ VALUE_SETTER(setAttributedStringValue:, NSAttributedString *, setAttributedStrin
 
 - (NSInteger)sendActionOn:(NSEventMask)mask
 {
-    return _cell ? [_cell sendActionOn:mask] : 0;
+    if (_cell)
+        return [_cell sendActionOn:mask];
+    NSEventMask old = _ctl.actionMaskSet ? _actionMask : NSEventMaskLeftMouseUp;
+    _actionMask = mask;
+    _ctl.actionMaskSet = YES;
+    return (NSInteger)old;
 }
 
 - (BOOL)sendAction:(SEL)action to:(id)target

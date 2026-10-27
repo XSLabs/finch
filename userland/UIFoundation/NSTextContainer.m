@@ -53,7 +53,8 @@
 static void
 changed(NSTextContainer *self, NSLayoutManager *lm)
 {
-    if ([lm respondsToSelector:@selector(textContainerChangedGeometry:)])
+    /* (only a layout manager that has the container yet; it raises otherwise) */
+    if ([lm respondsToSelector:@selector(textContainerChangedGeometry:)] && [[lm textContainers] containsObject:self])
         [lm textContainerChangedGeometry:self];
     [self->_uifTLM _uifTextContainerChanged];
 }

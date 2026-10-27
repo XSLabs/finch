@@ -160,8 +160,14 @@ clamp_width(NSTableColumn *self, CGFloat w)
 - (void)setMaxWidth:(CGFloat)maxWidth
 {
     _maxWidth = maxWidth;
-    if (_width > maxWidth)
-        [self setWidth:maxWidth];
+    /* (as Apple's: the width comes down to the maximum, even below the minimum) */
+    if (_width > maxWidth) {
+        CGFloat old = _width;
+        [self willChangeValueForKey:@"width"];
+        _width = maxWidth;
+        [self didChangeValueForKey:@"width"];
+        [_tableView _finchColumnChanged:self oldWidth:old];
+    }
 }
 
 - (NSTableColumnResizingOptions)resizingMask { return _resizingMask; }
@@ -210,6 +216,7 @@ clamp_width(NSTableColumn *self, CGFloat w)
 {
     if (!cell)
         [NSException raise:NSInvalidArgumentException format:@"-[NSTableColumn setDataCell:] nil cell"];
+    [(id)cell setControlView:_tableView]; /* (as Apple's, sent whatever the cell is) */
     [_dataCell autorelease];
     _dataCell = [cell retain];
     [_tableView setNeedsDisplay:YES];

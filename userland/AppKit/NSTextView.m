@@ -1696,16 +1696,23 @@ sync_text_selections(NSTextView *self)
     [self setSelectedRange:range affinity:NSSelectionAffinityDownstream stillSelecting:NO];
 }
 
+static void
+require_ranges(NSArray *ranges)
+{
+    if (![ranges count])
+        [NSException raise:NSInvalidArgumentException format:@"*** +[NSSelectionArray newWithArray:]: no ranges"];
+}
+
 - (void)setSelectedRanges:(NSArray<NSValue *> *)ranges affinity:(NSSelectionAffinity)affinity stillSelecting:(BOOL)still
 {
-    if ([ranges count])
-        [self setSelectedRange:[ranges[0] rangeValue] affinity:affinity stillSelecting:still];
+    require_ranges(ranges);
+    [self setSelectedRange:[ranges[0] rangeValue] affinity:affinity stillSelecting:still];
 }
 
 - (void)setSelectedRanges:(NSArray<NSValue *> *)ranges
 {
-    if ([ranges count])
-        [self setSelectedRange:[ranges[0] rangeValue]];
+    require_ranges(ranges);
+    [self setSelectedRange:[ranges[0] rangeValue]];
 }
 
 /* Move the selection from an action: keeps the goal x when asked, and scrolls to it. */
@@ -2989,8 +2996,29 @@ start_blinking(NSTextView *self)
 
 #pragma mark - The pasteboard
 
-- (NSArray<NSPasteboardType> *)writablePasteboardTypes { return @[ NSPasteboardTypeString ]; }
-- (NSArray<NSPasteboardType> *)readablePasteboardTypes { return @[ NSPasteboardTypeString, NSStringPboardType ]; }
+/* As Apple's: the old type names, rich text first in a rich text view (RTFD too when the
+   selection holds attachments it takes), plain text first in a plain one; nothing to write without a selection.
+   Writing stores the modern types, which the pasteboard also offers under the old names. */
+- (NSArray<NSPasteboardType> *)writablePasteboardTypes
+{
+    if (!_sel.length)
+        return @[];
+    if (!_t.rich)
+        return @[ NSStringPboardType ];
+    BOOL attachments = _t.imports && [[[_storage string] substringWithRange:_sel] rangeOfString:[NSString stringWithFormat:@"%C", (unichar)NSAttachmentCharacter]].location != NSNotFound;
+    return attachments ? @[ NSRTFDPboardType, NSRTFPboardType, NSStringPboardType ] : @[ NSRTFPboardType, NSStringPboardType ];
+}
+
+- (NSArray<NSPasteboardType> *)readablePasteboardTypes
+{
+    NSArray *rest = @[ NSHTMLPboardType, @"WebURLsWithTitlesPboardType", NSPasteboardTypeURL, NSURLPboardType ];
+    NSArray *tail = @[ NSFilenamesPboardType, NSColorPboardType, NSFontPboardType, NSRulerPboardType ];
+    if (!_t.rich)
+        return [[@[ NSStringPboardType, NSRTFPboardType, NSRTFDPboardType ] arrayByAddingObjectsFromArray:rest] arrayByAddingObjectsFromArray:tail];
+    return [[[@[ NSRTFPboardType, NSRTFDPboardType ] arrayByAddingObjectsFromArray:rest] arrayByAddingObjectsFromArray:@[ NSStringPboardType ]]
+        arrayByAddingObjectsFromArray:tail];
+}
+
 - (NSPasteboardType)preferredPasteboardTypeFromArray:(NSArray<NSPasteboardType> *)availableTypes
                          restrictedToTypesFromArray:(NSArray<NSPasteboardType> *)allowedTypes
 {
@@ -3000,49 +3028,123 @@ start_blinking(NSTextView *self)
     return nil;
 }
 
+/* The modern type an old pasteboard name stands for. */
+static NSPasteboardType
+modern_pasteboard_type(NSPasteboardType type)
+{
+    if ([type isEqualToString:NSStringPboardType])
+        return NSPasteboardTypeString;
+    if ([type isEqualToString:NSRTFPboardType])
+        return NSPasteboardTypeRTF;
+    if ([type isEqualToString:NSRTFDPboardType])
+        return NSPasteboardTypeRTFD;
+    if ([type isEqualToString:NSHTMLPboardType])
+        return NSPasteboardTypeHTML;
+    return type;
+}
+
+/* The selection in one pasteboard form, or nil. */
+static id
+selection_for_type(NSTextView *self, NSPasteboardType type)
+{
+    NSRange r = self->_sel;
+    NSString *t = modern_pasteboard_type(type);
+    if ([t isEqualToString:NSPasteboardTypeString])
+        return [[self->_storage string] substringWithRange:r];
+    if ([t isEqualToString:NSPasteboardTypeRTF])
+        return [self->_storage RTFFromRange:r documentAttributes:@{}];
+    if ([t isEqualToString:NSPasteboardTypeRTFD])
+        return [self->_storage RTFDFromRange:r documentAttributes:@{}];
+    return nil;
+}
+
+static BOOL
+write_selection(NSTextView *self, NSPasteboard *pboard, NSPasteboardType type)
+{
+    id value = selection_for_type(self, type);
+    NSPasteboardType t = modern_pasteboard_type(type);
+    if ([value isKindOfClass:[NSString class]])
+        return [pboard setString:value forType:t];
+    return value ? [pboard setData:value forType:t] : NO;
+}
+
 - (BOOL)writeSelectionToPasteboard:(NSPasteboard *)pboard type:(NSPasteboardType)type
 {
     if (!_sel.length)
         return NO;
-    if (![type isEqualToString:NSPasteboardTypeString] && ![type isEqualToString:NSStringPboardType])
+    NSPasteboardType t = modern_pasteboard_type(type);
+    if (![[pboard types] containsObject:type] && ![[pboard types] containsObject:t])
         return NO;
-    if (![[pboard types] containsObject:type])
-        return NO;
-    return [pboard setString:[[_storage string] substringWithRange:_sel] forType:NSPasteboardTypeString];
+    return write_selection(self, pboard, type);
 }
 
 - (BOOL)writeSelectionToPasteboard:(NSPasteboard *)pboard types:(NSArray<NSPasteboardType> *)types
 {
     if (!_sel.length)
         return NO;
-    [pboard declareTypes:types owner:nil];
+    NSMutableArray *declared = [NSMutableArray array];
     for (NSString *t in types)
-        if ([t isEqualToString:NSPasteboardTypeString] || [t isEqualToString:NSStringPboardType])
-            return [pboard setString:[[_storage string] substringWithRange:_sel] forType:NSPasteboardTypeString];
-    return NO;
+        if (selection_for_type(self, t) && ![declared containsObject:modern_pasteboard_type(t)])
+            [declared addObject:modern_pasteboard_type(t)];
+    if (![declared count])
+        return NO;
+    [pboard declareTypes:declared owner:nil];
+    BOOL wrote = NO;
+    for (NSString *t in declared)
+        wrote = write_selection(self, pboard, t) || wrote;
+    return wrote;
+}
+
+/* Text from a pasteboard form: rich forms as attributed strings (a plain view keeps their
+   characters), file names and URLs as their text. */
+static id
+text_from_pasteboard(NSTextView *self, NSPasteboard *pboard, NSPasteboardType type)
+{
+    NSString *t = modern_pasteboard_type(type);
+    NSData *data = nil;
+    if ([t isEqualToString:NSPasteboardTypeRTF] || [t isEqualToString:NSPasteboardTypeRTFD] || [t isEqualToString:NSPasteboardTypeHTML]) {
+        data = [pboard dataForType:t] ?: [pboard dataForType:type];
+        if (!data)
+            return nil;
+        NSString *doc = [t isEqualToString:NSPasteboardTypeRTF] ? NSRTFTextDocumentType
+                      : [t isEqualToString:NSPasteboardTypeRTFD] ? NSRTFDTextDocumentType
+                                                                  : NSHTMLTextDocumentType;
+        NSAttributedString *a = [[[NSAttributedString alloc] initWithData:data options:@{NSDocumentTypeDocumentOption : doc}
+                                                       documentAttributes:NULL error:NULL] autorelease];
+        return self->_t.rich ? (id)a : (id)[a string];
+    }
+    if ([type isEqualToString:NSFilenamesPboardType]) {
+        id names = [pboard propertyListForType:type];
+        return [names isKindOfClass:[NSArray class]] ? [names componentsJoinedByString:@"\n"] : nil;
+    }
+    if ([type isEqualToString:NSColorPboardType] || [type isEqualToString:NSFontPboardType] || [type isEqualToString:NSRulerPboardType])
+        return nil;
+    return [pboard stringForType:t] ?: [pboard stringForType:type];
 }
 
 - (BOOL)readSelectionFromPasteboard:(NSPasteboard *)pboard type:(NSPasteboardType)type
 {
-    NSString *s = [pboard stringForType:type];
-    if (!s || !_t.editable)
+    if (!_t.editable)
         return NO;
-    return insert(self, s, _sel, @"Paste");
+    id text = text_from_pasteboard(self, pboard, type);
+    if (!text)
+        return NO;
+    return insert(self, text, _sel, @"Paste");
 }
 
 - (BOOL)readSelectionFromPasteboard:(NSPasteboard *)pboard
 {
-    NSString *t = [pboard availableTypeFromArray:[self readablePasteboardTypes]];
-    return t ? [self readSelectionFromPasteboard:pboard type:t] : NO;
+    for (NSString *t in [self readablePasteboardTypes])
+        if ([pboard availableTypeFromArray:@[ t ]] && [self readSelectionFromPasteboard:pboard type:t])
+            return YES;
+    return NO;
 }
 
 - (void)copy:(id)sender
 {
     if (!_sel.length)
         return;
-    NSPasteboard *pb = [NSPasteboard generalPasteboard];
-    [pb clearContents];
-    [pb setString:[[_storage string] substringWithRange:_sel] forType:NSPasteboardTypeString];
+    [self writeSelectionToPasteboard:[NSPasteboard generalPasteboard] types:[self writablePasteboardTypes]];
 }
 
 - (void)cut:(id)sender
@@ -3054,7 +3156,22 @@ start_blinking(NSTextView *self)
 }
 
 - (void)paste:(id)sender { [self readSelectionFromPasteboard:[NSPasteboard generalPasteboard]]; }
-- (void)pasteAsPlainText:(id)sender { [self readSelectionFromPasteboard:[NSPasteboard generalPasteboard]]; }
+
+- (void)pasteAsPlainText:(id)sender
+{
+    NSPasteboard *pb = [NSPasteboard generalPasteboard];
+    NSString *s = [pb stringForType:NSPasteboardTypeString];
+    if (!s) {
+        id rich = nil;
+        for (NSString *t in @[ NSPasteboardTypeRTFD, NSPasteboardTypeRTF, NSPasteboardTypeHTML ])
+            if ((rich = text_from_pasteboard(self, pb, t)))
+                break;
+        s = [rich isKindOfClass:[NSAttributedString class]] ? [rich string] : rich;
+    }
+    if (s && _t.editable)
+        insert(self, s, _sel, @"Paste");
+}
+
 - (void)pasteAsRichText:(id)sender { [self readSelectionFromPasteboard:[NSPasteboard generalPasteboard]]; }
 
 - (id)validRequestorForSendType:(NSPasteboardType)sendType returnType:(NSPasteboardType)returnType

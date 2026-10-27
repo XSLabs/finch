@@ -231,7 +231,16 @@ static BOOL menu_bar_visible = YES;
 - (void)setSelectionMode:(NSMenuSelectionMode)mode { _selectionMode = mode; }
 - (NSArray<NSMenuItem *> *)selectedItems { return _selectedItems ?: @[]; }
 - (void)setSelectedItems:(NSArray<NSMenuItem *> *)items { [_selectedItems autorelease]; _selectedItems = [items copy]; }
-- (NSMenuProperties)propertiesToUpdate { return 0x3f; }
+/* (the menu whose delegate's menuNeedsUpdate: is running) */
+static NSMenu *updating_menu;
+
+- (NSMenuProperties)propertiesToUpdate
+{
+    if (updating_menu != self)
+        [NSException raise:NSGenericException
+                    format:@"The method propertiesToUpdate was called from outside of a menu callback.  This method may only be called from within -menuNeedsUpdate:."];
+    return 0x3f;
+}
 - (BOOL)isTornOff { return NO; }
 - (BOOL)isAttached { return NO; }
 - (NSMenu *)attachedMenu { return nil; }
@@ -581,8 +590,15 @@ sync_windows_menu(NSMenu *menu)
 - (void)_finchPrepareToOpen
 {
     id d = _delegate;
-    if ([d respondsToSelector:@selector(menuNeedsUpdate:)])
-        [d menuNeedsUpdate:self];
+    if ([d respondsToSelector:@selector(menuNeedsUpdate:)]) {
+        NSMenu *outer = updating_menu;
+        updating_menu = self;
+        @try {
+            [d menuNeedsUpdate:self];
+        } @finally {
+            updating_menu = outer;
+        }
+    }
     if ([d respondsToSelector:@selector(numberOfItemsInMenu:)]) {
         NSInteger n = [d numberOfItemsInMenu:self];
         if (n >= 0) {

@@ -1762,7 +1762,7 @@ gather_fitting(NSView *view, NSView *top, NSMutableArray *out)
 
 - (NSArray<NSLayoutConstraint *> *)constraintsAffectingLayoutForOrientation:(NSLayoutConstraintOrientation)o
 {
-    return @[];
+    return nil; /* (as Apple's for a guide) */
 }
 
 - (instancetype)initWithCoder:(NSCoder *)coder

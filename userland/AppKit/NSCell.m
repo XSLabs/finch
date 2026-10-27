@@ -333,7 +333,8 @@ FinchAlignmentToArchive(NSTextAlignment a)
 #pragma mark - NSCell
 
 @implementation NSCell {
-    id _contents;       /* the value: a string, number, attributed string or other object; the image for image cells */
+    id _contents;       /* the value: a string, number, attributed string or other object */
+    NSImage *_image;    /* an image cell's image (as Apple's, apart from the value) */
     NSFont *_font;
     NSFormatter *_formatter;
     id _representedObject;
@@ -411,13 +412,14 @@ cell_defaults(NSCell *self)
         return nil;
     cell_defaults(self);
     _type = image ? NSImageCellType : NSNullCellType;
-    _contents = [image retain];
+    _image = [image retain];
     return self;
 }
 
 - (void)dealloc
 {
     [_contents release];
+    [_image release];
     [_font release];
     [_formatter release];
     [_representedObject release];
@@ -430,6 +432,7 @@ cell_defaults(NSCell *self)
 {
     NSCell *c = NSCopyObject(self, 0, zone);
     [c->_contents retain];
+    [c->_image retain];
     [c->_font retain];
     [c->_formatter retain];
     [c->_representedObject retain];
@@ -483,11 +486,12 @@ cell_defaults(NSCell *self)
     else if (_type == NSTextCellType)
         _font = [[NSFont systemFontOfSize:0] retain];
     if ([contents isKindOfClass:[NSImage class]]) {
-        _contents = [contents retain];
+        _image = [contents retain];
         if (_type == NSTextCellType || _type == NSNullCellType)
             _type = NSImageCellType;
     } else if ([support isKindOfClass:[NSImage class]] && _type == NSImageCellType) {
-        _contents = [support retain];
+        _image = [support retain];
+        _contents = [contents copy];
     } else {
         _contents = [contents copy];
         if (!_contents && _type == NSTextCellType)
@@ -538,9 +542,13 @@ cell_defaults(NSCell *self)
     [coder encodeInt:(int)f2 forKey:@"NSCellFlags2"];
     if (_controlSize > 2)
         [coder encodeInteger:_controlSize forKey:@"NSControlSize2"];
-    if (_contents)
+    if (_type == NSImageCellType && _image && !_contents)
+        [coder encodeObject:_image forKey:@"NSContents"];
+    else if (_contents)
         [coder encodeObject:_contents forKey:@"NSContents"];
-    if (_font)
+    if (_type == NSImageCellType && _image && _contents)
+        [coder encodeObject:_image forKey:@"NSSupport"];
+    else if (_font)
         [coder encodeObject:_font forKey:@"NSSupport"];
     if (_formatter)
         [coder encodeObject:_formatter forKey:@"NSFormatter"];
@@ -607,7 +615,7 @@ cell_defaults(NSCell *self)
 {
     if (type == _type)
         return;
-    if (type == NSImageCellType && ![_contents isKindOfClass:[NSImage class]])
+    if (type == NSImageCellType && !_image)
         return; /* an image cell needs an image (setImage: makes one) */
     if (type == NSTextCellType) {
         [_contents release];
@@ -822,6 +830,9 @@ cell_defaults(NSCell *self)
         return;
     [_formatter release];
     _formatter = [formatter retain];
+    /* (as Apple's: the value is formatted at once) */
+    if (_formatter && _contents && !_c.invalid)
+        (void)[_formatter stringForObjectValue:_contents];
     [self _finchChanged];
 }
 
@@ -968,8 +979,6 @@ cell_defaults(NSCell *self)
 {
     if (_c.invalid)
         return nil;
-    if (_type == NSImageCellType)
-        return _contents;
     return _contents;
 }
 
@@ -979,11 +988,6 @@ cell_defaults(NSCell *self)
     if (_type == NSNullCellType)
         return;
     id old = _contents;
-    if (_type == NSImageCellType && ![value isKindOfClass:[NSImage class]]) {
-        _type = NSTextCellType;
-        if (!_font)
-            _font = [[NSFont systemFontOfSize:0] retain];
-    }
     _contents = [value respondsToSelector:@selector(copyWithZone:)] ? [value copy] : [value retain];
     BOOL same = old == _contents || [old isEqual:_contents];
     [old release];
@@ -1008,21 +1012,11 @@ cell_defaults(NSCell *self)
 static NSString *
 number_string(NSNumber *n)
 {
-    const char *t = [n objCType];
-    if (*t == 'f' || *t == 'd')
-        return [NSString stringWithFormat:@"%.16g", [n doubleValue]];
-    static NSNumberFormatter *f;
-    if (!f) {
-        f = [[NSNumberFormatter alloc] init];
-        [f setNumberStyle:NSNumberFormatterDecimalStyle];
-        [f setMaximumFractionDigits:0];
-    }
-    NSString *s = nil;
-    @synchronized(f) {
-        [f setLocale:[NSLocale currentLocale]];
-        s = [f stringFromNumber:n];
-    }
-    return s ?: [n stringValue];
+    /* (as Apple's: the number in the user's locale, grouped, with ∞ and NaN; a float as
+       the double it widens to) */
+    if (*[n objCType] == 'f')
+        n = [NSNumber numberWithDouble:[n doubleValue]];
+    return [n descriptionWithLocale:[NSLocale currentLocale]] ?: [n stringValue];
 }
 
 - (NSString *)stringValue
@@ -1043,6 +1037,9 @@ number_string(NSNumber *n)
         return [v string];
     if ([v isKindOfClass:[NSNumber class]])
         return number_string(v);
+    /* (as Apple's: dates and the like in the user's locale) */
+    if ([v respondsToSelector:@selector(descriptionWithLocale:)])
+        return [v descriptionWithLocale:[NSLocale currentLocale]] ?: @"";
     return [v description] ?: @"";
 }
 
@@ -1052,6 +1049,12 @@ number_string(NSNumber *n)
         [NSException raise:NSInternalInconsistencyException format:@"Attempt to set a cell's string value to nil"];
     if (_type == NSNullCellType)
         return;
+    /* (as Apple's: a string makes an image cell a text cell again) */
+    if (_type == NSImageCellType) {
+        _type = NSTextCellType;
+        if (!_font)
+            _font = [[NSFont systemFontOfSize:0] retain];
+    }
     if (_formatter) {
         id obj = nil;
         if ([_formatter getObjectValue:&obj forString:string errorDescription:NULL]) {
@@ -1143,24 +1146,26 @@ value_integer(id v)
 
 - (NSImage *)image
 {
-    return _type == NSImageCellType && [_contents isKindOfClass:[NSImage class]] ? _contents : nil;
+    return _type == NSImageCellType ? _image : nil;
 }
 
+/* As Apple's: an image makes an image cell, without a font, keeping the cell's value. */
 - (void)setImage:(NSImage *)image
 {
     if (!image) {
         if (_type == NSImageCellType) {
-            [_contents release];
-            _contents = nil;
+            [_image release];
+            _image = nil;
         }
         [self _finchChanged];
         return;
     }
     [image retain];
-    [_contents release];
-    _contents = image;
+    [_image release];
+    _image = image;
     _type = NSImageCellType;
-    _c.invalid = NO;
+    [_font release];
+    _font = nil;
     [self _finchChanged];
 }
 

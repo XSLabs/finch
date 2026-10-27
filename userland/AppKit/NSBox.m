@@ -250,9 +250,17 @@ box_defaults(NSBox *self)
 
 - (NSBoxType)boxType { return _boxType; }
 
+/* As Apple's: a separator has no content view; leaving separator makes a new one. */
 - (void)setBoxType:(NSBoxType)type
 {
     _boxType = type;
+    if (type == NSBoxSeparator && _contentView)
+        [self setContentView:nil];
+    else if (type != NSBoxSeparator && !_contentView) {
+        NSView *content = [[[NSView alloc] initWithFrame:[self _finchContentRect]] autorelease];
+        [content setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+        [self setContentView:content];
+    }
     [self setNeedsDisplay:YES];
 }
 

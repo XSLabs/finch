@@ -17,7 +17,10 @@ static void
 ensure_registry(void)
 {
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ registered = [[NSMutableArray alloc] initWithObjects:[NSBitmapImageRep class], [NSPDFImageRep class], nil]; });
+    /* (Apple's: bitmaps, pictures and PDF, asked in the reverse order) */
+    dispatch_once(&once, ^{
+      registered = [[NSMutableArray alloc] initWithObjects:[NSBitmapImageRep class], [NSPICTImageRep class], [NSPDFImageRep class], nil];
+    });
 }
 
 /* The context's CTM flipped within dst (for respectFlipped: in a flipped context). */
@@ -268,7 +271,13 @@ FinchDrawCGImage(CGImageRef image, NSSize repSize, NSRect dst, NSRect src, NSCom
     return Nil;
 }
 
-+ (Class)imageRepClassForPasteboardType:(NSPasteboardType)type { return [self imageRepClassForType:type]; }
++ (Class)imageRepClassForPasteboardType:(NSPasteboardType)type
+{
+    for (Class c in [self registeredImageRepClasses])
+        if ([[c imageUnfilteredPasteboardTypes] containsObject:type])
+            return c;
+    return Nil;
+}
 
 /* (as Apple's, the classes registered last are asked first: PDF data is a PDF rep, though
    ImageIO could read it as a bitmap) */
@@ -283,7 +292,8 @@ FinchDrawCGImage(CGImageRef image, NSSize repSize, NSRect dst, NSRect src, NSCom
 + (BOOL)canInitWithData:(NSData *)data { return NO; }
 + (NSArray<NSString *> *)imageUnfilteredTypes { return @[]; }
 + (NSArray<NSString *> *)imageUnfilteredFileTypes { return @[]; }
-+ (NSArray<NSPasteboardType> *)imageUnfilteredPasteboardTypes { return [self imageUnfilteredTypes]; }
+/* (the old pasteboard names, as Apple's; a class without any has none) */
++ (NSArray<NSPasteboardType> *)imageUnfilteredPasteboardTypes { return @[]; }
 
 + (NSArray<NSString *> *)imageTypes
 {
@@ -296,9 +306,46 @@ FinchDrawCGImage(CGImageRef image, NSSize repSize, NSRect dst, NSRect src, NSCom
 }
 
 + (NSArray<NSPasteboardType> *)imagePasteboardTypes { return [self imageTypes]; }
-+ (BOOL)canInitWithPasteboard:(NSPasteboard *)pasteboard { return NO; }
-+ (NSArray<NSImageRep *> *)imageRepsWithPasteboard:(NSPasteboard *)pasteboard { return nil; }
-+ (NSImageRep *)imageRepWithPasteboard:(NSPasteboard *)pasteboard { return nil; }
+/* The pasteboard type a class reads: one of its types, or its old pasteboard names. */
+static NSPasteboardType
+readable_type(Class repClass, NSPasteboard *pasteboard)
+{
+    return [pasteboard availableTypeFromArray:[[repClass imageUnfilteredTypes] arrayByAddingObjectsFromArray:[repClass imageUnfilteredPasteboardTypes]]];
+}
+
++ (BOOL)canInitWithPasteboard:(NSPasteboard *)pasteboard
+{
+    if (self == [NSImageRep class]) {
+        for (Class c in [self registeredImageRepClasses])
+            if ([c canInitWithPasteboard:pasteboard])
+                return YES;
+        return NO;
+    }
+    return readable_type(self, pasteboard) != nil;
+}
+
++ (NSArray<NSImageRep *> *)imageRepsWithPasteboard:(NSPasteboard *)pasteboard
+{
+    if (self == [NSImageRep class]) {
+        for (Class c in [self registeredImageRepClasses])
+            if ([c canInitWithPasteboard:pasteboard])
+                return [c imageRepsWithPasteboard:pasteboard];
+        return nil;
+    }
+    NSPasteboardType type = readable_type(self, pasteboard);
+    NSData *data = type ? [pasteboard dataForType:type] : nil;
+    if (!data)
+        return nil;
+    /* (a class's own reading of the data, its single-rep maker otherwise) */
+    if ([self methodForSelector:@selector(imageRepsWithData:)] != [NSImageRep methodForSelector:@selector(imageRepsWithData:)])
+        return [self imageRepsWithData:data];
+    if ([self respondsToSelector:@selector(imageRepWithData:)]) {
+        id rep = [(id)self imageRepWithData:data];
+        return rep ? @[ rep ] : nil;
+    }
+    return nil;
+}
++ (NSImageRep *)imageRepWithPasteboard:(NSPasteboard *)pasteboard { return [[self imageRepsWithPasteboard:pasteboard] firstObject]; }
 
 + (NSArray<NSImageRep *> *)imageRepsWithData:(NSData *)data
 {

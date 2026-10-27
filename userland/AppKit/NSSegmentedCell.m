@@ -224,7 +224,11 @@ segmented_defaults(NSSegmentedCell *self)
 
 - (void)setSelectedSegment:(NSInteger)segment
 {
-    if (segment < 0 || segment >= (NSInteger)[_items count]) {
+    /* (as Apple's: -1 deselects; any other index past the segments raises) */
+    if (segment != -1 && (segment < 0 || segment >= (NSInteger)[_items count]))
+        [NSException raise:NSRangeException format:@"-[NSSegmentedCell _segmentsDeselectedBySegment:]: index (%ld) beyond bounds (%ld)",
+                           (long)segment, (long)[_items count] - 1];
+    if (segment < 0) {
         for (NSSegmentItem *i in _items)
             i.selected = NO;
         _selected = -1;
@@ -363,8 +367,10 @@ check_segment(NSSegmentedCell *self, SEL cmd, NSInteger s)
 
 - (void)setObjectValue:(id)value
 {
-    if ([value respondsToSelector:@selector(integerValue)])
-        [self setSelectedSegment:[value integerValue]];
+    if ([value respondsToSelector:@selector(integerValue)]) {
+        NSInteger i = [value integerValue];
+        [self setSelectedSegment:i >= 0 && i < (NSInteger)[_items count] ? i : -1];
+    }
 }
 
 - (NSString *)stringValue { return @""; }

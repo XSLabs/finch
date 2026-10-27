@@ -283,8 +283,37 @@ names(void)
     return i ?: [[NSImage alloc] init];
 }
 
+/* The image a pasteboard holds: its image data (in the order the image types list them),
+   or an image file it names. */
+static NSURL *
+image_file_on_pasteboard(NSPasteboard *pasteboard)
+{
+    NSArray *urls = [pasteboard readObjectsForClasses:@[ [NSURL class] ] options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
+    for (NSURL *url in urls) {
+        NSString *type = nil;
+        [url getResourceValue:&type forKey:NSURLTypeIdentifierKey error:NULL];
+        for (NSString *t in [NSImage imageTypes])
+            if (type && [[NSWorkspace sharedWorkspace] type:type conformsToType:t])
+                return url;
+    }
+    return nil;
+}
+
 - (instancetype)initWithPasteboard:(NSPasteboard *)pasteboard
 {
+    NSArray *reps = [NSImageRep imageRepsWithPasteboard:pasteboard];
+    if ([reps count]) {
+        if ((self = [self init])) {
+            for (NSImageRep *rep in reps)
+                [self addRepresentation:rep];
+            NSImageRep *first = reps[0];
+            [self setSize:[first size]];
+        }
+        return self;
+    }
+    NSURL *file = image_file_on_pasteboard(pasteboard);
+    if (file)
+        return [self initWithContentsOfURL:file];
     [self release];
     return nil;
 }
@@ -874,7 +903,36 @@ composite(NSImage *self, NSPoint point, NSRect from, NSCompositingOperation op, 
 + (NSArray<NSString *> *)imageUnfilteredFileTypes { return image_rep_types(3); }
 + (NSArray<NSPasteboardType> *)imagePasteboardTypes { return image_rep_types(4); }
 + (NSArray<NSPasteboardType> *)imageUnfilteredPasteboardTypes { return image_rep_types(5); }
-+ (BOOL)canInitWithPasteboard:(NSPasteboard *)pasteboard { return NO; }
++ (BOOL)canInitWithPasteboard:(NSPasteboard *)pasteboard
+{
+    return [NSImageRep canInitWithPasteboard:pasteboard] || image_file_on_pasteboard(pasteboard) != nil;
+}
+
+#pragma mark Pasteboard reading and writing
+
+/* As Apple's: an image is written as TIFF and read from any image type. */
+- (NSArray<NSPasteboardType> *)writableTypesForPasteboard:(NSPasteboard *)pasteboard { return @[ NSPasteboardTypeTIFF ]; }
+
+- (id)pasteboardPropertyListForType:(NSPasteboardType)type
+{
+    return [type isEqualToString:NSPasteboardTypeTIFF] || [type isEqualToString:NSTIFFPboardType] ? [self TIFFRepresentation] : nil;
+}
+
++ (NSArray<NSPasteboardType> *)readableTypesForPasteboard:(NSPasteboard *)pasteboard { return [self imageTypes]; }
+
++ (NSPasteboardReadingOptions)readingOptionsForType:(NSPasteboardType)type pasteboard:(NSPasteboard *)pasteboard
+{
+    return NSPasteboardReadingAsData;
+}
+
+- (instancetype)initWithPasteboardPropertyList:(id)propertyList ofType:(NSPasteboardType)type
+{
+    if (![propertyList isKindOfClass:[NSData class]]) {
+        [self release];
+        return nil;
+    }
+    return [self initWithData:propertyList];
+}
 
 /* MARK: NSCoding (Apple's keys: NSSize, NSReps, NSImageFlags-less) */
 

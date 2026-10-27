@@ -141,6 +141,28 @@ item_container(id item)
 
 @implementation NSLayoutConstraint
 
+/* (as Apple's: views and layout guides, AppKit's or UIKit's, are what constraints relate) */
+static BOOL
+is_layout_item(id item)
+{
+    static Class kinds[4];
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+      kinds[0] = NSClassFromString(@"NSView");
+      kinds[1] = NSClassFromString(@"NSLayoutGuide");
+      kinds[2] = NSClassFromString(@"UIView");
+      kinds[3] = NSClassFromString(@"UILayoutGuide");
+    });
+    BOOL any = NO;
+    for (int i = 0; i < 4; i++)
+        if (kinds[i]) {
+            any = YES;
+            if ([item isKindOfClass:kinds[i]])
+                return YES;
+        }
+    return !any;
+}
+
 static void
 validate(id first, NSLayoutAttribute a1, NSLayoutRelation r, id second, NSLayoutAttribute a2, CGFloat m, CGFloat c)
 {
@@ -148,6 +170,9 @@ validate(id first, NSLayoutAttribute a1, NSLayoutRelation r, id second, NSLayout
     if (!first)
         [NSException raise:NSInvalidArgumentException
                     format:@"NSLayoutConstraint for %@: Constraint must contain a first layout item", who];
+    if (!is_layout_item(first) || (second && !is_layout_item(second)))
+        [NSException raise:NSInvalidArgumentException
+                    format:@"NSLayoutConstraint for %@: Constraint items must each be a view or layout guide.", who];
     int x1 = attribute_axis(a1), x2 = second ? attribute_axis(a2) : -2;
     if (x1 < 0 || (second && x2 < 0))
         [NSException raise:NSInvalidArgumentException format:@"NSLayoutConstraint for %@: Unknown layout attribute", who];

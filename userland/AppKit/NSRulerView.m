@@ -226,9 +226,9 @@ unitToPointsConversionFactor:(CGFloat)factor
 
 - (void)setMarkers:(NSArray<NSRulerMarker *> *)markers
 {
-    if ([markers count] && !_clientView)
+    if (!_clientView)
         [NSException raise:NSInternalInconsistencyException
-                    format:@"*** -[NSRulerView setMarkers:]: you must set the client view of the ruler before you can add ruler markers."];
+                    format:@"*** -[NSRulerView setMarkers:]: you must set the client view of the ruler before you can set ruler markers."];
     [_markers setArray:markers ?: @[]];
     [self _finchRetile];
 }
@@ -244,6 +244,9 @@ unitToPointsConversionFactor:(CGFloat)factor
 
 - (void)removeMarker:(NSRulerMarker *)marker
 {
+    if (!_clientView)
+        [NSException raise:NSInternalInconsistencyException
+                    format:@"*** -[NSRulerView removeMarker:]: you must set the client view of the ruler before you can remove ruler markers."];
     [_markers removeObjectIdenticalTo:marker];
     [self setNeedsDisplay:YES];
 }

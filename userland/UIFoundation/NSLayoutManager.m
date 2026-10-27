@@ -170,16 +170,29 @@ enum { LM_ALLOWS_NONCONTIGUOUS = 1 << 7 };
     [self invalidate];
 }
 
+/* As Apple's: a container the layout manager doesn't have is an argument error. */
+static void
+require_container(NSLayoutManager *self, NSTextContainer *container, NSString *where)
+{
+    if (![self->_containers containsObject:container])
+        [NSException raise:NSInvalidArgumentException format:@"*** %@: given container does not appear in the list of containers for this NSLayoutManager.", where];
+}
+
 - (void)removeTextContainerAtIndex:(NSUInteger)index
 {
     if (index >= _containers.count)
-        return;
+        [NSException raise:NSRangeException format:@"*** -[NSLayoutManager removeTextContainerAtIndex:]: container index %lu is beyond the range of containers (%lu)",
+                           (unsigned long)index, (unsigned long)_containers.count];
     [_containers[index] setLayoutManager:nil];
     [_containers removeObjectAtIndex:index];
     [self invalidate];
 }
 
-- (void)textContainerChangedGeometry:(NSTextContainer *)container { [self invalidate]; }
+- (void)textContainerChangedGeometry:(NSTextContainer *)container
+{
+    require_container(self, container, @"-[NSLayoutManager textContainerChangedGeometry:]");
+    [self invalidate];
+}
 - (void)textContainerChangedTextView:(NSTextContainer *)container { }
 
 - (id<NSLayoutManagerDelegate>)delegate { return _delegate; }
@@ -363,7 +376,11 @@ redisplay(NSLayoutManager *self)
 - (void)ensureGlyphsForGlyphRange:(NSRange)glyphRange { }
 - (void)ensureLayoutForCharacterRange:(NSRange)charRange { [self layout]; }
 - (void)ensureLayoutForGlyphRange:(NSRange)glyphRange { [self layout]; }
-- (void)ensureLayoutForTextContainer:(NSTextContainer *)container { [self layout]; }
+- (void)ensureLayoutForTextContainer:(NSTextContainer *)container
+{
+    require_container(self, container, @"-[NSLayoutManager ensureLayoutForTextContainer:]");
+    [self layout];
+}
 - (void)ensureLayoutForBoundingRect:(NSRect)bounds inTextContainer:(NSTextContainer *)container { [self layout]; }
 
 - (void)getFirstUnlaidCharacterIndex:(NSUInteger *)charIndex glyphIndex:(NSUInteger *)glyphIndex
@@ -806,6 +823,8 @@ range_rect_in_line(ContainerLayout *cl, size_t i, NSRange range)
 
 - (NSRange)glyphRangeForBoundingRect:(NSRect)bounds inTextContainer:(NSTextContainer *)container
 {
+    if (![_containers containsObject:container])
+        return NSMakeRange(NSNotFound, 0);
     ContainerLayout *cl = layout_for(self, container);
     if (!cl)
         return NSMakeRange(0, 0);
@@ -831,6 +850,7 @@ glyph_at_point(NSLayoutManager *self, NSPoint point, NSTextContainer *container,
 {
     if (fraction)
         *fraction = 0;
+    require_container(self, container, @"NSLayoutManager _glyphIndexForPoint()");
     ContainerLayout *cl = layout_for(self, container);
     if (!cl || !cl->layout.count)
         return 0;

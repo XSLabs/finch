@@ -577,6 +577,30 @@ CFStringRef CTFontCopyDisplayName(CTFontRef f) { return CTFontCopyFullName(f); }
 
 #pragma mark - Traits
 
+/* A variable font's weight: the instance's 'wght' coordinate, which its OS/2 table (the
+ * default instance's) doesn't give. */
+static bool
+variation_weight(CTFontRef f, double *weight)
+{
+    if (!f->coords)
+        return false;
+    size_t len;
+    const uint8_t *fvar = CTFontTable(f, 'fvar', &len);
+    if (!fvar || len < 16)
+        return false;
+    uint16_t offset = ct_be16(fvar + 4), count = ct_be16(fvar + 8), size = ct_be16(fvar + 10);
+    for (uint16_t i = 0; i < count && i < f->coords->size(); i++) {
+        size_t at = (size_t)offset + (size_t)i * size;
+        if (at + 4 > len)
+            break;
+        if (ct_be32(fvar + at) == 'wght') {
+            *weight = (*f->coords)[i];
+            return true;
+        }
+    }
+    return false;
+}
+
 CTFontSymbolicTraits
 CTFontGetSymbolicTraits(CTFontRef f)
 {
@@ -591,8 +615,21 @@ CTFontGetSymbolicTraits(CTFontRef f)
     uint16_t sel = os2 && os2len >= 64 ? ct_be16(os2 + 62) : 0;
     if ((mac_style & 2) || (sel & 1))
         t |= kCTFontTraitItalic;
-    if ((mac_style & 1) || (sel & 0x20))
+    double instance;
+    if (variation_weight(f, &instance)) {
+        /* (as Apple's: a semibold or heavier instance is bold) */
+        if (instance >= 600)
+            t |= kCTFontTraitBold;
+    } else if ((mac_style & 1) || (sel & 0x20))
         t |= kCTFontTraitBold;
+    else if (os2 && os2len >= 6 && ct_be16(os2 + 4) >= 600 && CTFontIsSystemUIFont(f))
+        t |= kCTFontTraitBold; /* (Apple's system font: semibold and heavier faces are bold) */
+    /* (the family class, from OS/2's sFamilyClass, in the stylistic class bits) */
+    if (os2 && os2len >= 32) {
+        uint8_t family_class = os2[30];
+        if ((family_class >= 1 && family_class <= 5) || (family_class >= 7 && family_class <= 10) || family_class == 12)
+            t |= (uint32_t)family_class << kCTFontClassMaskShift;
+    }
     const uint8_t *post = CTFontTable(f, 'post', &len);
     if (post && len >= 16 && ct_be32(post + 12))
         t |= kCTFontTraitMonoSpace;
@@ -630,6 +667,9 @@ CTFontCopyTraits(CTFontRef f)
     size_t len;
     const uint8_t *os2 = CTFontTable(f, 'OS/2', &len);
     int weight_class = os2 && len >= 6 ? ct_be16(os2 + 4) : 400;
+    double instance;
+    if (variation_weight(f, &instance))
+        weight_class = (int)lround(instance);
     int width_class = os2 && len >= 8 ? ct_be16(os2 + 6) : 5;
     uint32_t sym = CTFontGetSymbolicTraits(f);
     double weight = normalised_weight(weight_class);

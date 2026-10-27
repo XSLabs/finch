@@ -804,6 +804,40 @@ def nm_exports(binary):
     return {line.split()[-1] for line in result.stdout.splitlines() if line.split()}
 
 
+_REEXPORTED_EXPORTS = {}
+
+
+def reexported_exports(binary, build_root, seen=None):
+    """The symbols Finch's image re-exports from its other images, found statically.
+
+    Loading Finch's libSystem into a host process to ask dlsym gets the process killed,
+    so umbrella libraries are read from disk: each LC_REEXPORT_DYLIB that Finch builds,
+    and what it re-exports in turn. A library Finch doesn't build adds nothing."""
+    seen = set() if seen is None else seen
+    key = str(binary)
+    if key in _REEXPORTED_EXPORTS:
+        return _REEXPORTED_EXPORTS[key]
+    symbols = set()
+    try:
+        libraries = macho_reexports(binary)
+    except RuntimeError:
+        libraries = set()
+    for install in sorted(libraries):
+        child = build_root / install.lstrip("/")
+        if not child.is_file() or str(child) in seen:
+            continue
+        seen.add(str(child))
+        try:
+            symbols |= nm_exports(child)
+        except RuntimeError:
+            result = command(["nm", "-gU", str(child)])
+            if not result.returncode:
+                symbols |= {line.split()[-1] for line in result.stdout.splitlines() if line.split()}
+        symbols |= reexported_exports(child, build_root, seen)
+    _REEXPORTED_EXPORTS[key] = symbols
+    return symbols
+
+
 def macho_reexports(binary):
     result = command(["otool", "-l", str(binary)])
     if result.returncode:
@@ -900,8 +934,11 @@ def compile_responder():
 
 
 def objc_responses(spec, items, binary, build_root):
-    runtime_items = [item for item in items if item["kind"].startswith("objc ") or
-                     (item.get("reexported") and item["check"]["type"] in ("symbol", "swift"))]
+    # (a library's re-exported C symbols are read from Finch's images on disk instead;
+    # see reexported_exports)
+    runtime_items = [item for item in items if (item["kind"].startswith("objc ") and
+                                                not (item["kind"] == "objc class" and spec["kind"] != "framework")) or
+                     (item.get("reexported") and item["check"]["type"] in ("symbol", "swift") and spec["kind"] == "framework")]
     if not runtime_items:
         return {}, None
     if not binary:
@@ -983,7 +1020,8 @@ def objc_responses(spec, items, binary, build_root):
         env["FINCH_THEME"] = "Classic"
         result = command([str(RESPONDER), str(binary)], input="\n".join(lines) + "\n", env=env)
     if result.returncode:
-        return {item["id"]: False for item in runtime_items}, (result.stderr or result.stdout).strip()[-1400:]
+        return {item["id"]: False for item in runtime_items}, \
+            (result.stderr or result.stdout).strip()[-1400:] or f"the responder exited with status {result.returncode}"
     missing = {line.strip() for line in result.stdout.splitlines() if line.strip()}
     answers = {}
     for item in runtime_items:
@@ -1293,7 +1331,10 @@ def markdown_report(report):
         "It follows public TAPI re-exports, checks C symbols and Swift API declarations "
         "against Finch's built Swift modules where they exist, and checks Swift symbols "
         "otherwise. It asks Finch's loaded classes "
-        "whether they answer the listed selectors. These checks show API presence; they "
+        "whether they answer the listed selectors. A library's re-exported symbols and "
+        "classes (libSystem's, for one) are read from the Finch images it re-exports, on "
+        "disk, since loading Finch's libSystem into the host process is not possible. "
+        "These checks show API presence; they "
         "do not prove matching behavior. Public framework bundles, including nested "
         "subframeworks, and public dylib stubs under usr/lib, including its subfolders, "
         "are included. PrivateFrameworks "
@@ -1440,6 +1481,8 @@ def main(argv=None):
                             reexported_swift_sorted = sorted(reexported_swift_symbols)
                 except RuntimeError as error:
                     errors.append(f"Finch SwiftUICore re-export: {error}")
+            if binary and spec["kind"] != "framework":
+                exports |= reexported_exports(binary, args.build_root)
             objc_answers, objc_error = objc_responses(spec, items, binary, args.build_root)
             if objc_error:
                 errors.append(f"Finch runtime and re-export checks: {objc_error}")
@@ -1449,12 +1492,15 @@ def main(argv=None):
                     item["present"] = check["symbol"] in exports or (
                         item.get("reexported") and objc_answers.get(item["id"], False))
                 elif check["type"] == "swift":
-                    if item.get("reexported"):
+                    if item.get("reexported") and spec["kind"] == "framework":
                         item["present"] = objc_answers.get(item["id"], False)
                     elif spec["kind"] == "framework" and spec["id"] in finch_modules:
                         item["present"] = False
                     else:
                         item["present"] = swift_symbol_present(check, exports) if binary else False
+                elif item["kind"] == "objc class" and spec["kind"] != "framework":
+                    # (a library's classes, like libdispatch's OS_ objects, by their symbols)
+                    item["present"] = f"_OBJC_CLASS_$_{check['name']}" in exports
                 else:
                     item["present"] = objc_answers.get(item["id"], False)
                 item["behavior_verified"] = item["id"] in verify.get(spec["id"], set())

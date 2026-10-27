@@ -1502,6 +1502,9 @@ read_document(NSData *data, NSDictionary *wrappers, NSDictionary *options, NSDic
     NSString *type = options[NSDocumentTypeDocumentOption] ?: FinchImportSniff(data) ?: sniff_type(data);
     if ([@[ NSHTMLTextDocumentType, NSWebArchiveTextDocumentType, NSWordMLTextDocumentType, NSOfficeOpenXMLTextDocumentType,
             NSOpenDocumentTextDocumentType, NSDocFormatTextDocumentType ] containsObject:type]) {
+        /* (as Apple's: an empty HTML document is empty text) */
+        if ([type isEqualToString:NSHTMLTextDocumentType] && ![data length])
+            return [[[NSAttributedString alloc] init] autorelease];
         NSAttributedString *imported = FinchImportAttributedString(data, type, options, docAttrs);
         if (imported)
             return imported;

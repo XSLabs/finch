@@ -1738,12 +1738,14 @@ static char focus_ring_key, touch_types_key, compositing_key;
 
 @implementation NSView (FinchViewProperties)
 
-+ (NSFocusRingType)defaultFocusRingType { return NSFocusRingTypeDefault; }
+/* (as Apple's: views draw exterior rings by default, and a view's own type is the
+   default until set) */
++ (NSFocusRingType)defaultFocusRingType { return NSFocusRingTypeExterior; }
 
 - (NSFocusRingType)focusRingType
 {
     NSNumber *v = objc_getAssociatedObject(self, &focus_ring_key);
-    return v ? (NSFocusRingType)[v unsignedIntegerValue] : [[self class] defaultFocusRingType];
+    return v ? (NSFocusRingType)[v unsignedIntegerValue] : NSFocusRingTypeDefault;
 }
 
 - (void)setFocusRingType:(NSFocusRingType)type

@@ -307,6 +307,8 @@ dpi_size(CFDictionaryRef props, size_t w, size_t h)
     return ok;
 }
 
++ (NSArray<NSPasteboardType> *)imageUnfilteredPasteboardTypes { return @[ NSTIFFPboardType, @"Apple PNG pasteboard type" ]; }
+
 + (NSArray<NSString *> *)imageUnfilteredTypes
 {
     CFArrayRef a = CGImageSourceCopyTypeIdentifiers();

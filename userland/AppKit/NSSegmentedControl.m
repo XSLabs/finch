@@ -126,6 +126,9 @@ seg(NSSegmentedControl *c)
 
 - (double)doubleValueForSelectedSegment
 {
+    if ([self trackingMode] != NSSegmentSwitchTrackingMomentaryAccelerator)
+        [NSException raise:NSGenericException
+                    format:@"-doubleValueForSelectedSegment is only valid for trackingMode=NSSegmentSwitchTrackingMomentaryAccelerator"];
     return 0;
 }
 

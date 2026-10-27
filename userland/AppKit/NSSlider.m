@@ -92,7 +92,7 @@ cell_of(NSSlider *s)
 - (void)setTitleColor:(NSColor *)color {}
 - (NSFont *)titleFont { return nil; }
 - (void)setTitleFont:(NSFont *)font {}
-- (NSString *)title { return nil; }
+- (NSString *)title { return @""; }
 - (void)setTitle:(NSString *)title {}
 - (NSImage *)image { return nil; }
 - (void)setImage:(NSImage *)image {}

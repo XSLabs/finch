@@ -11,6 +11,8 @@
  */
 #import "NSView_Finch.h"
 #import <QuartzCore/QuartzCore.h>
+#import <objc/message.h>
+#import <objc/runtime.h>
 
 /* (CADisplayLink's maker is iOS's in the SDK; Finch's QuartzCore has it) */
 static CADisplayLink *
@@ -755,8 +757,15 @@ FinchAppKitSwiftRowResizeCursor(NSUInteger directions)
 + (void)setMenuZone:(NSZone *)zone {}
 + (NSZone *)menuZone { return NSDefaultMallocZone(); }
 - (NSPoint)locationForSubmenu:(NSMenu *)submenu { return NSZeroPoint; }
-- (id)menuRepresentation { return nil; }
-- (void)setMenuRepresentation:(id)menuRep {}
+static char menu_representation_key;
+- (id)menuRepresentation { return objc_getAssociatedObject(self, &menu_representation_key); }
+/* (Apple's tells the representation its menu, whatever the representation is) */
+- (void)setMenuRepresentation:(id)menuRep
+{
+    if (menuRep)
+        ((void (*)(id, SEL, id))objc_msgSend)(menuRep, @selector(setMenu:), self);
+    objc_setAssociatedObject(self, &menu_representation_key, menuRep, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 - (id)contextMenuRepresentation { return nil; }
 - (void)setContextMenuRepresentation:(id)menuRep {}
 - (id)tearOffMenuRepresentation { return nil; }

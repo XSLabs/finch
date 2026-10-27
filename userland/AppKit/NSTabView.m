@@ -105,7 +105,13 @@ static char tab_state_key, tab_rect_key;
 }
 - (NSRect)_tabRect { return [objc_getAssociatedObject(self, &tab_rect_key) rectValue]; }
 - (id)initialFirstResponder { return _initialFirstResponder; }
-- (void)setInitialFirstResponder:(NSView *)view { _initialFirstResponder = view; }
+- (void)setInitialFirstResponder:(NSView *)view
+{
+    if (view && ![view isDescendantOf:[self view]])
+        [NSException raise:NSInvalidArgumentException
+                    format:@"In -[NSTabViewItem setInitialFirstResponder:], the first responder must descend from the tab view item's view.  (Item: %@)", self];
+    _initialFirstResponder = view;
+}
 
 - (NSView *)view
 {
@@ -338,6 +344,9 @@ static char tab_state_key, tab_rect_key;
 
 - (void)selectTabViewItem:(NSTabViewItem *)item
 {
+    if (item && ![_items containsObject:item])
+        [NSException raise:NSInternalInconsistencyException
+                    format:@"Invalid parameter not satisfying: tabViewItem == nil || [_tabViewItems containsObject:tabViewItem]"];
     if (!item || item == _selected)
         return;
     if ([(id)_delegate respondsToSelector:@selector(tabView:shouldSelectTabViewItem:)] &&
@@ -392,7 +401,8 @@ static char tab_state_key, tab_rect_key;
         if (i >= 0 && i < (NSInteger)[_items count])
             [self selectTabViewItem:_items[(NSUInteger)i]];
     } else if ([name isEqual:NSSelectedIdentifierBinding]) {
-        [self selectTabViewItemWithIdentifier:v];
+        if ([self indexOfTabViewItemWithIdentifier:v] != NSNotFound)
+            [self selectTabViewItemWithIdentifier:v];
     } else {
         for (NSTabViewItem *item in _items)
             if ([[item label] isEqual:v]) {
@@ -406,8 +416,9 @@ static char tab_state_key, tab_rect_key;
 - (void)selectTabViewItemWithIdentifier:(id)identifier
 {
     NSInteger i = [self indexOfTabViewItemWithIdentifier:identifier];
-    if (i != NSNotFound)
-        [self selectTabViewItemAtIndex:i];
+    if (i == NSNotFound)
+        [NSException raise:NSInternalInconsistencyException format:@"No such item with identifier: %@", identifier];
+    [self selectTabViewItemAtIndex:i];
 }
 - (IBAction)takeSelectedTabViewItemFromSender:(id)sender
 {
