@@ -72,7 +72,7 @@ all: $(OUT)/finch-cf-preferences-container-test
 all: $(OUT)/finch-appkit-gaps-test
 all: $(OUT)/finch-urlsession-trust-test
 all: $(OUT)/finch-network-test
-all: $(OUT)/finch-accelerate-test $(OUT)/finch-vdsp-test $(OUT)/finch-vmisc-test
+all: $(OUT)/finch-accelerate-test $(OUT)/finch-vdsp-test $(OUT)/finch-vmisc-test $(OUT)/finch-blas-test
 all: $(OUT)/finch-videotoolbox-test
 all: $(OUT)/finch-contacts-search-links-test
 all: $(OUT)/finch-contacts-search-links-fetch-test
@@ -112,6 +112,11 @@ $(OUT)/finch-accelerate-test: accelerate-test.c
 
 # vDSP across its families (diff Apple's and Finch's).
 $(OUT)/finch-vdsp-test: vdsp-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework Accelerate
+
+# BLAS levels 1-3 through CBLAS, Fortran, legacy and ILP64 (diff Apple's and Finch's).
+$(OUT)/finch-blas-test: blas-test.c
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -Wno-deprecated-declarations -o $@ $< -framework Accelerate
 

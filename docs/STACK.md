@@ -14,8 +14,8 @@ requirements from library comparisons and app import counts.
 store formats, migrates stores (lightweight and through mapping models) and computes
 macOS's model version hashes; AppKit has NSPersistentDocument and NSTypesetter;
 Network has its C API (`nw_*`) over the Swift one; Accelerate is laid out as Apple's
-(vecLib with libvDSP, libvMisc, libBLAS and libLAPACK, and vImage) and has all of vDSP
-and vMisc (vForce, vfp, vBasicOps, vBigNum).
+(vecLib with libvDSP, libvMisc, libBLAS and libLAPACK, and vImage) and has all of vDSP,
+vMisc (vForce, vfp, vBasicOps, vBigNum) and BLAS.
 `logger` (remote_cmds) sends syslog messages that reach the
 unified log, as on macOS. Finch's sandbox is its own: `libsandbox.1` compiles macOS's
 profile language (SBPL) and the `FinchSandbox` kernel policy enforces the compiled
@@ -99,7 +99,7 @@ with Apple's libxml2, built by Finch. Finch's CoreGraphics has begun, over Skia
 clips, shadows and transparency layers as Apple's do, PDF contexts write
 through Skia's PDF backend, and Finch's own parser reads and draws PDF. Finch's ImageIO reads
 PNG, JPEG, GIF, BMP, ICO and WebP and writes PNG and JPEG over the open
-codecs Skia builds, and reads and writes TIFF with its own codec, returning the CGImages and properties Apple's does. Finch's Accelerate (`docs/design/ACCELERATE.md`) has Apple's layout (the umbrella re-exports vecLib, whose libvDSP, libvMisc, libBLAS and libLAPACK, and vImage) and all of vDSP and vMisc (vForce, vfp, vBasicOps, vBigNum), with the vImage, BLAS and LAPACK calls apps on this Mac import today, using Finch's own CPU routines. It does not yet include BNNS, the rest of vImage, or BLAS and LAPACK in full. CoreText lays out text with HarfBuzz, FreeType and ICU, as Apple's does,
+codecs Skia builds, and reads and writes TIFF with its own codec, returning the CGImages and properties Apple's does. Finch's Accelerate (`docs/design/ACCELERATE.md`) has Apple's layout (the umbrella re-exports vecLib, whose libvDSP, libvMisc, libBLAS and libLAPACK, and vImage) and all of vDSP, vMisc (vForce, vfp, vBasicOps, vBigNum) and BLAS, with the vImage and LAPACK calls apps on this Mac import today, using Finch's own CPU routines. It does not yet include BNNS, the rest of vImage, or LAPACK in full. CoreText lays out text with HarfBuzz, FreeType and ICU, as Apple's does,
 in open fonts Finch ships in place of Apple's (Inter for the system
 font, Open Runde for rounded text, Fragment Mono for SF Mono, XCharter for
 Charter, and TeX Gyre Pagella for Palatino). Liberation stays for Helvetica,
@@ -267,7 +267,7 @@ block-beta
         authservices["AuthenticationServices<br/>web, Apple ID, password and<br/>passkey request APIs"]
         cg["CoreGraphics<br/>bitmap contexts, paths, images,<br/>gradients, patterns, fonts, text,<br/>shadows (over Skia, skcms);<br/>PDF writing (SkPDF), PDF reading<br/>and drawing (own parser);<br/>window server client, displays,<br/>Quartz events (posting, sources)"]
         imageio["ImageIO<br/>image sources, thumbnails,<br/>destinations, property keys<br/>(libpng, libjpeg-turbo, libwebp,<br/>wuffs, via Skia); TIFF (own codec)"]
-        accelerate["Accelerate<br/>vecLib (all of vDSP<br/>and vMisc; BLAS, LAPACK<br/>calls apps import)<br/>and vImage;<br/>Finch's CPU routines"]
+        accelerate["Accelerate<br/>vecLib (all of vDSP,<br/>vMisc and BLAS; LAPACK<br/>calls apps import)<br/>and vImage;<br/>Finch's CPU routines"]
         coreimage["CoreImage<br/>images as recipes, CPU rendering<br/>in linear light, ~70 filters"]
         videotoolbox["VideoToolbox<br/>pixel transfer and rotation;<br/>H.264, VP8, VP9 and AV1 codecs"]
         services["UserNotifications (local),<br/>ServiceManagement (launchd jobs),<br/>CoreLocation, LocalAuthentication,<br/>CoreWLAN, IOBluetooth (and its<br/>UI's panels), StoreKit,<br/>Accounts, GSS (answering as a Mac<br/>without those services would)"]
@@ -435,7 +435,7 @@ flowchart LR
     ffound["Foundation"]:::finch
     coredatafw["CoreData"]:::finch
     cgfw["CoreGraphics"]:::finch
-    acceleratefw["Accelerate<br/>(vecLib: all of vDSP, vMisc;<br/>vImage subset)"]:::finch
+    acceleratefw["Accelerate<br/>(vecLib: vDSP, vMisc, BLAS;<br/>vImage, LAPACK subsets)"]:::finch
     ctfw["CoreText"]:::finch
     imageio["ImageIO"]:::finch
     coreimagefw["CoreImage"]:::finch

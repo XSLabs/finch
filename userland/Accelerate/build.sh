@@ -60,13 +60,17 @@ library() {
 log "compiling vecLib's libraries and vImage"
 compile vDSP "${HERE}"/vDSP/*.c
 compile vMisc "${HERE}"/vMisc/*.c
-compile BLAS "${HERE}/blaslapack.c"
+"${HERE}/BLAS/gen-abi.py" "${SDK_FW}/vecLib.framework/Versions/A/Headers" \
+    "${SDK_FW}/vecLib.framework/Versions/A/libBLAS.tbd" > "${OBJ}/blas-abi.c"
+compile BLAS "${HERE}/BLAS/blas.c" "${OBJ}/blas-abi.c"
+compile LAPACK "${HERE}"/LAPACK/*.c
 compile vImage "${HERE}/vimage.c"
 
 library "${VECLIB}/libvDSP.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libvDSP.tbd" 1126.100.7 "${OBJ}/vDSP"
 library "${VECLIB}/libvMisc.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libvMisc.tbd" 1126.100.7 "${OBJ}/vMisc"
 library "${VECLIB}/libBLAS.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libBLAS.tbd" 1126.100.7 "${OBJ}/BLAS"
-library "${VECLIB}/libLAPACK.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libLAPACK.tbd" 1126.100.7 "${OBJ}/BLAS"
+library "${VECLIB}/libLAPACK.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libLAPACK.tbd" 1126.100.7 "${OBJ}/LAPACK" \
+    "${ROOT}${VECLIB}/libBLAS.dylib"
 
 # umbrella NAME INSTALL CURRENT BUNDLE_ID SHORT REEXPORT...
 umbrella() {

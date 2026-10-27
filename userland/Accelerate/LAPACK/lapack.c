@@ -1,4 +1,6 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
+/* The LAPACK routines apps on this Mac import: LU factorization and inverse, least
+   squares and tridiagonal solves. */
 #define ACCELERATE_NEW_LAPACK 1
 #include <Accelerate/Accelerate.h>
 #include <math.h>
@@ -6,108 +8,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-
-static __LAPACK_int vector_start(__LAPACK_int n, __LAPACK_int inc)
-{
-    return inc < 0 ? (1 - n) * inc : 0;
-}
-
-void cblas_daxpy(const __LAPACK_int n, const double alpha, const double *x,
-                 const __LAPACK_int incx, double *y, const __LAPACK_int incy)
-{
-    __LAPACK_int i, ix, iy;
-    if (n <= 0 || !x || !y || !incx || !incy) return;
-    ix = vector_start(n, incx);
-    iy = vector_start(n, incy);
-    for (i = 0; i < n; ++i, ix += incx, iy += incy)
-        y[iy] += alpha * x[ix];
-}
-
-double cblas_ddot(const __LAPACK_int n, const double *x, const __LAPACK_int incx,
-                  const double *y, const __LAPACK_int incy)
-{
-    __LAPACK_int i, ix, iy;
-    double result = 0.0;
-    if (n <= 0 || !x || !y || !incx || !incy) return result;
-    ix = vector_start(n, incx);
-    iy = vector_start(n, incy);
-    for (i = 0; i < n; ++i, ix += incx, iy += incy)
-        result += x[ix] * y[iy];
-    return result;
-}
-
-static double matrix_value(const double *matrix, __LAPACK_int ld, enum CBLAS_ORDER order,
-                           enum CBLAS_TRANSPOSE trans, __LAPACK_int row, __LAPACK_int col)
-{
-    if (order == CblasColMajor)
-        return trans == CblasNoTrans ? matrix[row + col * ld] : matrix[col + row * ld];
-    return trans == CblasNoTrans ? matrix[row * ld + col] : matrix[col * ld + row];
-}
-
-static double *matrix_slot(double *matrix, __LAPACK_int ld, enum CBLAS_ORDER order,
-                           __LAPACK_int row, __LAPACK_int col)
-{
-    return order == CblasColMajor ? matrix + row + col * ld : matrix + row * ld + col;
-}
-
-void cblas_dgemm(const enum CBLAS_ORDER order, const enum CBLAS_TRANSPOSE transA,
-                 const enum CBLAS_TRANSPOSE transB, const __LAPACK_int m,
-                 const __LAPACK_int n, const __LAPACK_int k, const double alpha,
-                 const double *a, const __LAPACK_int lda, const double *b,
-                 const __LAPACK_int ldb, const double beta, double *c,
-                 const __LAPACK_int ldc)
-{
-    __LAPACK_int i, j, p;
-    if ((order != CblasRowMajor && order != CblasColMajor) || m < 0 || n < 0 || k < 0 ||
-        !c || (k && (!a || !b))) return;
-    for (i = 0; i < m; ++i) {
-        for (j = 0; j < n; ++j) {
-            double sum = 0.0;
-            for (p = 0; p < k; ++p)
-                sum += matrix_value(a, lda, order, transA, i, p) *
-                       matrix_value(b, ldb, order, transB, p, j);
-            *matrix_slot(c, ldc, order, i, j) = alpha * sum + beta * *matrix_slot(c, ldc, order, i, j);
-        }
-    }
-}
-
-void finch_sscal(const int *n, const float *alpha, float *x, const int *incx) __asm("_sscal_");
-void finch_sscal(const int *n, const float *alpha, float *x, const int *incx)
-{
-    int i, start;
-    if (!n || !alpha || !x || !incx || *n <= 0 || *incx == 0) return;
-    start = *incx < 0 ? (1 - *n) * *incx : 0;
-    for (i = 0; i < *n; ++i)
-        x[start + i * *incx] *= *alpha;
-}
-
-void finch_sgemv(const char *trans, const int *m, const int *n, const float *alpha,
-                 const float *a, const int *lda, const float *x, const int *incx,
-                 const float *beta, float *y, const int *incy) __asm("_sgemv_");
-void finch_sgemv(const char *trans, const int *m, const int *n, const float *alpha,
-                 const float *a, const int *lda, const float *x, const int *incx,
-                 const float *beta, float *y, const int *incy)
-{
-    int i, j, rows, cols, xStart, yStart;
-    int transpose;
-    if (!trans || !m || !n || !alpha || !a || !lda || !x || !incx ||
-        !beta || !y || !incy || *m < 0 || *n < 0 || *lda < (*m > 1 ? *m : 1) ||
-        *incx == 0 || *incy == 0)
-        return;
-    transpose = *trans == 'T' || *trans == 't' || *trans == 'C' || *trans == 'c';
-    rows = transpose ? *n : *m;
-    cols = transpose ? *m : *n;
-    xStart = *incx < 0 ? (1 - cols) * *incx : 0;
-    yStart = *incy < 0 ? (1 - rows) * *incy : 0;
-    for (i = 0; i < rows; ++i) {
-        float sum = 0.0f;
-        for (j = 0; j < cols; ++j) {
-            float value = transpose ? a[j + i * *lda] : a[i + j * *lda];
-            sum += value * x[xStart + j * *incx];
-        }
-        y[yStart + i * *incy] = *alpha * sum + *beta * y[yStart + i * *incy];
-    }
-}
 
 void dgetrf_(const __LAPACK_int *m, const __LAPACK_int *n, double *a,
              const __LAPACK_int *lda, __LAPACK_int *ipiv, __LAPACK_int *info)

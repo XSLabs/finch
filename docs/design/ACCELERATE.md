@@ -9,7 +9,7 @@ Accelerate.framework/Versions/A/Accelerate          re-exports vecLib and vImage
   Frameworks/vecLib.framework/Versions/A/vecLib     re-exports the libraries below
     libvDSP.dylib     all of vDSP
     libvMisc.dylib    vForce, vfp, vBasicOps, vBigNum, vectorOps
-    libBLAS.dylib     CBLAS and BLAS (the calls apps import)
+    libBLAS.dylib     BLAS levels 1-3: CBLAS and Fortran, in every ABI
     libLAPACK.dylib   LAPACK (the calls apps import)
   Frameworks/vImage.framework/Versions/A/vImage     vImage (the calls apps import)
 ```
@@ -77,16 +77,38 @@ same. Apple's arm64 `vIsamax`, `vIsamin`, `vIsmax`, `vIsmin`, `vSnrm2`,
 Finch's follow the header. The 50 libvMisc symbols with no public declaration
 (`vMultMatMat_4x4` and the like) are not provided.
 
+## BLAS
+
+`userland/Accelerate/BLAS/` is Finch's BLAS: levels 1, 2 and 3 in single,
+double, complex and double complex precision (`blas-template.inc`, included
+once per precision by `blas.c`), with the reference BLAS's algorithms, the
+`catlas_` and `appleblas_` extensions and the mixed-precision dot products.
+Every operation goes through a matrix descriptor (storage kind, triangle, unit
+diagonal, transposed, conjugated), so a row-major CBLAS call is the
+column-major one on the transpose with flags flipped, as the reference CBLAS
+does it. A non-trivial op(A) is packed before multiplying.
+
+Apple exports each routine under several names and ABIs: the legacy Fortran
+ones (`sgemm_`, `sgemm`, `SGEMM`; 32-bit integers, and real functions return
+`double` as `fortran_blas.h` says), `blas_new.h`'s (`sgemm$NEWLAPACK`, and
+`$NEWLAPACK$ILP64` with 64-bit integers), and CBLAS in the same three forms.
+Finch implements each once, with 64-bit integers; `BLAS/gen-abi.py` reads the
+SDK's headers and Apple's `.tbd` at build time and writes a wrapper per
+exported name (1,220).
+
+Where Apple's departs from the reference BLAS, Finch's follows Apple's:
+`herk` and `her2k` keep beta times the imaginary part of the diagonal rather
+than zeroing it.
+
 ## The rest
 
-vImage, BLAS and LAPACK still have only the calls imported by the apps
-found on this Mac: vImage
+vImage and LAPACK still have only the calls imported by the apps found on
+this Mac: vImage
 scaling, convolution, channel transforms, table lookups, histograms and
-conversion between image buffers and CoreGraphics images; the imported CBLAS
-calls and the `sscal_`, `sgemv_`, `dgels_`, `dgetrf_`, `dgetri_` and `dgtsv_`
-routines. BNNS, sparse solvers, LinearAlgebra and Quadrature are not
-implemented. Complete BLAS and LAPACK are planned from a permissively licensed
-implementation.
+conversion between image buffers and CoreGraphics images; LAPACK's `dgels_`,
+`dgetrf_`, `dgetri_` and `dgtsv_` (`LAPACK/lapack.c`). BNNS, sparse solvers,
+LinearAlgebra and Quadrature are not implemented. Complete LAPACK is planned
+from a permissively licensed implementation.
 
 ## Build and check
 
@@ -96,7 +118,7 @@ use libSystem and the math library. Test runners put the nested frameworks
 (`Accelerate.framework/Versions/A/Frameworks`) on `DYLD_FRAMEWORK_PATH` and
 vecLib's folder on `DYLD_LIBRARY_PATH`, as dyld finds those by leaf name.
 
-`userland/tests/accelerate-test.c`, `vdsp-test.c` and `vmisc-test.c` run the
+`userland/tests/accelerate-test.c`, `vdsp-test.c`, `vmisc-test.c` and `blas-test.c` run the
 same calls against Apple's framework and Finch's, and `tools/host-tests.sh`
 compares their printed results. All routines here were written for Finch. No
 Apple binary, closed Apple code or outside source code was copied, so
