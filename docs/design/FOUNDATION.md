@@ -607,3 +607,19 @@ optional attribute providers; it does not load a missing UI framework.
   naming each class's address and bundle. `finch-new-classes-test` (94 lines)
   matches Apple's. The generated API comparison went from 3660 to 3689 verified
   items (481 differ, no crashes).
+- 2026-10-27: NSURLSession's WebSocket and stream tasks (`NSURLSessionSockets.m`,
+  over the same connections and TLS as its HTTP loads, with server trust going to
+  the delegate). A WebSocket task sends Apple's upgrade (the request rewritten to
+  http or https, subprotocols in `Sec-WebSocket-Protocol`, the session's cookies)
+  and checks the server's accept key; a server that won't upgrade fails it with
+  `NSURLErrorBadServerResponse` and its response kept. Messages are reassembled
+  from fragments and queued for receives in order; pings get their pong handlers;
+  a server's close is echoed, its code and reason kept, waiting receives fail
+  with `ENOTCONN` and the delegate hears the close and then the completion, as
+  with Apple's; closing with a code waits for the server's answer; a message over
+  `maximumMessageSize` (1 MB) closes with 1009 and fails the task with
+  `EMSGSIZE`. A stream task reads with a minimum and maximum (`EINVAL` when they
+  conflict, `ETIMEDOUT` on its timeout), writes, closes either side with the
+  delegate told, upgrades to TLS, and hands its socket over as a stream pair.
+  `finch-websocket-test` runs echo servers of its own and matches Apple's run on
+  the host and in QEMU.

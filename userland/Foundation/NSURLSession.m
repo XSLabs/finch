@@ -13,7 +13,8 @@
  * session's delegate queue. Responses are cached and custom protocols answer requests
  * through NSURLCache.m. Cookies are sent and kept through the session's cookie storage
  * (NSHTTPCookie.m). Basic, Digest and server-trust authentication challenges work; NTLM,
- * HTTP/2 and background sessions aren't there yet.
+ * HTTP/2 and background sessions aren't there yet. WebSocket and stream tasks are in
+ * NSURLSessionSockets.m, over the connections here (NSURLSession_Finch.h).
  */
 #import <Foundation/Foundation.h>
 #import <Security/Security.h>
@@ -30,6 +31,8 @@
 #include <openssl/x509v3.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#include "NSURLSession_Finch.h"
 
 const int64_t NSURLSessionTransferSizeUnknown = -1;
 const float NSURLSessionTaskPriorityDefault = 0.5f;
@@ -784,7 +787,7 @@ static __thread NSURLSessionTaskTransactionMetrics *current_transaction_metrics;
 
 static NSDate *metric_now(void) { return [NSDate date]; }
 
-static NSError *
+NSError *
 url_error(NSInteger code, NSURL *url, NSString *description)
 {
     NSMutableDictionary *info = [NSMutableDictionary dictionary];
@@ -835,23 +838,15 @@ mime_for_extension(NSString *ext)
     return types[[ext lowercaseString]] ?: @"application/octet-stream";
 }
 
-/* An HTTP/1.1 connection: a socket, and OpenSSL over it for https. */
-typedef struct {
-    int fd;
-    SSL *ssl;
-    SSL_CTX *ctx;
-    uint64_t bytesWritten;
-} Connection;
-
 static NSInteger conn_server_trust(Connection *c, NSURL *url);
 
-static ssize_t
+ssize_t
 conn_read(Connection *c, void *buf, size_t n)
 {
     return c->ssl ? SSL_read(c->ssl, buf, (int)n) : read(c->fd, buf, n);
 }
 
-static BOOL
+BOOL
 conn_write(Connection *c, const void *buf, size_t n)
 {
     const char *p = buf;
@@ -866,7 +861,7 @@ conn_write(Connection *c, const void *buf, size_t n)
     return YES;
 }
 
-static void
+void
 conn_close(Connection *c)
 {
     if (c->ssl) {
@@ -915,7 +910,7 @@ fd_bio_method(void)
     return m;
 }
 
-static NSInteger
+NSInteger
 conn_open(Connection *c, NSURL *url, NSTimeInterval timeout)
 {
     c->fd = -1;
@@ -1901,6 +1896,7 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
                              download:(BOOL)download
                            completion:(void (^)(id result, NSURLResponse *response, NSError *error))completion;
 - (void)_finchSetResumeInfo:(NSDictionary *)info;
+- (void)_finchHooks:(Hooks *)h dataDelegate:(BOOL)dataDelegate;
 @end
 
 @implementation NSURLSessionTask {
@@ -2356,7 +2352,84 @@ on_delegate_queue(NSURLSession *session, void (^block)(dispatch_semaphore_t done
 
 - (void)suspend {}
 
+/* For the socket tasks (NSURLSessionSockets.m). */
+- (NSURLSession *)_finchSession { return _session; }
+
+- (void)_finchSetResponse:(NSURLResponse *)response
+{
+    @synchronized(self) {
+        [_response autorelease];
+        _response = [response retain];
+    }
+}
+
+- (BOOL)_finchStartRunning
+{
+    @synchronized(self) {
+        if (_state != NSURLSessionTaskStateSuspended)
+            return NO;
+        _state = NSURLSessionTaskStateRunning;
+        return YES;
+    }
+}
+
+- (void)_finchFinishQuietly
+{
+    @synchronized(self) {
+        if (_state == NSURLSessionTaskStateCompleted)
+            return;
+        _state = NSURLSessionTaskStateCompleted;
+    }
+    [_session release];
+    _session = nil;
+}
+
 @end
+
+/* An http(s) connection for a task, its server trust answered by the task's delegate. */
+NSInteger
+_FinchURLTaskConnect(NSURLSessionTask *task, Connection *c, NSURL *url, NSTimeInterval timeout)
+{
+    @autoreleasepool {
+        Hooks hooks = {0};
+        [task _finchHooks:&hooks dataDelegate:NO];
+        current_hooks = &hooks;
+        NSInteger error = conn_open(c, url, timeout);
+        if (!error)
+            error = conn_server_trust(c, url);
+        current_hooks = NULL;
+        if (error)
+            conn_close(c);
+        return error;
+    }
+}
+
+NSInteger
+_FinchURLTaskStartTLS(NSURLSessionTask *task, Connection *c, NSString *host)
+{
+    @autoreleasepool {
+        c->ctx = SSL_CTX_new(TLS_client_method());
+        SSL_CTX_set_min_proto_version(c->ctx, TLS1_2_VERSION);
+        SSL_CTX_set_verify(c->ctx, SSL_VERIFY_NONE, NULL);
+        c->ssl = SSL_new(c->ctx);
+        SSL_set_tlsext_host_name(c->ssl, [host UTF8String]);
+        BIO *bio = BIO_new(fd_bio_method());
+        BIO_set_data(bio, (void *)(intptr_t)c->fd);
+        BIO_set_init(bio, 1);
+        SSL_set_bio(c->ssl, bio, bio);
+        if (SSL_connect(c->ssl) != 1)
+            return NSURLErrorSecureConnectionFailed;
+        Hooks hooks = {0};
+        [task _finchHooks:&hooks dataDelegate:NO];
+        current_hooks = &hooks;
+        NSURLComponents *u = [[NSURLComponents new] autorelease];
+        u.scheme = @"https";
+        u.host = host;
+        NSInteger error = conn_server_trust(c, u.URL);
+        current_hooks = NULL;
+        return error;
+    }
+}
 
 @implementation NSURLSessionDataTask
 @end

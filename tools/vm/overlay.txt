@@ -260,6 +260,8 @@ build/userland/finch-authorization-dialog-test /usr/local/bin/finch-authorizatio
 build/userland/finch-settings-notify-test /usr/local/bin/finch-settings-notify-test
 build/userland/finch-coresymbolication-test /usr/local/bin/finch-coresymbolication-test
 build/userland/finch-distnotify-test /usr/local/bin/finch-distnotify-test
+build/userland/finch-new-classes-test /usr/local/bin/finch-new-classes-test
+build/userland/finch-websocket-test /usr/local/bin/finch-websocket-test
 userland/securityagent/org.finch.securityagent.plist /System/Library/Finch/LaunchAgents/org.finch.securityagent.plist
 build/userland/apps/OpenPanelTest.app/Contents/MacOS/OpenPanelTest /usr/local/share/finch/apps/OpenPanelTest.app/Contents/MacOS/OpenPanelTest
 build/userland/apps/OpenPanelTest.app/Contents/Info.plist /usr/local/share/finch/apps/OpenPanelTest.app/Contents/Info.plist

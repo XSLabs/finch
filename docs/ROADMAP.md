@@ -1217,7 +1217,10 @@ and AppKit come in Phase 2).
   - [x] HTTPS server-trust challenges, with task-level and session-level delegates,
         trust credentials, default validation, cancellation and rejection matching Apple's
         generated-certificate comparison (2026-10-15)
-  - [ ] NTLM, HTTP/2, WebSocket and stream tasks
+  - [x] WebSocket tasks (the upgrade, fragments, pings, Apple's closing and errors) and
+        stream tasks (bounded reads, half-closes, TLS upgrade, captured streams);
+        `websocket-test` matches Apple's on the host and in QEMU (2026-10-27)
+  - [ ] NTLM, HTTP/2
 - [ ] AVFoundation / CoreAudio / CoreMedia ([media plan](design/MEDIA.md))
   - [x] CoreMedia and CoreVideo's buffer, time and format operations (2026-10-10).
   - [x] AudioToolbox format properties and PCM audio files (2026-10-10).
