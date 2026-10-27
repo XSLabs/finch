@@ -96,6 +96,13 @@ static __NSPlaceholderTimer *timerPlaceholder;
     return [super allocWithZone:zone];
 }
 
+/* (NSTimer's own, as Apple's has it: a subclass's instance gives way to a CF timer) */
+- (instancetype)initWithFireDate:(id)date interval:(NSTimeInterval)ti repeats:(BOOL)rep block:(void (^)(NSTimer *))block
+{
+    [self release];
+    return (id)make_timer([date timeIntervalSinceReferenceDate], ti, rep, nil, NULL, nil, (void (^)(id))block);
+}
+
 + (NSTimer *)timerWithTimeInterval:(NSTimeInterval)ti target:(id)target selector:(SEL)sel userInfo:(id)userInfo repeats:(BOOL)repeats
 {
     return [(id)make_timer(CFAbsoluteTimeGetCurrent() + ti, ti, repeats, target, sel, userInfo, nil) autorelease];

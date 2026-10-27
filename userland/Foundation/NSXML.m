@@ -43,7 +43,14 @@
     NSXMLNodeKind _fkind;
     NSXMLNodeOptions _foptions;
     unichar _fquote; /* an attribute's quote as read (NSXMLNodePreserveQuotes) */
+    BOOL _fhadChildren; /* (Apple's children array exists from the first child on) */
 }
+@end
+
+/* Apple's class for attributes, namespaces and processing instructions. */
+@interface NSXMLNamedNode : NSXMLNode
+@end
+@implementation NSXMLNamedNode
 @end
 
 @interface NSXMLElement () {
@@ -122,6 +129,9 @@ static NSString *xml_escape(NSString *s, BOOL attribute, unichar quote);
     case NSXMLAttributeDeclarationKind:
     case NSXMLElementDeclarationKind:
     case NSXMLNotationDeclarationKind: return [NSXMLDTDNode class];
+    case NSXMLAttributeKind:
+    case NSXMLNamespaceKind:
+    case NSXMLProcessingInstructionKind: return [NSXMLNamedNode class];
     default: return [NSXMLNode class];
     }
 }
@@ -525,6 +535,7 @@ make_node(NSXMLNodeKind kind, NSString *name, NSString *uri, id value)
     [self _finchCheckChild:child];
     [_fchildren insertObject:child atIndex:index];
     child->_parent = self;
+    _fhadChildren = YES;
 }
 
 - (void)insertChildren:(NSArray<NSXMLNode *> *)children atIndex:(NSUInteger)index
@@ -535,9 +546,13 @@ make_node(NSXMLNodeKind kind, NSString *name, NSString *uri, id value)
 
 - (void)addChild:(NSXMLNode *)child { [self insertChild:child atIndex:[_fchildren count]]; }
 
+/* As Apple's: an index past the end is ignored, the one at the end raises, and a node
+   that never had children ignores both. */
 - (void)removeChildAtIndex:(NSUInteger)index
 {
-    if (index >= [_fchildren count])
+    if (!_fhadChildren || index > [_fchildren count])
+        return;
+    if (index == [_fchildren count])
         raise_out_of_bounds("objectAtIndex:", index, [_fchildren count], NO);
     NSXMLNode *c = [_fchildren objectAtIndex:index];
     c->_parent = nil;
@@ -552,12 +567,13 @@ make_node(NSXMLNodeKind kind, NSString *name, NSString *uri, id value)
         [self addChild:c];
 }
 
+/* Apple's: a removal, then an insertion where it was. */
 - (void)replaceChildAtIndex:(NSUInteger)index withNode:(NSXMLNode *)node
 {
-    if (index >= [_fchildren count])
-        raise_out_of_bounds("objectAtIndex:", index, [_fchildren count], NO);
     [self _finchCheckChild:node];
     [self removeChildAtIndex:index];
+    if (index > [_fchildren count])
+        raise_out_of_bounds("insertObject:atIndex:", index, [_fchildren count], NO);
     [self insertChild:node atIndex:index];
 }
 

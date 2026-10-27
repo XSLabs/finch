@@ -777,27 +777,25 @@ utf16_length_of_codepoint_at_utf8_offset(NSString *string, NSUInteger byteOffset
 - (NSInteger)row { return _row; }
 - (NSPresentationIntent *)parentIntent { return _parentIntent; }
 
-/* As Apple's: the lists and block quotes this is inside, for the kinds that are indented
-   (headers, code blocks, lists and list items); 0 for the rest. */
-static BOOL
-indented_kind(NSPresentationIntentKind kind)
-{
-    return kind == NSPresentationIntentKindHeader || kind == NSPresentationIntentKindCodeBlock ||
-           kind == NSPresentationIntentKindOrderedList || kind == NSPresentationIntentKindUnorderedList ||
-           kind == NSPresentationIntentKindListItem;
-}
-
+/* Apple's: list items and block quotes are one deeper than what encloses them;
+   headers, lists and code blocks are as deep as it; paragraphs, rules and tables
+   (with their rows and cells) are at 0; and so is any intent with nothing around it. */
 - (NSInteger)indentationLevel
 {
-    if (!indented_kind(_intentKind))
+    if (!_parentIntent)
         return 0;
-    NSInteger level = 0;
-    for (NSPresentationIntent *intent = _parentIntent; intent; intent = intent->_parentIntent)
-        if (intent->_intentKind == NSPresentationIntentKindOrderedList ||
-            intent->_intentKind == NSPresentationIntentKindUnorderedList ||
-            intent->_intentKind == NSPresentationIntentKindBlockQuote)
-            level++;
-    return level;
+    switch (_intentKind) {
+    case NSPresentationIntentKindListItem:
+    case NSPresentationIntentKindBlockQuote:
+        return [_parentIntent indentationLevel] + 1;
+    case NSPresentationIntentKindHeader:
+    case NSPresentationIntentKindOrderedList:
+    case NSPresentationIntentKindUnorderedList:
+    case NSPresentationIntentKindCodeBlock:
+        return [_parentIntent indentationLevel];
+    default:
+        return 0;
+    }
 }
 
 /* Apple's: this intent's line, then each enclosing intent's on its own. */

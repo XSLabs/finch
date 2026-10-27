@@ -1152,6 +1152,21 @@ load_http_once(NSURLRequest *request, NSURL *url, NSHTTPURLResponse **outRespons
     if (!hasAccept)
         [head appendString:@"Accept: */*\r\n"];
     NSData *body = [request HTTPBody];
+    NSURL *uploadFile = [NSURLProtocol propertyForKey:@"_FinchUploadFile" inRequest:request];
+    if (!body && uploadFile)
+        body = [NSData dataWithContentsOfURL:uploadFile] ?: [NSData data];
+    if (!body && [request HTTPBodyStream]) {
+        /* (a body stream is read whole and sent with its length) */
+        NSInputStream *in = [request HTTPBodyStream];
+        NSMutableData *all = [NSMutableData data];
+        uint8_t buf[16384];
+        NSInteger n;
+        [in open];
+        while ((n = [in read:buf maxLength:sizeof buf]) > 0)
+            [all appendBytes:buf length:(NSUInteger)n];
+        [in close];
+        body = all;
+    }
     if (body || ![[request HTTPMethod] isEqualToString:@"GET"])
         [head appendFormat:@"Content-Length: %lu\r\n", (unsigned long)[body length]];
     [head appendString:@"Connection: close\r\n\r\n"];
@@ -1896,6 +1911,7 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
                              download:(BOOL)download
                            completion:(void (^)(id result, NSURLResponse *response, NSError *error))completion;
 - (void)_finchSetResumeInfo:(NSDictionary *)info;
+- (BOOL)_finchEverResumed;
 - (void)_finchHooks:(Hooks *)h dataDelegate:(BOOL)dataDelegate;
 @end
 
@@ -1917,6 +1933,7 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
     BOOL _loadsToFile;               /* (an http(s) download, which counts its bytes as it writes) */
     FinchURLTaskMetricsCollector *_metricsCollector;
     NSURLSessionTaskMetrics *_taskMetrics;
+    BOOL _everResumed, _paused; /* (suspended after starting: the load goes on, the state says suspended) */
 }
 
 - (instancetype)_finchInitWithSession:(NSURLSession *)session request:(NSURLRequest *)request identifier:(NSUInteger)ident
@@ -1962,7 +1979,13 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
 - (NSURLRequest *)currentRequest { return _original; }
 - (NSURLResponse *)response { return _response; }
 - (NSError *)error { return _error; }
-- (NSURLSessionTaskState)state { return _state; }
+- (NSURLSessionTaskState)state
+{
+    @synchronized(self) {
+        return _paused && _state == NSURLSessionTaskStateRunning ? NSURLSessionTaskStateSuspended : _state;
+    }
+}
+- (BOOL)_finchEverResumed { return _everResumed; }
 - (int64_t)countOfBytesReceived { return _received; }
 - (int64_t)countOfBytesSent { return 0; }
 - (int64_t)countOfBytesExpectedToSend { return 0; }
@@ -1980,9 +2003,14 @@ NSData *_FinchURLLoad(NSURLSessionConfiguration *configuration, NSURLSessionTask
 - (void)resume
 {
     @synchronized(self) {
+        if (_paused) {
+            _paused = NO;
+            return;
+        }
         if (_state != NSURLSessionTaskStateSuspended)
             return;
         _state = NSURLSessionTaskStateRunning;
+        _everResumed = YES;
     }
     [self retain];
     NSURLRequest *request = _original;
@@ -2350,7 +2378,13 @@ on_delegate_queue(NSURLSession *session, void (^block)(dispatch_semaphore_t done
                            error:url_error(NSURLErrorCancelled, [_original URL], @"cancelled")];
 }
 
-- (void)suspend {}
+- (void)suspend
+{
+    @synchronized(self) {
+        if (_state == NSURLSessionTaskStateRunning)
+            _paused = YES;
+    }
+}
 
 /* For the socket tasks (NSURLSessionSockets.m). */
 - (NSURLSession *)_finchSession { return _session; }
@@ -2366,9 +2400,14 @@ on_delegate_queue(NSURLSession *session, void (^block)(dispatch_semaphore_t done
 - (BOOL)_finchStartRunning
 {
     @synchronized(self) {
+        if (_paused) {
+            _paused = NO;
+            return NO;
+        }
         if (_state != NSURLSessionTaskStateSuspended)
             return NO;
         _state = NSURLSessionTaskStateRunning;
+        _everResumed = YES;
         return YES;
     }
 }
@@ -2450,6 +2489,7 @@ _FinchURLTaskStartTLS(NSURLSessionTask *task, Connection *c, NSString *host)
     NSOperationQueue *_queue;
     NSUInteger _nextIdentifier;
     NSString *_description;
+    NSHashTable *_tasks; /* (weak) the tasks made, for -getAllTasksWithCompletionHandler: */
 }
 
 + (NSURLSession *)sharedSession
@@ -2486,6 +2526,7 @@ _FinchURLTaskStartTLS(NSURLSessionTask *task, Connection *c, NSString *host)
             _queue.maxConcurrentOperationCount = 1;
         }
         _nextIdentifier = 1;
+        _tasks = [[NSHashTable weakObjectsHashTable] retain];
     }
     return self;
 }
@@ -2496,6 +2537,7 @@ _FinchURLTaskStartTLS(NSURLSessionTask *task, Connection *c, NSString *host)
     [_delegate release];
     [_queue release];
     [_description release];
+    [_tasks release];
     [super dealloc];
 }
 
@@ -2528,8 +2570,12 @@ _FinchURLTaskStartTLS(NSURLSessionTask *task, Connection *c, NSString *host)
     @synchronized(self) {
         ident = _nextIdentifier++;
     }
-    return [[[cls alloc] _finchInitWithSession:self request:[self _finchPrepare:request] identifier:ident download:download
-                                    completion:completion] autorelease];
+    id task = [[[cls alloc] _finchInitWithSession:self request:[self _finchPrepare:request] identifier:ident download:download
+                                       completion:completion] autorelease];
+    @synchronized(self) {
+        [_tasks addObject:task];
+    }
+    return task;
 }
 
 - (NSURLSessionDataTask *)dataTaskWithRequest:(NSURLRequest *)request
@@ -2592,6 +2638,35 @@ _FinchURLTaskStartTLS(NSURLSessionTask *task, Connection *c, NSString *host)
 {
     return [self uploadTaskWithRequest:request fromData:bodyData completionHandler:(id _Nonnull)nil];
 }
+- (NSURLSessionUploadTask *)uploadTaskWithRequest:(NSURLRequest *)request fromFile:(NSURL *)fileURL
+                                completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler
+{
+    /* (the file goes with the request privately, as Apple's keeps it out of the request's body) */
+    NSMutableURLRequest *r = [[request mutableCopy] autorelease];
+    if (fileURL)
+        [NSURLProtocol setProperty:fileURL forKey:@"_FinchUploadFile" inRequest:r];
+    return [self _finchTask:[NSURLSessionUploadTask class] request:r download:NO completion:completionHandler];
+}
+- (NSURLSessionUploadTask *)uploadTaskWithRequest:(NSURLRequest *)request fromFile:(NSURL *)fileURL
+{
+    return [self uploadTaskWithRequest:request fromFile:fileURL completionHandler:(id _Nonnull)nil];
+}
+/* (the request's body stream; Finch doesn't ask the delegate for another) */
+- (NSURLSessionUploadTask *)uploadTaskWithStreamedRequest:(NSURLRequest *)request
+{
+    return [self _finchTask:[NSURLSessionUploadTask class] request:request download:NO completion:nil];
+}
+/* (Finch's uploads don't make resume data, so any gives a task that fails) */
+- (NSURLSessionUploadTask *)uploadTaskWithResumeData:(NSData *)resumeData
+                                   completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler
+{
+    NSURLRequest *r = [NSURLRequest requestWithURL:[NSURL URLWithString:@"finch-invalid-resume-data:"]];
+    return [self _finchTask:[NSURLSessionUploadTask class] request:r download:NO completion:completionHandler];
+}
+- (NSURLSessionUploadTask *)uploadTaskWithResumeData:(NSData *)resumeData
+{
+    return [self uploadTaskWithResumeData:resumeData completionHandler:(id _Nonnull)nil];
+}
 
 - (void)finishTasksAndInvalidate
 {
@@ -2602,12 +2677,51 @@ _FinchURLTaskStartTLS(NSURLSessionTask *task, Connection *c, NSString *host)
     }];
 }
 
-- (void)invalidateAndCancel { [self finishTasksAndInvalidate]; }
+- (void)invalidateAndCancel
+{
+    for (NSURLSessionTask *t in [self _finchLiveTasks:NO])
+        [t cancel];
+    [self finishTasksAndInvalidate];
+}
+
+/* The tasks not yet completed, in the order they were made (as Apple's lists them: only
+   those that were ever resumed). */
+- (NSArray *)_finchLiveTasks:(BOOL)resumedOnly
+{
+    NSArray *all;
+    @synchronized(self) {
+        all = [_tasks allObjects];
+    }
+    NSMutableArray *live = [NSMutableArray array];
+    for (NSURLSessionTask *t in all)
+        if ([t state] != NSURLSessionTaskStateCompleted && (!resumedOnly || [t _finchEverResumed]))
+            [live addObject:t];
+    [live sortUsingComparator:^NSComparisonResult(NSURLSessionTask *a, NSURLSessionTask *b) {
+      return a.taskIdentifier < b.taskIdentifier ? NSOrderedAscending : a.taskIdentifier > b.taskIdentifier ? NSOrderedDescending : NSOrderedSame;
+    }];
+    return live;
+}
+
+- (void)getTasksWithCompletionHandler:(void (^)(NSArray<NSURLSessionDataTask *> *, NSArray<NSURLSessionUploadTask *> *,
+                                          NSArray<NSURLSessionDownloadTask *> *))completionHandler
+{
+    NSArray *live = [self _finchLiveTasks:YES];
+    NSMutableArray *data = [NSMutableArray array], *uploads = [NSMutableArray array], *downloads = [NSMutableArray array];
+    for (NSURLSessionTask *t in live) {
+        if ([t isKindOfClass:[NSURLSessionUploadTask class]]) [uploads addObject:t];
+        else if ([t isKindOfClass:[NSURLSessionDataTask class]]) [data addObject:t];
+        else if ([t isKindOfClass:[NSURLSessionDownloadTask class]]) [downloads addObject:t];
+    }
+    completionHandler = [[completionHandler copy] autorelease];
+    [_queue addOperationWithBlock:^{ completionHandler(data, uploads, downloads); }];
+}
 - (void)resetWithCompletionHandler:(void (^)(void))completionHandler { [_queue addOperationWithBlock:completionHandler]; }
 - (void)flushWithCompletionHandler:(void (^)(void))completionHandler { [_queue addOperationWithBlock:completionHandler]; }
 - (void)getAllTasksWithCompletionHandler:(void (^)(NSArray<__kindof NSURLSessionTask *> *))completionHandler
 {
-    [_queue addOperationWithBlock:^{ completionHandler(@[]); }];
+    NSArray *live = [self _finchLiveTasks:YES];
+    completionHandler = [[completionHandler copy] autorelease];
+    [_queue addOperationWithBlock:^{ completionHandler(live); }];
 }
 
 @end

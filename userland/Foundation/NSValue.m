@@ -174,20 +174,74 @@ static NSPlaceholderNumber *numberPlaceholder;
 @end
 
 @implementation NSValue (NSValueCreation)
-/* (Apple's makes none for a type that isn't an encoding: "Finch") */
+/* Apple's check of a type encoding, which looks at its first type only: the end of
+   that type, or NULL when it isn't one ("Finch", a bitfield, "?" on its own, a
+   struct without fields except behind a pointer). */
+static const char *
+type_end(const char *t, BOOL pointee)
+{
+    while (*t && strchr("rnNoORV", *t))
+        t++;
+    switch (*t) {
+    case 'c': case 'i': case 's': case 'l': case 'q': case 'C': case 'I': case 'S': case 'L': case 'Q':
+    case 'f': case 'd': case 'D': case 'B': case 'v': case '*': case '#': case ':': case 't': case 'T':
+        return t + 1;
+    case '@':
+        t++;
+        if (*t == '?')
+            return t + 1;
+        if (*t == '"') {
+            t = strchr(t + 1, '"');
+            return t ? t + 1 : NULL;
+        }
+        return t;
+    case '^':
+        t++;
+        if (!*t)
+            return t;
+        if (*t == '?')
+            return t + 1;
+        return type_end(t, YES);
+    case '[':
+        t++;
+        while (*t >= '0' && *t <= '9')
+            t++;
+        t = type_end(t, NO);
+        return t && *t == ']' ? t + 1 : NULL;
+    case '{':
+    case '(': {
+        char close = *t == '{' ? '}' : ')';
+        t++;
+        while (*t && *t != '=' && *t != close)
+            t++;
+        if (*t != '=')
+            return *t == close && pointee ? t + 1 : NULL;
+        t++;
+        while (*t != close) {
+            if (!*t)
+                return NULL;
+            if (*t == '"') {
+                t = strchr(t + 1, '"');
+                if (!t)
+                    return NULL;
+                t++;
+                continue;
+            }
+            t = type_end(t, NO);
+            if (!t)
+                return NULL;
+        }
+        return t + 1;
+    }
+    default:
+        return NULL;
+    }
+}
+
 static BOOL
 valid_type(const char *type)
 {
-    if (!type || !*type)
-        return YES;
-    if (!strchr("cislqCISLQfdDBv*@#:[{(b^?rnNoORVAj", type[0]))
-        return NO;
-    @try {
-        NSGetSizeAndAlignment(type, NULL, NULL);
-    } @catch (NSException *e) {
-        return NO;
-    }
-    return YES;
+    return type && (!*type || type_end(type, NO));
 }
 
 + (NSValue *)valueWithBytes:(const void *)value objCType:(const char *)type
@@ -215,8 +269,8 @@ valid_type(const char *type)
 
 /* The encoding without field names: {_NSRange="location"Q"length"Q} is
  * {_NSRange=QQ}, as Apple's NSValue keeps it. */
-static char *
-strip_names(const char *type)
+char *
+_FinchStripTypeNames(const char *type)
 {
     char *out = malloc(strlen(type) + 1), *o = out;
     for (const char *t = type; *t; t++) {
@@ -234,14 +288,14 @@ strip_names(const char *type)
 
 - (instancetype)initWithBytes:(const void *)value objCType:(const char *)rawType
 {
-    char *stripped = strip_names(rawType);
-    const char *type = stripped;
+    /* (the type as given, names and all, as Apple's keeps it; sized without the names) */
+    char *stripped = _FinchStripTypeNames(rawType);
     if ((self = [super init])) {
-        NSUInteger size, tl = strlen(type) + 1;
-        NSGetSizeAndAlignment(type, &size, NULL);
+        NSUInteger size, tl = strlen(rawType) + 1;
+        NSGetSizeAndAlignment(stripped, &size, NULL);
         _specialFlags = size;
         typeInfo = malloc(tl + size);
-        memcpy(typeInfo, type, tl);
+        memcpy(typeInfo, rawType, tl);
         memcpy((char *)typeInfo + tl, value, size);
     }
     free(stripped);
@@ -433,6 +487,8 @@ INIT(initWithUnsignedInteger, NSUInteger)
 
 - (instancetype)initWithBytes:(const void *)value objCType:(const char *)type
 {
+    if (!valid_type(type))
+        return nil;
     return (id)[[NSConcreteValue alloc] initWithBytes:value objCType:type];
 }
 

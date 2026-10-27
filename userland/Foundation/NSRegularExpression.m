@@ -42,12 +42,12 @@ NSTextCheckingKey const NSTextCheckingFlightKey = @"Flight";
 
 /* MARK: - NSTextCheckingResult */
 
-/* Every kind of result, named as Apple's concrete classes are in
- * descriptions. */
-@interface _NSConcreteTextCheckingResult : NSTextCheckingResult {
+/* Each kind of result is Apple's class of it; the storage for all of them is
+ * NSTextCheckingResult's own. */
+@interface NSTextCheckingResult () {
 @public
     NSTextCheckingType _type;
-    NSRange *_ranges;
+    NSRange *_ranges; /* (NULL: a subclass of an app's, which defines the primitives) */
     NSUInteger _count;
     NSRegularExpression *_regex;
     NSDate *_date;
@@ -61,51 +61,40 @@ NSTextCheckingKey const NSTextCheckingFlightKey = @"Flight";
 }
 @end
 
-/* Apple's class names for each kind of result. */
-#define RESULT_CLASS(NAME) @interface NAME : _NSConcreteTextCheckingResult @end @implementation NAME @end
-RESULT_CLASS(NSSimpleRegularExpressionCheckingResult)
-RESULT_CLASS(NSLinkCheckingResult)
-RESULT_CLASS(NSDateCheckingResult)
-RESULT_CLASS(NSAddressCheckingResult)
-RESULT_CLASS(NSPhoneNumberCheckingResult)
-RESULT_CLASS(NSSpellCheckingResult)
-RESULT_CLASS(NSGrammarCheckingResult)
-RESULT_CLASS(NSOrthographyCheckingResult)
-RESULT_CLASS(NSTransitInformationCheckingResult)
-RESULT_CLASS(NSSubstitutionCheckingResult)
+#define RESULT_CLASS(NAME, SUPER) @interface NAME : SUPER @end @implementation NAME @end
+RESULT_CLASS(NSRegularExpressionCheckingResult, NSTextCheckingResult)
+RESULT_CLASS(NSSimpleRegularExpressionCheckingResult, NSRegularExpressionCheckingResult)
+RESULT_CLASS(NSExtendedRegularExpressionCheckingResult, NSRegularExpressionCheckingResult)
+RESULT_CLASS(NSComplexRegularExpressionCheckingResult, NSRegularExpressionCheckingResult)
+RESULT_CLASS(NSSubstitutionCheckingResult, NSTextCheckingResult)
+RESULT_CLASS(NSReplacementCheckingResult, NSSubstitutionCheckingResult)
+RESULT_CLASS(NSCorrectionCheckingResult, NSSubstitutionCheckingResult)
+RESULT_CLASS(NSDashCheckingResult, NSSubstitutionCheckingResult)
+RESULT_CLASS(NSQuoteCheckingResult, NSSubstitutionCheckingResult)
+RESULT_CLASS(NSLinkCheckingResult, NSTextCheckingResult)
+RESULT_CLASS(NSDateCheckingResult, NSTextCheckingResult)
+RESULT_CLASS(NSAddressCheckingResult, NSTextCheckingResult)
+RESULT_CLASS(NSPhoneNumberCheckingResult, NSTextCheckingResult)
+RESULT_CLASS(NSSpellCheckingResult, NSTextCheckingResult)
+RESULT_CLASS(NSGrammarCheckingResult, NSTextCheckingResult)
+RESULT_CLASS(NSOrthographyCheckingResult, NSTextCheckingResult)
+RESULT_CLASS(NSTransitInformationCheckingResult, NSTextCheckingResult)
 
 @implementation NSTextCheckingResult
 
 + (BOOL)supportsSecureCoding { return YES; }
-- (NSTextCheckingType)resultType { FinchAbstract(self, _cmd); }
 - (NSRange)range { return [self rangeAtIndex:0]; }
 - (id)copyWithZone:(NSZone *)zone { return [self retain]; }
 - (void)encodeWithCoder:(NSCoder *)coder { }
 - (instancetype)initWithCoder:(NSCoder *)coder { [self release]; return nil; }
-
-- (NSOrthography *)orthography { return nil; }
-- (NSArray *)grammarDetails { return nil; }
-- (NSDate *)date { return nil; }
-- (NSTimeZone *)timeZone { return nil; }
-- (NSTimeInterval)duration { return 0; }
-- (NSDictionary *)components { return nil; }
-- (NSURL *)URL { return nil; }
-- (NSString *)replacementString { return nil; }
-- (NSArray *)alternativeStrings { return nil; }
-- (NSRegularExpression *)regularExpression { return nil; }
-- (NSString *)phoneNumber { return nil; }
-- (NSUInteger)numberOfRanges { return 1; }
-- (NSRange)rangeAtIndex:(NSUInteger)idx { FinchAbstract(self, _cmd); }
-- (NSRange)rangeWithName:(NSString *)name { return NSMakeRange(NSNotFound, 0); }
 - (NSDictionary *)addressComponents { return [self resultType] == NSTextCheckingTypeAddress ? [self components] : nil; }
-- (NSTextCheckingResult *)resultByAdjustingRangesWithOffset:(NSInteger)offset { return self; }
 
 static const char *class_name_for(NSTextCheckingType type);
 
-static _NSConcreteTextCheckingResult *
+static NSTextCheckingResult *
 result(NSTextCheckingType type, NSRange range)
 {
-    _NSConcreteTextCheckingResult *r = [[[objc_getClass(class_name_for(type)) alloc] init] autorelease];
+    NSTextCheckingResult *r = [[[objc_getClass(class_name_for(type)) alloc] init] autorelease];
     r->_type = type;
     r->_count = 1;
     r->_ranges = malloc(sizeof(NSRange));
@@ -115,14 +104,14 @@ result(NSTextCheckingType type, NSRange range)
 
 + (NSTextCheckingResult *)orthographyCheckingResultWithRange:(NSRange)range orthography:(NSOrthography *)orthography
 {
-    _NSConcreteTextCheckingResult *r = result(NSTextCheckingTypeOrthography, range);
+    NSTextCheckingResult *r = result(NSTextCheckingTypeOrthography, range);
     r->_orthography = [orthography copy];
     return r;
 }
 + (NSTextCheckingResult *)spellCheckingResultWithRange:(NSRange)range { return result(NSTextCheckingTypeSpelling, range); }
 + (NSTextCheckingResult *)grammarCheckingResultWithRange:(NSRange)range details:(NSArray *)details
 {
-    _NSConcreteTextCheckingResult *r = result(NSTextCheckingTypeGrammar, range);
+    NSTextCheckingResult *r = result(NSTextCheckingTypeGrammar, range);
     r->_grammarDetails = [details copy];
     return r;
 }
@@ -132,7 +121,7 @@ result(NSTextCheckingType type, NSRange range)
 }
 + (NSTextCheckingResult *)dateCheckingResultWithRange:(NSRange)range date:(NSDate *)date timeZone:(NSTimeZone *)timeZone duration:(NSTimeInterval)duration
 {
-    _NSConcreteTextCheckingResult *r = result(NSTextCheckingTypeDate, range);
+    NSTextCheckingResult *r = result(NSTextCheckingTypeDate, range);
     r->_date = [date copy];
     r->_timeZone = [timeZone copy];
     r->_duration = duration;
@@ -140,20 +129,20 @@ result(NSTextCheckingType type, NSRange range)
 }
 + (NSTextCheckingResult *)addressCheckingResultWithRange:(NSRange)range components:(NSDictionary *)components
 {
-    _NSConcreteTextCheckingResult *r = result(NSTextCheckingTypeAddress, range);
+    NSTextCheckingResult *r = result(NSTextCheckingTypeAddress, range);
     r->_components = [components copy];
     return r;
 }
 + (NSTextCheckingResult *)linkCheckingResultWithRange:(NSRange)range URL:(NSURL *)url
 {
-    _NSConcreteTextCheckingResult *r = result(NSTextCheckingTypeLink, range);
+    NSTextCheckingResult *r = result(NSTextCheckingTypeLink, range);
     r->_URL = [url copy];
     return r;
 }
 static NSTextCheckingResult *
 substitution(NSTextCheckingType type, NSRange range, NSString *replacement, NSArray *alternatives)
 {
-    _NSConcreteTextCheckingResult *r = result(type, range);
+    NSTextCheckingResult *r = result(type, range);
     r->_replacement = [replacement copy];
     r->_alternatives = [alternatives copy];
     return r;
@@ -168,7 +157,7 @@ substitution(NSTextCheckingType type, NSRange range, NSString *replacement, NSAr
 }
 + (NSTextCheckingResult *)regularExpressionCheckingResultWithRanges:(NSRangePointer)ranges count:(NSUInteger)count regularExpression:(NSRegularExpression *)regex
 {
-    _NSConcreteTextCheckingResult *r = result(NSTextCheckingTypeRegularExpression, count ? ranges[0] : NSMakeRange(NSNotFound, 0));
+    NSTextCheckingResult *r = result(NSTextCheckingTypeRegularExpression, count ? ranges[0] : NSMakeRange(NSNotFound, 0));
     if (count > 1) {
         r->_ranges = realloc(r->_ranges, count * sizeof(NSRange));
         memcpy(r->_ranges, ranges, count * sizeof(NSRange));
@@ -179,20 +168,18 @@ substitution(NSTextCheckingType type, NSRange range, NSString *replacement, NSAr
 }
 + (NSTextCheckingResult *)phoneNumberCheckingResultWithRange:(NSRange)range phoneNumber:(NSString *)phoneNumber
 {
-    _NSConcreteTextCheckingResult *r = result(NSTextCheckingTypePhoneNumber, range);
+    NSTextCheckingResult *r = result(NSTextCheckingTypePhoneNumber, range);
     r->_phoneNumber = [phoneNumber copy];
     return r;
 }
 + (NSTextCheckingResult *)transitInformationCheckingResultWithRange:(NSRange)range components:(NSDictionary *)components
 {
-    _NSConcreteTextCheckingResult *r = result(NSTextCheckingTypeTransitInformation, range);
+    NSTextCheckingResult *r = result(NSTextCheckingTypeTransitInformation, range);
     r->_components = [components copy];
     return r;
 }
 
-@end
-
-@implementation _NSConcreteTextCheckingResult
+/* MARK: The storage */
 
 - (void)dealloc
 {
@@ -210,11 +197,15 @@ substitution(NSTextCheckingType type, NSRange range, NSString *replacement, NSAr
     [super dealloc];
 }
 
-- (NSTextCheckingType)resultType { return _type; }
-- (NSRange)range { return _ranges[0]; }
-- (NSUInteger)numberOfRanges { return _count; }
+- (NSTextCheckingType)resultType
+{
+    if (!_ranges) FinchAbstract(self, _cmd);
+    return _type;
+}
+- (NSUInteger)numberOfRanges { return _ranges ? _count : 1; }
 - (NSRange)rangeAtIndex:(NSUInteger)idx
 {
+    if (!_ranges) FinchAbstract(self, _cmd);
     if (idx >= _count)
         FinchRaise(NSRangeException, "-[%s rangeAtIndex:]: index %lu out of bounds", object_getClassName(self), (unsigned long)idx);
     return _ranges[idx];
@@ -239,7 +230,8 @@ substitution(NSTextCheckingType type, NSRange range, NSString *replacement, NSAr
 
 - (NSTextCheckingResult *)resultByAdjustingRangesWithOffset:(NSInteger)offset
 {
-    _NSConcreteTextCheckingResult *r = [[[[self class] alloc] init] autorelease];
+    if (!_ranges) return self;
+    NSTextCheckingResult *r = [[[[self class] alloc] init] autorelease];
     r->_type = _type;
     r->_count = _count;
     r->_ranges = malloc(_count * sizeof(NSRange));
@@ -280,18 +272,38 @@ class_name_for(NSTextCheckingType type)
     case NSTextCheckingTypeGrammar: return "NSGrammarCheckingResult";
     case NSTextCheckingTypeOrthography: return "NSOrthographyCheckingResult";
     case NSTextCheckingTypeTransitInformation: return "NSTransitInformationCheckingResult";
+    case NSTextCheckingTypeReplacement: return "NSReplacementCheckingResult";
+    case NSTextCheckingTypeCorrection: return "NSCorrectionCheckingResult";
+    case NSTextCheckingTypeDash: return "NSDashCheckingResult";
+    case NSTextCheckingTypeQuote: return "NSQuoteCheckingResult";
     default: return "NSSubstitutionCheckingResult";
     }
 }
 
-/* Apple's: "<NSSimpleRegularExpressionCheckingResult: 0x...>{5, 8}{<regex>}". */
+/* Apple's: "<NSSimpleRegularExpressionCheckingResult: 0x...>{5, 8}{<regex>}", with what
+   each kind adds: a date and its end, a replacement and its alternatives. */
 - (NSString *)description
 {
-    NSMutableString *s = [NSMutableString stringWithFormat:@"<%s: %p>{%lu, %lu}", class_name_for(_type), self,
+    if (!_ranges) return [super description];
+    NSMutableString *s = [NSMutableString stringWithFormat:@"<%s: %p>{%lu, %lu}", object_getClassName(self), self,
         (unsigned long)_ranges[0].location, (unsigned long)_ranges[0].length];
-    id detail = _regex ? (id)_regex : _URL ? (id)_URL : _replacement ? (id)_replacement : _phoneNumber ? (id)_phoneNumber :
-        _date ? (id)_date : _components;
-    if (detail) [s appendFormat:@"{%@}", detail];
+    switch (_type) {
+    case NSTextCheckingTypeRegularExpression: [s appendFormat:@"{%@}", _regex]; break;
+    case NSTextCheckingTypeLink: [s appendFormat:@"{%@}", _URL]; break;
+    case NSTextCheckingTypePhoneNumber: [s appendFormat:@"{%@}", _phoneNumber]; break;
+    case NSTextCheckingTypeOrthography: [s appendFormat:@"{%@}", _orthography]; break;
+    case NSTextCheckingTypeDate:
+        if (_duration > 0)
+            [s appendFormat:@"{%@-%@}", _date, _date ? (id)[_date dateByAddingTimeInterval:_duration] : @""];
+        else
+            [s appendFormat:@"{%@}", _date];
+        break;
+    case NSTextCheckingTypeReplacement:
+    case NSTextCheckingTypeDash:
+    case NSTextCheckingTypeQuote: [s appendFormat:@"{%@}", _replacement]; break;
+    case NSTextCheckingTypeCorrection: [s appendFormat:@"{%@}{%@}", _replacement, _alternatives]; break;
+    default: break;
+    }
     return s;
 }
 

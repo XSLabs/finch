@@ -213,6 +213,8 @@ static NSString *const CurrentProgressKey = @"NSProgressCurrent";
 - (NSString *)localizedDescription
 {
     if (_description) return _description;
+    /* (as Apple's: nothing without a total) */
+    if (_total <= 0) return @"";
     NSNumberFormatter *f = [[[NSNumberFormatter alloc] init] autorelease];
     f.numberStyle = NSNumberFormatterPercentStyle;
     return [NSString stringWithFormat:@"%@ completed", [f stringFromNumber:@([self fractionCompleted])]];
@@ -222,7 +224,7 @@ static NSString *const CurrentProgressKey = @"NSProgressCurrent";
 - (NSString *)localizedAdditionalDescription
 {
     if (_additional) return _additional;
-    if ([self isIndeterminate]) return @"";
+    if ([self isIndeterminate] || _total <= 0) return @"";
     NSNumberFormatter *f = [[[NSNumberFormatter alloc] init] autorelease];
     f.numberStyle = NSNumberFormatterDecimalStyle;
     return [NSString stringWithFormat:@"%@ of %@", [f stringFromNumber:@(_completed)], [f stringFromNumber:@(_total)]];
@@ -566,8 +568,9 @@ spelled(long n)
     NSCalendarUnit allowed = _fUnits ? _fUnits : (NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitWeekOfMonth | NSCalendarUnitDay |
                                                  NSCalendarUnitHour | NSCalendarUnitMinute | NSCalendarUnitSecond);
     if (!_fUnits) allowed &= ~(NSCalendarUnitWeekOfMonth | NSCalendarUnitMonth | NSCalendarUnitYear);
-    BOOL negative = ti < 0;
-    double left = fabs(round(ti));
+    /* (whole seconds, toward zero, as Apple's) */
+    BOOL negative = trunc(ti) < 0;
+    double left = fabs(trunc(ti));
     long values[7] = { 0 };
     for (int i = 0; i < 7; i++) {
         if (!(allowed & units[i].unit)) continue;
@@ -757,6 +760,14 @@ spelled(long n)
 - (NSArray *)insertions { return _insertions; }
 - (NSArray *)removals { return _removals; }
 - (BOOL)hasChanges { return [_insertions count] || [_removals count]; }
+
+/* Apple's: "<NSOrderedCollectionDifference: 0x...>(2 insertions, 1 removal)". */
+- (NSString *)description
+{
+    NSUInteger i = [_insertions count], r = [_removals count];
+    return [NSString stringWithFormat:@"<%s: %p>(%lu insertion%s, %lu removal%s)", object_getClassName(self), self, (unsigned long)i,
+                     i == 1 ? "" : "s", (unsigned long)r, r == 1 ? "" : "s"];
+}
 
 /* Removals (highest index first), then insertions, as Apple's enumerates. */
 - (NSArray *)allChanges

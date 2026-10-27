@@ -205,7 +205,17 @@ slot_clear(Funcs *f, id table, void **slot)
 }
 @end
 
+/* (Apple's instances are NSConcretePointerFunctions) */
+@interface NSConcretePointerFunctions : NSPointerFunctions
+@end
+
 @implementation NSPointerFunctions
+
++ (instancetype)allocWithZone:(NSZone *)zone
+{
+    if (self == [NSPointerFunctions class]) return [NSConcretePointerFunctions allocWithZone:zone];
+    return [super allocWithZone:zone];
+}
 
 - (instancetype)initWithOptions:(NSPointerFunctionsOptions)options
 {
@@ -218,7 +228,7 @@ slot_clear(Funcs *f, id table, void **slot)
 
 - (id)copyWithZone:(NSZone *)zone
 {
-    NSPointerFunctions *c = [[NSPointerFunctions allocWithZone:zone] initWithOptions:_f.options];
+    NSPointerFunctions *c = [[[self class] allocWithZone:zone] initWithOptions:_f.options];
     c->_f = _f;
     return c;
 }
@@ -240,6 +250,9 @@ slot_clear(Funcs *f, id table, void **slot)
 - (BOOL)usesWeakReadAndWriteBarriers { return _f.weak; }
 - (void)setUsesWeakReadAndWriteBarriers:(BOOL)flag { _f.weak = flag; }
 
+@end
+
+@implementation NSConcretePointerFunctions
 @end
 
 static NSPointerFunctions *

@@ -623,3 +623,29 @@ optional attribute providers; it does not load a missing UI framework.
   delegate told, upgrades to TLS, and hands its socket over as a stream pair.
   `finch-websocket-test` runs echo servers of its own and matches Apple's run on
   the host and in QEMU.
+- 2026-10-27: a pass over the generated comparison's differences. Text-checking
+  results are Apple's classes (`NSReplacementCheckingResult` and the other
+  substitutions under `NSSubstitutionCheckingResult`, regular-expression results
+  under `NSRegularExpressionCheckingResult`) with Apple's descriptions;
+  orthographies are `NSSimpleOrthography` for the languages in Apple's table and
+  `NSComplexOrthography` otherwise, described as "{Latn->en and fr, plus Cyrl}";
+  presentation intents indent as Apple's (list items and block quotes one deeper,
+  headers, lists and code blocks as deep as what encloses them); progress without
+  a total describes itself as nothing; collection differences count their changes.
+  Scripting key-value coding calls only the class's own accessors
+  (`valueIn<Key>WithName:`, `insertIn<Key>:`) and raises Apple's messages without
+  them, and the old unbound-key handlers raise the old messages. Index-set
+  insertion and replacement check bounds before counts, as Apple's do; XML child
+  removal ignores indexes past the end; attributes, namespaces and processing
+  instructions are `NSXMLNamedNode`; pointer functions are
+  `NSConcretePointerFunctions`; `NSValue` rejects the type encodings Apple's does
+  and keeps the encoding as given; NOT predicates with several subpredicates read as
+  Apple's; date-components formatting truncates seconds; calendar differences fill
+  the week-based units; `timeZoneWithName:data:` goes by the name. Scripting gets
+  the whose clauses (`NSSpecifierTest`, `NSLogicalTest`, `NSWhoseSpecifier`, with the
+  execution context a test evaluates against), `NSPositionalSpecifier`, and
+  Apple's descriptions for every object specifier. NSURLSession lists and cancels
+  its tasks (`getAllTasksWithCompletionHandler:` gives those ever resumed, as
+  Apple's does), suspends them, and makes upload tasks from files, body streams and
+  resume data. `finch-foundation-edges-test` (401 lines) matches Apple's; the
+  generated comparison went from 3689 to 3758 verified items (90.1%).

@@ -413,8 +413,10 @@ _FinchIndexSetCountMatches(SEL cmd, const char *cls, NSUInteger objects, NSIndex
 
 - (void)insertObjects:(NSArray *)objects atIndexes:(NSIndexSet *)indexes
 {
-    _FinchIndexSetCountMatches(_cmd, "NSMutableArray", [objects count], indexes);
+    /* (Apple's order: the index set, the last index against both counts, then the counts) */
+    if (!indexes) FinchRaise(NSInvalidArgumentException, "*** -[NSMutableArray %s]: index set cannot be nil", sel_getName(_cmd));
     _FinchIndexSetInBounds(_cmd, "NSMutableArray", indexes, [self count] + [objects count], "array");
+    _FinchIndexSetCountMatches(_cmd, "NSMutableArray", [objects count], indexes);
     __block NSUInteger i = 0;
     [indexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) { [self insertObject:[objects objectAtIndex:i++] atIndex:idx]; }];
 }
@@ -427,8 +429,9 @@ _FinchIndexSetCountMatches(SEL cmd, const char *cls, NSUInteger objects, NSIndex
 
 - (void)replaceObjectsAtIndexes:(NSIndexSet *)indexes withObjects:(NSArray *)objects
 {
+    if (!indexes) FinchRaise(NSInvalidArgumentException, "*** -[NSMutableArray %s]: index set cannot be nil", sel_getName(_cmd));
+    _FinchIndexSetInBounds(_cmd, "NSMutableArray", indexes, [self count] + [objects count], "array");
     _FinchIndexSetCountMatches(_cmd, "NSMutableArray", [objects count], indexes);
-    _FinchIndexSetInBounds(_cmd, "NSMutableArray", indexes, [self count], "array");
     __block NSUInteger i = 0;
     [indexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) { [self replaceObjectAtIndex:idx withObject:[objects objectAtIndex:i++]]; }];
 }

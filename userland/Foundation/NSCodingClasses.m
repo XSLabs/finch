@@ -741,7 +741,12 @@ read_leb128(const uint8_t **p, const uint8_t *end, NSUInteger *out)
     NSString *name = [coder decodeObjectOfClass:[NSString class] forKey:@"NS.name"];
     NSData *data = [coder decodeObjectOfClass:[NSData class] forKey:@"NS.data"];
     if (!name) { [self release]; return nil; }
-    return [self initWithName:name data:data];
+    /* (an archived zone is made from its data, unlike -initWithName:data:, which goes by the name) */
+    if (data) {
+        [self release];
+        return (id)CFTimeZoneCreate(NULL, (CFStringRef)name, (CFDataRef)data);
+    }
+    return [self initWithName:name];
 }
 
 @end

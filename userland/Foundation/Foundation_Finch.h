@@ -19,6 +19,9 @@ void FinchRaise(NSString *name, const char *format, ...);
 __attribute__((noreturn, visibility("hidden")))
 void FinchAbstract(id self, SEL _cmd);
 
+/* A type encoding without its quoted field and class names (malloc'd; NSValue.m). */
+__attribute__((visibility("hidden"))) char *_FinchStripTypeNames(const char *type);
+
 /* CFStringCreateWithFormat's format options for a locale argument (NULL
  * for nil: the formats are the same without a locale). */
 __attribute__((visibility("hidden")))

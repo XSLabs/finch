@@ -265,9 +265,10 @@ FINCH_IMMORTAL_MEMORY
 {
     return name ? (id)CFTimeZoneCreateWithName(NULL, (CFStringRef)name, true) : nil;
 }
+/* As Apple's: by the name alone, whatever the data. */
 - (instancetype)initWithName:(id)name data:(id)data
 {
-    return data ? (id)CFTimeZoneCreate(NULL, (CFStringRef)name, (CFDataRef)data) : [self initWithName:name];
+    return [self initWithName:name];
 }
 @end
 
@@ -632,23 +633,24 @@ ns_range_from_cf(CFRange range)
 - (NSDateComponents *)components:(NSUInteger)unitFlags fromDate:(id)start toDate:(id)end options:(NSUInteger)opts
 {
     NSDateComponents *c = [[[NSDateComponents alloc] init] autorelease];
-    int y = 0, M = 0, d = 0, H = 0, m = 0, s = 0, w = 0;
-    char fmt[8];
-    int *ptrs[7], n = 0;
-    NSUInteger ws[7];
-    struct { NSUInteger unit; char letter; int *p; } order[] = {
-        { U_YEAR, 'y', &y }, { U_MONTH, 'M', &M }, { U_WEEK_OF_YEAR, 'w', &w }, { U_DAY, 'd', &d },
-        { U_HOUR, 'H', &H }, { U_MINUTE, 'm', &m }, { U_SECOND, 's', &s },
+    /* (largest first, so each takes what the larger ones leave, as Apple's order does) */
+    int v[12] = { 0 };
+    char fmt[13];
+    int *ptrs[12] = { 0 }, n = 0;
+    NSUInteger ws[12];
+    struct { NSUInteger unit; char letter; } order[] = {
+        { U_YEAR, 'y' }, { U_YEAR_FOR_WEEK, 'Y' }, { U_QUARTER, 'Q' }, { U_MONTH, 'M' }, { U_WEEK_OF_YEAR, 'w' },
+        { U_WEEK_OF_MONTH, 'W' }, { U_WEEKDAY_ORDINAL, 'F' }, { U_WEEKDAY, 'E' }, { U_DAY, 'd' }, { U_HOUR, 'H' },
+        { U_MINUTE, 'm' }, { U_SECOND, 's' },
     };
-    for (int i = 0; i < 7; i++)
-        if (unitFlags & order[i].unit) { fmt[n] = order[i].letter; ptrs[n] = order[i].p; ws[n] = order[i].unit; n++; }
+    for (int i = 0; i < 12; i++)
+        if (unitFlags & order[i].unit) { fmt[n] = order[i].letter; ptrs[n] = &v[n]; ws[n] = order[i].unit; n++; }
     fmt[n] = 0;
     CFAbsoluteTime a = [start timeIntervalSinceReferenceDate], b = [end timeIntervalSinceReferenceDate];
-    Boolean ok = n == 0 || CFCalendarGetComponentDifference((CFCalendarRef)self, a, b, (CFOptionFlags)opts, fmt,
-        ptrs[0], n > 1 ? ptrs[1] : NULL, n > 2 ? ptrs[2] : NULL, n > 3 ? ptrs[3] : NULL, n > 4 ? ptrs[4] : NULL,
-        n > 5 ? ptrs[5] : NULL, n > 6 ? ptrs[6] : NULL);
+    Boolean ok = n == 0 || CFCalendarGetComponentDifference((CFCalendarRef)self, a, b, (CFOptionFlags)opts, fmt, ptrs[0], ptrs[1],
+        ptrs[2], ptrs[3], ptrs[4], ptrs[5], ptrs[6], ptrs[7], ptrs[8], ptrs[9], ptrs[10], ptrs[11]);
     if (ok)
-        for (int i = 0; i < n; i++) [c setValue:*ptrs[i] forComponent:ws[i]];
+        for (int i = 0; i < n; i++) [c setValue:v[i] forComponent:ws[i]];
     if (unitFlags & U_ERA) {
         NSDateComponents *a = [self components:U_ERA fromDate:start];
         NSDateComponents *b = [self components:U_ERA fromDate:end];

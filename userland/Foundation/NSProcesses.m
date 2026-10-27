@@ -540,7 +540,7 @@ raise_or_error(NSConcreteFileHandle *self, SEL cmd, int code, NSError **error)
 - (int)terminationStatus { FINCH_ABSTRACT(NSTask); return 0; }
 - (void)interrupt { FINCH_ABSTRACT(NSTask); }
 - (void)launch { FINCH_ABSTRACT(NSTask); }
-- (BOOL)launchAndReturnError:(out NSError **)error { FINCH_ABSTRACT(NSTask); return NO; }
+- (BOOL)launchAndReturnError:(NSError **)error { FINCH_ABSTRACT(NSTask); return NO; }
 - (BOOL)resume { FINCH_ABSTRACT(NSTask); return NO; }
 - (BOOL)suspend { FINCH_ABSTRACT(NSTask); return NO; }
 - (void)terminate { FINCH_ABSTRACT(NSTask); }

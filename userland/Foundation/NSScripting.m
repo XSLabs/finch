@@ -792,9 +792,18 @@ set_error(NSScriptCommand *c, NSMutableDictionary *errors, NSString *key, id val
 
 - (id)objectsByEvaluatingSpecifier
 {
+    /* As Apple's: the object a whose test is testing, a range's container, the container
+       specified, or the top-level object (the application). */
+    NSScriptExecutionContext *context = [NSScriptExecutionContext sharedScriptExecutionContext];
     id containers;
-    if (_container)
+    if (_testedObject)
+        containers = [context objectBeingTested];
+    else if (_rangeContainer)
+        containers = [context rangeContainerObject];
+    else if (_container)
         containers = [_container objectsByEvaluatingSpecifier];
+    else if ([context topLevelObject])
+        containers = [context topLevelObject];
     else
         containers = [NSClassFromString(@"NSApplication") respondsToSelector:@selector(sharedApplication)]
                          ? ((id(*)(id, SEL))objc_msgSend)(NSClassFromString(@"NSApplication"), @selector(sharedApplication))
@@ -1104,46 +1113,70 @@ to_many(id container, NSString *key)
 
 @implementation NSObject (NSScriptKeyValueCoding)
 
+/* As Apple's: each looks for the class's own scripting accessor ("valueIn<Key>WithName:",
+   "insertIn<Key>:", ...); the ones by index fall back on the to-many property itself,
+   the others raise without it. */
+static SEL
+accessor(NSString *format, NSString *key)
+{
+    NSString *capitalized = [key length] ? [[[key substringToIndex:1] uppercaseString] stringByAppendingString:[key substringFromIndex:1]] : key;
+    return NSSelectorFromString([NSString stringWithFormat:format, capitalized]);
+}
+
+static void
+no_accessor(id self, SEL cmd, NSString *key, NSString *what, SEL wanted)
+{
+    [NSException raise:NSUndefinedKeyException format:@"[<%@ %p> %s]: lookup of unknown key: '%@'.\nThis class does not have %@ of the name %@",
+        NSStringFromClass([self class]), self, sel_getName(cmd), key, what, NSStringFromSelector(wanted)];
+}
+
 - (id)valueAtIndex:(NSUInteger)index inPropertyWithKey:(NSString *)key
 {
-    NSArray *all = to_many(self, key);
-    return index < [all count] ? [all objectAtIndex:index] : nil;
+    SEL sel = accessor(@"valueIn%@AtIndex:", key);
+    if ([self respondsToSelector:sel]) return ((id (*)(id, SEL, NSUInteger))objc_msgSend)(self, sel, index);
+    return [[self valueForKey:key] objectAtIndex:index];
 }
 
 - (id)valueWithName:(NSString *)name inPropertyWithKey:(NSString *)key
 {
-    for (id o in to_many(self, key))
-        if ([o respondsToSelector:@selector(name)] && [[o valueForKey:@"name"] isEqual:name])
-            return o;
-    return nil;
+    SEL sel = accessor(@"valueIn%@WithName:", key);
+    if (![self respondsToSelector:sel]) no_accessor(self, _cmd, key, @"a method", sel);
+    return ((id (*)(id, SEL, id))objc_msgSend)(self, sel, name);
 }
 
 - (id)valueWithUniqueID:(id)uniqueID inPropertyWithKey:(NSString *)key
 {
-    for (id o in to_many(self, key))
-        if ([o respondsToSelector:@selector(uniqueID)] && [[o valueForKey:@"uniqueID"] isEqual:uniqueID])
-            return o;
-    return nil;
+    SEL sel = accessor(@"valueIn%@WithUniqueID:", key);
+    if (![self respondsToSelector:sel]) no_accessor(self, _cmd, key, @"an appropriate method", sel);
+    return ((id (*)(id, SEL, id))objc_msgSend)(self, sel, uniqueID);
 }
 
 - (void)insertValue:(id)value atIndex:(NSUInteger)index inPropertyWithKey:(NSString *)key
 {
-    [[self mutableArrayValueForKey:key] insertObject:value atIndex:index];
+    SEL sel = accessor(@"insertIn%@:atIndex:", key);
+    if ([self respondsToSelector:sel]) ((void (*)(id, SEL, id, NSUInteger))objc_msgSend)(self, sel, value, index);
+    else [[self mutableArrayValueForKey:key] insertObject:value atIndex:index];
 }
 
 - (void)removeValueAtIndex:(NSUInteger)index fromPropertyWithKey:(NSString *)key
 {
-    [[self mutableArrayValueForKey:key] removeObjectAtIndex:index];
+    SEL sel = accessor(@"removeFrom%@AtIndex:", key);
+    if ([self respondsToSelector:sel]) ((void (*)(id, SEL, NSUInteger))objc_msgSend)(self, sel, index);
+    else [[self mutableArrayValueForKey:key] removeObjectAtIndex:index];
 }
 
 - (void)replaceValueAtIndex:(NSUInteger)index inPropertyWithKey:(NSString *)key withValue:(id)value
 {
-    [[self mutableArrayValueForKey:key] replaceObjectAtIndex:index withObject:value];
+    SEL sel = accessor(@"replaceIn%@:atIndex:", key);
+    if ([self respondsToSelector:sel]) ((void (*)(id, SEL, id, NSUInteger))objc_msgSend)(self, sel, value, index);
+    else [[self mutableArrayValueForKey:key] replaceObjectAtIndex:index withObject:value];
 }
 
 - (void)insertValue:(id)value inPropertyWithKey:(NSString *)key
 {
-    [[self mutableArrayValueForKey:key] addObject:value];
+    SEL sel = accessor(@"insertIn%@:", key);
+    if (![self respondsToSelector:sel]) no_accessor(self, _cmd, key, @"a method", sel);
+    ((void (*)(id, SEL, id))objc_msgSend)(self, sel, value);
 }
 
 - (id)coerceValue:(id)value forKey:(NSString *)key { return value; }

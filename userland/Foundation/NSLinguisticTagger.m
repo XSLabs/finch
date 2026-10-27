@@ -17,8 +17,17 @@
  */
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CFStringTokenizer.h>
+#import <objc/runtime.h>
 
 /* ---- NSOrthography ---- */
+
+/* As Apple's: the default orthographies of the languages in its table are
+   NSSimpleOrthography, any other orthography NSComplexOrthography (which
+   +alloc gives); both describe themselves the same way. */
+@interface NSSimpleOrthography : NSOrthography
+@end
+@interface NSComplexOrthography : NSOrthography
+@end
 
 @implementation NSOrthography {
     NSString *_dominantScript;
@@ -27,12 +36,18 @@
 
 + (BOOL)supportsSecureCoding { return YES; }
 
++ (instancetype)allocWithZone:(NSZone *)zone
+{
+    if (self == [NSOrthography class]) return [NSComplexOrthography allocWithZone:zone];
+    return [super allocWithZone:zone];
+}
+
 + (instancetype)orthographyWithDominantScript:(NSString *)script languageMap:(NSDictionary *)map
 {
     return [[[self alloc] initWithDominantScript:script languageMap:map] autorelease];
 }
 
-/* The script a language is written in (ISO 15924). */
+/* The script a language is written in (ISO 15924), for the tagger. */
 static NSString *
 script_for_language(NSString *lang)
 {
@@ -53,10 +68,41 @@ script_for_language(NSString *lang)
     return scripts[lang] ?: scripts[[lang componentsSeparatedByString:@"-"][0]] ?: @"Latn";
 }
 
+/* Apple's table of simple orthographies: language, exactly as given, to its script. */
+static NSDictionary *
+simple_orthographies(void)
+{
+    static NSMutableDictionary *table;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        table = [NSMutableDictionary new];
+        NSDictionary *byScript = @{
+            @"Latn" : @"en fr pt de es it nl sv da nb fi pl cs sk hu ro hr sl tr ca id vi et lv lt is ga cy eu gl sq sw af mt la eo sr-Latn",
+            @"Cyrl" : @"ru uk bg be mk kk sr-Cyrl az-Cyrl", @"Arab" : @"ar fa ur ps", @"Deva" : @"hi mr",
+            @"Jpan" : @"ja", @"Kore" : @"ko", @"Hans" : @"zh-Hans", @"Hant" : @"zh-Hant", @"Hebr" : @"he", @"Grek" : @"el",
+            @"Thai" : @"th", @"Armn" : @"hy", @"Geor" : @"ka", @"Beng" : @"bn", @"Taml" : @"ta", @"Telu" : @"te",
+            @"Knda" : @"kn", @"Mlym" : @"ml", @"Gujr" : @"gu", @"Sinh" : @"si", @"Khmr" : @"km", @"Laoo" : @"lo",
+            @"Mymr" : @"my", @"Tibt" : @"bo", @"Ethi" : @"am", @"Cher" : @"chr", @"Zyyy" : @"und",
+        };
+        for (NSString *script in byScript)
+            for (NSString *language in [byScript[script] componentsSeparatedByString:@" "])
+                table[language] = script;
+    });
+    return table;
+}
+
 + (instancetype)defaultOrthographyForLanguage:(NSString *)language
 {
-    NSString *script = script_for_language(language);
-    return [self orthographyWithDominantScript:script languageMap:@{script : @[ language ]}];
+    NSString *script = simple_orthographies()[language];
+    if (script)
+        return [[[NSSimpleOrthography alloc] initWithDominantScript:script languageMap:@{script : @[ language ]}] autorelease];
+    /* (otherwise the script of the language without its region, or a few of Apple's defaults, or Latin) */
+    NSString *base = [[language componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"-_"]] firstObject];
+    static NSDictionary *defaults;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ defaults = [@{ @"zh" : @"Hans", @"pa" : @"Arab", @"ne" : @"Deva" } retain]; });
+    script = defaults[base] ?: simple_orthographies()[base] ?: @"Latn";
+    return [[[NSComplexOrthography alloc] initWithDominantScript:script languageMap:@{script : @[ language ?: @"" ]}] autorelease];
 }
 
 - (instancetype)initWithDominantScript:(NSString *)script languageMap:(NSDictionary *)map
@@ -80,12 +126,21 @@ script_for_language(NSString *lang)
 - (NSArray *)languagesForScript:(NSString *)script { return _languageMap[script]; }
 - (NSString *)dominantLanguageForScript:(NSString *)script { return [_languageMap[script] firstObject]; }
 - (NSString *)dominantLanguage { return [self dominantLanguageForScript:_dominantScript]; }
-- (NSArray *)allScripts { return _languageMap.allKeys; }
+/* The dominant script first, then the rest by name. */
+- (NSArray *)allScripts
+{
+    NSMutableArray *a = [[[_languageMap.allKeys sortedArrayUsingSelector:@selector(compare:)] mutableCopy] autorelease];
+    if (_dominantScript && [a containsObject:_dominantScript]) {
+        [a removeObject:_dominantScript];
+        [a insertObject:_dominantScript atIndex:0];
+    }
+    return a;
+}
 
 - (NSArray *)allLanguages
 {
     NSMutableArray *a = [NSMutableArray array];
-    for (NSString *s in _languageMap)
+    for (NSString *s in [self allScripts])
         for (NSString *l in _languageMap[s])
             if (![a containsObject:l])
                 [a addObject:l];
@@ -101,9 +156,24 @@ script_for_language(NSString *lang)
 
 - (NSUInteger)hash { return _dominantScript.hash ^ _languageMap.hash; }
 
+/* Apple's: "{Latn->en and fr, plus Cyrl}". */
 - (NSString *)description
 {
-    return [NSString stringWithFormat:@"%@ %@ %@", super.description, _dominantScript, _languageMap];
+    NSArray *dominant = _languageMap[_dominantScript];
+    NSMutableString *s = [NSMutableString stringWithFormat:@"<%s: %p>{%@->%@", object_getClassName(self), self, _dominantScript,
+                                                           [dominant firstObject]];
+    if ([dominant count] == 2)
+        [s appendFormat:@" and %@", dominant[1]];
+    else if ([dominant count] > 2)
+        [s appendFormat:@" and %lu other languages", (unsigned long)[dominant count] - 1];
+    NSMutableArray *others = [[[self allScripts] mutableCopy] autorelease];
+    [others removeObject:_dominantScript];
+    if ([others count] == 1)
+        [s appendFormat:@", plus %@", others[0]];
+    else if ([others count] > 1)
+        [s appendFormat:@", plus %lu other scripts", (unsigned long)[others count]];
+    [s appendString:@"}"];
+    return s;
 }
 
 - (instancetype)initWithCoder:(NSCoder *)c
@@ -119,6 +189,11 @@ script_for_language(NSString *lang)
     [c encodeObject:_languageMap forKey:@"NSLanguageMap"];
 }
 
+@end
+
+@implementation NSSimpleOrthography
+@end
+@implementation NSComplexOrthography
 @end
 
 /* ---- NSLinguisticTagger ---- */

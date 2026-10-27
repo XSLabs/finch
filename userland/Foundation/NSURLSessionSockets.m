@@ -303,7 +303,6 @@ close_payload(NSInteger code, NSData *reason)
     });
 }
 
-- (void)suspend {}
 
 /* Exactly n bytes, from what the handshake read past and then the connection. */
 - (BOOL)_read:(void *)buf length:(size_t)n
@@ -787,7 +786,6 @@ expected_accept(NSString *key)
     });
 }
 
-- (void)suspend {}
 
 - (void)readDataOfMinLength:(NSUInteger)minBytes maxLength:(NSUInteger)maxBytes timeout:(NSTimeInterval)timeout
           completionHandler:(void (^)(NSData *, BOOL, NSError *))completionHandler

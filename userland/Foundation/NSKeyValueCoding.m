@@ -82,7 +82,13 @@ box(const char *type, const void *p)
     case 'Q': return [NSNumber numberWithUnsignedLongLong:*(const unsigned long long *)p];
     case 'f': return [NSNumber numberWithFloat:*(const float *)p];
     case 'd': return [NSNumber numberWithDouble:*(const double *)p];
-    default: return [NSValue valueWithBytes:p objCType:type];
+    default: {
+        /* (as Apple's: the method's type without its field names) */
+        char *bare = _FinchStripTypeNames(type);
+        NSValue *v = [NSValue valueWithBytes:p objCType:bare];
+        free(bare);
+        return v;
+    }
     }
 }
 
@@ -609,9 +615,31 @@ deprecated(SEL sel)
 - (void)takeStoredValue:(id)value forKey:(NSString *)key { [self setValue:value forKey:key]; }
 - (void)takeValue:(id)value forKey:(NSString *)key { deprecated(_cmd); [self setValue:value forKey:key]; }
 - (void)takeValue:(id)value forKeyPath:(NSString *)keyPath { deprecated(_cmd); [self setValue:value forKeyPath:keyPath]; }
-- (id)handleQueryWithUnboundKey:(NSString *)key { return [self valueForUndefinedKey:key]; }
-- (void)handleTakeValue:(id)value forUnboundKey:(NSString *)key { [self setValue:value forUndefinedKey:key]; }
-- (void)unableToSetNilForKey:(NSString *)key { [self setNilValueForKey:key]; }
+/* The old unbound-key handlers raise with the old messages, as Apple's do. */
+- (id)handleQueryWithUnboundKey:(NSString *)key
+{
+    [NSException raise:NSUndefinedKeyException
+                format:@"[<%@ %p> valueForKey:]: lookup of unknown key: '%@'.\nThis class does not have an instance variable of the name %@ or "
+                       @"_%@, nor a method of the name %@, _%@, get%@, or _get%@",
+        NSStringFromClass([self class]), self, key, key, key, key, key, capitalized(key), capitalized(key)];
+    return nil;
+}
+
+- (void)handleTakeValue:(id)value forUnboundKey:(NSString *)key
+{
+    [NSException raise:NSUndefinedKeyException
+                format:@"[<%@ %p> takeValue:forKey:]: attempt to assign value to unknown key: '%@'.\nThis class does not have an instance "
+                       @"variable of the name %@ or _%@, nor a method of the name set%@, or _set%@",
+        NSStringFromClass([self class]), self, key, key, key, capitalized(key), capitalized(key)];
+}
+
+- (void)unableToSetNilForKey:(NSString *)key
+{
+    [NSException raise:NSInvalidArgumentException
+                format:@"KeyValueCoding: Failed to assign nil to key '%@' in object of class '%@'.  If you want to handle assignments of nil "
+                       @"to properties of C scalar types, implement 'unableToSetNilForKey:' on your NS class.",
+        key, NSStringFromClass([self class])];
+}
 - (NSDictionary *)valuesForKeys:(NSArray *)keys { deprecated(_cmd); return [self dictionaryWithValuesForKeys:keys]; }
 - (void)takeValuesFromDictionary:(NSDictionary *)properties { deprecated(_cmd); [self setValuesForKeysWithDictionary:properties]; }
 

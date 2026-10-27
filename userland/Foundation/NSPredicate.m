@@ -890,6 +890,10 @@ compare(id l, id r, NSPredicateOperatorType type, NSComparisonPredicateOptions o
 
 - (instancetype)initWithType:(NSCompoundPredicateType)type subpredicates:(NSArray<NSPredicate *> *)subpredicates
 {
+    if (type == NSNotPredicateType && ![subpredicates count]) {
+        [self release];
+        FinchRaise(NSInvalidArgumentException, "Tried to construct NSCompoundPredicate for NSNotPredicateType with %@", subpredicates);
+    }
     if ((self = [super init])) {
         _type = type;
         _subpredicates = [subpredicates copy];
@@ -912,7 +916,13 @@ sub_format(NSPredicate *p)
 
 - (NSString *)predicateFormat
 {
-    if (_type == NSNotPredicateType) return [@"NOT " stringByAppendingString:sub_format([_subpredicates firstObject])];
+    if (_type == NSNotPredicateType) {
+        /* (Apple's, with more than one: each after the first behind "NOT") */
+        if ([_subpredicates count] == 1) return [@"NOT " stringByAppendingString:sub_format([_subpredicates firstObject])];
+        NSMutableArray *parts = [NSMutableArray array];
+        for (NSPredicate *p in _subpredicates) [parts addObject:sub_format(p)];
+        return [parts componentsJoinedByString:@" NOT "];
+    }
     if (![_subpredicates count]) return _type == NSAndPredicateType ? @"TRUEPREDICATE" : @"FALSEPREDICATE";
     NSMutableArray *parts = [NSMutableArray array];
     for (NSPredicate *p in _subpredicates) [parts addObject:sub_format(p)];
@@ -965,7 +975,7 @@ typedef struct {
 static void __attribute__((noreturn))
 parse_error(Parser *p)
 {
-    FinchRaise(NSInvalidArgumentException, "Unable to parse the format string \"%s\"", [p->format UTF8String]);
+    FinchRaise(NSInvalidArgumentException, "Unable to parse the format string \"%@\"", p->format);
 }
 
 static Token *
