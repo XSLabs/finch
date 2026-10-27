@@ -180,9 +180,12 @@ GNUstep is LGPL and isn't copied (`docs/LICENSING.md`).
   collections travel by copy, other objects as proxies, and an object that comes home
   arrives as a local proxy, as with Apple's. Servers make a child connection per client,
   so callbacks reach the client. The wire format is Finch's own (both ends run Finch).
-  `NSMessagePortNameServer` and `NSSocketPortNameServer` know no names, and
-  `NSMessagePort` and `NSSocketPort` are still missing. `finch-do-test` runs a server
-  and client process and matches Apple's run.
+  `NSMessagePort` (`NSPorts.m`, over CFMessagePort, found by name through
+  `NSMessagePortNameServer`) and `NSSocketPort` (TCP over CFSocket, remote ports kept
+  one per address as Apple's are) carry the same messages; Distributed Objects runs
+  over socket ports between processes. `NSSocketPortNameServer` knows no names, as
+  Finch has no Bonjour-backed name service. `finch-do-test` runs server and client
+  processes over Mach, message and socket ports and matches Apple's run.
 
 ### The Swift overlays
 

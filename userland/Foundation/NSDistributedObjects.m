@@ -1309,8 +1309,12 @@ encode_arguments(NSPortCoder *coder, NSInvocation *invocation, BOOL reply)
 
 #pragma clang diagnostic pop
 
-/* Message ports and socket ports carry no Distributed Objects traffic in
- * Finch: their name servers know no names. */
+@interface NSMessagePort (FinchNames)
+- (instancetype)_initRemoteWithName:(NSString *)name;
+- (BOOL)_setName:(NSString *)name;
+@end
+
+/* Message ports are found by their CFMessagePort names. */
 @implementation NSMessagePortNameServer
 + (id)sharedInstance
 {
@@ -1320,8 +1324,19 @@ encode_arguments(NSPortCoder *coder, NSInvocation *invocation, BOOL reply)
     return shared;
 }
 - (NSPort *)portForName:(NSString *)name { return [self portForName:name host:nil]; }
-- (NSPort *)portForName:(NSString *)name host:(NSString *)host { (void)name; (void)host; return nil; }
+- (NSPort *)portForName:(NSString *)name host:(NSString *)host
+{
+    if (!name || (host.length && ![host isEqualToString:@"*"])) return nil;
+    return [[[NSMessagePort alloc] _initRemoteWithName:name] autorelease];
+}
+- (BOOL)registerPort:(NSPort *)port name:(NSString *)name
+{
+    return [port isKindOfClass:[NSMessagePort class]] && name && [(NSMessagePort *)port _setName:name];
+}
 @end
+
+/* Socket ports have no Bonjour-backed name service in Finch: the name
+ * server knows no names; connect with ports made from addresses. */
 
 @implementation NSSocketPortNameServer {
     uint16_t _fDefaultPort;

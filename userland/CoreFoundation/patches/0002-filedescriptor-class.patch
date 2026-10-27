@@ -1,26 +1,29 @@
-CFRuntime.c: register CFFileDescriptor under its reserved static type ID
-(_kCFRuntimeIDCFFileDescriptor). The implementation is Finch's
-(userland/CoreFoundation/CFFileDescriptor_Finch.c).
+CFRuntime.c: register CFFileDescriptor and CFMessagePort under their reserved
+static type IDs (_kCFRuntimeIDCFFileDescriptor, _kCFRuntimeIDCFMessagePort).
+CFFileDescriptor is Finch's (userland/CoreFoundation/CFFileDescriptor_Finch.c);
+CFMessagePort is the Darwin CFMessagePort.c the build fetches. Without the
+entries their create functions return NULL.
 
 diff --git a/Sources/CoreFoundation/CFRuntime.c b/Sources/CoreFoundation/CFRuntime.c
-index 115cd84..9163064 100644
 --- a/Sources/CoreFoundation/CFRuntime.c
 +++ b/Sources/CoreFoundation/CFRuntime.c
-@@ -189,6 +189,9 @@ static const CFRuntimeClass __CFTypeClass = {
+@@ -189,6 +189,10 @@
  // the lock does not protect most reading of these; we just leak the old table to allow read-only accesses to continue to work
  static os_unfair_lock __CFBigRuntimeFunnel = OS_UNFAIR_LOCK_INIT;
  
 +#if TARGET_OS_MAC
 +CF_PRIVATE const CFRuntimeClass __CFFileDescriptorClass;   // Finch: CFFileDescriptor_Finch.c
++extern const CFRuntimeClass __CFMessagePortClass;          // the Darwin CFMessagePort.c
 +#endif
  _CFClassTables __CFRuntimeClassTables __attribute__((aligned)) = {
      .classTable = {
      [_kCFRuntimeIDNotAType] = &__CFNotATypeClass,
-@@ -232,6 +235,7 @@ _CFClassTables __CFRuntimeClassTables __attribute__((aligned)) = {
+@@ -232,6 +236,8 @@
  
  #if TARGET_OS_MAC
      [_kCFRuntimeIDCFMachPort] = &__CFMachPortClass,
 +    [_kCFRuntimeIDCFFileDescriptor] = &__CFFileDescriptorClass,   // Finch: CFFileDescriptor_Finch.c
++    [_kCFRuntimeIDCFMessagePort] = &__CFMessagePortClass,
  #endif
  
  

@@ -1,0 +1,57 @@
+--- a/CFMessagePort.c
++++ b/CFMessagePort.c
+@@ -383,8 +383,6 @@
+ 	CFMachPortRef native = NULL;
+ 	kern_return_t ret;
+ 	mach_port_t mp;
+-	if (!perPID) {
+-	}
+ 	if (!native) {
+ 	    CFMachPortContext ctx = {0, memory, NULL, NULL, NULL};
+ 	    native = CFMachPortCreate(allocator, __CFMessagePortDummyCallback, &ctx, NULL);
+@@ -396,6 +394,15 @@
+ 	    }
+ 	    mp = CFMachPortGetPort(native);
+ 	}
++	if (!perPID) {
++	    // Finch: publish the name so other processes can find the port
++	    mach_port_t bs;
++	    task_get_bootstrap_port(mach_task_self(), &bs);
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wdeprecated-declarations"
++	    (void)bootstrap_register(bs, (char *)utfname, mp);
++#pragma clang diagnostic pop
++	}
+ 	CFMachPortSetInvalidationCallBack(native, __CFMessagePortInvalidationCallBack);
+ 	memory->_port = native;
+     }
+@@ -488,6 +495,17 @@
+     ctx.retain = NULL;
+     ctx.release = NULL;
+     ctx.copyDescription = NULL;
++    {
++        // Finch: find the named port in the bootstrap namespace
++        mach_port_t bp;
++        task_get_bootstrap_port(mach_task_self(), &bp);
++        if (bootstrap_look_up(bp, (char *)utfname, &port) != KERN_SUCCESS || port == MACH_PORT_NULL) {
++            CFAllocatorDeallocate(kCFAllocatorSystemDefault, utfname);
++            // name is released by deallocation
++            CFRelease(memory);
++            return NULL;
++        }
++    }
+     native = CFMachPortCreateWithPort(allocator, port, __CFMessagePortDummyCallback, &ctx, NULL);
+     CFAllocatorDeallocate(kCFAllocatorSystemDefault, utfname);
+     if (NULL == native) {
+@@ -619,6 +637,11 @@
+                 return false;
+ 	    }
+             mp = CFMachPortGetPort(native);
++            // Finch: a name launchd did not hand out is published here
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wdeprecated-declarations"
++            (void)bootstrap_register(bs, (char *)utfname, mp);
++#pragma clang diagnostic pop
+         }
+         CFMachPortSetInvalidationCallBack(native, __CFMessagePortInvalidationCallBack);
+         ms->_port = native;

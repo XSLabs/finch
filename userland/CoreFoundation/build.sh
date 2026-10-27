@@ -86,7 +86,22 @@ done
 # platforms (Darwin's is in libSystem), plus Finch's.
 srcs=$(sed -n '/add_library(CoreFoundation STATIC/,/)/p' "${CF}/CMakeLists.txt" | grep -o '[A-Za-z_]*\.c' \
     | grep -vx 'uuid\.c' | sed "s|^|${CF}/|")
-srcs+=" $(for e in "${DARWIN_FILES[@]}"; do echo "${DARWIN}/${e%% *}"; done)"
+# The Darwin files compile from patched copies (patches/darwin/), rewritten
+# only when their patched text changes so unchanged objects are kept.
+PATCHED="${OBJ}/darwin"
+mkdir -p "${PATCHED}"
+STAGE="$(mktemp -d)"
+for e in "${DARWIN_FILES[@]}"; do cp "${DARWIN}/${e%% *}" "${STAGE}/"; done
+for p in "${HERE}"/patches/darwin/*.patch; do
+    [[ -e "$p" ]] || continue
+    patch -s -p1 -d "${STAGE}" < "$p" || { echo "$(basename "$p") does not apply" >&2; exit 1; }
+done
+for e in "${DARWIN_FILES[@]}"; do
+    f="${e%% *}"
+    cmp -s "${STAGE}/${f}" "${PATCHED}/${f}" || cp "${STAGE}/${f}" "${PATCHED}/${f}"
+done
+rm -rf "${STAGE:?}"
+srcs+=" $(for e in "${DARWIN_FILES[@]}"; do echo "${PATCHED}/${e%% *}"; done)"
 srcs+=" $(ls "${HERE}"/*.c "${HERE}"/*.m "${HERE}"/*.s 2>/dev/null || true)"
 
 CFLAGS=(-arch arm64e -mmacosx-version-min=26.0 -isysroot "${SDKROOT}" -Os -g

@@ -3,8 +3,9 @@
  * finch-do-test: Distributed Objects between two processes: a server
  * registered by name, a client calling it through a proxy (values by copy,
  * structures, out-parameters, oneway calls, exceptions, callbacks to the
- * client), and the connection, coder and name-server API around it (diff
- * Apple's and Finch's).
+ * client), and the connection, coder and name-server API around it; message
+ * ports, socket ports with Distributed Objects over TCP, and CFMessagePort
+ * requests and replies between processes (diff Apple's and Finch's).
  */
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
@@ -15,6 +16,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <spawn.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 
 extern char **environ;
 
@@ -104,6 +108,116 @@ api(void)
     [pair invalidate];
 }
 
+@interface Echo : NSObject
+- (NSString *)shout:(NSString *)s;
+@end
+@implementation Echo
+- (NSString *)shout:(NSString *)s { return [s uppercaseString]; }
+@end
+
+static CFDataRef
+reverse(CFMessagePortRef port, SInt32 msgid, CFDataRef data, void *info)
+{
+    NSMutableData *reply = [NSMutableData data];
+    const uint8_t *bytes = CFDataGetBytePtr(data);
+    for (CFIndex i = CFDataGetLength(data); i > 0; i--) [reply appendBytes:&bytes[i - 1] length:1];
+    uint8_t id = (uint8_t)msgid;
+    [reply appendBytes:&id length:1];
+    return CFBridgingRetain(reply);
+}
+
+/* A CFMessagePort that answers with its request reversed and the msgid. */
+static int
+serve_messages(const char *name, int fd)
+{
+    @autoreleasepool {
+        CFMessagePortRef port = CFMessagePortCreateLocal(NULL, (__bridge CFStringRef)@(name), reverse, NULL, NULL);
+        char ok = port ? 'y' : 'n';
+        write(fd, &ok, 1);
+        CFRunLoopSourceRef source = CFMessagePortCreateRunLoopSource(NULL, port, 0);
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), source, kCFRunLoopDefaultMode);
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 30, false);
+    }
+    return 0;
+}
+
+/* Distributed Objects over a TCP socket port; reports the port it listens on. */
+static int
+serve_socket(int fd)
+{
+    @autoreleasepool {
+        NSSocketPort *p = [[NSSocketPort alloc] initWithTCPPort:0];
+        NSConnection *c = [NSConnection connectionWithReceivePort:p sendPort:nil];
+        c.rootObject = [Echo new];
+        const struct sockaddr_in *a = p.address.bytes;
+        unsigned short port = ntohs(a->sin_port);
+        write(fd, &port, sizeof port);
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:30]];
+    }
+    return 0;
+}
+
+static pid_t
+spawn(char *self, char *mode, char *name, int fd)
+{
+    char number[16];
+    snprintf(number, sizeof number, "%d", fd);
+    char *args[] = { self, mode, name, number, NULL };
+    pid_t child = 0;
+    posix_spawn(&child, self, NULL, NULL, args, environ);
+    return child;
+}
+
+static void
+ports(char *self)
+{
+    printf("== ports\n");
+    NSMessagePort *m = (NSMessagePort *)[NSMessagePort port];
+    printf("message class %s valid %d\n", NSStringFromClass([m class]).UTF8String, m.isValid);
+    char name[64];
+    snprintf(name, sizeof name, "org.finch.do-test.msg.%d", getpid());
+    printf("message register %d\n", [[NSMessagePortNameServer sharedInstance] registerPort:m name:@(name)]);
+    NSPort *found = [[NSMessagePortNameServer sharedInstance] portForName:@(name)];
+    printf("message lookup %s class %s\n", found ? "found" : "nil", NSStringFromClass([found class]).UTF8String);
+    NSSocketPort *s = [NSSocketPort new];
+    const struct sockaddr_in *a = s.address.bytes;
+    printf("socket family %d type %d protocol %d has-socket %d address %s port-set %d\n", s.protocolFamily, s.socketType, s.protocol,
+           s.socket >= 0, inet_ntoa(a->sin_addr), a->sin_port != 0);
+    NSSocketPort *r = [[NSSocketPort alloc] initRemoteWithTCPPort:4321 host:@"127.0.0.1"];
+    const struct sockaddr_in *ra = r.address.bytes;
+    printf("remote socket %d port %d address %s\n", r.socket, ntohs(ra->sin_port), inet_ntoa(ra->sin_addr));
+    NSSocketPort *r2 = [[NSSocketPort alloc] initRemoteWithTCPPort:4321 host:@"127.0.0.1"];
+    printf("remote same object %d equal %d\n", r == r2, [r isEqual:r2]);
+    [s invalidate];
+    printf("after invalidate %d\n", s.isValid);
+
+    int ready[2];
+    pipe(ready);
+    snprintf(name, sizeof name, "org.finch.do-test.cf.%d", getpid());
+    pid_t child = spawn(self, "messages", name, ready[1]);
+    char ok = 0;
+    read(ready[0], &ok, 1);
+    printf("cf message server %c\n", ok);
+    CFMessagePortRef remote = CFMessagePortCreateRemote(NULL, (__bridge CFStringRef)@(name));
+    CFDataRef reply = NULL;
+    NSData *request = [@"finch" dataUsingEncoding:NSUTF8StringEncoding];
+    SInt32 status = remote ? CFMessagePortSendRequest(remote, 7, (__bridge CFDataRef)request, 5, 5, kCFRunLoopDefaultMode, &reply) : -99;
+    printf("cf send %d reply %s\n", (int)status, reply ? [[(__bridge NSData *)reply description] UTF8String] : "none");
+    if (remote) CFRelease(remote);
+    kill(child, SIGTERM);
+    waitpid(child, NULL, 0);
+
+    pipe(ready);
+    child = spawn(self, "socket", name, ready[1]);
+    unsigned short port = 0;
+    read(ready[0], &port, sizeof port);
+    NSSocketPort *server = [[NSSocketPort alloc] initRemoteWithTCPPort:port host:@"127.0.0.1"];
+    NSConnection *c = [NSConnection connectionWithReceivePort:[NSSocketPort new] sendPort:server];
+    printf("socket shout %s\n", [[(id)c.rootProxy shout:@"over tcp"] UTF8String]);
+    kill(child, SIGTERM);
+    waitpid(child, NULL, 0);
+}
+
 static int
 serve(const char *name, int fd)
 {
@@ -122,9 +236,12 @@ int
 main(int argc, char **argv)
 {
     if (argc == 4 && !strcmp(argv[1], "server")) return serve(argv[2], atoi(argv[3]));
+    if (argc == 4 && !strcmp(argv[1], "messages")) return serve_messages(argv[2], atoi(argv[3]));
+    if (argc == 4 && !strcmp(argv[1], "socket")) return serve_socket(atoi(argv[3]));
     @autoreleasepool {
         setvbuf(stdout, NULL, _IOLBF, 0);
         api();
+        ports(argv[0]);
         printf("== remote\n");
         char name[128], fd[16];
         snprintf(name, sizeof name, "org.finch.do-test.%d", getpid());

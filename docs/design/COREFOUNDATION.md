@@ -34,6 +34,11 @@ hooks. Both candidate bases define 194 to 196 of the 203 needed symbols.
 **Darwin-only run-loop sources** (CFMachPort, CFMachPort_Lifetime, CFMessagePort)
 come from swift-corelibs' own last release that had them (swift-5.10.1, same
 license), pinned by checksum. CF-Lite's versions predate the modern runtime.
+The build compiles them from patched copies (`patches/darwin/`): that release
+had dropped CFMessagePort's bootstrap calls, so a named local port now publishes
+its name and a remote port looks its name up, and CFMessagePort's runtime class
+is registered (patch 0002) so ports can be created at all. Requests and replies
+between processes match Apple's (`finch-do-test`).
 
 **Written by Finch:** what neither has. That includes `CFAllocatorAllocateTyped`
 and the other typed-allocation entry points, plus the Objective-C classes that
