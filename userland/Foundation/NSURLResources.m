@@ -395,9 +395,46 @@ value_for_key(NSURL *url, NSString *key, const struct stat *st, BOOL exists)
     return [self checkResourceIsReachableAndReturnError:error];
 }
 
-- (BOOL)getPromisedItemResourceValue:(id *)value forKey:(NSURLResourceKey)key error:(NSError **)error
+- (BOOL)getPromisedItemResourceValue:(out id *)value forKey:(NSURLResourceKey)key error:(out NSError **)error
 {
     return [self getResourceValue:value forKey:key error:error];
+}
+
+/* Security-scoped access: Finch's sandbox extensions travel with the file's bookmark and
+   are consumed when it's resolved, so there's nothing more to start; as Apple's, a file
+   URL answers YES and any other NO. */
+- (BOOL)startAccessingSecurityScopedResource { return [self isFileURL]; }
+- (void)stopAccessingSecurityScopedResource { }
+
+/* An alias file's target: as Apple's, the item itself is resolved when it's a link (its
+   folders aren't), and anything else, missing files included, is returned as it is. */
++ (NSURL *)URLByResolvingAliasFileAtURL:(NSURL *)url options:(NSURLBookmarkResolutionOptions)options error:(NSError **)error
+{
+    if (![url isFileURL])
+        return url;
+    char target[PATH_MAX];
+    const char *path = [url fileSystemRepresentation];
+    ssize_t n = path ? readlink(path, target, sizeof(target) - 1) : -1;
+    if (n < 0)
+        return url;
+    target[n] = 0;
+    NSString *t = [[NSFileManager defaultManager] stringWithFileSystemRepresentation:target length:(NSUInteger)n];
+    if (![t isAbsolutePath])
+        t = [[[url path] stringByDeletingLastPathComponent] stringByAppendingPathComponent:t];
+    return [NSURL fileURLWithPath:[t stringByStandardizingPath]];
+}
+
+/* The old asynchronous resource loading (NSURLHandle's): the data, delivered to the client
+   as Apple's did, now through NSData's reading. */
+- (void)loadResourceDataNotifyingClient:(id)client usingCache:(BOOL)shouldUseCache
+{
+    NSData *data = [NSData dataWithContentsOfURL:self];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (data && [client respondsToSelector:@selector(URLResourceDidFinishLoading:)])
+            [client performSelector:@selector(URLResourceDidFinishLoading:) withObject:self];
+        else if (!data && [client respondsToSelector:@selector(URLResourceDidCancelLoading:)])
+            [client performSelector:@selector(URLResourceDidCancelLoading:) withObject:self];
+    });
 }
 
 - (NSDictionary *)promisedItemResourceValuesForKeys:(NSArray<NSURLResourceKey> *)keys error:(NSError **)error

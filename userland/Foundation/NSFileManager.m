@@ -19,6 +19,9 @@
 #include <sysdir.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#import <objc/message.h>
 
 #include "Foundation_Finch.h"
 
@@ -757,4 +760,180 @@ NSSearchPathForDirectoriesInDomains(NSSearchPathDirectory directory, NSSearchPat
 - (BOOL)fileIsAppendOnly { return [[self objectForKey:NSFileAppendOnly] boolValue]; }
 - (OSType)fileHFSCreatorCode { return 0; }
 - (OSType)fileHFSTypeCode { return 0; }
+@end
+
+/* MARK: - Replacing items, iCloud, app groups and the old handler methods */
+
+@implementation NSFileManager (FinchReplacingAndUbiquity)
+
+static NSError *
+cocoa_error(NSInteger code, NSURL *url, int posix)
+{
+    NSMutableDictionary *info = [NSMutableDictionary dictionary];
+    if (url) {
+        info[NSURLErrorKey] = url;
+        if ([url path]) info[NSFilePathErrorKey] = [url path];
+    }
+    if (posix) info[NSUnderlyingErrorKey] = [NSError errorWithDomain:NSPOSIXErrorDomain code:posix userInfo:nil];
+    return [NSError errorWithDomain:NSCocoaErrorDomain code:code userInfo:info];
+}
+
+/* As Apple's: the new item takes the original's place (and is used up), keeping the
+   original's permissions and owner unless told to use the new item's; a backup of the
+   original, by the name given, is left only when asked for; with no original the new item
+   is just moved into place. */
+- (BOOL)replaceItemAtURL:(NSURL *)originalItemURL withItemAtURL:(NSURL *)newItemURL backupItemName:(NSString *)backupItemName
+                 options:(NSFileManagerItemReplacementOptions)options resultingItemURL:(NSURL **)resultingURL error:(NSError **)error
+{
+    const char *original = [originalItemURL fileSystemRepresentation], *replacement = [newItemURL fileSystemRepresentation];
+    struct stat ost, nst;
+    if (!original || !replacement || lstat(replacement, &nst) != 0) {
+        if (error) *error = cocoa_error(NSFileWriteUnknownError, originalItemURL, errno ? errno : ENOENT);
+        return NO;
+    }
+    if (lstat(original, &ost) != 0) {
+        if (rename(replacement, original) != 0) {
+            if (error) *error = cocoa_error(NSFileWriteUnknownError, originalItemURL, errno);
+            return NO;
+        }
+        if (resultingURL) *resultingURL = originalItemURL;
+        return YES;
+    }
+    if (!(options & NSFileManagerItemReplacementUsingNewMetadataOnly)) {
+        lchmod(replacement, ost.st_mode & 07777);
+        if (geteuid() == 0) lchown(replacement, ost.st_uid, ost.st_gid);
+    }
+    if (backupItemName) {
+        NSString *backup = [[[originalItemURL path] stringByDeletingLastPathComponent] stringByAppendingPathComponent:backupItemName];
+        [self removeItemAtPath:backup error:NULL];
+        if (rename(original, [backup fileSystemRepresentation]) != 0) {
+            if (error) *error = cocoa_error(NSFileWriteUnknownError, originalItemURL, errno);
+            return NO;
+        }
+        if (rename(replacement, original) != 0) {
+            int e = errno;
+            rename([backup fileSystemRepresentation], original);
+            if (error) *error = cocoa_error(NSFileWriteUnknownError, originalItemURL, e);
+            return NO;
+        }
+        if (!(options & NSFileManagerItemReplacementWithoutDeletingBackupItem))
+            [self removeItemAtPath:backup error:NULL];
+    } else if (renamex_np(replacement, original, RENAME_SWAP) == 0) {
+        /* (the old item is now where the new one was) */
+        [self removeItemAtPath:[newItemURL path] error:NULL];
+    } else if (rename(replacement, original) != 0) {
+        if (error) *error = cocoa_error(NSFileWriteUnknownError, originalItemURL, errno);
+        return NO;
+    }
+    if (resultingURL) *resultingURL = originalItemURL;
+    return YES;
+}
+
+/* iCloud: there's no iCloud account on Finch, so these answer as Apple's does without one. */
+- (NSURL *)URLForUbiquityContainerIdentifier:(NSString *)containerIdentifier { return nil; }
+- (BOOL)isUbiquitousItemAtURL:(NSURL *)url { return NO; }
+- (BOOL)setUbiquitous:(BOOL)flag itemAtURL:(NSURL *)url destinationURL:(NSURL *)destinationURL error:(NSError **)error
+{
+    if (error) *error = cocoa_error(NSFileWriteNoPermissionError, url, 0);
+    return NO;
+}
+- (BOOL)startDownloadingUbiquitousItemAtURL:(NSURL *)url error:(NSError **)error
+{
+    if (error) *error = cocoa_error(NSFileWriteUnknownError, url, 0);
+    return NO;
+}
+- (BOOL)evictUbiquitousItemAtURL:(NSURL *)url error:(NSError **)error
+{
+    if (error) *error = cocoa_error(NSFeatureUnsupportedError, url, 0);
+    return NO;
+}
+- (NSURL *)URLForPublishingUbiquitousItemAtURL:(NSURL *)url expirationDate:(NSDate **)outDate error:(NSError **)error
+{
+    if (error) *error = cocoa_error(NSFileReadUnknownError, url, 0);
+    return nil;
+}
+#define FINCH_NO_ICLOUD(handler, url) \
+    do { \
+        NSError *unsupported = cocoa_error(NSFeatureUnsupportedError, url, 0); \
+        if (handler) dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{ handler(unsupported); }); \
+    } while (0)
+- (void)pauseSyncForUbiquitousItemAtURL:(NSURL *)url completionHandler:(void (^)(NSError *))completionHandler
+{
+    FINCH_NO_ICLOUD(completionHandler, url);
+}
+- (void)resumeSyncForUbiquitousItemAtURL:(NSURL *)url withBehavior:(NSFileManagerResumeSyncBehavior)behavior
+                       completionHandler:(void (^)(NSError *))completionHandler
+{
+    FINCH_NO_ICLOUD(completionHandler, url);
+}
+- (void)fetchLatestRemoteVersionOfItemAtURL:(NSURL *)url completionHandler:(void (^)(NSFileVersion *, NSError *))completionHandler
+{
+    NSError *unsupported = cocoa_error(NSFeatureUnsupportedError, url, 0);
+    if (completionHandler) dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{ completionHandler(nil, unsupported); });
+}
+- (void)uploadLocalVersionOfUbiquitousItemAtURL:(NSURL *)url withConflictResolutionPolicy:(NSFileManagerUploadLocalVersionConflictPolicy)policy
+                              completionHandler:(void (^)(NSFileVersion *, NSError *))completionHandler
+{
+    NSError *unsupported = cocoa_error(NSFeatureUnsupportedError, url, 0);
+    if (completionHandler) dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{ completionHandler(nil, unsupported); });
+}
+- (void)getFileProviderServicesForItemAtURL:(NSURL *)url completionHandler:(void (^)(NSDictionary *, NSError *))completionHandler
+{
+    NSError *unsupported = cocoa_error(NSFeatureUnsupportedError, url, 0);
+    if (completionHandler) dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{ completionHandler(nil, unsupported); });
+}
+
+/* An app group's shared folder: ~/Library/Group Containers/IDENTIFIER, as Apple's (made
+   when it's first used, not here). */
+- (NSURL *)containerURLForSecurityApplicationGroupIdentifier:(NSString *)groupIdentifier
+{
+    if (![groupIdentifier length])
+        return nil;
+    NSString *home = [NSString stringWithUTF8String:getpwuid(getuid())->pw_dir ?: "/"];
+    return [NSURL fileURLWithPath:[[home stringByAppendingPathComponent:@"Library/Group Containers"] stringByAppendingPathComponent:groupIdentifier]
+                      isDirectory:YES];
+}
+
+- (void)unmountVolumeAtURL:(NSURL *)url options:(NSFileManagerUnmountOptions)mask completionHandler:(void (^)(NSError *))completionHandler
+{
+    NSString *path = [url path];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+        NSError *e = nil;
+        if (!path || unmount([path fileSystemRepresentation], (mask & NSFileManagerUnmountAllPartitionsAndEjectDisk) ? MNT_FORCE : 0) != 0)
+            e = cocoa_error(NSFileManagerUnmountUnknownError, url, errno);
+        if (completionHandler) completionHandler(e);
+    });
+}
+
+/* The old handler methods: the current ones, asking the handler whether to go on after an
+   error (fileManager:shouldProceedAfterError:), as they did. */
+static BOOL
+proceed(NSFileManager *fm, id handler, NSString *path, NSError *error)
+{
+    SEL ask = @selector(fileManager:shouldProceedAfterError:);
+    if (!error || ![handler respondsToSelector:ask]) return NO;
+    NSDictionary *info = @{ @"Path": path ?: @"", @"Error": [error localizedDescription] ?: @"" };
+    return ((BOOL (*)(id, SEL, id, id))objc_msgSend)(handler, ask, fm, info);
+}
+- (BOOL)copyPath:(NSString *)src toPath:(NSString *)dest handler:(id)handler
+{
+    NSError *e = nil;
+    return [self copyItemAtPath:src toPath:dest error:&e] || proceed(self, handler, src, e);
+}
+- (BOOL)movePath:(NSString *)src toPath:(NSString *)dest handler:(id)handler
+{
+    NSError *e = nil;
+    return [self moveItemAtPath:src toPath:dest error:&e] || proceed(self, handler, src, e);
+}
+- (BOOL)linkPath:(NSString *)src toPath:(NSString *)dest handler:(id)handler
+{
+    NSError *e = nil;
+    return [self linkItemAtPath:src toPath:dest error:&e] || proceed(self, handler, src, e);
+}
+- (BOOL)removeFileAtPath:(NSString *)path handler:(id)handler
+{
+    NSError *e = nil;
+    return [self removeItemAtPath:path error:&e] || proceed(self, handler, path, e);
+}
+
 @end

@@ -73,6 +73,8 @@ posix_error(int code, NSString *path)
 
 /* MARK: - NSFileHandle */
 
+void NSRequestConcreteImplementation(id self, SEL cmd, Class absClass);
+
 @interface NSConcreteFileHandle : NSFileHandle {
 @public
     int _fd;
@@ -136,6 +138,20 @@ open_path(Class cls, NSString *path, int flags, NSError **error)
 
 - (instancetype)initWithFileDescriptor:(int)fd { return [self initWithFileDescriptor:fd closeOnDealloc:NO]; }
 - (instancetype)initWithFileDescriptor:(int)fd closeOnDealloc:(BOOL)closeopt { return [super init]; }
+
+/* The primitives, as Apple's abstract class has them: a subclass's to define. */
+#define FINCH_ABSTRACT(cls) NSRequestConcreteImplementation(self, _cmd, [cls class])
+- (NSData *)availableData { FINCH_ABSTRACT(NSFileHandle); return nil; }
+- (int)fileDescriptor { FINCH_ABSTRACT(NSFileHandle); return -1; }
+- (BOOL)closeAndReturnError:(out NSError **)error { FINCH_ABSTRACT(NSFileHandle); return NO; }
+- (BOOL)getOffset:(out unsigned long long *)offsetInFile error:(out NSError **)error { FINCH_ABSTRACT(NSFileHandle); return NO; }
+- (NSData *)readDataToEndOfFileAndReturnError:(out NSError **)error { FINCH_ABSTRACT(NSFileHandle); return nil; }
+- (NSData *)readDataUpToLength:(NSUInteger)length error:(out NSError **)error { FINCH_ABSTRACT(NSFileHandle); return nil; }
+- (BOOL)seekToEndReturningOffset:(out unsigned long long *)offsetInFile error:(out NSError **)error { FINCH_ABSTRACT(NSFileHandle); return NO; }
+- (BOOL)seekToOffset:(unsigned long long)offset error:(out NSError **)error { FINCH_ABSTRACT(NSFileHandle); return NO; }
+- (BOOL)synchronizeAndReturnError:(out NSError **)error { FINCH_ABSTRACT(NSFileHandle); return NO; }
+- (BOOL)truncateAtOffset:(unsigned long long)offset error:(out NSError **)error { FINCH_ABSTRACT(NSFileHandle); return NO; }
+- (BOOL)writeData:(NSData *)data error:(out NSError **)error { FINCH_ABSTRACT(NSFileHandle); return NO; }
 - (instancetype)initWithCoder:(NSCoder *)coder { [self release]; return nil; }
 - (void)encodeWithCoder:(NSCoder *)coder { }
 
@@ -446,6 +462,8 @@ raise_or_error(NSConcreteFileHandle *self, SEL cmd, int code, NSError **error)
 }
 
 + (NSPipe *)pipe { return [[[self alloc] init] autorelease]; }
+- (NSFileHandle *)fileHandleForReading { FINCH_ABSTRACT(NSPipe); return nil; }
+- (NSFileHandle *)fileHandleForWriting { FINCH_ABSTRACT(NSPipe); return nil; }
 
 @end
 
@@ -502,9 +520,30 @@ raise_or_error(NSConcreteFileHandle *self, SEL cmd, int code, NSError **error)
 
 @implementation NSTask
 
-/* The concrete class implements the properties. */
+/* The concrete class implements the properties; the abstract class has the setters and
+   primitives Apple's has, each a subclass's to define. */
 @dynamic executableURL, arguments, environment, currentDirectoryURL, standardInput, standardOutput, standardError,
     processIdentifier, running, terminationStatus, terminationReason, terminationHandler, qualityOfService;
+
+- (void)setArguments:(NSArray<NSString *> *)arguments { FINCH_ABSTRACT(NSTask); }
+- (void)setCurrentDirectoryPath:(NSString *)path { FINCH_ABSTRACT(NSTask); }
+- (void)setCurrentDirectoryURL:(NSURL *)url { FINCH_ABSTRACT(NSTask); }
+- (void)setEnvironment:(NSDictionary<NSString *, NSString *> *)environment { FINCH_ABSTRACT(NSTask); }
+- (void)setExecutableURL:(NSURL *)url { FINCH_ABSTRACT(NSTask); }
+- (void)setLaunchPath:(NSString *)path { FINCH_ABSTRACT(NSTask); }
+- (int)processIdentifier { FINCH_ABSTRACT(NSTask); return 0; }
+- (BOOL)isRunning { FINCH_ABSTRACT(NSTask); return NO; }
+- (id)standardError { FINCH_ABSTRACT(NSTask); return nil; }
+- (id)standardInput { FINCH_ABSTRACT(NSTask); return nil; }
+- (id)standardOutput { FINCH_ABSTRACT(NSTask); return nil; }
+- (NSTaskTerminationReason)terminationReason { FINCH_ABSTRACT(NSTask); return 0; }
+- (int)terminationStatus { FINCH_ABSTRACT(NSTask); return 0; }
+- (void)interrupt { FINCH_ABSTRACT(NSTask); }
+- (void)launch { FINCH_ABSTRACT(NSTask); }
+- (BOOL)launchAndReturnError:(out NSError **)error { FINCH_ABSTRACT(NSTask); return NO; }
+- (BOOL)resume { FINCH_ABSTRACT(NSTask); return NO; }
+- (BOOL)suspend { FINCH_ABSTRACT(NSTask); return NO; }
+- (void)terminate { FINCH_ABSTRACT(NSTask); }
 
 + (instancetype)allocWithZone:(NSZone *)zone
 {

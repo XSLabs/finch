@@ -54,6 +54,40 @@ is_directory(CFStringRef path)
 
 @implementation NSURL
 
+/* The file-URL initializers, on NSURL as Apple has them (the placeholder inherits them). */
+- (instancetype)initFileURLWithPath:(id)path
+{
+    return [self initFileURLWithPath:path isDirectory:CFStringHasSuffix((CFStringRef)path, CFSTR("/")) || is_directory((CFStringRef)path)
+        relativeToURL:nil];
+}
+- (instancetype)initFileURLWithPath:(id)path isDirectory:(BOOL)dir { return [self initFileURLWithPath:path isDirectory:dir relativeToURL:nil]; }
+- (instancetype)initFileURLWithPath:(id)path relativeToURL:(NSURL *)base
+{
+    return [self initFileURLWithPath:path isDirectory:is_directory((CFStringRef)path) relativeToURL:base];
+}
+- (instancetype)initFileURLWithPath:(id)path isDirectory:(BOOL)dir relativeToURL:(NSURL *)base
+{
+    [self release];   /* (the placeholder's is a no-op; a CF URL takes its place) */
+    if (!path) __CFFinchRaise(NSInvalidArgumentException, "*** -[NSURL initFileURLWithPath:]: nil string parameter");
+    if (!base && !CFStringHasPrefix((CFStringRef)path, CFSTR("/"))) {
+        char cwd[PATH_MAX];
+        if (getcwd(cwd, sizeof(cwd))) {
+            CFURLRef cwdURL = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)cwd, (CFIndex)strlen(cwd), true);
+            id r = (id)CFURLCreateWithFileSystemPathRelativeToBase(NULL, (CFStringRef)path, kCFURLPOSIXPathStyle, dir, cwdURL);
+            CFRelease(cwdURL);
+            return r;
+        }
+    }
+    return (id)CFURLCreateWithFileSystemPathRelativeToBase(NULL, (CFStringRef)path, kCFURLPOSIXPathStyle, dir, (CFURLRef)base);
+}
+- (instancetype)initFileURLWithFileSystemRepresentation:(const char *)path isDirectory:(BOOL)dir relativeToURL:(NSURL *)base
+{
+    [self release];
+    return (id)CFURLCreateFromFileSystemRepresentationRelativeToBase(NULL, (const UInt8 *)path, (CFIndex)strlen(path), dir, (CFURLRef)base);
+}
+
+
+
 + (instancetype)allocWithZone:(struct _NSZone *)zone
 {
     if (self == [NSURL class] || self == [__NSCFURL class]) return (id)placeholder;
@@ -307,35 +341,6 @@ FINCH_IMMORTAL_MEMORY
     if (!s) __CFFinchRaise(NSInvalidArgumentException, "*** -[NSURL initWithString:relativeToURL:]: nil string parameter");
     return (id)CFURLCreateWithString(NULL, (CFStringRef)s, (CFURLRef)base);
 }
-- (instancetype)initFileURLWithPath:(id)path
-{
-    return [self initFileURLWithPath:path isDirectory:CFStringHasSuffix((CFStringRef)path, CFSTR("/")) || is_directory((CFStringRef)path)
-        relativeToURL:nil];
-}
-- (instancetype)initFileURLWithPath:(id)path isDirectory:(BOOL)dir { return [self initFileURLWithPath:path isDirectory:dir relativeToURL:nil]; }
-- (instancetype)initFileURLWithPath:(id)path relativeToURL:(NSURL *)base
-{
-    return [self initFileURLWithPath:path isDirectory:is_directory((CFStringRef)path) relativeToURL:base];
-}
-- (instancetype)initFileURLWithPath:(id)path isDirectory:(BOOL)dir relativeToURL:(NSURL *)base
-{
-    if (!path) __CFFinchRaise(NSInvalidArgumentException, "*** -[NSURL initFileURLWithPath:]: nil string parameter");
-    if (!base && !CFStringHasPrefix((CFStringRef)path, CFSTR("/"))) {
-        char cwd[PATH_MAX];
-        if (getcwd(cwd, sizeof(cwd))) {
-            CFURLRef cwdURL = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)cwd, (CFIndex)strlen(cwd), true);
-            id r = (id)CFURLCreateWithFileSystemPathRelativeToBase(NULL, (CFStringRef)path, kCFURLPOSIXPathStyle, dir, cwdURL);
-            CFRelease(cwdURL);
-            return r;
-        }
-    }
-    return (id)CFURLCreateWithFileSystemPathRelativeToBase(NULL, (CFStringRef)path, kCFURLPOSIXPathStyle, dir, (CFURLRef)base);
-}
-- (instancetype)initFileURLWithFileSystemRepresentation:(const char *)path isDirectory:(BOOL)dir relativeToURL:(NSURL *)base
-{
-    return (id)CFURLCreateFromFileSystemRepresentationRelativeToBase(NULL, (const UInt8 *)path, (CFIndex)strlen(path), dir, (CFURLRef)base);
-}
-
 @end
 
 @implementation __NSCFURL
