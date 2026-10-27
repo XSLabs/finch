@@ -51,8 +51,12 @@ the app browser through Spotlight. Siri must be activated before it shows its as
 Time Machine's backup view needs a backup disk. These launches are system surfaces or
 service-driven apps, not document-window apps.
 
-Calculator and TextEdit are checked further by `tools/vm/test-calculator.sh` and
-`tools/vm/test-textedit.sh`.
+Calculator, TextEdit and Stickies are checked further by `tools/vm/test-calculator.sh`,
+`tools/vm/test-textedit.sh` and `tools/vm/test-stickies.sh`. Since 2026-10-26 Apple's apps
+run sandboxed, as on macOS (all 19 still come up): TextEdit opens, saves, autosaves and
+exports to PDF from its container; Stickies keeps its notes there, asks its own XPC
+service where they live, and copies to and pastes from the pasteboard (`pbcopy` and
+`pbpaste` on the other side).
 
 **As of 2026-10-15:**
 

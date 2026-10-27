@@ -291,7 +291,10 @@ the window server socket the asking app names. Each instance shows one panel
 and exits, so the next starts on the asking app's display.
 `tools/vm/test-textedit.sh` now passes sandboxed, documents and autosaves in
 TextEdit's container and Export as PDF and Print's Save as PDF through the
-panel.
+panel. An app's own XPC services (Contents/XPCServices) are open to it: secinit
+adds a lookup rule for each one's bundle identifier, which libxpc asks
+finch-init to start, as launchd's per-app domain does (Stickies asks its
+migration service where its notes live; tools/vm/test-stickies.sh).
 
 Open: app groups, and containers for app extensions and XPC services.
 

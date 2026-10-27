@@ -12,6 +12,8 @@
  * RTFD format, which comes with AppKit's RTFD support.
  */
 #import <Foundation/Foundation.h>
+#include <errno.h>
+#include <stdio.h>
 
 #include "Foundation_Finch.h"
 
@@ -261,8 +263,11 @@ typedef enum { KIND_FILE, KIND_DIRECTORY, KIND_LINK } Kind;
 {
     NSFileManager *fm = [NSFileManager defaultManager];
     NSString *path = [url path];
+    BOOL isDirectory = NO, exists = [fm fileExistsAtPath:path isDirectory:&isDirectory];
     switch (_kind) {
     case KIND_FILE:
+        /* A file takes the place of a folder, as Apple's does. */
+        if (exists && isDirectory) [fm removeItemAtPath:path error:NULL];
         if (![_contents writeToURL:url options:(options & NSFileWrapperWritingAtomic) ? NSDataWritingAtomic : 0 error:outError]) return NO;
         break;
     case KIND_LINK:
@@ -273,10 +278,49 @@ typedef enum { KIND_FILE, KIND_DIRECTORY, KIND_LINK } Kind;
             return NO;
         break;
     case KIND_DIRECTORY:
+        /* As Apple's: written atomically, the folder replaces whatever is there,
+           holding just its children (made beside it, then swapped in; in place when
+           the folder can't have a sibling, in a sandboxed app's container say);
+           otherwise there must be nothing there. */
+        if (exists && !(options & NSFileWrapperWritingAtomic)) {
+            if (outError)
+                *outError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileWriteFileExistsError
+                                            userInfo:@{ NSFilePathErrorKey : path }];
+            return NO;
+        }
+        if (options & NSFileWrapperWritingAtomic) {
+            NSString *temporary = [[path stringByDeletingLastPathComponent] stringByAppendingPathComponent:
+                [NSString stringWithFormat:@".%@.%@", [path lastPathComponent], [[NSUUID UUID] UUIDString]]];
+            if ([fm createDirectoryAtPath:temporary withIntermediateDirectories:YES attributes:nil error:NULL]) {
+                NSURL *temporaryURL = [NSURL fileURLWithPath:temporary isDirectory:YES];
+                for (NSString *key in _children) {
+                    NSFileWrapper *child = [_children objectForKey:key];
+                    if (![child writeToURL:[temporaryURL URLByAppendingPathComponent:key] options:options
+                            originalContentsURL:nil error:outError]) {
+                        [fm removeItemAtPath:temporary error:NULL];
+                        return NO;
+                    }
+                }
+                if (exists) [fm removeItemAtPath:path error:NULL];
+                if (rename([temporary fileSystemRepresentation], [path fileSystemRepresentation]) != 0) {
+                    int e = errno;
+                    [fm removeItemAtPath:temporary error:NULL];
+                    if (outError)
+                        *outError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileWriteUnknownError
+                                                    userInfo:@{ NSFilePathErrorKey : path,
+                                                                NSUnderlyingErrorKey : [NSError errorWithDomain:NSPOSIXErrorDomain code:e userInfo:nil] }];
+                    return NO;
+                }
+                break;
+            }
+            if (exists) [fm removeItemAtPath:path error:NULL];
+        }
         if (![fm createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:outError]) return NO;
         for (NSString *key in _children) {
             NSFileWrapper *child = [_children objectForKey:key];
-            if (![child writeToURL:[url URLByAppendingPathComponent:key] options:options originalContentsURL:nil error:outError]) return NO;
+            if (![child writeToURL:[url URLByAppendingPathComponent:key] options:options
+                    originalContentsURL:nil error:outError])
+                return NO;
         }
         break;
     }

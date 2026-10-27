@@ -10,6 +10,7 @@
  * dlopen()ed ones included, as "pid<TAB>program<TAB>image" lines, read from
  * each process's dyld_all_image_infos over a read-only task port. Processes
  * whose port is refused are listed with the image "?" (tools/vm/check-loaded-images.py).
+ * finch-images --all --addresses puts each image's load address before its path.
  */
 
 #include <dlfcn.h>
@@ -52,6 +53,8 @@ read_path(task_t task, mach_vm_address_t address, char *path, size_t size)
 	return 0;
 }
 
+static bool addresses;
+
 static void
 list_process(pid_t pid)
 {
@@ -79,8 +82,13 @@ list_process(pid_t pid)
 			char path[PATH_MAX];
 			if (images[i].imageFilePath &&
 			    read_path(task, (mach_vm_address_t)images[i].imageFilePath, path, sizeof(path)) == 0 &&
-			    strcmp(path, program) != 0)
-				printf("%d\t%s\t%s\n", pid, program, path);
+			    strcmp(path, program) != 0) {
+				if (addresses)
+					printf("%d\t%s\t0x%llx %s\n", pid, program,
+					    (unsigned long long)(uintptr_t)images[i].imageLoadAddress, path);
+				else
+					printf("%d\t%s\t%s\n", pid, program, path);
+			}
 		}
 	}
 	free(images);
@@ -90,7 +98,8 @@ list_process(pid_t pid)
 int
 main(int argc, char **argv)
 {
-	if (argc == 2 && strcmp(argv[1], "--all") == 0) {
+	if (argc >= 2 && strcmp(argv[1], "--all") == 0) {
+		addresses = argc == 3 && strcmp(argv[2], "--addresses") == 0;
 		int n = proc_listallpids(NULL, 0);
 		pid_t *pids = calloc((size_t)n + 64, sizeof(pid_t));
 		n = proc_listallpids(pids, (int)(((size_t)n + 64) * sizeof(pid_t)));

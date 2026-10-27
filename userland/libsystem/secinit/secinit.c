@@ -11,7 +11,9 @@
  *     user's folders, which the profile keeps closed unless entitled);
  *   - HOME, CFFIXED_USER_HOME and TMPDIR pointing into it;
  *   - Finch's application.sb (userland/sandbox-profiles), compiled with the
- *     container, its bundle and its entitlements, and applied for good;
+ *     container, its bundle and its entitlements, and applied for good, with
+ *     the app's own XPC services (Contents/XPCServices) open to it, as
+ *     launchd's per-app domain makes them on macOS;
  *   - the sandbox extensions it was launched with for the files it was given
  *     to open (FINCH_SANDBOX_EXTENSIONS, from Launch Services), consumed.
  *
@@ -25,7 +27,9 @@
  * Finch compiles it in the process, with libsandbox.
  */
 
+#include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <mach-o/dyld.h>
 #include <pwd.h>
@@ -231,6 +235,58 @@ add_entitlements(struct parameters *p, xpc_object_t entitlements)
 	});
 }
 
+xpc_object_t xpc_create_from_plist(const void *data, size_t length);
+
+/* Rules opening the app's own XPC services to it: a lookup of each one's
+   CFBundleIdentifier, which libxpc asks finch-init to start. */
+static char *
+bundled_service_rules(const char *bundle)
+{
+	char dir[PATH_MAX], plist[PATH_MAX];
+	size_t length = 1;
+	char *rules = calloc(1, length);
+	snprintf(dir, sizeof(dir), "%s/Contents/XPCServices", bundle);
+	DIR *d = opendir(dir);
+	struct dirent *e;
+	while (rules && d && (e = readdir(d)) != NULL) {
+		size_t n = strlen(e->d_name);
+		if (n < 5 || strcmp(e->d_name + n - 4, ".xpc") != 0)
+			continue;
+		snprintf(plist, sizeof(plist), "%s/%s/Contents/Info.plist", dir, e->d_name);
+		int fd = open(plist, O_RDONLY | O_CLOEXEC);
+		struct stat st;
+		xpc_object_t info = NULL;
+		if (fd >= 0 && fstat(fd, &st) == 0 && st.st_size > 0 && st.st_size < (1 << 20)) {
+			char *buf = malloc((size_t)st.st_size);
+			if (buf && read(fd, buf, (size_t)st.st_size) == st.st_size)
+				info = xpc_create_from_plist(buf, (size_t)st.st_size);
+			free(buf);
+		}
+		if (fd >= 0)
+			close(fd);
+		const char *id = info && xpc_get_type(info) == XPC_TYPE_DICTIONARY ?
+		    xpc_dictionary_get_string(info, "CFBundleIdentifier") : NULL;
+		/* (an identifier that would need quoting is left out) */
+		if (id && *id && !strpbrk(id, "\"\\()")) {
+			char *rule = NULL;
+			if (asprintf(&rule, "(allow mach-lookup (global-name \"%s\"))", id) > 0) {
+				length += strlen(rule);
+				char *grown = realloc(rules, length);
+				if (grown) {
+					rules = grown;
+					strlcat(rules, rule, length);
+				}
+				free(rule);
+			}
+		}
+		if (info)
+			xpc_release(info);
+	}
+	if (d)
+		closedir(d);
+	return rules;
+}
+
 /* The extensions Launch Services passed, taken out of the environment. */
 static char *
 take_launch_extensions(void)
@@ -303,9 +359,13 @@ _libsecinit_initializer(void)
 	setenv("CFFIXED_USER_HOME", container, 1);
 	setenv("TMPDIR", tmp, 1);
 
-	char *error = NULL;
-	if (sandbox_init_with_parameters("(version 1)(import \"application.sb\")", 0, p.list, &error) != 0)
+	char *rules = bundled_service_rules(bundle), *profile = NULL, *error = NULL;
+	if (asprintf(&profile, "(version 1)(import \"application.sb\")%s", rules ? rules : "") < 0)
+		fail("can't apply the App Sandbox", NULL);
+	free(rules);
+	if (sandbox_init_with_parameters(profile, 0, p.list, &error) != 0)
 		fail("can't apply the App Sandbox", error);
+	free(profile);
 	free(identifier);
 	consume_launch_extensions(launch_extensions);
 }

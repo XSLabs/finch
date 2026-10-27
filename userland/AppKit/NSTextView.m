@@ -1318,6 +1318,10 @@ ruler_tabs(NSTextView *self, NSRulerView *ruler)
 {
     NSTextStorage *t = [self textStorage];
     NSFileWrapper *w = [t RTFDFileWrapperFromRange:NSMakeRange(0, [t length]) documentAttributes:@{}];
+    /* It replaces what's there either way, as Apple's does (a file wrapper written
+       in place wouldn't). */
+    if (!flag)
+        [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
     return [w writeToURL:[NSURL fileURLWithPath:path] options:flag ? NSFileWrapperWritingAtomic : 0
         originalContentsURL:nil error:NULL];
 }

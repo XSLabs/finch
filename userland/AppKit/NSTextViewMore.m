@@ -904,6 +904,8 @@ FORWARD_ACTION(unscript)
 {
     NSData *d = [self RTFDFromRange:NSMakeRange(0, [[self string] length])];
     NSFileWrapper *w = d ? [[[NSFileWrapper alloc] initWithSerializedRepresentation:d] autorelease] : nil;
+    if (w && !flag)
+        [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
     return w && [w writeToURL:[NSURL fileURLWithPath:path] options:flag ? NSFileWrapperWritingAtomic : 0 originalContentsURL:nil error:NULL];
 }
 
