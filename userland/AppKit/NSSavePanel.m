@@ -1128,6 +1128,9 @@ small_icon(FinchIconKind kind)
             xpc_array_set_string(types, XPC_ARRAY_APPEND, [[type preferredFilenameExtension] UTF8String]);
     xpc_dictionary_set_value(r, "types", types);
     xpc_release(types);
+    /* The window server this app draws on (the root instance of the service uses it). */
+    if (getenv("FINCH_WINDOWSERVER_SOCKET"))
+        xpc_dictionary_set_string(r, "windowServer", getenv("FINCH_WINDOWSERVER_SOCKET"));
     xpc_dictionary_set_bool(r, "canCreateDirectories", _canCreateDirectories);
     xpc_dictionary_set_bool(r, "showsHidden", _showsHiddenFiles);
     if (open) {

@@ -8,7 +8,7 @@ PROFILES := $(wildcard *.sb)
 SBPLC := $(FINCH_ROOT)/build/obj/libsandbox/sbplc
 # application.sb's parameters (libsystem_secinit's), for the check.
 CHECK_PARAMS := -D HOME_DIRECTORY=/Users/check -D APPLICATION_CONTAINER=/Users/check/Library/Containers/check/Data \
-	-D APPLICATION_BUNDLE=/Applications/Check.app
+	-D APPLICATION_BUNDLE=/Applications/Check.app -D WINDOW_SERVER_SOCKET=/private/tmp/finch-windowserver
 
 all: $(addprefix $(DEST)/,$(PROFILES))
 

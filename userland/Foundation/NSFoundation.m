@@ -640,6 +640,12 @@ base64_decode(const uint8_t *in, NSUInteger n, NSDataBase64DecodingOptions opts)
 {
     NSString *target = (writeOptionsMask & NSDataWritingAtomic) ? [path stringByAppendingFormat:@".%d.tmp", getpid()] : path;
     int fd = open([target fileSystemRepresentation], O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+    /* A file a sandboxed app was given (an extension covers it, not its folder),
+       or one in a folder the writer can't add to: written in place. */
+    if (fd < 0 && target != path && (errno == EPERM || errno == EACCES)) {
+        target = path;
+        fd = open([target fileSystemRepresentation], O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+    }
     BOOL ok = fd >= 0;
     if (ok) {
         const char *p = [self bytes];

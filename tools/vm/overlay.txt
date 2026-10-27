@@ -263,6 +263,7 @@ build/userland/apps/OpenPanelTest.app/Contents/MacOS/OpenPanelTest /usr/local/sh
 build/userland/apps/OpenPanelTest.app/Contents/Info.plist /usr/local/share/finch/apps/OpenPanelTest.app/Contents/Info.plist
 build/userland/apps/OpenPanelTest.app/Contents/_CodeSignature/CodeResources /usr/local/share/finch/apps/OpenPanelTest.app/Contents/_CodeSignature/CodeResources
 userland/openandsavepanel/org.finch.openandsavepanel.plist /System/Library/Finch/LaunchAgents/org.finch.openandsavepanel.plist
+userland/openandsavepanel/org.finch.openandsavepanel.root.plist /System/Library/Finch/LaunchDaemons/org.finch.openandsavepanel.root.plist
 userland/tests/trust-settings-fixture/root.pem /usr/local/share/finch/trust-settings/root.pem
 userland/tests/trust-settings-fixture/server.pem /usr/local/share/finch/trust-settings/server.pem
 build/userland/apps/SandboxTest.app/Contents/MacOS/SandboxTest /usr/local/share/finch/apps/SandboxTest.app/Contents/MacOS/SandboxTest

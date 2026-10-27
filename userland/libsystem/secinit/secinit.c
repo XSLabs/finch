@@ -11,7 +11,12 @@
  *     user's folders, which the profile keeps closed unless entitled);
  *   - HOME, CFFIXED_USER_HOME and TMPDIR pointing into it;
  *   - Finch's application.sb (userland/sandbox-profiles), compiled with the
- *     container, its bundle and its entitlements, and applied for good.
+ *     container, its bundle and its entitlements, and applied for good;
+ *   - the sandbox extensions it was launched with for the files it was given
+ *     to open (FINCH_SANDBOX_EXTENSIONS, from Launch Services), consumed.
+ *
+ * FINCH_SANDBOX_EXTENSIONS is removed in every process, sandboxed or not, so
+ * one app's documents never pass on to what it starts.
  *
  * IDENTIFIER is the code-signing identifier, as on macOS. A process already
  * sandboxed (a sandboxed app's child, com.apple.security.inherit) keeps its
@@ -44,6 +49,7 @@ int sandbox_init_with_parameters(const char *profile, uint64_t flags, const char
     char **errorbuf);
 int sandbox_check(pid_t pid, const char *operation, int type, ...);
 int csops(pid_t pid, unsigned int ops, void *useraddr, size_t usersize);
+int64_t sandbox_extension_consume(const char *token);
 #define CS_OPS_IDENTITY 11
 
 #define APP_SANDBOX "com.apple.security.app-sandbox"
@@ -225,20 +231,44 @@ add_entitlements(struct parameters *p, xpc_object_t entitlements)
 	});
 }
 
+/* The extensions Launch Services passed, taken out of the environment. */
+static char *
+take_launch_extensions(void)
+{
+	const char *value = getenv("FINCH_SANDBOX_EXTENSIONS");
+	char *copy = value ? strdup(value) : NULL;
+	unsetenv("FINCH_SANDBOX_EXTENSIONS");
+	return copy;
+}
+
+static void
+consume_launch_extensions(char *tokens)
+{
+	for (char *rest = tokens, *token; tokens && (token = strsep(&rest, ",")) != NULL;)
+		if (*token)
+			(void)sandbox_extension_consume(token);
+	free(tokens);
+}
+
 void
 _libsecinit_initializer(void)
 {
+	char *launch_extensions = take_launch_extensions();
 	xpc_object_t entitlements = xpc_copy_entitlements_for_self();
-	if (entitlements == NULL)
+	if (entitlements == NULL) {
+		free(launch_extensions);
 		return;
+	}
 	if (xpc_get_type(entitlements) != XPC_TYPE_DICTIONARY ||
 	    !xpc_dictionary_get_bool(entitlements, APP_SANDBOX)) {
 		xpc_release(entitlements);
+		free(launch_extensions);
 		return;
 	}
 	/* A sandboxed app's child keeps the sandbox it inherited. */
 	if (sandbox_check(getpid(), NULL, 0) == 1) {
 		xpc_release(entitlements);
+		free(launch_extensions);
 		return;
 	}
 	if (xpc_dictionary_get_bool(entitlements, INHERIT))
@@ -260,6 +290,9 @@ _libsecinit_initializer(void)
 	add(&p, "HOME_DIRECTORY", home);
 	add(&p, "APPLICATION_CONTAINER", container);
 	add(&p, "APPLICATION_BUNDLE", bundle);
+	/* The window server its launcher chose for it (the default one otherwise). */
+	const char *display = getenv("FINCH_WINDOWSERVER_SOCKET");
+	add(&p, "WINDOW_SERVER_SOCKET", display && display[0] == '/' ? display : "/private/tmp/finch-windowserver");
 	add_entitlements(&p, entitlements);
 	xpc_release(entitlements);
 
@@ -274,6 +307,7 @@ _libsecinit_initializer(void)
 	if (sandbox_init_with_parameters("(version 1)(import \"application.sb\")", 0, p.list, &error) != 0)
 		fail("can't apply the App Sandbox", error);
 	free(identifier);
+	consume_launch_extensions(launch_extensions);
 }
 
 /* The rest of macOS's interface, for containers' file operations (made through

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<!-- Root's sandboxed apps' open and save panels (the agent's root instance, which serves root alone). -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>org.finch.openandsavepanel.root</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/libexec/finch-openandsavepanel</string>
+	</array>
+	<key>MachServices</key>
+	<dict>
+		<key>org.finch.openandsavepanel</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

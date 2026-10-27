@@ -10,12 +10,38 @@
  * strings), as AppKit's NSWorkspace does on Finch. An application that is
  * already running isn't told about the items: it's left as it is unless
  * kLSLaunchNewInstance asks for another copy.
+ *
+ * A sandboxed app may open the files it's given, as macOS's Launch Services
+ * lets it: each file goes with sandbox extensions for it (read, and
+ * read-write), in FINCH_SANDBOX_EXTENSIONS, which the app's sandbox start
+ * (libsystem_secinit) consumes and removes.
  */
 #import "LaunchServices_Finch.h"
 #include <fcntl.h>
 #include <spawn.h>
 
 extern char **environ;
+char *sandbox_extension_issue_file(const char *extension_class, const char *path, uint32_t flags);
+
+/* The files' extensions, comma-separated, for FINCH_SANDBOX_EXTENSIONS. */
+static NSString *
+_LSExtensionsForItems(NSArray<NSURL *> *items)
+{
+    NSMutableArray *tokens = [NSMutableArray array];
+    for (NSURL *u in items) {
+        if (!u.isFileURL)
+            continue;
+        static const char *const classes[] = { "com.apple.app-sandbox.read", "com.apple.app-sandbox.read-write" };
+        for (size_t i = 0; i < 2; i++) {
+            char *t = sandbox_extension_issue_file(classes[i], u.fileSystemRepresentation, 0);
+            if (t) {
+                [tokens addObject:[NSString stringWithUTF8String:t]];
+                free(t);
+            }
+        }
+    }
+    return tokens.count ? [tokens componentsJoinedByString:@","] : nil;
+}
 
 NSError *
 _LSError(OSStatus status)
@@ -69,6 +95,11 @@ _LSLaunch(LSFinchApp *app, NSArray<NSURL *> *items, LSLaunchFlags flags, NSDicti
         [env addEntriesFromDictionary:lsenv];
     if (environment)
         [env addEntriesFromDictionary:environment];
+    NSString *extensions = _LSExtensionsForItems(items);
+    if (extensions)
+        env[@"FINCH_SANDBOX_EXTENSIONS"] = extensions;
+    else
+        [env removeObjectForKey:@"FINCH_SANDBOX_EXTENSIONS"];
     size_t n = argv.count, m = env.count;
     char **cargv = calloc(n + 1, sizeof *cargv), **cenv = calloc(m + 1, sizeof *cenv);
     for (size_t i = 0; i < n; i++)

@@ -273,6 +273,26 @@ the Open panel from the agent, reads the file chosen and only it, gets the
 Save panel, writes the file named, and the user finds it in Documents (18
 checks).
 
+**Sandboxed Apple apps (2026-10-26).** Apple's own apps (TextEdit, Calculator)
+are signed for the App Sandbox, so they now start sandboxed too. A document
+handed to an app at launch comes with extensions: LaunchServices
+(`LSOpen.m`) issues read and read-write extensions for the files it opens and
+passes them in `FINCH_SANDBOX_EXTENSIONS`; `libsystem_secinit` takes that
+variable out of every process's environment and consumes the tokens once the
+sandbox is on, so a document opened from Finder or `open` is the app's to read
+and save. `application.sb` takes the app's window server socket as the
+`WINDOW_SERVER_SOCKET` parameter (secinit passes `FINCH_WINDOWSERVER_SOCKET`,
+else `/private/tmp/finch-windowserver`) and allows connecting to just it.
+Foundation's atomic writes fall back to writing in place when the sandbox
+refuses the temporary file beside the document. Root's apps live in the system
+domain, so a second panel instance, `org.finch.openandsavepanel.root`, runs
+there as a LaunchDaemon: it serves root's processes alone, and only it follows
+the window server socket the asking app names. Each instance shows one panel
+and exits, so the next starts on the asking app's display.
+`tools/vm/test-textedit.sh` now passes sandboxed, documents and autosaves in
+TextEdit's container and Export as PDF and Print's Save as PDF through the
+panel.
+
 Open: app groups, and containers for app extensions and XPC services.
 
 ### Notification service work still required

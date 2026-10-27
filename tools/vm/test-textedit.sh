@@ -2,12 +2,15 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # TextEdit's documents in the VM, checked by their files: a text file opened, typed into and
 # saved twice keeps two versions, File > Revert To > Browse All Versions restores the earlier
-# one, File > Export as PDF writes a PDF (the save panel's Documents, its Save at 688,460),
+# one, File > Export as PDF writes a PDF (the panel service's save panel, in Documents, takes Return),
 # File > Print (⌘P) saves a PDF through the print panel (no printers: Save as PDF..., Return
 # twice), Find (⌘F, Return) selects a match that Escape leaves selected for typing over, and Format >
 # Make Rich Text then Format > Table... inserts a table whose first cell takes the typing
 # (saved as RTF, the typed text in the table). Last, a new document typed into and left
 # unsaved at Quit is autosaved, and comes back, edited, when TextEdit opens again.
+# TextEdit is sandboxed, as on macOS: it opens the document through the extension its
+# launcher hands it, keeps versions and autosaves in its container, and saves and prints
+# through Finch's panel service (its root instance, for root's apps).
 # Apple's TextEdit comes from this Mac's install, never the repository:
 #
 #   FINCH_HOST_APPS=TextEdit tools/vm/mkramdisk.sh && tools/vm/test-textedit.sh
@@ -25,12 +28,12 @@ doc=/tmp/finch-textedit/notes.txt
 app="FINCH_APP_ARGS=$doc finch-app-test /usr/libexec/finch-windowserver /Applications/TextEdit.app/Contents/MacOS/TextEdit 'window:notes*' wait:5000"
 exec tools/vm/with-vm-lock.sh expect tools/vm/smoke.exp \
     'test -x /Applications/TextEdit.app/Contents/MacOS/TextEdit || { echo "TextEdit is not in the image (FINCH_HOST_APPS=TextEdit tools/vm/mkramdisk.sh)"; false; }' \
-    "rm -rf /tmp/finch-textedit /var/root/Library/Application\\ Support/Finch/Versions && mkdir -p /tmp/finch-textedit && printf 'first\\n' > $doc" \
+    "rm -rf /tmp/finch-textedit /var/root/Library/Containers/com.apple.TextEdit/Data/Library/Application\\ Support/Finch/Versions && mkdir -p /tmp/finch-textedit && printf 'first\\n' > $doc" \
     "$app type:second wait:2000 cmd:s wait:5000 type:third wait:2000 cmd:s wait:5000" \
     "test \"\$(cat $doc)\" = secondthirdfirst" \
-    "test \$(ls /var/root/Library/Application\\ Support/Finch/Versions/*/*.txt | wc -l) -eq 2" \
+    "test \$(ls /var/root/Library/Containers/com.apple.TextEdit/Data/Library/Application\\ Support/Finch/Versions/*/*.txt | wc -l) -eq 2" \
     "rm -f /var/root/Documents/notes.pdf" \
-    "$app click:82,-74 wait:3000 move:114,119 wait:4000 move:358,152 wait:1500 click:358,152 wait:6000 click:357,128 wait:3000 move:310,150 wait:1500 click:310,150 wait:3000 click:475,173 wait:6000 click:82,-74 wait:3000 move:114,174 wait:1500 click:114,174 wait:6000 click:688,460 wait:6000" \
+    "$app click:82,-74 wait:3000 move:114,119 wait:4000 move:358,152 wait:1500 click:358,152 wait:6000 click:357,128 wait:3000 move:310,150 wait:1500 click:310,150 wait:3000 click:475,173 wait:6000 click:82,-74 wait:3000 move:114,174 wait:1500 click:114,174 wait:6000 key:36,13 wait:6000" \
     "test \"\$(cat $doc)\" = secondfirst" \
     "test \"\$(head -c 4 /var/root/Documents/notes.pdf)\" = %PDF" \
     "rm -f /var/root/Documents/notes.pdf" \
@@ -41,7 +44,7 @@ exec tools/vm/with-vm-lock.sh expect tools/vm/smoke.exp \
     "printf 'hello\\n' > $doc" \
     "$app click:175,-74 wait:2000 move:214,9 wait:1000 click:214,9 wait:4000 click:175,-74 wait:2000 move:189,152 wait:1000 click:189,152 wait:5000 click:507,256 wait:4000 type:cellA wait:2000 cmd:s wait:5000" \
     "tr -d '\\n' < $doc | grep -q 'intbl[^}]*cellA'" \
-    "rm -rf '/var/root/Library/Autosave Information'" \
+    "rm -rf '/var/root/Library/Containers/com.apple.TextEdit/Data/Library/Autosave Information'" \
     "finch-app-test /usr/libexec/finch-windowserver /Applications/TextEdit.app/Contents/MacOS/TextEdit wait:6000 cmd:n wait:4000 type:draft wait:2000 cmd:q wait:5000" \
-    "grep -rq draft '/var/root/Library/Autosave Information'" \
+    "grep -rq draft '/var/root/Library/Containers/com.apple.TextEdit/Data/Library/Autosave Information'" \
     "finch-app-test /usr/libexec/finch-windowserver /Applications/TextEdit.app/Contents/MacOS/TextEdit 'window:Untitled*' wait:3000"

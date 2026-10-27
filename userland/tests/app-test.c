@@ -41,6 +41,7 @@
 #include <ImageIO/ImageIO.h>
 #include <errno.h>
 #include <fcntl.h>
+char *sandbox_extension_issue_file(const char *extension_class, const char *path, uint32_t flags);
 #include <signal.h>
 #include <spawn.h>
 #include <stdbool.h>
@@ -199,12 +200,31 @@ main(int argc, char **argv)
     for (char *tok = extra ? strtok(extra, " ,") : NULL; tok && na < 15; tok = strtok(NULL, " ,"))
         aargs[na++] = tok;
     aargs[na] = NULL;
+    /* As Launch Services does: a sandboxed app may open the files it's given
+       (their extensions in FINCH_SANDBOX_EXTENSIONS, consumed at its start). */
+    char tokens[16384] = "";
+    for (int i = 1; i < na; i++) {
+        static const char *const classes[] = { "com.apple.app-sandbox.read", "com.apple.app-sandbox.read-write" };
+        for (int c = 0; aargs[i][0] == '/' && c < 2; c++) {
+            char *t = sandbox_extension_issue_file(classes[c], aargs[i], 0);
+            if (t && strlen(tokens) + strlen(t) + 2 < sizeof(tokens)) {
+                if (tokens[0])
+                    strlcat(tokens, ",", sizeof(tokens));
+                strlcat(tokens, t, sizeof(tokens));
+            }
+            free(t);
+        }
+    }
+    if (tokens[0])
+        setenv("FINCH_SANDBOX_EXTENSIONS", tokens, 1);
     /* a crash in the app is reported with a backtrace (crashwatch.c) */
     posix_spawnattr_t attr;
     posix_spawnattr_init(&attr);
     if (!getenv("FINCH_CRASHWATCH") || strcmp(getenv("FINCH_CRASHWATCH"), "0"))
         crashwatch_spawnattr(&attr);
-    if (posix_spawn(&app, argv[2], &fa, &attr, aargs, environ)) {
+    int spawned = posix_spawn(&app, argv[2], &fa, &attr, aargs, environ);
+    unsetenv("FINCH_SANDBOX_EXTENSIONS");
+    if (spawned) {
         printf("can't start %s\n", argv[2]);
         kill(server, SIGTERM);
         return 1;

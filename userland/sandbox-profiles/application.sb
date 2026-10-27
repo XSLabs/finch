@@ -7,6 +7,7 @@
 ;;;   HOME_DIRECTORY          the user's real home folder (resolved)
 ;;;   APPLICATION_CONTAINER   the app's container, HOME/Library/Containers/ID/Data
 ;;;   APPLICATION_BUNDLE      the app's bundle, or a tool's own executable
+;;;   WINDOW_SERVER_SOCKET    the window server the app's launcher chose for it
 ;;;
 ;;; and the app's entitlements, which decide the rest: network access, the
 ;;; user's folders, and temporary exceptions. Written for Finch's services and
@@ -76,6 +77,8 @@
 (allow network-outbound
        (literal "/tmp/finch-windowserver")
        (literal "/private/tmp/finch-windowserver"))
+(if (param "WINDOW_SERVER_SOCKET")
+    (allow network-outbound (literal (param "WINDOW_SERVER_SOCKET"))))
 (allow mach-lookup
        (global-name "org.finch.pboard")
        (global-name "org.finch.openandsavepanel")

@@ -11,6 +11,12 @@
  * with neither entitlement gets nothing. The app consumes the extensions
  * (NSSavePanel.m) and may then use exactly those files.
  *
+ * It also runs in the system domain as root (a LaunchDaemon) for root's apps,
+ * whose processes live there; that instance serves root alone, and only it
+ * follows a request's windowServer (the asking app's window server socket):
+ * a user's agent always uses the default display. Each instance shows one
+ * panel and then exits, so the next starts on the asking app's display.
+ *
  * Request: kind ("open" or "save"), title, prompt, message, directory, name,
  * types (filename extensions), and canChooseFiles, canChooseDirectories,
  * multiple, canCreateDirectories, showsHidden. Reply: response (the panel's
@@ -65,6 +71,21 @@ static void handle(xpc_object_t request)
         return;
     audit_token_t token;
     xpc_dictionary_get_audit_token(request, &token);
+    /* The root instance is root's alone. */
+    if (getuid() == 0 && audit_token_to_euid(token) != 0) {
+        xpc_dictionary_set_int64(reply, "response", NSModalResponseCancel);
+        xpc_connection_send_message(xpc_dictionary_get_remote_connection(request), reply);
+        xpc_release(reply);
+        return;
+    }
+    if (getuid() == 0 && string(request, "windowServer"))
+        setenv("FINCH_WINDOWSERVER_SOCKET", xpc_dictionary_get_string(request, "windowServer"), 1);
+    /* The app starts now, on that window server. */
+    if (NSApp == nil) {
+        [NSApplication sharedApplication];
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        [NSApp finishLaunching];
+    }
     /* The app's entitlement decides what the user's choice grants. */
     const char *extensionClass = entitled(&token, READ_WRITE) ? "com.apple.app-sandbox.read-write" :
         entitled(&token, READ_ONLY) ? "com.apple.app-sandbox.read" : NULL;
@@ -120,13 +141,13 @@ static void handle(xpc_object_t request)
     xpc_release(tokens);
     xpc_connection_send_message(xpc_dictionary_get_remote_connection(request), reply);
     xpc_release(reply);
+    /* One panel each: the next request starts a fresh instance. */
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{ exit(0); });
 }
 
 int main(void)
 {
     @autoreleasepool {
-        [NSApplication sharedApplication];
-        [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
         xpc_connection_t listener = xpc_connection_create_mach_service(SERVICE, dispatch_get_main_queue(),
             XPC_CONNECTION_MACH_SERVICE_LISTENER);
         xpc_connection_set_event_handler(listener, ^(xpc_object_t peer) {
@@ -139,8 +160,10 @@ int main(void)
             xpc_connection_resume(peer);
         });
         xpc_connection_resume(listener);
-        [NSApp finishLaunching];
-        [NSApp run];
+        /* The app starts with the first request, on the window server it names;
+           until then the main run loop (which serves the main queue) waits. */
+        for (;;)
+            CFRunLoopRun();
     }
     return 0;
 }
