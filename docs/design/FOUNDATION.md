@@ -661,3 +661,10 @@ optional attribute providers; it does not load a missing UI framework.
   Apple's Foundation carries at run time are in Finch's image too.
   `NSRequestConcreteImplementation` raises Apple's other message when sent to the
   abstract class itself. `finch-foundation-edges-test` (477 lines) matches Apple's; the generated comparison went from 3758 to 3811 verified items (91.2%).
+- 2026-10-27: `fractionCompleted` is Apple's exact ratio over the progress tree (whole
+  numbers, divided once, which decides the last bit), and a progress's parent must be
+  the current progress; a string compared with itself is the same whatever the range;
+  ordered-set index checks come in Apple's order; a plain-initialized presentation intent
+  is a paragraph; the linguistic tagger and shared-observer snapshots behave and describe
+  themselves as Apple's; http URLs get `NSHTTPURLHandle`. The generated comparison went
+  from 3811 to 3829 verified items (91.6%); `finch-foundation-edges-test` is 494 lines.

@@ -9,6 +9,7 @@
  * scripting's object specifiers, whose tests and insertion points.
  */
 #import <Foundation/Foundation.h>
+#import <objc/message.h>
 #import <objc/runtime.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -548,6 +549,49 @@ section_downloads(void)
     }
 }
 
+/* MARK: - fractions, taggers, comparisons */
+static void
+section_more(void)
+{
+    printf("== more\n");
+    @autoreleasepool {
+        long cases[][3] = { { 10, 3, 7 }, { 3, 1, 1 }, { 7, 2, 13 }, { 100, 33, 50 }, { 9, 4, 58 }, { 1, 1, 1 }, { 6, 5, 3 } };
+        for (int i = 0; i < 7; i++) {
+            NSProgress *p = [NSProgress progressWithTotalUnitCount:100];
+            p.completedUnitCount = 42;
+            NSProgress *c = [NSProgress progressWithTotalUnitCount:cases[i][0]];
+            c.completedUnitCount = cases[i][1];
+            [p addChild:c withPendingUnitCount:cases[i][2]];
+            printf("fraction %ld %ld %ld %a\n", cases[i][0], cases[i][1], cases[i][2], p.fractionCompleted);
+        }
+        @try {
+            (void)[[NSProgress alloc] initWithParent:[NSProgress progressWithTotalUnitCount:1] userInfo:nil];
+        } @catch (NSException *e) {
+            printf("%s\n", e.reason.UTF8String);
+        }
+        NSLinguisticTagger *t = [[NSLinguisticTagger alloc] initWithTagSchemes:@[ NSLinguisticTagSchemeTokenType ] options:0];
+        t.string = @"Hello world.";
+        printf("%s", t.description.UTF8String);
+        NSPresentationIntent *plain = ((id(*)(id, SEL))objc_msgSend)([NSPresentationIntent alloc], @selector(init));
+        printf("%s\n", [NSPresentationIntent paragraphIntentWithIdentity:3 nestedInsideIntent:plain].description.UTF8String);
+        /* (every comparison of these strings, ranges and options, as one checksum) */
+        NSArray *strings = @[ @"Finch", @"", @"café", @"FINCH", @"Finch2", @"a" ];
+        NSUInteger options[] = { 0, 1, 2, 8, 64, 128, 256, 512, 1024 };
+        uint64_t sum = 1469598103934665603ULL;
+        int count = 0;
+        for (NSString *r in strings)
+            for (NSString *o in strings)
+                for (int k = 0; k < 9; k++)
+                    for (NSUInteger loc = 0; loc <= r.length; loc++)
+                        for (NSUInteger len = 0; loc + len <= r.length; len += 2) {
+                            NSComparisonResult c = [r compare:o options:options[k] range:NSMakeRange(loc, len)];
+                            sum = (sum ^ (uint64_t)(c + 2)) * 1099511628211ULL;
+                            count++;
+                        }
+        printf("comparisons %d checksum %llx\n", count, (unsigned long long)sum);
+    }
+}
+
 int
 main(void)
 {
@@ -568,5 +612,6 @@ main(void)
         section_uh();
         section_cs();
         section_downloads();
+        section_more();
     return 0;
 }

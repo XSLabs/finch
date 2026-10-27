@@ -93,6 +93,10 @@ static NSString *const CurrentProgressKey = @"NSProgressCurrent";
 
 - (instancetype)initWithParent:(NSProgress *)parent userInfo:(NSDictionary *)userInfo
 {
+    if (parent && parent != [NSProgress currentProgress]) {
+        [self release];
+        FinchRaise(NSInvalidArgumentException, "*** -[NSProgress initWithParent:userInfo:]: The parent of an NSProgress object must be the currentProgress.");
+    }
     if ((self = [super init])) {
         _children = [NSMutableArray new];
         _info = userInfo ? [userInfo mutableCopy] : [NSMutableDictionary new];
@@ -202,12 +206,42 @@ static NSString *const CurrentProgressKey = @"NSProgressCurrent";
 - (BOOL)isIndeterminate { return _total < 0 || (_total == 0 && _completed == 0); }
 - (BOOL)isFinished { return _total > 0 ? _completed >= _total : (_total == 0 && _completed > 0); }
 
+/* As Apple's: the fraction as one ratio of whole numbers over the tree (each child's
+   completed share of its pending units, kept exact), divided once at the end. */
+static BOOL
+fraction_parts(NSProgress *p, __int128 *num, __int128 *den)
+{
+    if (p->_total <= 0) {
+        *num = 0, *den = 1;
+        return YES;
+    }
+    __int128 n = p->_completed, d = 1;
+    for (NSProgress *c in p->_children) {
+        __int128 cn, cd;
+        if (!fraction_parts(c, &cn, &cd)) return NO;
+        __int128 add = cn * c->_pendingInParent;
+        if (d > ((__int128)1 << 60) || cd > ((__int128)1 << 60)) return NO;
+        n = n * cd + add * d;
+        d = d * cd;
+    }
+    *num = n;
+    *den = d * p->_total;
+    return *den > 0 && *den < ((__int128)1 << 100);
+}
+
 - (double)fractionCompleted
 {
+#pragma clang fp contract(off)
     if (_total <= 0) return 0;
-    double done = (double)_completed;
-    for (NSProgress *c in _children) done += [c fractionCompleted] * (double)c->_pendingInParent;
-    return MIN(1.0, done / (double)_total);
+    __int128 num, den;
+    double done;
+    if (fraction_parts(self, &num, &den)) {
+        done = (double)num / (double)den;
+    } else {
+        done = (double)_completed / (double)_total;
+        for (NSProgress *c in _children) done += [c fractionCompleted] * ((double)c->_pendingInParent / (double)_total);
+    }
+    return MIN(1.0, done);
 }
 
 - (NSString *)localizedDescription

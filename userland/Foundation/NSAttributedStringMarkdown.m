@@ -742,11 +742,8 @@ utf16_length_of_codepoint_at_utf8_offset(NSString *string, NSUInteger byteOffset
 
 + (BOOL)supportsSecureCoding { return YES; }
 
-- (instancetype)init
-{
-    [self release];
-    FinchRaise(NSInvalidArgumentException, "-[NSPresentationIntent init] must be called through an intent factory");
-}
+/* (as Apple's: a paragraph, identity 0, inside nothing) */
+- (instancetype)init { return [self initWithKind:NSPresentationIntentKindParagraph identity:0 parent:nil]; }
 
 - (instancetype)initWithKind:(NSPresentationIntentKind)kind identity:(NSInteger)identity parent:(NSPresentationIntent *)parent
 {

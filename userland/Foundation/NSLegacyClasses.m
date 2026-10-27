@@ -50,13 +50,35 @@
     Class _class;
     NSArray *_observers;
 }
++ (void)_finchAssign:(NSKeyValueSharedObserversSnapshot *)snapshot toObject:(id)object;
 @end
+
+static const char shared_observers_key = 0;
 
 @implementation NSKeyValueSharedObserversSnapshot
 - (void)dealloc
 {
     [_observers release];
     [super dealloc];
+}
+
+- (void)_assignToObject:(id)object
+{
+    if (object_getClass(object) != _class && [object class] != _class)
+        [NSException raise:NSInternalInconsistencyException
+                    format:@"%@: Attempted to set shared observers from snapshot %@, which is targetting a different class", object, self];
+    [NSKeyValueSharedObserversSnapshot _finchAssign:self toObject:object];
+}
+
+/* The object's observers become the snapshot's, the last snapshot's taken away. */
++ (void)_finchAssign:(NSKeyValueSharedObserversSnapshot *)snapshot toObject:(id)object
+{
+    NSKeyValueSharedObserversSnapshot *old = objc_getAssociatedObject(object, &shared_observers_key);
+    for (_FinchSharedObserver *o in old ? old->_observers : nil)
+        [object removeObserver:o->_observer forKeyPath:o->_key context:o->_context];
+    for (_FinchSharedObserver *o in snapshot ? snapshot->_observers : nil)
+        [object addObserver:o->_observer forKeyPath:o->_key options:o->_options context:o->_context];
+    objc_setAssociatedObject(object, &shared_observers_key, snapshot, OBJC_ASSOCIATION_RETAIN);
 }
 @end
 
@@ -108,22 +130,15 @@
 
 @end
 
-static const char shared_observers_key = 0;
-
 @implementation NSObject (NSKeyValueSharedObserverRegistration)
 
+/* (as Apple's: the snapshot assigns itself; nil takes the last one's observers away) */
 - (void)setSharedObservers:(NSKeyValueSharedObserversSnapshot *)sharedObservers
 {
-    if (sharedObservers && object_getClass(self) != sharedObservers->_class && [self class] != sharedObservers->_class)
-        [NSException raise:NSInternalInconsistencyException
-                    format:@"%@: Attempted to set shared observers from snapshot %@, which is targetting a different class", self,
-                           sharedObservers];
-    NSKeyValueSharedObserversSnapshot *old = objc_getAssociatedObject(self, &shared_observers_key);
-    for (_FinchSharedObserver *o in old ? old->_observers : nil)
-        [self removeObserver:o->_observer forKeyPath:o->_key context:o->_context];
-    for (_FinchSharedObserver *o in sharedObservers ? sharedObservers->_observers : nil)
-        [self addObserver:o->_observer forKeyPath:o->_key options:o->_options context:o->_context];
-    objc_setAssociatedObject(self, &shared_observers_key, sharedObservers, OBJC_ASSOCIATION_RETAIN);
+    if (sharedObservers)
+        [(id)sharedObservers _assignToObject:self];
+    else
+        [NSKeyValueSharedObserversSnapshot _finchAssign:nil toObject:self];
 }
 
 @end
@@ -193,8 +208,10 @@ mac_roman(uint8_t byte)
 
 /* MARK: - NSURLHandle */
 
-/* (as Apple's: NSURLHandle is abstract; file: URLs have NSFileURLHandle) */
+/* (as Apple's: NSURLHandle is abstract; file: URLs have NSFileURLHandle, http(s) ones NSHTTPURLHandle) */
 @interface NSFileURLHandle : NSURLHandle
+@end
+@interface NSHTTPURLHandle : NSURLHandle
 @end
 
 static NSMutableArray *handle_classes;
@@ -218,7 +235,7 @@ register_defaults(void)
 {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        handle_classes = [[NSMutableArray alloc] initWithObjects:[NSFileURLHandle class], nil];
+        handle_classes = [[NSMutableArray alloc] initWithObjects:[NSFileURLHandle class], [NSHTTPURLHandle class], nil];
         cached_handles = [[NSMutableDictionary alloc] init];
     });
 }
@@ -389,6 +406,26 @@ register_defaults(void)
 - (NSData *)loadInForeground { return [NSData dataWithContentsOfURL:_url]; }
 - (id)propertyForKey:(NSString *)propertyKey { return [[[NSFileManager defaultManager] attributesOfItemAtPath:[_url path] error:NULL] objectForKey:propertyKey]; }
 - (BOOL)writeData:(NSData *)data { return [data writeToURL:_url atomically:YES]; }
+
+@end
+
+@implementation NSHTTPURLHandle
+
++ (BOOL)canInitWithURL:(NSURL *)anURL
+{
+    NSString *scheme = [[anURL scheme] lowercaseString];
+    return [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"];
+}
+
+- (NSData *)loadInForeground
+{
+    NSURLResponse *response = nil;
+    NSData *d = [NSURLConnection sendSynchronousRequest:[NSURLRequest requestWithURL:_url] returningResponse:&response error:NULL];
+    return d;
+}
+
+- (id)propertyForKey:(NSString *)propertyKey { return nil; }
+- (BOOL)writeData:(NSData *)data { return NO; }
 
 @end
 

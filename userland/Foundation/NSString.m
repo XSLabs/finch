@@ -334,6 +334,7 @@ cf_copy_of(NSString *s)
 - (NSComparisonResult)compare:(NSString *)string options:(NSStringCompareOptions)mask range:(NSRange)range locale:(id)locale
 {
     if (!string) return NSOrderedDescending;
+    if (string == self) return NSOrderedSame; /* (Apple's: the same string, whatever the range) */
     CFLocaleRef l = locale && CFGetTypeID((CFTypeRef)locale) == CFLocaleGetTypeID() ? (CFLocaleRef)locale
         : (locale ? CFLocaleCopyCurrent() : NULL);
     CFComparisonResult r = CFStringCompareWithOptionsAndLocale((CFStringRef)self, (CFStringRef)string,

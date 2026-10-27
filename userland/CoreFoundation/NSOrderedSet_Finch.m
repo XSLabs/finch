@@ -504,8 +504,9 @@ object_key(NSUInteger i)
 
 - (void)insertObjects:(NSArray *)objects atIndexes:(id)indexes
 {
-    counts_match(_cmd, [objects count], indexes);
+    /* (Apple's order: the last index against both counts, then the counts) */
     indexes_in_bounds(_cmd, "NSMutableOrderedSet", indexes, [self count] + [objects count]);
+    counts_match(_cmd, [objects count], indexes);
     __block NSUInteger i = 0;
     [indexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) { [self insertObject:[objects objectAtIndex:i++] atIndex:idx]; }];
 }
@@ -530,8 +531,8 @@ object_key(NSUInteger i)
 
 - (void)replaceObjectsAtIndexes:(id)indexes withObjects:(NSArray *)objects
 {
+    indexes_in_bounds(_cmd, "NSMutableOrderedSet", indexes, [self count] + [objects count]);
     counts_match(_cmd, [objects count], indexes);
-    indexes_in_bounds(_cmd, "NSMutableOrderedSet", indexes, [self count]);
     __block NSUInteger i = 0;
     [indexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) { [self replaceObjectAtIndex:idx withObject:[objects objectAtIndex:i++]]; }];
 }

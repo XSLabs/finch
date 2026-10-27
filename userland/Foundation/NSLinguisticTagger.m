@@ -272,6 +272,13 @@ token_type_tag(int t)
 - (NSArray *)tagSchemes { return _schemes; }
 - (NSString *)string { return _string; }
 
+/* Apple's: the schemes, then the string's address and length. */
+- (NSString *)description
+{
+    return [NSString stringWithFormat:@"<NSLinguisticTagger: %p>\n    tag schemes %@\n    string %p has %lu characters\n", self, _schemes,
+                     _string, (unsigned long)[_string length]];
+}
+
 - (void)setString:(NSString *)string
 {
     [self forget];
