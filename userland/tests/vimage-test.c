@@ -548,6 +548,80 @@ static void histograms_and_morphology(void)
     }
 }
 
+static void convolutions(void)
+{
+    static const vImage_Flags edges[4] = {kvImageCopyInPlace, kvImageBackgroundColorFill, kvImageEdgeExtend,
+                                          kvImageTruncateKernel};
+    static const char *edgeNames[4] = {"copy", "background", "extend", "truncate"};
+    const int16_t k8[15] = {1, 2, 3, 2, 1, 2, -4, 9, -4, 2, 1, 2, 3, 2, 1};
+    const float kF[15] = {0.0625f, 0.125f, 0.1875f, 0.125f, 0.0625f, 0.125f, -0.25f, 0.5625f,
+                          -0.25f, 0.125f, 0.0625f, 0.125f, 0.1875f, 0.125f, 0.0625f};
+    const int16_t *k8s[4] = {k8, k8, k8, k8};
+    const float *kFs[4] = {kF, kF, kF, kF};
+    const int32_t divs[4] = {21, 7, 1, 30}, biases[4] = {10, -50, 0, 300};
+    const float fbiases[4] = {0.125f, -0.25f, 0, 0.5f};
+    const Pixel_8888 bg8 = {9, 99, 199, 255};
+    const Pixel_FFFF bgF = {0.25f, 0.5f, 0.75f, 1};
+    const Pixel_ARGB_16F bgH = {0x3400, 0x3800, 0x3a00, 0x3c00};
+    const float kx[5] = {0.0625f, 0.25f, 0.375f, 0.25f, 0.0625f}, ky[3] = {0.25f, 0.5f, 0.25f};
+    for (int m = 0; m < 4; ++m) {
+        vImage_Flags f = edges[m];
+        printf("edges: %s\n", edgeNames[m]);
+        T1(Convolve_Planar8, d, 1, vImageConvolve_Planar8(&s8, &d, NULL, 0, 0, k8, 3, 5, 21, 7, f));
+        T1(ConvolveWithBias_Planar8, d, 1, vImageConvolveWithBias_Planar8(&s8, &d, NULL, 0, 0, k8, 5, 3, 21, 100, 7, f));
+        T1(Convolve_ARGB8888, d, 4, vImageConvolve_ARGB8888(&s8, &d, NULL, 0, 0, k8, 3, 5, 21, bg8, f));
+        T1(ConvolveWithBias_ARGB8888, d, 4, vImageConvolveWithBias_ARGB8888(&s8, &d, NULL, 0, 0, k8, 5, 3, 21, -300, bg8, f));
+        T1(ConvolveMultiKernel_ARGB8888, d, 4,
+           vImageConvolveMultiKernel_ARGB8888(&s8, &d, NULL, 0, 0, k8s, 3, 5, divs, biases, bg8, f));
+        T1(Convolve_PlanarF, d, 4, vImageConvolve_PlanarF(&sF, &d, NULL, 0, 0, kF, 3, 5, 0.5f, f));
+        T1(ConvolveWithBias_PlanarF, d, 4, vImageConvolveWithBias_PlanarF(&sF, &d, NULL, 0, 0, kF, 5, 3, 0.25f, 0.5f, f));
+        T1(Convolve_ARGBFFFF, d, 16, vImageConvolve_ARGBFFFF(&sF, &d, NULL, 0, 0, kF, 3, 5, bgF, f));
+        T1(ConvolveWithBias_ARGBFFFF, d, 16, vImageConvolveWithBias_ARGBFFFF(&sF, &d, NULL, 0, 0, kF, 5, 3, -0.125f, bgF, f));
+        T1(ConvolveMultiKernel_ARGBFFFF, d, 16,
+           vImageConvolveMultiKernel_ARGBFFFF(&sF, &d, NULL, 0, 0, kFs, 3, 5, fbiases, bgF, f));
+        T1(Convolve_Planar16F, d, 2, vImageConvolve_Planar16F(&sHalf, &d, NULL, 0, 0, kF, 3, 5, 0x3800, f));
+        T1(ConvolveWithBias_Planar16F, d, 2, vImageConvolveWithBias_Planar16F(&sHalf, &d, NULL, 0, 0, kF, 5, 3, 0.25f, 0, f));
+        T1(Convolve_ARGB16F, d, 8, vImageConvolve_ARGB16F(&sHalf, &d, NULL, 0, 0, kF, 3, 5, bgH, f));
+        T1(ConvolveWithBias_ARGB16F, d, 8, vImageConvolveWithBias_ARGB16F(&sHalf, &d, NULL, 0, 0, kF, 5, 3, 0.5f, bgH, f));
+        T1(ConvolveFloatKernel_ARGB8888, d, 4, vImageConvolveFloatKernel_ARGB8888(&s8, &d, NULL, 0, 0, kF, 3, 5, 3.5f, bg8, f));
+        T1(BoxConvolve_Planar8, d, 1, vImageBoxConvolve_Planar8(&s8, &d, NULL, 0, 0, 3, 5, 77, f));
+        T1(BoxConvolve_ARGB8888, d, 4, vImageBoxConvolve_ARGB8888(&s8, &d, NULL, 0, 0, 5, 3, bg8, f));
+        T1(TentConvolve_Planar8, d, 1, vImageTentConvolve_Planar8(&s8, &d, NULL, 0, 0, 3, 5, 77, f));
+        T1(TentConvolve_ARGB8888, d, 4, vImageTentConvolve_ARGB8888(&s8, &d, NULL, 0, 0, 5, 3, bg8, f));
+        T1(SepConvolve_Planar8, d, 1, vImageSepConvolve_Planar8(&s8, &d, NULL, 0, 0, kx, 5, ky, 3, 0.25f, 50, f));
+        T1(SepConvolve_PlanarF, d, 4, vImageSepConvolve_PlanarF(&sF, &d, NULL, 0, 0, kx, 5, ky, 3, 0.125f, 0.5f, f));
+        T1(SepConvolve_Planar16F, d, 2, vImageSepConvolve_Planar16F(&sHalf, &d, NULL, 0, 0, kx, 5, ky, 3, 0, 0x3800, f));
+        T1(SepConvolve_Planar16U, d, 2, vImageSepConvolve_Planar16U(&s16U, &d, NULL, 0, 0, kx, 5, ky, 3, 100, 1000, f));
+        T1(SepConvolve_Planar8to16U, d, 2,
+           vImageSepConvolve_Planar8to16U(&s8, &d, NULL, 0, 0, kx, 5, ky, 3, 257, 0.5f, 20, f));
+        T1(SepConvolve_ARGB8888, d, 4, vImageSepConvolve_ARGB8888(&s8, &d, NULL, 0, 0, kx, 5, ky, 3, -2, bg8, f));
+    }
+    {
+        /* a tile, offset into the source */
+        vImage_Buffer d = make(1, KZERO);
+        d.width = 7;
+        d.height = 3;
+        size_t bpp = 1;
+        vImage_Error e = vImageConvolve_Planar8(&s8, &d, NULL, 3, 1, k8, 3, 5, 21, 0, kvImageEdgeExtend);
+        report("Convolve_Planar8-tile", e, 1, &d, &bpp);
+        printf("Convolve no edge flag: %ld\n", (long)vImageConvolve_Planar8(&s8, &d, NULL, 0, 0, k8, 3, 5, 21, 0, 0));
+        printf("Convolve two edge flags: %ld\n",
+               (long)vImageConvolve_Planar8(&s8, &d, NULL, 0, 0, k8, 3, 5, 21, 0, kvImageEdgeExtend | kvImageCopyInPlace));
+        printf("Convolve even kernel: %ld\n", (long)vImageConvolve_Planar8(&s8, &d, NULL, 0, 0, k8, 2, 5, 21, 0, kvImageEdgeExtend));
+        free(d.data);
+    }
+    const float psf[9] = {0.0625f, 0.125f, 0.0625f, 0.125f, 0.25f, 0.125f, 0.0625f, 0.125f, 0.0625f};
+    const int16_t psf8[9] = {1, 2, 1, 2, 4, 2, 1, 2, 1};
+    TOLERANT(RichardsonLucy_PlanarF, 4, 4,
+             vImageRichardsonLucyDeConvolve_PlanarF(&sF, &d, NULL, 0, 0, psf, NULL, 3, 3, 0, 0, 0, 3, kvImageEdgeExtend));
+    TOLERANT(RichardsonLucy_ARGBFFFF, 16, 4,
+             vImageRichardsonLucyDeConvolve_ARGBFFFF(&sF, &d, NULL, 0, 0, psf, psf, 3, 3, 3, 3, bgF, 2, kvImageEdgeExtend));
+    TOLERANT(RichardsonLucy_Planar8, 1, 1,
+             vImageRichardsonLucyDeConvolve_Planar8(&s8, &d, NULL, 0, 0, psf8, NULL, 3, 3, 0, 0, 16, 0, 0, 2, kvImageEdgeExtend));
+    TOLERANT(RichardsonLucy_ARGB8888, 4, 1,
+             vImageRichardsonLucyDeConvolve_ARGB8888(&s8, &d, NULL, 0, 0, psf8, psf8, 3, 3, 3, 3, 16, 16, bg8, 1, kvImageEdgeExtend));
+}
+
 int main(void)
 {
     dump_name = getenv("VIMAGE_DUMP");
@@ -569,5 +643,6 @@ int main(void)
     conversions();
     alpha();
     histograms_and_morphology();
+    convolutions();
     return 0;
 }
