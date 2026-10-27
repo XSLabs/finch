@@ -14,6 +14,7 @@ Accelerate.framework/Versions/A/Accelerate          re-exports vecLib and vImage
     libQuadrature.dylib     quadrature_integrate
     libLinearAlgebra.dylib  la_object_t matrices, vectors and splats
     libSparseBLAS.dylib     Sparse/BLAS.h, all four scalar types
+    libSparse.dylib         Sparse/Solve.h: direct and iterative sparse solvers
   Frameworks/vImage.framework/Versions/A/vImage     vImage (the calls apps import)
 ```
 
@@ -233,11 +234,33 @@ trace past the matrix, and invalid orders, transposes or leading dimensions
 singular value to full precision (macOS's iteration stops short), and
 triangular solves can differ from macOS's dtrsm in the last bits.
 
+## Sparse solvers
+
+`userland/Accelerate/Sparse/` is libSparse, the `_Sparse*` entry points that
+Sparse/Solve.h's inline layer calls, for all four scalar types. The header's
+overloadable inline interface is also compiled once with external linkage
+(`overloads.c`), so the C++-mangled exports Swift uses exist as on macOS.
+Conversion from coordinates sums duplicates into their first appearance and
+keeps rows in first-appearance order, folding symmetric entries into the
+stored triangle, as macOS does. Factorizations are Finch's own right-looking
+elimination over sparse columns in a minimum degree order: LDL^T/LDL^H
+(Cholesky, unpivoted, Bunch-Kaufman with static pivoting, threshold partial
+pivoting with 1x1/2x2 pivots and delays, with inertia), Householder QR and
+Cholesky of A'A, and LU with threshold row pivoting; structural singularity is
+found by maximum matching. Iterative methods are CG, restarted (flexible)
+GMRES for all three variants and LSMR, with the diagonal and column-scaling
+preconditioners and the single-step iteration API. Solutions, statuses and
+error reports match macOS; subfactors (P, L, D, Q, R, Sr, Sc) are in Finch's
+own pivot order, so they agree with macOS through the identities the header
+documents (P L D L' P' = SAS, half-solves composing to a solve, A = QRP)
+rather than entry by entry. Private, undocumented exports (matrix file I/O,
+the AMD/COLAMD entry points, rank-two updates) are not provided.
+
 ## The rest
 
 LAPACK has only the calls imported by the apps found on this Mac: `dgels_`,
-`dgetrf_`, `dgetri_` and `dgtsv_` (`LAPACK/lapack.c`). BNNS and the sparse
-solvers (libSparse) are not implemented. Complete LAPACK is planned
+`dgetrf_`, `dgetri_` and `dgtsv_` (`LAPACK/lapack.c`). BNNS is not
+implemented. Complete LAPACK is planned
 from a permissively licensed implementation.
 
 ## Build and check

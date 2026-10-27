@@ -72,7 +72,7 @@ all: $(OUT)/finch-cf-preferences-container-test
 all: $(OUT)/finch-appkit-gaps-test
 all: $(OUT)/finch-urlsession-trust-test
 all: $(OUT)/finch-network-test
-all: $(OUT)/finch-accelerate-test $(OUT)/finch-vdsp-test $(OUT)/finch-vmisc-test $(OUT)/finch-blas-test $(OUT)/finch-vimage-test $(OUT)/finch-quadrature-test $(OUT)/finch-linearalgebra-test $(OUT)/finch-sparseblas-test
+all: $(OUT)/finch-accelerate-test $(OUT)/finch-vdsp-test $(OUT)/finch-vmisc-test $(OUT)/finch-blas-test $(OUT)/finch-vimage-test $(OUT)/finch-quadrature-test $(OUT)/finch-linearalgebra-test $(OUT)/finch-sparseblas-test $(OUT)/finch-sparse-test
 all: $(OUT)/finch-videotoolbox-test
 all: $(OUT)/finch-contacts-search-links-test
 all: $(OUT)/finch-contacts-search-links-fetch-test
@@ -129,6 +129,11 @@ $(OUT)/finch-linearalgebra-test: linearalgebra-test.c
 $(OUT)/finch-sparseblas-test: sparseblas-test.c
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -o $@ $< -framework Accelerate
+
+# libSparse conversion, multiplication and iterative solvers (diff Apple's and Finch's).
+$(OUT)/finch-sparse-test: sparse-test.c
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -w -o $@ $< -framework Accelerate
 
 # vImage function by function, hashed outputs (diff Apple's and Finch's).
 $(OUT)/finch-vimage-test: vimage-test.c

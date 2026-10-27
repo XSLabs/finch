@@ -7,7 +7,7 @@ component's details and limits. Every commit that adds, replaces or removes a co
 updates this page; `tools/render-stack.sh` checks that the diagrams render.
 
 **As of 2026-10-27:** Accelerate is laid out as Apple's and has all of vDSP, vMisc
-(vForce, vfp, vBasicOps, vBigNum), BLAS, Quadrature, LinearAlgebra and Sparse BLAS, and all of vImage; Network has its C API; CoreData reads
+(vForce, vfp, vBasicOps, vBigNum), BLAS, Quadrature, LinearAlgebra, Sparse BLAS and the sparse solvers, and all of vImage; Network has its C API; CoreData reads
 and writes macOS's XML and binary stores.
 
 ## Layers
@@ -158,7 +158,7 @@ Per-framework API coverage is in [COMPATIBILITY.md](COMPATIBILITY.md).
 | App frameworks | QuartzCore, CoreImage, Quartz, ImageKit, QuartzFilters, CoreUI | Finch | Layers, filters on the CPU, asset catalogs |
 | App frameworks | OpenGL, Metal, MetalKit | Finch over Mesa | Software OpenGL; Metal has no device yet |
 | App frameworks | AVFoundation, AVFAudio, CoreMedia, CoreVideo, IOSurface, CoreAudio, AudioToolbox, AudioUnit, CoreMIDI, VideoToolbox, AVKit, MediaPlayer, ScreenCaptureKit | Finch (OpenH264, libvpx, dav1d static) | Assets, playback, readers and writers, audio files and conversion, software audio units ([media plan](design/MEDIA.md)) |
-| App frameworks | Accelerate: vecLib (libvDSP, libvMisc, libBLAS, libLAPACK, libQuadrature, libLinearAlgebra, libSparseBLAS) and vImage | Finch | All of vDSP, vMisc, BLAS, Quadrature, LinearAlgebra and Sparse BLAS; all of vImage; LAPACK only the calls apps use ([design](design/ACCELERATE.md)) |
+| App frameworks | Accelerate: vecLib (libvDSP, libvMisc, libBLAS, libLAPACK, libQuadrature, libLinearAlgebra, libSparseBLAS, libSparse) and vImage | Finch | All of vDSP, vMisc, BLAS, Quadrature, LinearAlgebra, Sparse BLAS and sparse solvers; all of vImage; LAPACK only the calls apps use ([design](design/ACCELERATE.md)) |
 | App frameworks | CoreServices, UniformTypeIdentifiers, HIServices, Carbon/HIToolbox, PrintCore, OpenScripting, OSAKit | Finch | App lookup and launch, Apple events, AppleScript, printing to PDF |
 | App frameworks | Contacts, ContactsUI, Intents, CoreSpotlight, CloudKit, LinkPresentation, PDFKit, Quick Look, Vision, GameController, WidgetKit, CoreBluetooth, CryptoTokenKit, MediaAccessibility, UserNotifications, CoreLocation, ServiceManagement, StoreKit, Accounts, SecurityInterface, AuthenticationServices, ImageCaptureCore, and more | Finch | Each answers as a Mac without the service or device would; limits in `docs/design/` |
 | Foundation | Foundation, CoreFoundation, CoreAutoLayout | Finch | Objective-C, class for class ([design](design/FOUNDATION.md)) |

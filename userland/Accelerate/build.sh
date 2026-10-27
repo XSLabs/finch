@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Finch's Accelerate, laid out as Apple's: the Accelerate umbrella re-exports vecLib and
 # vImage, and vecLib re-exports its libraries (libvDSP, libvMisc, libBLAS, libLAPACK,
-# libQuadrature, libLinearAlgebra, libSparseBLAS).
+# libQuadrature, libLinearAlgebra, libSparseBLAS, libSparse).
 # Each library exports what Apple's .tbd lists and Finch defines (tbd-exports.py).
 #
 #   userland/Accelerate/build.sh
@@ -71,6 +71,7 @@ compile vImage "${HERE}"/vImage/*.c
 compile Quadrature "${HERE}"/Quadrature/*.c
 compile LinearAlgebra "${HERE}"/LinearAlgebra/*.c "${HERE}"/LinearAlgebra/*.m
 compile SparseBLAS "${HERE}"/SparseBLAS/*.c
+compile Sparse "${HERE}"/Sparse/*.c
 
 library "${VECLIB}/libvDSP.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libvDSP.tbd" 1126.100.7 "${OBJ}/vDSP"
 library "${VECLIB}/libvMisc.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libvMisc.tbd" 1126.100.7 "${OBJ}/vMisc"
@@ -83,6 +84,8 @@ library "${VECLIB}/libLinearAlgebra.dylib" "${SDK_FW}/vecLib.framework/Versions/
     "${OBJ}/LinearAlgebra" -lobjc
 library "${VECLIB}/libSparseBLAS.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libSparseBLAS.tbd" 1126.100.7 \
     "${OBJ}/SparseBLAS"
+library "${VECLIB}/libSparse.dylib" "${SDK_FW}/vecLib.framework/Versions/A/libSparse.tbd" 1126.100.7 \
+    "${OBJ}/Sparse" "${ROOT}${VECLIB}/libSparseBLAS.dylib"
 
 # umbrella NAME INSTALL CURRENT BUNDLE_ID SHORT REEXPORT...
 umbrella() {
@@ -102,7 +105,8 @@ umbrella() {
 umbrella vecLib "${VECLIB}/vecLib" 1126.100.7 com.apple.Accelerate.vecLib 3.11 \
     "${ROOT}${VECLIB}/libvMisc.dylib" "${ROOT}${VECLIB}/libvDSP.dylib" "${ROOT}${VECLIB}/libBLAS.dylib" \
     "${ROOT}${VECLIB}/libLAPACK.dylib" "${ROOT}${VECLIB}/libQuadrature.dylib" \
-    "${ROOT}${VECLIB}/libLinearAlgebra.dylib" "${ROOT}${VECLIB}/libSparseBLAS.dylib"
+    "${ROOT}${VECLIB}/libLinearAlgebra.dylib" "${ROOT}${VECLIB}/libSparseBLAS.dylib" \
+    "${ROOT}${VECLIB}/libSparse.dylib"
 
 log "linking vImage"
 "${HERE}/tbd-exports.py" "${SDK_FW}/vImage.framework/Versions/A/vImage.tbd" "${OBJ}/vImage"/*.o > "${OBJ}/vImage.exports"
