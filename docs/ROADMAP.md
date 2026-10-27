@@ -1386,7 +1386,8 @@ that every app works. These release checks were missing from the Phase 5 list:
       syslog messages in it, logger now built from remote_cmds): tools/vm/test-calculator.sh,
       test-textedit.sh, test-stickies.sh, test-script-editor.sh, test-terminal.sh,
       test-grapher.sh, test-color-meter.sh, test-console.sh, test-magnifier.sh (Magnifier's
-      magnified and inverted view). Terminal's restored session
+      magnified and inverted view), test-colorsync.sh (ColorSync Utility's Profile First
+      Aid). Terminal's restored session
       keeps up with typing (2026-10-27).
 - [ ] **Daily use:** persistent accounts and settings, accessibility, keyboard navigation,
       sleep/wake, shutdown, storage errors and low-space recovery on the target M4.

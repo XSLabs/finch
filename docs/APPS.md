@@ -63,7 +63,8 @@ with a typed equation is saved as a .gcx and opens again) and
 the window server's own, at two places) `tools/vm/test-console.sh` (Console streams the
 live log, a logger(1) message and os_log ones among it, and copies them) and
 `tools/vm/test-magnifier.sh` (Magnifier shows the menu bar under the pointer magnified,
-and inverted when asked). When Terminal started again and restored its last session, a line typed soon after
+and inverted when asked) and `tools/vm/test-colorsync.sh` (ColorSync Utility's Profile
+First Aid verifies the installed profiles; its report is copied). When Terminal started again and restored its last session, a line typed soon after
 used to be lost: Finch's
 CoreGraphics gave each string drawn with a shadow set a page-sized layer, and the
 restored window's frames took long
