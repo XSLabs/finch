@@ -556,6 +556,7 @@ overrides(id doc, SEL sel)
 }
 
 static char last_save_type_key;
+static char running_save_panel_key, running_save_operation_key;
 
 /* The save panel's File Format pop-up: the document's writable types by their names; a
    choice sets the name's extension and the type to save as. */
@@ -1241,10 +1242,53 @@ add_version(NSURL *url, NSSaveOperationType op)
         chooser->op = op;
         [p setAccessoryView:[chooser viewSelecting:_fileType]];
     }
-    if (![self prepareSavePanel:p] || [p runModal] != NSModalResponseOK)
+    /* (the panel being run, for changeSaveType: from the app's own accessory view) */
+    objc_setAssociatedObject(self, &running_save_panel_key, p, OBJC_ASSOCIATION_RETAIN);
+    objc_setAssociatedObject(self, &running_save_operation_key, @(op), OBJC_ASSOCIATION_RETAIN);
+    BOOL ok = [self prepareSavePanel:p] && [p runModal] == NSModalResponseOK;
+    objc_setAssociatedObject(self, &running_save_panel_key, nil, OBJC_ASSOCIATION_RETAIN);
+    objc_setAssociatedObject(self, &running_save_operation_key, nil, OBJC_ASSOCIATION_RETAIN);
+    if (!ok)
         return;
     [self saveToURL:[p URL] ofType:[self fileTypeFromLastRunSavePanel] ?: _fileType forSaveOperation:op
            delegate:delegate didSaveSelector:didSaveSelector contextInfo:contextInfo];
+}
+
+/* The save type chosen, as Apple's: remembered for fileTypeFromLastRunSavePanel, and the
+   running save panel's extension follows it. */
+- (void)_setSaveType:(NSString *)type
+{
+    if (![type isKindOfClass:[NSString class]])
+        return;
+    objc_setAssociatedObject(self, &last_save_type_key, type, OBJC_ASSOCIATION_COPY);
+    NSSavePanel *panel = objc_getAssociatedObject(self, &running_save_panel_key);
+    NSSaveOperationType op = [objc_getAssociatedObject(self, &running_save_operation_key) integerValue];
+    NSString *ext = [self fileNameExtensionForType:type saveOperation:op];
+    if (panel && [ext length]) {
+        [panel setAllowedFileTypes:@[ ext ]];
+        NSString *name = [[panel nameFieldStringValue] stringByDeletingPathExtension];
+        [panel setNameFieldStringValue:[name stringByAppendingPathExtension:ext]];
+    }
+}
+
+/* The action of a File Format pop-up (Apple's, and an app's own in its accessory view):
+   the selected item's represented type, or the writable type at its index. */
+- (IBAction)changeSaveType:(id)sender
+{
+    NSString *type = nil;
+    if ([sender respondsToSelector:@selector(selectedItem)]) {
+        id represented = [[sender selectedItem] representedObject];
+        if ([represented isKindOfClass:[NSString class]])
+            type = represented;
+    }
+    if (!type && [sender respondsToSelector:@selector(indexOfSelectedItem)]) {
+        NSNumber *op = objc_getAssociatedObject(self, &running_save_operation_key);
+        NSArray<NSString *> *types = [self writableTypesForSaveOperation:op ? [op integerValue] : NSSaveAsOperation];
+        NSInteger i = [sender indexOfSelectedItem];
+        if (i >= 0 && (NSUInteger)i < [types count])
+            type = types[(NSUInteger)i];
+    }
+    [self _setSaveType:type];
 }
 
 /* The type chosen in the save panel's File Format pop-up (the document's type otherwise). */
@@ -1429,8 +1473,11 @@ new_autosave_url(NSDocument *doc)
 /* The type's preferred filename extension (UTType). */
 - (NSString *)fileNameExtensionForType:(NSString *)typeName saveOperation:(NSSaveOperationType)op
 {
-    UTType *t = [UTType typeWithIdentifier:typeName];
-    return [t preferredFilenameExtension];
+    NSString *ext = [[UTType typeWithIdentifier:typeName] preferredFilenameExtension];
+    if (ext)
+        return ext;
+    /* a type named the old way (CFBundleTypeName, "script"): its first declared extension */
+    return [[[NSDocumentController sharedDocumentController] fileExtensionsFromType:typeName] firstObject];
 }
 
 - (BOOL)duplicateAndReturnError:(NSError **)outError
