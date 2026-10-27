@@ -629,6 +629,17 @@ iso_options_format(NSISO8601DateFormatOptions options)
     return self;
 }
 
+- (NSCalendarUnit)allowedUnits { return _fUnits; }
+
+- (void)setAllowedUnits:(NSCalendarUnit)units
+{
+    const NSCalendarUnit allowed = NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitWeekOfMonth | NSCalendarUnitDay |
+                                   NSCalendarUnitHour | NSCalendarUnitMinute | NSCalendarUnitSecond;
+    if (units & ~allowed)
+        [NSException raise:NSInternalInconsistencyException format:@"Invalid parameter not satisfying: allowedUnits == 0 || !(allowedUnits & ~(NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitWeekOfMonth | NSCalendarUnitDay | NSCalendarUnitHour | NSCalendarUnitMinute | NSCalendarUnitSecond))"];
+    _fUnits = units;
+}
+
 - (void)dealloc
 {
     [_fCalendar release];

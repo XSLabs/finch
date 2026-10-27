@@ -8,8 +8,16 @@
  * by preferred filename; a clashing name gets Apple's "1__#$!@%!#__name"
  * key, which is also the name written to disk, as Apple's is.
  *
- * serializedRepresentation is a keyed archive here; Apple's is the flat
- * RTFD format, which comes with AppKit's RTFD support.
+ * serializedRepresentation is Apple's flat RTFD format (the pasteboard's
+ * RTFD), little-endian throughout: "rtfd", 0, then a directory node. A
+ * directory node is 3 and a table: a count, the names (each a length and
+ * UTF-8), the entries' lengths, then the entries. A file entry is 1, a length
+ * and the contents (a link's are its destination path); each directory's "."
+ * file holds a table of 16-byte attributes by name (a file's modification
+ * time in Unix seconds, or 0; permissions; flags: 1 a directory, 4 a link, 2
+ * the lone file; then 1 for the lone file). A lone
+ * file or link is the entry "..", with its preferred name in
+ * "__@PreferredName@__" and "__@UTF8PreferredName@__".
  */
 #import <Foundation/Foundation.h>
 #include <errno.h>
@@ -143,10 +151,239 @@ typedef enum { KIND_FILE, KIND_DIRECTORY, KIND_LINK } Kind;
     return self;
 }
 
+enum { RTFD_FILE = 1, RTFD_DIRECTORY = 3, RTFD_IS_DIRECTORY = 1, RTFD_IS_LONE = 2, RTFD_IS_LINK = 4 };
+
+static void
+rtfd_put(NSMutableData *out, uint32_t value)
+{
+    uint32_t le = NSSwapHostIntToLittle(value);
+    [out appendBytes:&le length:4];
+}
+
+/* (`names` gives the order; a directory's follows its dictionary, which needn't match
+   Apple's byte for byte, as readers look entries up by name) */
+static void
+rtfd_ordered_table(NSMutableData *out, NSDictionary *entries, NSArray *names)
+{
+    rtfd_put(out, (uint32_t)[names count]);
+    for (NSString *name in names) {
+        NSData *utf8 = [name dataUsingEncoding:NSUTF8StringEncoding];
+        rtfd_put(out, (uint32_t)[utf8 length]);
+        [out appendData:utf8];
+    }
+    for (NSString *name in names)
+        rtfd_put(out, (uint32_t)[[entries objectForKey:name] length]);
+    for (NSString *name in names)
+        [out appendData:[entries objectForKey:name]];
+}
+
+static void
+rtfd_table(NSMutableData *out, NSDictionary *entries)
+{
+    rtfd_ordered_table(out, entries, [entries allKeys]);
+}
+
+static NSData *
+rtfd_file(NSData *contents)
+{
+    NSMutableData *out = [NSMutableData data];
+    rtfd_put(out, RTFD_FILE);
+    rtfd_put(out, (uint32_t)[contents length]);
+    if (contents)
+        [out appendData:contents];
+    return out;
+}
+
+static NSData *
+rtfd_attributes(NSFileWrapper *w, uint32_t flags, uint32_t lone)
+{
+    NSMutableData *out = [NSMutableData data];
+    NSNumber *permissions = [[w fileAttributes] objectForKey:NSFilePosixPermissions];
+    NSDate *modified = [[w fileAttributes] objectForKey:NSFileModificationDate];
+    /* (Apple's: a file in a directory has a time, now if it has none of its own) */
+    rtfd_put(out, lone || [w isDirectory] || [w isSymbolicLink] ? 0 : (uint32_t)[modified ?: [NSDate date] timeIntervalSince1970]);
+    rtfd_put(out, permissions ? (uint32_t)[permissions unsignedIntValue] : [w isDirectory] ? 0777 : 0666);
+    rtfd_put(out, flags);
+    rtfd_put(out, lone);
+    return out;
+}
+
+static NSData *
+rtfd_link_contents(NSFileWrapper *w)
+{
+    return [[w symbolicLinkDestination] dataUsingEncoding:NSUTF8StringEncoding];
+}
+
+static NSData *
+rtfd_directory(NSFileWrapper *w)
+{
+    NSMutableDictionary *entries = [NSMutableDictionary dictionary], *attributes = [NSMutableDictionary dictionary];
+    NSDictionary *children = [w fileWrappers];
+    for (NSString *name in children) {
+        NSFileWrapper *child = [children objectForKey:name];
+        uint32_t flags = 0;
+        if ([child isDirectory]) {
+            [entries setObject:rtfd_directory(child) forKey:name];
+            flags = RTFD_IS_DIRECTORY;
+        } else if ([child isSymbolicLink]) {
+            [entries setObject:rtfd_file(rtfd_link_contents(child)) forKey:name];
+            flags = RTFD_IS_LINK;
+        } else {
+            [entries setObject:rtfd_file([child regularFileContents]) forKey:name];
+        }
+        [attributes setObject:rtfd_attributes(child, flags, 0) forKey:name];
+    }
+    if ([attributes count]) {
+        NSMutableData *table = [NSMutableData data];
+        rtfd_table(table, attributes);
+        [entries setObject:rtfd_file(table) forKey:@"."];
+    }
+    NSMutableData *out = [NSMutableData data];
+    rtfd_put(out, RTFD_DIRECTORY);
+    rtfd_table(out, entries);
+    return out;
+}
+
+typedef struct {
+    const uint8_t *bytes;
+    NSUInteger length, at;
+    BOOL bad;
+} RTFDReader;
+
+static uint32_t
+rtfd_get(RTFDReader *r)
+{
+    if (r->bad || r->at + 4 > r->length) {
+        r->bad = YES;
+        return 0;
+    }
+    uint32_t le;
+    memcpy(&le, r->bytes + r->at, 4);
+    r->at += 4;
+    return NSSwapLittleIntToHost(le);
+}
+
+/* A table's entries by name, each the data of its entry. */
+static NSDictionary *
+rtfd_read_table(RTFDReader *r)
+{
+    uint32_t count = rtfd_get(r);
+    if (r->bad || count > r->length)
+        return nil;
+    NSMutableArray *names = [NSMutableArray array];
+    for (uint32_t i = 0; i < count && !r->bad; i++) {
+        uint32_t n = rtfd_get(r);
+        if (r->bad || n > r->length - r->at)
+            return nil;
+        NSString *name = [[[NSString alloc] initWithBytes:r->bytes + r->at length:n encoding:NSUTF8StringEncoding] autorelease];
+        r->at += n;
+        if (!name)
+            return nil;
+        [names addObject:name];
+    }
+    NSUInteger lengths[count ? count : 1];
+    for (uint32_t i = 0; i < count; i++)
+        lengths[i] = rtfd_get(r);
+    NSMutableDictionary *entries = [NSMutableDictionary dictionary];
+    for (uint32_t i = 0; i < count && !r->bad; i++) {
+        if (lengths[i] > r->length - r->at)
+            return nil;
+        [entries setObject:[NSData dataWithBytes:r->bytes + r->at length:lengths[i]] forKey:[names objectAtIndex:i]];
+        r->at += lengths[i];
+    }
+    return r->bad ? nil : entries;
+}
+
+/* An entry: a directory node's table, or a file's contents. */
+static id
+rtfd_read_entry(NSData *data, BOOL *isDirectory)
+{
+    RTFDReader r = { [data bytes], [data length], 0, NO };
+    uint32_t type = rtfd_get(&r);
+    *isDirectory = type == RTFD_DIRECTORY;
+    if (type == RTFD_DIRECTORY)
+        return rtfd_read_table(&r);
+    uint32_t n = rtfd_get(&r);
+    if (r.bad || type != RTFD_FILE || n > r.length - r.at)
+        return nil;
+    return [data subdataWithRange:NSMakeRange(r.at, n)];
+}
+
+static NSDictionary *
+rtfd_read_attributes(NSDictionary *entries)
+{
+    BOOL dir;
+    NSData *table = rtfd_read_entry([entries objectForKey:@"."], &dir);
+    if (![table isKindOfClass:[NSData class]])
+        return nil;
+    RTFDReader r = { [table bytes], [table length], 0, NO };
+    return rtfd_read_table(&r);
+}
+
+static uint32_t
+rtfd_word(NSData *attributes, NSUInteger index)
+{
+    uint32_t le = 0;
+    if ([attributes length] >= 4 * (index + 1))
+        memcpy(&le, (const uint8_t *)[attributes bytes] + 4 * index, 4);
+    return NSSwapLittleIntToHost(le);
+}
+
+static NSFileWrapper *
+rtfd_wrapper(id entry, BOOL isDirectory, NSData *attributes)
+{
+    NSFileWrapper *w;
+    if (isDirectory) {
+        NSDictionary *table = entry, *all = rtfd_read_attributes(table);
+        NSMutableDictionary *children = [NSMutableDictionary dictionary];
+        for (NSString *name in table) {
+            if ([name isEqualToString:@"."] || [name hasPrefix:@"__@"])
+                continue;
+            BOOL childIsDirectory;
+            id childEntry = rtfd_read_entry([table objectForKey:name], &childIsDirectory);
+            NSFileWrapper *child = childEntry ? rtfd_wrapper(childEntry, childIsDirectory, [all objectForKey:name]) : nil;
+            if (!child)
+                return nil;
+            [child setPreferredFilename:name];
+            [children setObject:child forKey:name];
+        }
+        w = [[[NSFileWrapper alloc] initDirectoryWithFileWrappers:children] autorelease];
+    } else if (rtfd_word(attributes, 2) & RTFD_IS_LINK) {
+        NSString *path = [[[NSString alloc] initWithData:entry encoding:NSUTF8StringEncoding] autorelease];
+        w = [[[NSFileWrapper alloc] initSymbolicLinkWithDestinationURL:[NSURL fileURLWithPath:path ?: @""]] autorelease];
+    } else {
+        w = [[[NSFileWrapper alloc] initRegularFileWithContents:entry] autorelease];
+    }
+    if ([attributes length] >= 8) {
+        NSMutableDictionary *a = [NSMutableDictionary dictionaryWithDictionary:[w fileAttributes]];
+        [a setObject:[NSNumber numberWithUnsignedInt:rtfd_word(attributes, 1)] forKey:NSFilePosixPermissions];
+        if (rtfd_word(attributes, 0))
+            [a setObject:[NSDate dateWithTimeIntervalSince1970:rtfd_word(attributes, 0)] forKey:NSFileModificationDate];
+        [w setFileAttributes:a];
+    }
+    return w;
+}
+
 - (instancetype)initWithSerializedRepresentation:(NSData *)serializeRepresentation
 {
     [self release];
-    return [[NSKeyedUnarchiver unarchivedObjectOfClass:[NSFileWrapper class] fromData:serializeRepresentation error:NULL] retain];
+    if ([serializeRepresentation length] < 8 || memcmp([serializeRepresentation bytes], "rtfd", 4) != 0)
+        return nil;
+    BOOL isDirectory;
+    id top = rtfd_read_entry([serializeRepresentation subdataWithRange:NSMakeRange(8, [serializeRepresentation length] - 8)], &isDirectory);
+    if (!isDirectory || ![top isKindOfClass:[NSDictionary class]])
+        return nil;
+    NSData *lone = [top objectForKey:@".."];
+    if (!lone)
+        return [rtfd_wrapper(top, YES, nil) retain];
+    BOOL loneIsDirectory;
+    id contents = rtfd_read_entry(lone, &loneIsDirectory);
+    NSFileWrapper *w = contents ? rtfd_wrapper(contents, loneIsDirectory, [rtfd_read_attributes(top) objectForKey:@".."]) : nil;
+    BOOL nameIsDirectory;
+    NSData *name = rtfd_read_entry([top objectForKey:@"__@UTF8PreferredName@__"] ?: [top objectForKey:@"__@PreferredName@__"], &nameIsDirectory);
+    if (w && [name isKindOfClass:[NSData class]])
+        [w setPreferredFilename:[[[NSString alloc] initWithData:name encoding:NSUTF8StringEncoding] autorelease]];
+    return [w retain];
 }
 
 - (instancetype)initWithCoder:(NSCoder *)coder
@@ -405,7 +642,25 @@ typedef enum { KIND_FILE, KIND_DIRECTORY, KIND_LINK } Kind;
 
 - (NSData *)serializedRepresentation
 {
-    return [NSKeyedArchiver archivedDataWithRootObject:self requiringSecureCoding:YES error:NULL];
+    NSMutableData *out = [NSMutableData dataWithBytes:"rtfd" length:4];
+    rtfd_put(out, 0);
+    if (_kind == KIND_DIRECTORY) {
+        [out appendData:rtfd_directory(self)];
+        return out;
+    }
+    NSMutableDictionary *entries = [NSMutableDictionary dictionary];
+    [entries setObject:rtfd_file(_kind == KIND_LINK ? rtfd_link_contents(self) : [self regularFileContents]) forKey:@".."];
+    if (_preferred) {
+        NSData *name = rtfd_file([_preferred dataUsingEncoding:NSUTF8StringEncoding]);
+        [entries setObject:name forKey:@"__@PreferredName@__"];
+        [entries setObject:name forKey:@"__@UTF8PreferredName@__"];
+    }
+    NSMutableData *table = [NSMutableData data];
+    rtfd_table(table, [NSDictionary dictionaryWithObject:rtfd_attributes(self, RTFD_IS_LONE | (_kind == KIND_LINK ? RTFD_IS_LINK : 0), 1) forKey:@".."]);
+    [entries setObject:rtfd_file(table) forKey:@"."];
+    rtfd_put(out, RTFD_DIRECTORY);
+    rtfd_ordered_table(out, entries, _preferred ? @[ @"..", @"__@PreferredName@__", @"__@UTF8PreferredName@__", @"." ] : @[ @".", @".." ]);
+    return out;
 }
 
 - (NSString *)description

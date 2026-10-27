@@ -25,6 +25,16 @@ static NSUserActivity *current;
 
 - (instancetype)initWithActivityType:(NSString *)activityType
 {
+    /* (as Apple's: no type is the first the app declares, and there must be one) */
+    if (![activityType length]) {
+        id declared = [[[NSBundle mainBundle] infoDictionary][@"NSUserActivityTypes"] firstObject];
+        if (![declared isKindOfClass:[NSString class]]) {
+            [self release];
+            [NSException raise:NSInvalidArgumentException
+                        format:@"Caller did not provide an activityType, and this process does not have a NSUserActivityTypes in its Info.plist."];
+        }
+        activityType = declared;
+    }
     if ((self = [super init])) {
         _activityType = [activityType copy];
         _eligibleForHandoff = YES;
@@ -34,8 +44,8 @@ static NSUserActivity *current;
 
 - (instancetype)init
 {
-    NSString *type = [[[NSBundle mainBundle] infoDictionary][@"NSUserActivityTypes"] firstObject];
-    return [self initWithActivityType:[type isKindOfClass:[NSString class]] ? type : @""];
+    NSString *undeclared = nil;
+    return [self initWithActivityType:undeclared];
 }
 
 - (void)dealloc

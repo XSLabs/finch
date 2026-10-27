@@ -198,6 +198,21 @@ GNUstep is LGPL and isn't copied (`docs/LICENSING.md`).
   NSFormatter's selection-aware partial-string check and upload tasks'
   `cancelByProducingResumeData:`; `NSNetService` and `NSTask` methods carry Apple's `out`
   qualifiers.
+- 2026-10-27: a second comparison pass. `+[NSPredicate predicateFromMetadataQueryString:]`
+  translates Spotlight's query language as Apple's does (wildcards to BEGINSWITH,
+  ENDSWITH and CONTAINS, the c/d/w modifiers, && over ||, negation pushed inward,
+  `InRange`, `$time` values, ANY for multi-valued attributes, a syntax error raising).
+  `NSFileWrapper`'s serialized representation is Apple's flat RTFD format, so RTFD on
+  the pasteboard and in `RTFDFromRange:` crosses systems (`finch-filewrapper-rtfd-test`).
+  An XML document holds one element, reads a declaration-less document without
+  inventing an encoding and replaces all its children with a new root;
+  `NSXMLDTD -initWithData:` keeps the declarations it can read; nameless elements and
+  DTD nodes write nothing. Also: NSURL's resource specifier (everything after the
+  scheme), backwards `commonPrefixWithString:`, the date-components formatter's unit
+  check, Apple's person-name parsing rules (no name from text without letters, middle
+  names, CJK family names), user activities needing a type, scripting declarations
+  needing their codes, path completion leaving the match array alone, and an object
+  that KVO observes describing itself under its own class.
 
 ### The Swift overlays
 
@@ -494,7 +509,7 @@ optional attribute providers; it does not load a missing UI framework.
   methods, `NSDistributedNotificationCenter` (since 2026-10-27 over CF's
   distributed center and finch-distnoted, between processes; `finch-distnotify-test`
   matches Apple's within a process), and `NSFileWrapper` (files, directories and links, Apple's
-  numbered keys for clashing names). NSData reads URLs.
+  numbered keys for clashing names, Apple's serialized RTFD form). NSData reads URLs.
   `finch-documents-test` is identical to Apple's on the host and in the VM.
 - 2026-10-08: units, measurements and XML. `NSUnit`, `NSDimension` and all 22
   of Apple's dimensions with every unit Apple's has (symbols and conversion

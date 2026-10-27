@@ -25,6 +25,7 @@
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #include <libxml/parser.h>
+#include <libxml/parserInternals.h>
 #include <libxml/tree.h>
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
@@ -513,12 +514,18 @@ make_node(NSXMLNodeKind kind, NSString *name, NSString *uri, id value)
 
 #pragma mark Children (documents, elements, DTDs)
 
-- (void)_finchCheckChild:(NSXMLNode *)child
+- (void)_finchCheckChild:(NSXMLNode *)child { [self _finchCheckChild:child replacing:nil]; }
+
+- (void)_finchCheckChild:(NSXMLNode *)child replacing:(NSXMLNode *)replaced
 {
     if (!child)
         [NSException raise:NSInvalidArgumentException format:@"*** -[%@ addChild:]: nil child", [self class]];
     if (child->_parent)
         raise_has_parent(child);
+    if (_fkind == NSXMLDocumentKind && [child kind] == NSXMLElementKind)
+        for (NSXMLNode *c in _fchildren)
+            if (c != replaced && c->_fkind == NSXMLElementKind)
+                [NSException raise:NSInternalInconsistencyException format:@"Cannot add a second element to a document"];
     /* (as Apple's: what an element may hold) */
     if ([self kind] == NSXMLElementKind) {
         NSXMLNodeKind k = [child kind];
@@ -570,7 +577,7 @@ make_node(NSXMLNodeKind kind, NSString *name, NSString *uri, id value)
 /* Apple's: a removal, then an insertion where it was. */
 - (void)replaceChildAtIndex:(NSUInteger)index withNode:(NSXMLNode *)node
 {
-    [self _finchCheckChild:node];
+    [self _finchCheckChild:node replacing:index < [_fchildren count] ? [_fchildren objectAtIndex:index] : nil];
     [self removeChildAtIndex:index];
     if (index > [_fchildren count])
         raise_out_of_bounds("insertObject:atIndex:", index, [_fchildren count], NO);
@@ -1053,7 +1060,13 @@ indent_for(NSUInteger level)
 - (void)_finchWrite:(NSMutableString *)out options:(NSXMLNodeOptions)options contentKind:(NSXMLDocumentContentKind)contentKind
 {
     BOOL pretty = (options & NSXMLNodePrettyPrint) != 0;
-    [out appendFormat:@"<%@", _fname ?: @""];
+    /* (as Apple's: an element without a name writes no tags) */
+    if (!_fname) {
+        for (NSXMLNode *c in _fchildren)
+            [out appendString:[c XMLStringWithOptions:options]];
+        return;
+    }
+    [out appendFormat:@"<%@", _fname];
     for (NSXMLNode *n in _fnamespaces) {
         [out appendString:@" "];
         [n _finchWrite:out options:options contentKind:contentKind];
@@ -1202,13 +1215,10 @@ indent_for(NSUInteger level)
     return nil;
 }
 
+/* (Apple's: the root element replaces all the document's children) */
 - (void)setRootElement:(NSXMLElement *)root
 {
-    NSXMLElement *old = [self rootElement];
-    if (old)
-        [old detach];
-    if (root)
-        [self addChild:root];
+    [self setChildren:root ? @[ root ] : nil];
 }
 
 - (NSString *)stringValue { return [[self rootElement] stringValue]; }
@@ -1259,9 +1269,13 @@ indent_for(NSUInteger level)
     return [s dataUsingEncoding:enc allowLossyConversion:YES];
 }
 
+/* (a document read from a string is in UTF-8, as Apple's, whatever its declaration says) */
 - (instancetype)initWithXMLString:(NSString *)string options:(NSXMLNodeOptions)mask error:(NSError **)error
 {
-    return [self initWithData:[string dataUsingEncoding:NSUTF8StringEncoding] options:mask error:error];
+    self = [self initWithData:[string dataUsingEncoding:NSUTF8StringEncoding] options:mask error:error];
+    if (self && !_encoding)
+        _encoding = @"UTF-8";
+    return self;
 }
 
 - (instancetype)initWithContentsOfURL:(NSURL *)url options:(NSXMLNodeOptions)mask error:(NSError **)error
@@ -1407,12 +1421,13 @@ indent_for(NSUInteger level)
 
 @implementation NSXMLDTDNode
 
-- (instancetype)init { return [self initWithKind:NSXMLElementDeclarationKind options:NSXMLNodeOptionsNone]; }
+/* (as Apple's: a node that isn't a declaration is of no kind and writes nothing) */
+- (instancetype)init { return [self initWithKind:NSXMLInvalidKind options:NSXMLNodeOptionsNone]; }
 
 - (instancetype)initWithKind:(NSXMLNodeKind)kind options:(NSXMLNodeOptions)options
 {
     if (kind < NSXMLEntityDeclarationKind || kind > NSXMLNotationDeclarationKind)
-        kind = NSXMLElementDeclarationKind;
+        kind = NSXMLInvalidKind;
     return [super initWithKind:kind options:options];
 }
 
@@ -1473,6 +1488,7 @@ indent_for(NSUInteger level)
 {
     NSString *value = [self stringValue] ?: @"";
     switch (_fkind) {
+    case NSXMLInvalidKind: break;
     case NSXMLElementDeclarationKind: [out appendFormat:@"<!ELEMENT %@ %@>", _fname, value]; break;
     case NSXMLAttributeDeclarationKind: [out appendFormat:@"<!ATTLIST %@ %@ %@>", _notationName ?: @"", _fname, value]; break;
     case NSXMLNotationDeclarationKind:
@@ -1770,7 +1786,7 @@ assign_quotes(NSXMLNode *node, NSString *source, NSUInteger *cursor)
     if (problem && error)
         *error = [NSError errorWithDomain:NSXMLParserErrorDomain code:NSXMLParserInternalError userInfo:[xml_error(problem) userInfo]];
     _version = [str(doc->version) ?: @"1.0" copy];
-    _encoding = [str(doc->encoding) ?: @"UTF-8" copy];
+    _encoding = [str(doc->encoding) copy];
     /* (libxml2: -1 without a declaration, -2 with one that doesn't say; Apple's counts
        the latter as standalone) */
     _standalone = doc->standalone == 1 || doc->standalone == -2;
@@ -1795,22 +1811,45 @@ assign_quotes(NSXMLNode *node, NSString *source, NSUInteger *cursor)
 
 @implementation NSXMLDTD (FinchReading)
 
+/* As Apple's: the declarations up to the first that can't be read (none of them, from
+   data that isn't a DTD) without an error; only empty data is one. */
 - (instancetype)initWithData:(NSData *)data options:(NSXMLNodeOptions)mask error:(NSError **)error
 {
-    xmlResetLastError();
-    xmlDtdPtr d = data ? xmlIOParseDTD(NULL, xmlParserInputBufferCreateMem([data bytes], (int)[data length], XML_CHAR_ENCODING_NONE),
-                                       XML_CHAR_ENCODING_NONE)
-                       : NULL;
-    if (!d) {
+    if (![data length]) {
         if (error)
-            *error = xml_error(xmlGetLastError());
+            *error = [NSError errorWithDomain:NSXMLParserErrorDomain code:NSXMLParserEmptyDocumentError
+                                     userInfo:@{NSLocalizedDescriptionKey: @"Document is empty"}];
         [self release];
         return nil;
     }
-    NSXMLDTD *converted = (NSXMLDTD *)convert((xmlNodePtr)d, mask);
-    xmlFreeDtd(d);
+    start_errors();
+    xmlDtdPtr d = NULL;
+    NSXMLDTD *converted = nil;
+    xmlParserCtxtPtr ctxt = xmlNewParserCtxt();
+    xmlParserInputBufferPtr buffer = ctxt ? xmlParserInputBufferCreateMem([data bytes], (int)[data length], XML_CHAR_ENCODING_NONE) : NULL;
+    xmlParserInputPtr input = buffer ? xmlNewIOInputStream(ctxt, buffer, XML_CHAR_ENCODING_NONE) : NULL;
+    if (input && xmlPushInput(ctxt, input) >= 0) {
+        ctxt->options |= XML_PARSE_NONET;
+        ctxt->inSubset = 2;
+        ctxt->myDoc = xmlNewDoc((const xmlChar *)"1.0");
+        ctxt->myDoc->properties = XML_DOC_INTERNAL;
+        ctxt->myDoc->extSubset = xmlNewDtd(ctxt->myDoc, (const xmlChar *)"none", NULL, NULL);
+        xmlParseExternalSubset(ctxt, NULL, NULL);
+        d = ctxt->myDoc->extSubset;
+        if (d)
+            converted = [(NSXMLDTD *)convert((xmlNodePtr)d, mask) retain];
+        xmlFreeDoc(ctxt->myDoc);
+        ctxt->myDoc = NULL;
+    } else if (buffer && !input) {
+        xmlFreeParserInputBuffer(buffer);
+    }
+    if (ctxt)
+        xmlFreeParserCtxt(ctxt);
+    finish_errors();
+    if (!converted && error)
+        *error = xml_error(NULL);
     [self release];
-    return [converted retain];
+    return converted;
 }
 
 @end

@@ -408,16 +408,52 @@ initial(NSString *s)
     return [f stringFromPersonNameComponents:components];
 }
 
-/* "Given Family", "Family, Given", with a title before and a suffix after; a name in
-   CJK script as a given name. */
+/* As Apple's, by its rules if not its name lists: "Given Family", "Given Middle Family"
+   (given names taking all but the last two of four or more), "Family, Given", a title
+   before and a suffix after (a title and one name is a family name), a name in CJK
+   script family first (a single word's first character), and nothing from text with no
+   letters or only Arabic letters. Words without letters are left out. */
+static BOOL
+has_letter(NSString *w)
+{
+    return [w rangeOfCharacterFromSet:[NSCharacterSet letterCharacterSet]].location != NSNotFound;
+}
+
+static BOOL
+is_arabic(NSString *w)
+{
+    for (NSUInteger i = 0; i < w.length; i++) {
+        unichar c = [w characterAtIndex:i];
+        if ([[NSCharacterSet letterCharacterSet] characterIsMember:c] && !((c >= 0x0600 && c <= 0x06FF) || (c >= 0x0750 && c <= 0x077F)))
+            return NO;
+    }
+    return YES;
+}
+
 - (NSPersonNameComponents *)personNameComponentsFromString:(NSString *)string
 {
     NSPersonNameComponents *c = [[NSPersonNameComponents new] autorelease];
     NSString *s = [string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if (!s.length)
-        return c;
+    NSMutableArray *words = [NSMutableArray array];
+    for (NSString *w in [s componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]])
+        if (w.length && has_letter(w))
+            [words addObject:w];
+    BOOL arabic = YES;
+    for (NSString *w in words)
+        arabic = arabic && is_arabic(w);
+    if (!words.count || arabic)
+        return nil;
     if (is_cjk(s)) {
-        c.givenName = s;
+        if (words.count > 1) {
+            c.familyName = words.firstObject;
+            c.givenName = [[words subarrayWithRange:NSMakeRange(1, words.count - 1)] componentsJoinedByString:@" "];
+        } else if (s.length > 1) {
+            NSRange first = [s rangeOfComposedCharacterSequenceAtIndex:0];
+            c.familyName = [s substringWithRange:first];
+            c.givenName = [s substringFromIndex:NSMaxRange(first)];
+        } else {
+            c.givenName = s;
+        }
         return c;
     }
     NSRange comma = [s rangeOfString:@","];
@@ -426,24 +462,30 @@ initial(NSString *s)
         c.givenName = [[s substringFromIndex:NSMaxRange(comma)] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
         return c;
     }
-    NSMutableArray *words = [NSMutableArray array];
-    for (NSString *w in [s componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]])
-        if (w.length)
-            [words addObject:w];
     NSArray *prefixes = @[ @"Dr.", @"Dr", @"Mr.", @"Mr", @"Mrs.", @"Mrs", @"Ms.", @"Ms", @"Miss", @"Prof.", @"Sir", @"Dame" ];
     NSArray *suffixes = @[ @"Jr.", @"Jr", @"Sr.", @"Sr", @"II", @"III", @"IV", @"PhD", @"Ph.D.", @"MD", @"M.D.", @"Esq." ];
     if (words.count > 1 && [prefixes containsObject:words.firstObject]) {
         c.namePrefix = words.firstObject;
         [words removeObjectAtIndex:0];
+        if (words.count == 1) {
+            c.familyName = words.firstObject;
+            return c;
+        }
     }
     if (words.count > 1 && [suffixes containsObject:words.lastObject]) {
         c.nameSuffix = words.lastObject;
         [words removeLastObject];
     }
-    if (words.count) {
+    NSUInteger n = words.count;
+    if (n == 1)
         c.givenName = words.firstObject;
-        if (words.count > 1)
-            c.familyName = [[words subarrayWithRange:NSMakeRange(1, words.count - 1)] componentsJoinedByString:@" "];
+    else if (n == 2) {
+        c.givenName = words.firstObject;
+        c.familyName = words.lastObject;
+    } else if (n > 2) {
+        c.givenName = [[words subarrayWithRange:NSMakeRange(0, n == 3 ? 1 : n - 2)] componentsJoinedByString:@" "];
+        c.middleName = [words objectAtIndex:n - 2];
+        c.familyName = words.lastObject;
     }
     return c;
 }
@@ -455,9 +497,12 @@ initial(NSString *s)
 
 - (BOOL)getObjectValue:(out id *)obj forString:(NSString *)string errorDescription:(out NSString **)error
 {
+    NSPersonNameComponents *components = [self personNameComponentsFromString:string];
     if (obj)
-        *obj = [self personNameComponentsFromString:string];
-    return YES;
+        *obj = components;
+    if (!components && error)
+        *error = @"Person's name could not be detected";
+    return components != nil;
 }
 
 - (id)copyWithZone:(NSZone *)zone

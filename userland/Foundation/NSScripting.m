@@ -115,8 +115,30 @@ code_from(id value)
     return nil;
 }
 
+/* As Apple's: a declaration without its four-character code (or a command's without
+   its command class) is logged and makes no description. */
+static BOOL
+has_code(NSDictionary *declaration, NSString *key)
+{
+    id code = [declaration objectForKey:key];
+    return [code isKindOfClass:[NSString class]] && [code length] == 4;
+}
+
+static void
+log_declaration_error(NSString *kind, NSString *name, NSString *suite, NSString *problem)
+{
+    NSLog(@".scriptSuite error for %@ '%@' of suite '%@': %@", kind, name, suite, problem);
+}
+
+static NSString *const missing_code = @"a AppleEventCode value is required and must be a string containing a four character code.";
+
 - (instancetype)initWithSuiteName:(NSString *)suiteName className:(NSString *)className dictionary:(NSDictionary *)classDeclaration
 {
+    if (!has_code(classDeclaration, @"AppleEventCode")) {
+        log_declaration_error(@"class", className, suiteName, missing_code);
+        [self release];
+        return nil;
+    }
     if ((self = [super init])) {
         _suiteName = [suiteName copy];
         _className = [className copy];
@@ -306,6 +328,15 @@ code_from(id value)
 
 - (instancetype)initWithSuiteName:(NSString *)suiteName commandName:(NSString *)commandName dictionary:(NSDictionary *)commandDeclaration
 {
+    NSString *problem = !has_code(commandDeclaration, @"AppleEventCode") ? missing_code
+                      : ![[commandDeclaration objectForKey:@"CommandClass"] isKindOfClass:[NSString class]]
+                          ? @"a CommandClass value is required and must be a string containing the name of an NSScriptCommand subclass."
+                          : nil;
+    if (problem) {
+        log_declaration_error(@"command", commandName, suiteName, problem);
+        [self release];
+        return nil;
+    }
     if ((self = [super init])) {
         _suiteName = [suiteName copy];
         _commandName = [commandName copy];
@@ -1270,6 +1301,8 @@ static NSScriptSuiteRegistry *shared_registry;
 
 - (void)registerCommandDescription:(NSScriptCommandDescription *)commandDescription
 {
+    if (!commandDescription)
+        return;
     NSString *key = [NSString stringWithFormat:@"%@.%@", [commandDescription suiteName], [commandDescription commandName]];
     [_commands setObject:commandDescription forKey:key];
 }

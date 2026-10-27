@@ -238,7 +238,11 @@ set_expression(NSExpressionType type, NSExpression *left, NSExpression *right)
 }
 
 - (NSExpressionType)expressionType { return _expressionType; }
-- (id)constantValue { return _expressionType == NSConstantValueExpressionType ? _value : nil; }
+/* (an aggregate's is its collection, as Apple's) */
+- (id)constantValue
+{
+    return _expressionType == NSConstantValueExpressionType ? _value : _expressionType == NSAggregateExpressionType ? _arguments : nil;
+}
 - (NSString *)keyPath { return _expressionType == NSKeyPathExpressionType ? _value : nil; }
 - (NSString *)function { return _expressionType == NSFunctionExpressionType ? _value : nil; }
 - (NSString *)variable { return _expressionType == NSVariableExpressionType || _expressionType == NSSubqueryExpressionType ? _value : nil; }
@@ -545,6 +549,337 @@ cast(id value, NSString *type)
 
 static NSPredicate *parse_predicate(NSString *format, NSArray *argumentArray, va_list *argList);
 
+/* MARK: - Metadata query strings */
+
+/* Spotlight's query language, as Apple's translates it: comparisons ("attr == value",
+   =, !=, <, <=, >, >=) of an attribute (or * for any) with a quoted or bare value that
+   ends in modifiers (c, d, w); a value starting or ending in * a BEGINSWITH, ENDSWITH or
+   CONTAINS; && binding tighter than ||, each grouping to the right; ! pushed into what it
+   negates; InRange(attr, low, high); $time values made dates. Values stay strings, and
+   what follows the first whole expression is ignored. */
+typedef struct {
+    NSString *text;
+    NSUInteger at;
+    BOOL failed;
+} MDQuery;
+
+static NSPredicate *mdq_or(MDQuery *q);
+
+static unichar
+mdq_peek(MDQuery *q, NSUInteger ahead)
+{
+    return q->at + ahead < [q->text length] ? [q->text characterAtIndex:q->at + ahead] : 0;
+}
+
+static void
+mdq_space(MDQuery *q)
+{
+    while (q->at < [q->text length] && [[NSCharacterSet whitespaceAndNewlineCharacterSet] characterIsMember:mdq_peek(q, 0)])
+        q->at++;
+}
+
+static BOOL
+mdq_take(MDQuery *q, NSString *token)
+{
+    mdq_space(q);
+    if ([q->text length] - q->at >= [token length] && [[q->text substringWithRange:NSMakeRange(q->at, [token length])] isEqualToString:token]) {
+        q->at += [token length];
+        return YES;
+    }
+    return NO;
+}
+
+static BOOL
+mdq_bare(unichar c)
+{
+    return c && ![[NSCharacterSet whitespaceAndNewlineCharacterSet] characterIsMember:c] && c != '(' && c != ')' && c != '&' && c != '|' &&
+           c != '=' && c != '!' && c != '<' && c != '>' && c != '"' && c != '\'' && c != ',';
+}
+
+static NSString *
+mdq_word(MDQuery *q)
+{
+    mdq_space(q);
+    NSUInteger start = q->at;
+    while (mdq_bare(mdq_peek(q, 0)))
+        q->at++;
+    return q->at > start ? [q->text substringWithRange:NSMakeRange(start, q->at - start)] : nil;
+}
+
+static NSArray *mdq_multivalued(void)
+{
+    static NSArray *names;
+    if (!names)
+        names = [@[ @"kMDItemAuthors", @"kMDItemKeywords", @"kMDItemContentTypeTree", @"kMDItemEmailAddresses", @"kMDItemPhoneNumbers",
+                    @"kMDItemContributors", @"kMDItemEditors", @"kMDItemFonts", @"kMDItemLanguages", @"kMDItemRecipients",
+                    @"kMDItemWhereFroms", @"kMDItemProjects", @"kMDItemUserTags", @"kMDItemCodecs", @"kMDItemMediaTypes",
+                    @"kMDItemEncodingApplications", @"kMDItemOrganizations", @"kMDItemAuthorEmailAddresses",
+                    @"kMDItemRecipientEmailAddresses", @"kMDItemInstantMessageAddresses", @"kMDItemAuthorAddresses",
+                    @"kMDItemRecipientAddresses", @"kMDItemPerformers", @"kMDItemAudiences", @"kMDItemLayerNames",
+                    @"kMDItemSupportFileType", @"kMDItemExecutableArchitectures", @"kMDItemApplicationCategories" ] retain];
+    return names;
+}
+
+/* "$time.today(-1)" and the like as "$time.iso(...)" in UTC; others unchanged. */
+static NSString *
+mdq_time(NSString *value)
+{
+    NSString *rest = [value substringFromIndex:6];
+    NSInteger offset = 0;
+    NSRange paren = [rest rangeOfString:@"("];
+    NSString *name = rest;
+    if (paren.location != NSNotFound) {
+        if ([rest hasPrefix:@"iso("])
+            return value;
+        name = [rest substringToIndex:paren.location];
+        offset = [[rest substringFromIndex:NSMaxRange(paren)] integerValue];
+    }
+    NSCalendar *calendar = [NSCalendar currentCalendar];
+    NSDate *now = [NSDate date], *date = nil;
+    NSDateComponents *step = [[[NSDateComponents alloc] init] autorelease];
+    NSCalendarUnit start = 0;
+    if ([name isEqualToString:@"now"]) {
+        date = [now dateByAddingTimeInterval:offset];
+    } else if ([name isEqualToString:@"today"] || [name isEqualToString:@"yesterday"]) {
+        start = NSCalendarUnitDay;
+        step.day = offset - ([name isEqualToString:@"yesterday"] ? 1 : 0);
+    } else if ([name isEqualToString:@"this_week"]) {
+        start = NSCalendarUnitWeekOfYear;
+        step.weekOfYear = offset;
+    } else if ([name isEqualToString:@"this_month"]) {
+        start = NSCalendarUnitMonth;
+        step.month = offset;
+    } else if ([name isEqualToString:@"this_year"]) {
+        start = NSCalendarUnitYear;
+        step.year = offset;
+    } else {
+        return value;
+    }
+    if (!date) {
+        NSDate *begin = nil;
+        [calendar rangeOfUnit:start startDate:&begin interval:NULL forDate:now];
+        date = [calendar dateByAddingComponents:step toDate:begin options:0];
+    }
+    NSDateFormatter *iso = [[[NSDateFormatter alloc] init] autorelease];
+    iso.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+    iso.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
+    iso.dateFormat = @"yyyy-MM-dd'T'HH:mm:ss'Z'";
+    return [NSString stringWithFormat:@"$time.iso(%@)", [iso stringFromDate:date]];
+}
+
+static NSNumber *
+mdq_number(NSString *text)
+{
+    if ([text length] >= 2 && ([text hasPrefix:@"\""] || [text hasPrefix:@"'"]))
+        return @0;
+    double d = [text doubleValue];
+    return d == (double)(long long)d ? [NSNumber numberWithLongLong:(long long)d] : [NSNumber numberWithDouble:d];
+}
+
+static NSPredicate *
+mdq_comparison(MDQuery *q)
+{
+    mdq_space(q);
+    NSString *attribute;
+    if (mdq_peek(q, 0) == '*') {
+        q->at++;
+        attribute = @"*";
+    } else if (!(attribute = mdq_word(q))) {
+        q->failed = YES;
+        return nil;
+    }
+    NSPredicateOperatorType type;
+    BOOL negated = NO;
+    if (mdq_take(q, @"=="))
+        type = NSEqualToPredicateOperatorType;
+    else if (mdq_take(q, @"!=")) {
+        type = NSNotEqualToPredicateOperatorType;
+        negated = YES;
+    } else if (mdq_take(q, @"<="))
+        type = NSLessThanOrEqualToPredicateOperatorType;
+    else if (mdq_take(q, @">="))
+        type = NSGreaterThanOrEqualToPredicateOperatorType;
+    else if (mdq_take(q, @"<"))
+        type = NSLessThanPredicateOperatorType;
+    else if (mdq_take(q, @">"))
+        type = NSGreaterThanPredicateOperatorType;
+    else if (mdq_take(q, @"="))
+        type = NSEqualToPredicateOperatorType;
+    else {
+        q->failed = YES;
+        return nil;
+    }
+    mdq_space(q);
+    unichar quote = mdq_peek(q, 0);
+    NSMutableString *value = [NSMutableString string];
+    BOOL leadingStar = NO, trailingStar = NO, wasEscaped = NO;
+    NSComparisonPredicateOptions options = 0;
+    if (quote == '"' || quote == '\'') {
+        q->at++;
+        NSUInteger begin = [value length];
+        for (;;) {
+            unichar c = mdq_peek(q, 0);
+            if (!c) {
+                q->failed = YES;
+                return nil;
+            }
+            q->at++;
+            if (c == quote)
+                break;
+            wasEscaped = c == '\\';
+            if (wasEscaped) {
+                c = mdq_peek(q, 0);
+                q->at++;
+            } else if (c == '*') {
+                if ([value length] == begin)
+                    leadingStar = YES;
+                trailingStar = mdq_peek(q, 0) == quote;
+            }
+            [value appendFormat:@"%C", c];
+        }
+        for (unichar m; (m = mdq_peek(q, 0)) && [[NSCharacterSet letterCharacterSet] characterIsMember:m]; q->at++) {
+            if (m == 'c')
+                options |= NSCaseInsensitivePredicateOption;
+            else if (m == 'd')
+                options |= NSDiacriticInsensitivePredicateOption | 0x08; /* (and locale-sensitive, [l]) */
+            else if (m == 'w')
+                options |= 0x10;
+        }
+    } else {
+        NSString *word = mdq_word(q);
+        if (!word) {
+            q->failed = YES;
+            return nil;
+        }
+        if ([word hasPrefix:@"$time."]) {
+            if (mdq_peek(q, 0) == '(') {
+                NSUInteger close = [q->text rangeOfString:@")" options:0 range:NSMakeRange(q->at, [q->text length] - q->at)].location;
+                if (close == NSNotFound) {
+                    q->failed = YES;
+                    return nil;
+                }
+                word = [word stringByAppendingString:[q->text substringWithRange:NSMakeRange(q->at, close + 1 - q->at)]];
+                q->at = close + 1;
+            }
+            word = mdq_time(word);
+        }
+        else {
+            leadingStar = [word hasPrefix:@"*"];
+            trailingStar = [word hasSuffix:@"*"];
+        }
+        [value setString:word];
+    }
+    NSPredicateOperatorType wild = 0;
+    NSUInteger n = [value length];
+    if (leadingStar && trailingStar && n > 2)
+        wild = NSContainsPredicateOperatorType, value = [[[value substringWithRange:NSMakeRange(1, n - 2)] mutableCopy] autorelease];
+    else if (leadingStar && n >= 2)
+        wild = NSEndsWithPredicateOperatorType, value = [[[value substringFromIndex:1] mutableCopy] autorelease];
+    else if (trailingStar)
+        wild = NSBeginsWithPredicateOperatorType, value = [[[value substringToIndex:n - 1] mutableCopy] autorelease];
+    NSExpression *left = [attribute isEqualToString:@"*"] ? [NSExpression expressionForAnyKey] : [NSExpression expressionForKeyPath:attribute];
+    NSComparisonPredicateModifier modifier = [mdq_multivalued() containsObject:attribute] ? NSAnyPredicateModifier : NSDirectPredicateModifier;
+    NSPredicate *p = [NSComparisonPredicate predicateWithLeftExpression:left
+                                                        rightExpression:[NSExpression expressionForConstantValue:[[value copy] autorelease]]
+                                                               modifier:modifier
+                                                                   type:wild ?: type
+                                                                options:options];
+    return wild && negated ? [NSCompoundPredicate notPredicateWithSubpredicate:p] : p;
+}
+
+static NSPredicate *
+mdq_negate(NSPredicate *p)
+{
+    if ([p isKindOfClass:[NSCompoundPredicate class]]) {
+        NSCompoundPredicate *c = (NSCompoundPredicate *)p;
+        if (c.compoundPredicateType == NSNotPredicateType)
+            return c.subpredicates.firstObject;
+        NSMutableArray *parts = [NSMutableArray array];
+        for (NSPredicate *sub in c.subpredicates)
+            [parts addObject:mdq_negate(sub)];
+        return c.compoundPredicateType == NSAndPredicateType ? [NSCompoundPredicate orPredicateWithSubpredicates:parts]
+                                                             : [NSCompoundPredicate andPredicateWithSubpredicates:parts];
+    }
+    NSComparisonPredicate *c = (NSComparisonPredicate *)p;
+    NSPredicateOperatorType opposite;
+    switch (c.predicateOperatorType) {
+    case NSEqualToPredicateOperatorType: opposite = NSNotEqualToPredicateOperatorType; break;
+    case NSNotEqualToPredicateOperatorType: opposite = NSEqualToPredicateOperatorType; break;
+    case NSLessThanPredicateOperatorType: opposite = NSGreaterThanOrEqualToPredicateOperatorType; break;
+    case NSLessThanOrEqualToPredicateOperatorType: opposite = NSGreaterThanPredicateOperatorType; break;
+    case NSGreaterThanPredicateOperatorType: opposite = NSLessThanOrEqualToPredicateOperatorType; break;
+    case NSGreaterThanOrEqualToPredicateOperatorType: opposite = NSLessThanPredicateOperatorType; break;
+    default: return [NSCompoundPredicate notPredicateWithSubpredicate:p];
+    }
+    return [NSComparisonPredicate predicateWithLeftExpression:c.leftExpression rightExpression:c.rightExpression
+                                                     modifier:c.comparisonPredicateModifier type:opposite options:c.options];
+}
+
+static NSPredicate *
+mdq_primary(MDQuery *q)
+{
+    if (mdq_take(q, @"!")) {
+        NSPredicate *p = mdq_primary(q);
+        return p ? mdq_negate(p) : nil;
+    }
+    if (mdq_take(q, @"(")) {
+        NSPredicate *p = mdq_or(q);
+        if (!p || !mdq_take(q, @")")) {
+            q->failed = YES;
+            return nil;
+        }
+        return p;
+    }
+    NSUInteger mark = q->at;
+    if (mdq_take(q, @"InRange") && mdq_take(q, @"(")) {
+        NSString *attribute = mdq_word(q);
+        NSMutableArray *bounds = [NSMutableArray array];
+        for (int i = 0; i < 2; i++) {
+            if (!mdq_take(q, @",")) {
+                q->failed = YES;
+                return nil;
+            }
+            mdq_space(q);
+            NSUInteger start = q->at;
+            while (mdq_peek(q, 0) && mdq_peek(q, 0) != ',' && mdq_peek(q, 0) != ')')
+                q->at++;
+            [bounds addObject:[NSExpression expressionForConstantValue:mdq_number([[q->text substringWithRange:NSMakeRange(start, q->at - start)]
+                                  stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]])]];
+        }
+        if (!attribute || !mdq_take(q, @")")) {
+            q->failed = YES;
+            return nil;
+        }
+        return [NSComparisonPredicate predicateWithLeftExpression:[NSExpression expressionForKeyPath:attribute]
+                                                  rightExpression:[NSExpression expressionForAggregate:bounds]
+                                                         modifier:NSDirectPredicateModifier
+                                                             type:NSBetweenPredicateOperatorType
+                                                          options:0];
+    }
+    q->at = mark;
+    return mdq_comparison(q);
+}
+
+static NSPredicate *
+mdq_and(MDQuery *q)
+{
+    NSPredicate *left = mdq_primary(q);
+    if (!left || !mdq_take(q, @"&&"))
+        return left;
+    NSPredicate *right = mdq_and(q);
+    return right ? [NSCompoundPredicate andPredicateWithSubpredicates:@[ left, right ]] : nil;
+}
+
+static NSPredicate *
+mdq_or(MDQuery *q)
+{
+    NSPredicate *left = mdq_and(q);
+    if (!left || !mdq_take(q, @"||"))
+        return left;
+    NSPredicate *right = mdq_or(q);
+    return right ? [NSCompoundPredicate orPredicateWithSubpredicates:@[ left, right ]] : nil;
+}
+
 @implementation NSPredicate
 
 + (BOOL)supportsSecureCoding { return YES; }
@@ -569,7 +904,14 @@ static NSPredicate *parse_predicate(NSString *format, NSArray *argumentArray, va
     return p;
 }
 
-+ (NSPredicate *)predicateFromMetadataQueryString:(NSString *)queryString { return nil; }
++ (NSPredicate *)predicateFromMetadataQueryString:(NSString *)queryString
+{
+    MDQuery q = { queryString ?: @"", 0, NO };
+    NSPredicate *p = mdq_or(&q);
+    if (!p || q.failed)
+        [NSException raise:NSInternalInconsistencyException format:@"Syntax error in Metadata query string: %@", queryString];
+    return p;
+}
 
 + (NSPredicate *)predicateWithValue:(BOOL)value
 {
@@ -746,9 +1088,12 @@ operator_name(NSPredicateOperatorType type)
     if (_modifier == NSAllPredicateModifier) [s appendString:@"ALL "];
     NSString *op = _type == NSCustomSelectorPredicateOperatorType ? NSStringFromSelector(_selector) : operator_name(_type);
     NSString *opts = @"";
-    if (_options & (NSCaseInsensitivePredicateOption | NSDiacriticInsensitivePredicateOption | NSNormalizedPredicateOption)) {
-        opts = [NSString stringWithFormat:@"[%@%@%@]", (_options & NSCaseInsensitivePredicateOption) ? @"c" : @"",
-            (_options & NSDiacriticInsensitivePredicateOption) ? @"d" : @"", (_options & NSNormalizedPredicateOption) ? @"n" : @""];
+    /* (Apple's letters: also l, locale-sensitive (8), and w, word-based (16), which
+       metadata queries set) */
+    if (_options & (NSCaseInsensitivePredicateOption | NSDiacriticInsensitivePredicateOption | NSNormalizedPredicateOption | 0x08 | 0x10)) {
+        opts = [NSString stringWithFormat:@"[%@%@%@%@%@]", (_options & NSCaseInsensitivePredicateOption) ? @"c" : @"",
+            (_options & NSDiacriticInsensitivePredicateOption) ? @"d" : @"", (_options & NSNormalizedPredicateOption) ? @"n" : @"",
+            (_options & 0x08) ? @"l" : @"", (_options & 0x10) ? @"w" : @""];
     }
     [s appendFormat:@"%@ %@%@ %@", _left, op, opts, _rightExpr];
     return s;

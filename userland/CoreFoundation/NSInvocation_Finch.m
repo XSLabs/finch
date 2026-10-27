@@ -795,7 +795,8 @@ __CFFinchInstallForwardHandler(void)
 
 - (id)description
 {
-    return [(id)CFStringCreateWithFormat(NULL, NULL, CFSTR("<%s: %p>"), object_getClassName(self), self) autorelease];
+    /* (-class, as Apple's: an object KVO observes keeps its own class's name) */
+    return [(id)CFStringCreateWithFormat(NULL, NULL, CFSTR("<%s: %p>"), class_getName([self class]), self) autorelease];
 }
 
 + (id)description

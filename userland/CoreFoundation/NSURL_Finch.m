@@ -140,7 +140,18 @@ is_directory(CFStringRef path)
     return autoreleased(CFURLCopyAbsoluteURL((CFURLRef)self));
 }
 - (id)scheme { return autoreleased(CFURLCopyScheme((CFURLRef)self)); }
-- (id)resourceSpecifier { return autoreleased(CFURLCopyResourceSpecifier((CFURLRef)self)); }
+/* NSURL's resource specifier is everything after the scheme's colon (CFURL's starts after the path). */
+- (id)resourceSpecifier
+{
+    CFStringRef text = CFURLGetString((CFURLRef)self), scheme = CFURLCopyScheme((CFURLRef)self);
+    CFIndex length = CFStringGetLength(text), schemeLength = scheme ? CFStringGetLength(scheme) : 0;
+    CFStringRef result = NULL;
+    if (scheme && length > schemeLength && CFStringGetCharacterAtIndex(text, schemeLength) == ':' &&
+        CFStringCompareWithOptions(text, scheme, CFRangeMake(0, schemeLength), kCFCompareCaseInsensitive) == kCFCompareEqualTo)
+        result = CFStringCreateWithSubstring(kCFAllocatorDefault, text, CFRangeMake(schemeLength + 1, length - schemeLength - 1));
+    if (scheme) CFRelease(scheme);
+    return result ? autoreleased(result) : (id)text;
+}
 - (id)host { return autoreleased(CFURLCopyHostName((CFURLRef)self)); }
 - (id)port
 {

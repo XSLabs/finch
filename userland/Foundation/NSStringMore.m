@@ -283,7 +283,7 @@ format_valid(NSString *format, NSString *valid, NSError **error)
             continue;
         [matches addObject:[dir stringByAppendingPathComponent:name]];
     }
-    if (outputArray)
+    if (outputArray && [matches count])
         *outputArray = matches;
     if (outputName && [matches count]) {
         NSString *common = [[matches[0] lastPathComponent] copy];

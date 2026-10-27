@@ -387,6 +387,8 @@ cf_copy_of(NSString *s)
 - (NSString *)commonPrefixWithString:(NSString *)str options:(NSStringCompareOptions)mask
 {
     NSUInteger n = MIN([self length], [str length]), i = 0;
+    // As Apple's: searching backwards finds no prefix, unless the regular-expression option is set too.
+    if ((mask & NSBackwardsSearch) && !(mask & NSRegularExpressionSearch)) return @"";
     while (i < n && [[self substringWithRange:NSMakeRange(i, 1)] compare:[str substringWithRange:NSMakeRange(i, 1)] options:mask] == NSOrderedSame) i++;
     return [self substringToIndex:i];
 }
