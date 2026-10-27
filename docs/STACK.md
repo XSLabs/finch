@@ -10,7 +10,8 @@ disk; persistent installation, boot recovery and supported-device checks remain
 open. [The release checks](ROADMAP.md#finch-10-release-checks) separate those
 requirements from library comparisons and app import counts.
 
-**As of 2026-10-26:** Finch's sandbox is its own: `libsandbox.1` compiles macOS's
+**As of 2026-10-27:** `logger` (remote_cmds) sends syslog messages that reach the
+unified log, as on macOS. Finch's sandbox is its own: `libsandbox.1` compiles macOS's
 profile language (SBPL) and the `FinchSandbox` kernel policy enforces the compiled
 profiles at file, process, sysctl, IPC, socket, IOKit and system-call hooks.
 notifyd starts under its profile with no borrowed sandbox component, and
@@ -337,7 +338,7 @@ block-beta
         logd["finch-logd, finch-pboardd<br/>(pasteboards), pbcopy and pbpaste,<br/>finch-update (signed,<br/>resumable updates, keeps<br/>system accounts),<br/>finch-data-volume (checks and<br/>mounts the data disk),<br/>finch-volume-setup (lays out<br/>the dev VM's disks),<br/>screencapture and its service,<br/>scutil, networksetup, security,<br/>kextload (starts kexts from<br/>the boot collection),<br/>finch-openandsavepanel<br/>(sandboxed apps' panels,<br/>per user and for root),<br/>finch-distnoted (distributed<br/>notifications between processes),<br/>finch-securityagent<br/>(authorization's dialog),<br/>finch-setup (a new system's<br/>first account),<br/>launchctl, sh, mount_tmpfs, devtools"]
         daemons["notifyd, syslogd, aslmanager,<br/>newsyslog, dynamic_pager, atrun,<br/>cron, mDNSPosix, configd,<br/>diskarbitrationd, authd"]
         space2[" "]
-        cmds["file/shell/text/adv/system_cmds,<br/>bash, zsh, bc, su, login,<br/>mount, fsck, FAT helpers"]
+        cmds["file/shell/text/adv/system_cmds,<br/>remote_cmds' logger,<br/>bash, zsh, bc, su, login,<br/>mount, fsck, FAT helpers"]
         space2b[" "]
         space2c[" "]
     end

@@ -1381,10 +1381,12 @@ that every app works. These release checks were missing from the Phase 5 list:
       and print to PDF), Stickies (typing, copy and paste with the pasteboard,
       saving and restoring notes), Script Editor (running, saving and rerunning a
       script), Terminal (commands run at its shell, output copied from the screen) and
-      Grapher (a graph saved and opened again) and Digital Color Meter (the colour under
-      the pointer copied): tools/vm/test-calculator.sh, test-textedit.sh,
-      test-stickies.sh, test-script-editor.sh, test-terminal.sh, test-grapher.sh,
-      test-color-meter.sh.
+      Grapher (a graph saved and opened again), Digital Color Meter (the colour under
+      the pointer copied) and Console (the live log streamed and copied, with logger(1)'s
+      syslog messages in it, logger now built from remote_cmds): tools/vm/test-calculator.sh,
+      test-textedit.sh, test-stickies.sh, test-script-editor.sh, test-terminal.sh,
+      test-grapher.sh, test-color-meter.sh, test-console.sh. Terminal's restored session
+      keeps up with typing (2026-10-27).
 - [ ] **Daily use:** persistent accounts and settings, accessibility, keyboard navigation,
       sleep/wake, shutdown, storage errors and low-space recovery on the target M4.
 - [x] **Test runner:** a failed program must fail the run even if its partial output

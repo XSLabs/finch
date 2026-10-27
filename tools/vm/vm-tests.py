@@ -131,6 +131,7 @@ SCRIPTS = {
     'tools/vm/test-settings-notify.sh': ['settings-notify-test'],
     'tools/vm/test-zprint.sh': ['coresymbolication-test'],
     'tools/vm/test-distnotify.sh': [],  # (finch-distnotify-test --cross; its default run is in the suite)
+    'tools/vm/test-console.sh': [],  # (Console's live log, with logger's and os_log's messages)
 }
 # test-keychain.sh builds these images itself, then login-init-smoke.exp overrides the
 # inherited RAMDISK and TC with them. The script prints a VMTIMAGE record for each just before

@@ -10,6 +10,7 @@ system_cmds     system_cmds-1042.100.6.0.1
 adv_cmds        adv_cmds-237
 diskdev_cmds    diskdev_cmds-757
 msdosfs         msdosfs-788.100.31
+remote_cmds     remote_cmds-308
 
 # Header sources for the private SDK overlay (tools/mksdk.sh)
 Libc            Libc-1752.100.10

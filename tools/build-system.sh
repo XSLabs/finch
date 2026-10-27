@@ -68,6 +68,7 @@ steps=(
     "removefile|oss removefile removefile"
     "copyfile|oss copyfile copyfile"
     "syslog|oss syslog libsystem_asl syslogd util aslmanager newsyslog"
+    "remote_cmds|oss_cmds remote_cmds logger"
     "configd|oss configd libsystem_configuration"
     "dnssd|oss mDNSResponder"
     "libmacho|oss cctools"
